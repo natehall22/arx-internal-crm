@@ -3,9 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+function getOpenAI() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || '',
+  })
+}
 
 export async function POST(request: Request) {
   const { profile } = await requireAuth()
@@ -63,7 +65,7 @@ Write a scope of work that:
 Scope of Work:`
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: 'gpt-4-turbo-preview',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 500,

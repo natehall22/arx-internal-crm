@@ -162,7 +162,7 @@ export async function assignNextAvailableCloser(
 }
 
 async function createAppointment(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   closer: CloserWithToken,
   scheduledFor: Date,
   durationMinutes: number,

@@ -4,9 +4,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 let browserClient: SupabaseClient | null = null
 
 export function createClientBrowser(): SupabaseClient {
-  // Check if we're in the browser
+  // During SSR/prerender, return a dummy client that won't be used
+  // The actual client will be created on the client side
   if (typeof window === 'undefined') {
-    throw new Error('createClientBrowser() must be called in the browser only.')
+    return createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
+    )
   }
 
   // Return cached client if it exists

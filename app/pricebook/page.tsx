@@ -4,7 +4,7 @@ import Nav from '@/components/Nav'
 import { redirect } from 'next/navigation'
 
 export default async function PricebookPage() {
-  const { profile, user } = await requireAuth()
+  const { profile, authUser: user } = await requireAuth()
   const supabase = createClient()
   
   // Check for user-specific pricebook permission

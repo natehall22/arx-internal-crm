@@ -6,6 +6,8 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 
+declare const google: any
+
 interface Point {
   lat: number
   lng: number
@@ -65,10 +67,10 @@ export default function RoofMeasurePage() {
   const searchParams = useSearchParams()
   const mapRef = useRef<HTMLDivElement>(null)
   const addressInputRef = useRef<HTMLInputElement>(null)
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null)
-  const googleMapRef = useRef<google.maps.Map | null>(null)
-  const drawingManagerRef = useRef<google.maps.drawing.DrawingManager | null>(null)
-  const polygonsRef = useRef<Map<string, google.maps.Polygon>>(new Map())
+  const autocompleteRef = useRef<any>(null)
+  const googleMapRef = useRef<any>(null)
+  const drawingManagerRef = useRef<any>(null)
+  const polygonsRef = useRef<Map<string, any>>(new Map())
   
   const [loading, setLoading] = useState(true)
   const [address, setAddress] = useState('')
@@ -196,13 +198,13 @@ export default function RoofMeasurePage() {
         tilt: 0,
         mapTypeControl: true,
         mapTypeControlOptions: {
-          position: google.maps.ControlPosition.TOP_RIGHT,
+          position: (google.maps as any).ControlPosition.TOP_RIGHT,
           mapTypeIds: ['satellite', 'hybrid', 'roadmap'],
         },
         fullscreenControl: true,
         streetViewControl: false,
         gestureHandling: 'greedy', // Allow easy zooming/panning
-      })
+      } as any)
 
       googleMapRef.current = map
       console.log('Map created successfully')
@@ -236,7 +238,7 @@ export default function RoofMeasurePage() {
       console.log('Drawing manager initialized')
 
       // Listen for polygon complete
-      google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon: google.maps.Polygon) => {
+      google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon: any) => {
         handlePolygonComplete(polygon)
       })
 
@@ -310,7 +312,7 @@ export default function RoofMeasurePage() {
     console.log('Searching for address:', addrToSearch)
     
     // Use callback style instead of promise style for better error handling
-    geocoder.geocode({ address: addrToSearch }, (results, status) => {
+    geocoder.geocode({ address: addrToSearch }, (results: any, status: any) => {
       console.log('Geocode response - Status:', status, 'Results:', results)
       
       if (status === google.maps.GeocoderStatus.OK && results && results[0]) {
@@ -367,7 +369,7 @@ export default function RoofMeasurePage() {
     setIsDrawing(false)
   }
 
-  const handlePolygonComplete = (polygon: google.maps.Polygon) => {
+  const handlePolygonComplete = (polygon: any) => {
     stopDrawing()
     
     const path = polygon.getPath()

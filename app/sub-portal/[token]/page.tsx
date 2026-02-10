@@ -26,8 +26,8 @@ interface WorkOrder {
   scheduled_date: string | null
   estimated_hours: number | null
   materials: any[]
-  customers?: { name: string; phone: string } | null
-  projects?: { address_text: string } | null
+  customers?: any
+  projects?: any
 }
 
 const statusColors: Record<string, string> = {

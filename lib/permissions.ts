@@ -107,6 +107,7 @@ const roleHierarchy: UserRole[] = [
 // Hierarchy levels for legacy roles
 export const legacyRoleHierarchyLevels: Record<UserRole, number> = {
   canvasser: 20,
+  rep: 40,
   sales_rep: 40,
   operations: 50,
   sales_manager: 60,
@@ -162,6 +163,20 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   ],
   
   sales_rep: [
+    'canvass:view',
+    'leads:view',
+    'opportunities:view', 'opportunities:edit',
+    'proposals:view', 'proposals:edit',
+    'contracts:view', 'contracts:send',
+    'projects:view',
+    'reports:view_own',
+    'teams:view',
+    'users:view',
+    'pricebook:view',
+    'scheduling:view',
+  ],
+
+  rep: [
     'canvass:view',
     'leads:view',
     'opportunities:view', 'opportunities:edit',
@@ -292,6 +307,7 @@ export const roleDisplayNames: Record<UserRole, string> = {
   regional_manager: 'Regional Manager',
   sales_manager: 'Sales Manager',
   sales_rep: 'Sales Rep',
+  rep: 'Rep',
   canvasser: 'Canvasser',
   operations: 'Operations',
 }

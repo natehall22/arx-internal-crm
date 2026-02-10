@@ -16,7 +16,7 @@ interface Project {
   id: string
   address_text: string
   customer_id: string
-  customers?: { name: string }
+  customers?: any
 }
 
 interface User {

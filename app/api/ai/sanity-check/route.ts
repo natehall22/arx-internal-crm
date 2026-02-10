@@ -4,9 +4,11 @@ import { NextResponse } from 'next/server'
 import { validateRequiredAdders } from '@/lib/required-adders'
 import OpenAI from 'openai'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+function getOpenAI() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || '',
+  })
+}
 
 export async function GET(request: Request) {
   const { profile } = await requireAuth()
@@ -83,7 +85,7 @@ Project details:
 
 Provide 2-3 brief suggestions for missing items or potential issues. Be concise.`
 
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: 'gpt-4-turbo-preview',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 200,

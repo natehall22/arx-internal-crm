@@ -4,7 +4,7 @@ import Nav from '@/components/Nav'
 import LeadsClient from './LeadsClient'
 
 export default async function LeadsPage() {
-  const { profile, user } = await requireAuth()
+  const { profile, authUser: user } = await requireAuth()
   const supabase = createClient()
 
   // Check if user has inbound lead permissions

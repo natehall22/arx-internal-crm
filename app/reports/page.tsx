@@ -210,12 +210,12 @@ export default function ReportsPage() {
 
         const { data: regionOpps } = await supabase
           .from('opportunities')
-          .select('id, status')
+          .select('id, status, inspection_outcome')
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        const regionInspectionsRun = (regionOpps || []).filter(o => o.inspection_outcome).length
-        const regionSales = (regionOpps || []).filter(o => o.inspection_outcome === 'sale').length
+        const regionInspectionsRun = (regionOpps || []).filter((o: any) => o.inspection_outcome).length
+        const regionSales = (regionOpps || []).filter((o: any) => o.inspection_outcome === 'sale').length
         
         regionsWithMetrics.push({
           ...region,

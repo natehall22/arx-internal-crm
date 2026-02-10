@@ -19,6 +19,7 @@ interface Proposal {
   status: string
   subtotal: number
   discount_amount: number
+  discount_percent: number
   tax_rate: number
   tax_amount: number
   total: number
@@ -172,6 +173,7 @@ export default function ProposalDetailPage() {
         proposal: {
           ...proposal,
           accent_color: proposal.accent_color || '#4f46e5',
+          discount_percent: proposal.discount_percent ?? 0,
         },
         lineItems,
         measurement,

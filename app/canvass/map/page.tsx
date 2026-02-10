@@ -816,7 +816,7 @@ export default function CanvassMapPage() {
     if (searchAutocompleteRef.current) return // Already initialized
 
     try {
-      const autocomplete = new google.maps.places.Autocomplete(searchInputRef.current, {
+      const autocomplete = new (google.maps as any).places.Autocomplete(searchInputRef.current, {
         types: ['address'],
         componentRestrictions: { country: 'us' },
         fields: ['formatted_address', 'geometry', 'address_components'],
@@ -858,7 +858,7 @@ export default function CanvassMapPage() {
     
     // Cleanup when closing
     if (!showAddressSearch && searchAutocompleteRef.current) {
-      google.maps.event.clearInstanceListeners(searchAutocompleteRef.current)
+      (google.maps as any).event.clearInstanceListeners(searchAutocompleteRef.current)
       searchAutocompleteRef.current = null
     }
   }, [showAddressSearch, mapStatus])
