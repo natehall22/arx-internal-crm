@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 function getAccessTokenFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+  if (!supabaseUrl) return null
+  
   let projectRef = ''
   try {
     const host = new URL(supabaseUrl).hostname
@@ -26,15 +27,31 @@ function getAccessTokenFromRequest(req: NextRequest) {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // always allow these
+  // Always allow these paths - no auth check needed
   if (
+    pathname === '/' ||
     pathname === '/login' ||
     pathname.startsWith('/login/') ||
     pathname.startsWith('/contracts/') ||
+    pathname.startsWith('/sub-portal/') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next/') ||
-    pathname === '/favicon.ico'
+    pathname === '/favicon.ico' ||
+    pathname.endsWith('.json') ||
+    pathname.endsWith('.js') ||
+    pathname.endsWith('.png') ||
+    pathname.endsWith('.ico')
   ) {
+    return NextResponse.next()
+  }
+
+  // Check if env vars are available
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseUrl || !supabaseKey) {
+    // If env vars missing, allow through (will fail at page level with better error)
+    console.error('Middleware: Missing Supabase env vars')
     return NextResponse.next()
   }
 
@@ -46,16 +63,15 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  const supabase = createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    }
-  )
+  // Dynamically import to avoid top-level initialization issues
+  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+  
+  const supabase = createSupabaseClient(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
 
   const { data, error } = await supabase.auth.getUser(accessToken)
   if (error || !data?.user) {
