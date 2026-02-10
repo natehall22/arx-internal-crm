@@ -71,7 +71,7 @@ export default function CanvassMap({ pins, currentPosition, onMapClick, onPinCli
     })
 
     // Add click listener
-    mapInstanceRef.current.addListener('click', (e?: google.maps.MapMouseEvent) => {
+    mapInstanceRef.current.addListener('click', (e) => {
       if (e?.latLng) {
         onMapClick(e.latLng.lat(), e.latLng.lng())
       }
