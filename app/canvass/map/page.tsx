@@ -155,7 +155,7 @@ export default function CanvassMapPage() {
   const [searchAddress, setSearchAddress] = useState('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
-  const searchAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null)
+  const searchAutocompleteRef = useRef<any>(null)
 
   const mapRef = useRef<any>(null)
   const markersRef = useRef<Record<string, any>>({})
