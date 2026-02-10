@@ -1,28 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getAccessTokenFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-  if (!supabaseUrl) return null
-  
-  let projectRef = ''
-  try {
-    const host = new URL(supabaseUrl).hostname
-    projectRef = host.split('.')[0] || ''
-  } catch {
-    projectRef = ''
-  }
-  if (!projectRef) return null
-
-  const cookie = req.cookies.get(`sb-${projectRef}-auth-token`)
-  if (!cookie?.value) return null
-
-  try {
-    const parsed = JSON.parse(cookie.value)
-    return typeof parsed?.access_token === 'string' ? parsed.access_token : null
-  } catch {
-    return null
-  }
-}
+import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
@@ -50,38 +27,43 @@ export async function middleware(req: NextRequest) {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   
   if (!supabaseUrl || !supabaseKey) {
-    // If env vars missing, allow through (will fail at page level with better error)
     console.error('Middleware: Missing Supabase env vars')
     return NextResponse.next()
   }
 
-  const accessToken = getAccessTokenFromRequest(req)
-  if (!accessToken) {
-    const url = req.nextUrl.clone()
-    url.pathname = '/login'
-    url.searchParams.set('next', pathname)
-    return NextResponse.redirect(url)
-  }
-
-  // Dynamically import to avoid top-level initialization issues
-  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
-  
-  const supabase = createSupabaseClient(supabaseUrl, supabaseKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
+  // Create response to pass through
+  let response = NextResponse.next({
+    request: {
+      headers: req.headers,
     },
   })
 
-  const { data, error } = await supabase.auth.getUser(accessToken)
-  if (error || !data?.user) {
+  // Create Supabase client that can read cookies from request
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return req.cookies.getAll()
+      },
+      setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          req.cookies.set(name, value)
+          response.cookies.set(name, value, options)
+        })
+      },
+    },
+  })
+
+  // This will refresh the session if needed and set cookies
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  if (error || !user) {
     const url = req.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('next', pathname)
     return NextResponse.redirect(url)
   }
 
-  return NextResponse.next()
+  return response
 }
 
 export const config = {
