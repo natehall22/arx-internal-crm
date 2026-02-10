@@ -91,7 +91,7 @@ export async function POST(
     customerEmail,
     job,
     estimate,
-    estimateLines,
+    estimateLines: estimateLines ?? [],
     generatedBy: profile.full_name,
     generatedAt: new Date(),
   })
