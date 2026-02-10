@@ -1,9 +1,15 @@
+import { NextResponse, type NextRequest } from 'next/server'
+
 export const runtime = 'nodejs'
 
-import { NextResponse, type NextRequest } from 'next/server'
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+export async function GET(req: Request) {
+  return NextResponse.redirect(new URL('/login', req.url))
+}
 
 export async function POST(request: NextRequest) {
+  // All auth logic inside POST
+  const { createServerClient } = await import('@supabase/ssr')
+  
   const form = await request.formData()
   const email = String(form.get('email') ?? '')
   const password = String(form.get('password') ?? '')
@@ -26,7 +32,7 @@ export async function POST(request: NextRequest) {
       },
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: (cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) => {
+        setAll: (cookiesToSet: Array<{ name: string; value: string; options?: any }>) => {
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options)
           })
