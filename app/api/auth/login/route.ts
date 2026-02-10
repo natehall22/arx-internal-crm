@@ -1,7 +1,9 @@
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-
-export const runtime = 'nodejs'
 
 export async function GET(req: Request) {
   return NextResponse.redirect(new URL('/login', req.url), { status: 302 })
@@ -13,16 +15,19 @@ export async function POST(request: NextRequest) {
 
   if (!supabaseUrl || !supabaseKey) {
     console.error('Missing Supabase environment variables')
-    return NextResponse.redirect(new URL('/login?error=Server+configuration+error', request.url), { status: 303 })
+    return NextResponse.redirect(
+      new URL('/login?error=Server+configuration+error', request.url),
+      { status: 303 }
+    )
   }
 
-  const form = await request.formData()
-  const email = String(form.get('email') ?? '')
-  const password = String(form.get('password') ?? '')
-  const rawNext = String(form.get('next') ?? '/dashboard')
+  const formData = await request.formData()
+  const email = String(formData.get('email') ?? '')
+  const password = String(formData.get('password') ?? '')
+  const rawNext = String(formData.get('next') ?? '/dashboard')
   const nextPath = rawNext.startsWith('/') ? rawNext : '/dashboard'
 
-  // We need to collect cookies during auth, then apply them to the final response
+  // Collect cookies that Supabase wants to set
   const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
   const supabase = createServerClient(supabaseUrl, supabaseKey, {
@@ -36,28 +41,31 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
-  if (error) {
-    console.error('Auth error:', error.message)
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, request.url),
-      { status: 303 }
-    )
+  if (error || !data.session) {
+    console.error('Auth error:', error?.message || 'No session returned')
+    const errorUrl = new URL('/login', request.url)
+    errorUrl.searchParams.set('error', error?.message || 'Authentication failed')
+    errorUrl.searchParams.set('next', nextPath)
+    return NextResponse.redirect(errorUrl, { status: 303 })
   }
 
-  // Success - create redirect response and apply all cookies
-  const response = NextResponse.redirect(new URL(nextPath, request.url), { status: 303 })
-  
-  cookiesToSet.forEach(({ name, value, options }) => {
+  // Success - create redirect and apply cookies
+  const successUrl = new URL(nextPath, request.url)
+  const response = NextResponse.redirect(successUrl, { status: 303 })
+
+  // Apply all cookies from Supabase auth
+  for (const { name, value, options } of cookiesToSet) {
     response.cookies.set(name, value, {
       ...options,
-      // Ensure cookies work in production
+      path: '/',
+      httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      path: '/',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
     })
-  })
+  }
 
   return response
 }

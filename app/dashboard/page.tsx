@@ -1,9 +1,10 @@
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
-import Link from 'next/link'
 import DashboardClient from './DashboardClient'
 
 export default async function DashboardPage() {
@@ -14,8 +15,6 @@ export default async function DashboardPage() {
   const isAdmin = profile.role === 'admin'
   const isRegionalManager = profile.role === 'regional_manager'
   const isSalesManager = profile.role === 'sales_manager'
-  const isSalesRep = profile.role === 'sales_rep'
-  const isCanvasser = profile.role === 'canvasser'
 
   // Get dashboard settings (cascade: user -> team -> region -> org)
   let dashboardSettings = null
@@ -85,15 +84,6 @@ export default async function DashboardPage() {
   } else if (isAdmin) {
     // Admin sees all
     teamMemberIds = []
-  }
-
-  // Build queries based on scope
-  const buildScopedQuery = (table: string, baseQuery: any) => {
-    if (isAdmin) return baseQuery
-    if (teamMemberIds.length > 0) {
-      return baseQuery.in('owner_user_id', teamMemberIds)
-    }
-    return baseQuery.eq('owner_user_id', profile.id)
   }
 
   // Get leads stats
