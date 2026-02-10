@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
-import { allPermissions, permissionCategories, type PermissionCategory } from '@/lib/permissions'
+import { permissionCategories, type PermissionCategory } from '@/lib/permissions'
 import type { CustomRole, Permission, User } from '@/lib/types/database'
 
 type RoleWithPermissions = CustomRole & {
@@ -43,66 +42,35 @@ export default function RolesPage() {
   }, [])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-
-    // Load permissions from database
-    const { data: perms } = await supabase
-      .from('permissions')
-      .select('*')
-      .order('category', { ascending: true })
-      .order('name', { ascending: true })
-
-    setDbPermissions(perms || [])
-
-    // Load roles with their permissions
-    const { data: rolesData } = await supabase
-      .from('custom_roles')
-      .select('*')
-      .order('hierarchy_level', { ascending: false })
-
-    const rolesWithPermissions: RoleWithPermissions[] = []
-
-    for (const role of rolesData || []) {
-      // Get permissions for this role
-      const { data: rolePerms } = await supabase
-        .from('role_permissions')
-        .select('permission_id, permissions(*)')
-        .eq('role_id', role.id)
-
-      // Get user count
-      const { count } = await supabase
-        .from('users')
-        .select('id', { count: 'exact', head: true })
-        .eq('custom_role_id', role.id)
-
-      rolesWithPermissions.push({
-        ...role,
-        permissions: (rolePerms || []).map((rp: any) => rp.permissions),
-        user_count: count || 0,
-      })
+    try {
+      const response = await fetch('/api/admin/roles')
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to load data')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setDbPermissions(data.permissions || [])
+      setRoles(data.roles || [])
+      setUsers((data.users || []) as UserWithPermissions[])
+    } catch (err) {
+      setError('Failed to load data')
     }
-
-    setRoles(rolesWithPermissions)
-
-    // Load users with their individual permissions
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('*, user_permissions(permission_id, permissions(*))')
-      .eq('active', true)
-      .order('full_name')
-
-    setUsers((usersData || []) as UserWithPermissions[])
     setLoading(false)
   }
 
   const loadUserPermissions = async (userId: string) => {
-    const supabase = createClientBrowser()
-    const { data } = await supabase
-      .from('user_permissions')
-      .select('permission_id')
-      .eq('user_id', userId)
-    
-    setUserPermissions(new Set((data || []).map(up => up.permission_id)))
+    try {
+      const response = await fetch(`/api/admin/user-permissions?userId=${userId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setUserPermissions(new Set(data.permission_ids || []))
+      }
+    } catch {
+      // Ignore errors
+    }
   }
 
   const saveUserPermissions = async () => {
@@ -111,55 +79,29 @@ export default function RolesPage() {
     setSaving(true)
     setError(null)
     
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Not authenticated')
-      setSaving(false)
-      return
-    }
+    try {
+      const response = await fetch('/api/admin/user-permissions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: editingUser.id,
+          permission_ids: Array.from(userPermissions),
+        }),
+      })
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      setError('User profile not found')
-      setSaving(false)
-      return
-    }
-
-    // Delete existing permissions
-    await supabase
-      .from('user_permissions')
-      .delete()
-      .eq('user_id', editingUser.id)
-
-    // Insert new permissions
-    if (userPermissions.size > 0) {
-      const permissionInserts = Array.from(userPermissions).map(permId => ({
-        org_id: profile.org_id,
-        user_id: editingUser.id,
-        permission_id: permId,
-        granted_by: user.id,
-      }))
-
-      const { error: insertError } = await supabase
-        .from('user_permissions')
-        .insert(permissionInserts)
-
-      if (insertError) {
-        setError('Failed to save permissions')
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to save permissions')
         setSaving(false)
         return
       }
-    }
 
-    setEditingUser(null)
-    setUserPermissions(new Set())
-    await loadData()
+      setEditingUser(null)
+      setUserPermissions(new Set())
+      await loadData()
+    } catch {
+      setError('Failed to save permissions')
+    }
     setSaving(false)
   }
 
@@ -219,7 +161,6 @@ export default function RolesPage() {
       return
     }
 
-    // Validate name format (lowercase, underscores only)
     const nameRegex = /^[a-z][a-z0-9_]*$/
     if (!nameRegex.test(formName)) {
       setError('Name must be lowercase letters, numbers, and underscores only')
@@ -229,60 +170,33 @@ export default function RolesPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Not authenticated')
-      setSaving(false)
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      setError('User profile not found')
-      setSaving(false)
-      return
-    }
-
-    // Create the role
-    const { data: newRole, error: insertError } = await supabase
-      .from('custom_roles')
-      .insert({
-        org_id: profile.org_id,
-        name: formName.trim(),
-        display_name: formDisplayName.trim(),
-        description: formDescription.trim() || null,
-        hierarchy_level: formHierarchyLevel,
-        parent_role_id: formParentRoleId || null,
-        is_system_role: false,
+    try {
+      const response = await fetch('/api/admin/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formName.trim(),
+          display_name: formDisplayName.trim(),
+          description: formDescription.trim() || null,
+          hierarchy_level: formHierarchyLevel,
+          parent_role_id: formParentRoleId || null,
+          permission_ids: Array.from(formPermissions),
+        }),
       })
-      .select()
-      .single()
 
-    if (insertError) {
-      setError(insertError.message.includes('duplicate') ? 'A role with this name already exists' : 'Failed to create role')
-      setSaving(false)
-      return
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to create role')
+        setSaving(false)
+        return
+      }
+
+      setShowCreateModal(false)
+      resetForm()
+      await loadData()
+    } catch {
+      setError('Failed to create role')
     }
-
-    // Add permissions
-    if (formPermissions.size > 0) {
-      const permissionInserts = Array.from(formPermissions).map(permId => ({
-        role_id: newRole.id,
-        permission_id: permId,
-      }))
-
-      await supabase.from('role_permissions').insert(permissionInserts)
-    }
-
-    setShowCreateModal(false)
-    resetForm()
-    await loadData()
     setSaving(false)
   }
 
@@ -295,43 +209,33 @@ export default function RolesPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-
-    // Update the role
-    const { error: updateError } = await supabase
-      .from('custom_roles')
-      .update({
-        display_name: formDisplayName.trim(),
-        description: formDescription.trim() || null,
-        hierarchy_level: formHierarchyLevel,
-        parent_role_id: formParentRoleId || null,
+    try {
+      const response = await fetch('/api/admin/roles', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingRole.id,
+          display_name: formDisplayName.trim(),
+          description: formDescription.trim() || null,
+          hierarchy_level: formHierarchyLevel,
+          parent_role_id: formParentRoleId || null,
+          permission_ids: Array.from(formPermissions),
+        }),
       })
-      .eq('id', editingRole.id)
 
-    if (updateError) {
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to update role')
+        setSaving(false)
+        return
+      }
+
+      setEditingRole(null)
+      resetForm()
+      await loadData()
+    } catch {
       setError('Failed to update role')
-      setSaving(false)
-      return
     }
-
-    // Update permissions - delete existing and re-add
-    await supabase
-      .from('role_permissions')
-      .delete()
-      .eq('role_id', editingRole.id)
-
-    if (formPermissions.size > 0) {
-      const permissionInserts = Array.from(formPermissions).map(permId => ({
-        role_id: editingRole.id,
-        permission_id: permId,
-      }))
-
-      await supabase.from('role_permissions').insert(permissionInserts)
-    }
-
-    setEditingRole(null)
-    resetForm()
-    await loadData()
     setSaving(false)
   }
 
@@ -349,21 +253,19 @@ export default function RolesPage() {
       return
     }
 
-    const supabase = createClientBrowser()
-    
-    // Delete role permissions first
-    await supabase.from('role_permissions').delete().eq('role_id', role.id)
-    
-    // Delete the role
-    const { error: deleteError } = await supabase
-      .from('custom_roles')
-      .delete()
-      .eq('id', role.id)
+    try {
+      const response = await fetch(`/api/admin/roles?id=${role.id}`, {
+        method: 'DELETE',
+      })
 
-    if (deleteError) {
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to delete role')
+      } else {
+        await loadData()
+      }
+    } catch {
       setError('Failed to delete role')
-    } else {
-      await loadData()
     }
   }
 
