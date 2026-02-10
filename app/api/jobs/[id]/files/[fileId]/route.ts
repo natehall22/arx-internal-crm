@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 // GET: Get single file with fresh signed URL
 export async function GET(
   request: NextRequest,
-  { params }: { params: { jobId: string; fileId: string } }
+  { params }: { params: { id: string; fileId: string } }
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -13,7 +13,8 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { jobId, fileId } = params
+  const { fileId } = params
+  const jobId = params.id
 
   // Get user's org
   const { data: profile } = await supabase
@@ -59,7 +60,7 @@ export async function GET(
 // PATCH: Update file metadata (mark as signed, add notes, etc.)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { jobId: string; fileId: string } }
+  { params }: { params: { id: string; fileId: string } }
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -68,7 +69,8 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { jobId, fileId } = params
+  const { fileId } = params
+  const jobId = params.id
   const body = await request.json()
 
   // Get user's org
@@ -134,7 +136,7 @@ export async function PATCH(
 // DELETE: Delete a file (admin/manager only)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { jobId: string; fileId: string } }
+  { params }: { params: { id: string; fileId: string } }
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -143,7 +145,8 @@ export async function DELETE(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { jobId, fileId } = params
+  const { fileId } = params
+  const jobId = params.id
 
   // Get user's org and role
   const { data: profile } = await supabase

@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 // GET: List all files for a job + generate signed URLs
 export async function GET(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: { id: string } }
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -13,7 +13,7 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { jobId } = params
+  const jobId = params.id
 
   // Get user's org
   const { data: profile } = await supabase
@@ -74,7 +74,7 @@ export async function GET(
 // POST: Upload a new file or create metadata for generated PDF
 export async function POST(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: { id: string } }
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -83,7 +83,7 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { jobId } = params
+  const jobId = params.id
 
   // Get user's org
   const { data: profile } = await supabase

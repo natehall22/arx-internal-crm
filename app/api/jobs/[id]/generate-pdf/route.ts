@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 // POST: Generate a PDF (proposal, contract, change order, invoice)
 export async function POST(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: { id: string } }
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -13,7 +13,7 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { jobId } = params
+  const jobId = params.id
   const body = await request.json()
   const { type = 'proposal', estimate_id } = body
 
