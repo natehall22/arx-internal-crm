@@ -235,7 +235,7 @@ export default function InspectionStatusCard({
             {saving ? 'Saving...' : selectedOutcome === 'rescheduled' ? 'Continue to Reschedule' : 'Submit Status Update'}
           </button>
           <p className="mt-2 text-center text-xs text-gray-500">
-            This information will be saved to the customer's file
+            This information will be saved to the customer&apos;s file
           </p>
         </div>
       </div>

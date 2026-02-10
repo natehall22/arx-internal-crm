@@ -394,7 +394,7 @@ export default function LeadReferralInfo({
       ) : (
         <div>
           <p className="text-sm text-indigo-700 mb-2">
-            This lead came from a referral but hasn't been linked to a referrer yet.
+            This lead came from a referral but hasn&apos;t been linked to a referrer yet.
           </p>
           <button
             onClick={() => setShowSearch(true)}
