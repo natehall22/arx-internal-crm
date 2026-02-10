@@ -216,7 +216,7 @@ async function createAppointment(
  * Returns the first team in the org, or null if none exist
  */
 export async function getDefaultTeam(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   orgId: string
 ): Promise<string | null> {
   const { data: team } = await supabase
