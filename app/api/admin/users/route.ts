@@ -1,54 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-function createAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Missing Supabase environment variables')
+function getSessionFromRequest(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
+  const cookieName = `sb-${projectRef}-auth-token`
+  
+  const singleCookie = req.cookies.get(cookieName)
+  if (singleCookie?.value) {
+    try {
+      return JSON.parse(singleCookie.value)
+    } catch {
+      return null
+    }
   }
-
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
+  
+  const chunks: string[] = []
+  let i = 0
+  while (true) {
+    const chunk = req.cookies.get(`${cookieName}.${i}`)
+    if (!chunk?.value) break
+    chunks.push(chunk.value)
+    i++
+  }
+  
+  if (chunks.length > 0) {
+    try {
+      return JSON.parse(chunks.join(''))
+    } catch {
+      return null
+    }
+  }
+  
+  return null
 }
 
-function getSupabaseClient(req: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll()
-        },
-        setAll() {
-          // No-op for GET/POST that return JSON
-        },
-      },
-    }
-  )
+function getAuthClient(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const sessionData = getSessionFromRequest(req)
+  
+  return {
+    client: createClient(supabaseUrl, supabaseKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: sessionData?.access_token
+        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
+        : undefined,
+    }),
+    accessToken: sessionData?.access_token,
+  }
+}
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = getSupabaseClient(request)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { client: authClient, accessToken } = getAuthClient(request)
     
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    const { data: { user } } = await authClient.auth.getUser(accessToken)
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
       .from('users')
       .select('role, org_id')
       .eq('id', user.id)
@@ -81,11 +112,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
     }
 
-    if (org_id !== profile.org_id) {
+    // Use the admin's org_id if not provided
+    const targetOrgId = org_id || profile.org_id
+    
+    if (targetOrgId !== profile.org_id) {
       return NextResponse.json({ error: 'Cannot create users in a different organization' }, { status: 403 })
     }
-
-    const adminClient = createAdminClient()
 
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,
@@ -120,7 +152,7 @@ export async function POST(request: NextRequest) {
         team_id: team_id || null,
         region_id: region_id || null,
         manager_user_id: manager_user_id || null,
-        org_id,
+        org_id: targetOrgId,
         active: true,
       })
 
@@ -132,7 +164,7 @@ export async function POST(request: NextRequest) {
 
     if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
       const permissionInserts = permission_ids.map((permId: string) => ({
-        org_id,
+        org_id: targetOrgId,
         user_id: authData.user.id,
         permission_id: permId,
         granted_by: user.id,
@@ -163,14 +195,20 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = getSupabaseClient(request)
+  const { client: authClient, accessToken } = getAuthClient(request)
   
-  const { data: { user } } = await supabase.auth.getUser()
+  if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  const { data: { user } } = await authClient.auth.getUser(accessToken)
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
+  const adminClient = getAdminClient()
+
+  const { data: profile } = await adminClient
     .from('users')
     .select('role, org_id')
     .eq('id', user.id)
@@ -180,9 +218,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
 
-  const { data: users, error } = await supabase
+  // Get users with all related data
+  const { data: users, error } = await adminClient
     .from('users')
-    .select('*')
+    .select(`
+      *,
+      teams(*),
+      regions(*),
+      custom_roles(*),
+      manager:users!users_manager_user_id_fkey(id, full_name, email, role)
+    `)
     .eq('org_id', profile.org_id)
     .order('full_name')
 
@@ -190,5 +235,102 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ users })
+  // Get teams, regions, custom roles, permissions, and presets
+  const [teamsRes, regionsRes, rolesRes, permsRes, presetsRes] = await Promise.all([
+    adminClient.from('teams').select('*').eq('org_id', profile.org_id).order('name'),
+    adminClient.from('regions').select('*').eq('org_id', profile.org_id).order('name'),
+    adminClient.from('custom_roles').select('*').eq('org_id', profile.org_id).order('hierarchy_level', { ascending: false }),
+    adminClient.from('permissions').select('*').order('category').order('display_name'),
+    adminClient.from('permission_presets').select(`
+      *,
+      preset_permissions (
+        permission_id,
+        permissions (
+          id,
+          name,
+          display_name,
+          category
+        )
+      )
+    `).eq('org_id', profile.org_id).order('sort_order'),
+  ])
+
+  return NextResponse.json({ 
+    users: (users || []).map(u => ({
+      ...u,
+      team: u.teams,
+      region: u.regions,
+      custom_role: u.custom_roles,
+      manager: u.manager,
+    })),
+    teams: teamsRes.data || [],
+    regions: regionsRes.data || [],
+    customRoles: rolesRes.data || [],
+    permissions: permsRes.data || [],
+    permissionPresets: presetsRes.data || [],
+    currentUserOrgId: profile.org_id,
+  })
+}
+
+// PUT - Update a user
+export async function PUT(request: NextRequest) {
+  const { client: authClient, accessToken } = getAuthClient(request)
+  
+  if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  const { data: { user } } = await authClient.auth.getUser(accessToken)
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const adminClient = getAdminClient()
+
+  const { data: profile } = await adminClient
+    .from('users')
+    .select('role, org_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const body = await request.json()
+  const { id, role, custom_role_id, team_id, region_id, manager_user_id, active } = body
+
+  if (!id) {
+    return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
+  }
+
+  // Verify target user is in same org
+  const { data: targetUser } = await adminClient
+    .from('users')
+    .select('org_id')
+    .eq('id', id)
+    .single()
+
+  if (!targetUser || targetUser.org_id !== profile.org_id) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
+  const updateData: Record<string, unknown> = {}
+  if (role !== undefined) updateData.role = role
+  if (custom_role_id !== undefined) updateData.custom_role_id = custom_role_id || null
+  if (team_id !== undefined) updateData.team_id = team_id || null
+  if (region_id !== undefined) updateData.region_id = region_id || null
+  if (manager_user_id !== undefined) updateData.manager_user_id = manager_user_id || null
+  if (active !== undefined) updateData.active = active
+
+  const { error: updateError } = await adminClient
+    .from('users')
+    .update(updateData)
+    .eq('id', id)
+
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true })
 }

@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 import { getRoleDisplayName } from '@/lib/permissions'
 import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/database'
 
@@ -94,90 +93,88 @@ export default function UsersPage() {
   }, [])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-
-    const [usersRes, teamsRes, regionsRes, rolesRes, permsRes, presetsRes] = await Promise.all([
-      supabase.from('users').select('*, teams(*), regions(*), custom_roles(*), manager:users!users_manager_user_id_fkey(id, full_name, email, role)').order('full_name'),
-      supabase.from('teams').select('*').order('name'),
-      supabase.from('regions').select('*').order('name'),
-      supabase.from('custom_roles').select('*').order('hierarchy_level', { ascending: false }),
-      supabase.from('permissions').select('*').order('category').order('display_name'),
-      supabase.from('permission_presets').select(`
-        *,
-        preset_permissions (
-          permission_id,
-          permissions (
-            id,
-            name,
-            display_name,
-            category
-          )
-        )
-      `).order('sort_order'),
-    ])
-
-    setUsers((usersRes.data || []).map(u => ({
-      ...u,
-      team: u.teams,
-      region: u.regions,
-      custom_role: u.custom_roles,
-      manager: u.manager,
-    })))
-    setTeams(teamsRes.data || [])
-    setRegions(regionsRes.data || [])
-    setCustomRoles(rolesRes.data || [])
-    setAllPermissions(permsRes.data || [])
-    setPermissionPresets(presetsRes.data || [])
+    try {
+      const response = await fetch('/api/admin/users')
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to load data')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setUsers(data.users || [])
+      setTeams(data.teams || [])
+      setRegions(data.regions || [])
+      setCustomRoles(data.customRoles || [])
+      setAllPermissions(data.permissions || [])
+      setPermissionPresets(data.permissionPresets || [])
+    } catch (err) {
+      setError('Failed to load data')
+    }
     setLoading(false)
   }
 
   const loadUserPermissions = async (userId: string) => {
-    const supabase = createClientBrowser()
-    const { data } = await supabase
-      .from('user_permissions')
-      .select('*, permissions(*)')
-      .eq('user_id', userId)
-    setUserPermissions(data || [])
+    try {
+      const response = await fetch(`/api/admin/user-permissions?userId=${userId}`)
+      if (response.ok) {
+        const data = await response.json()
+        // Convert permission_ids to UserPermission format for compatibility
+        const perms = (data.permission_ids || []).map((permId: string) => {
+          const perm = allPermissions.find(p => p.id === permId)
+          return {
+            id: permId,
+            permission_id: permId,
+            granted_at: new Date().toISOString(),
+            permissions: perm,
+          }
+        })
+        setUserPermissions(perms)
+      }
+    } catch {
+      // Ignore errors
+    }
   }
 
   const togglePermission = async (permissionName: string) => {
     if (!editingUser) return
     
-    const supabase = createClientBrowser()
+    const permission = allPermissions.find(p => p.name === permissionName)
+    if (!permission) return
+
     const existingPerm = userPermissions.find(
       up => up.permissions?.name === permissionName
     )
 
+    // Build new permission list
+    let newPermIds: string[]
     if (existingPerm) {
-      // Revoke permission
-      await supabase
-        .from('user_permissions')
-        .delete()
-        .eq('id', existingPerm.id)
+      // Remove permission
+      newPermIds = userPermissions
+        .filter(up => up.permission_id !== permission.id)
+        .map(up => up.permission_id)
     } else {
-      // Grant permission
-      const permission = allPermissions.find(p => p.name === permissionName)
-      if (!permission) return
-
-      const { data: profile } = await supabase
-        .from('users')
-        .select('org_id')
-        .eq('id', editingUser.id)
-        .single()
-
-      if (profile) {
-        await supabase
-          .from('user_permissions')
-          .insert({
-            org_id: profile.org_id,
-            user_id: editingUser.id,
-            permission_id: permission.id,
-          })
-      }
+      // Add permission
+      newPermIds = [...userPermissions.map(up => up.permission_id), permission.id]
     }
 
-    // Reload permissions
-    await loadUserPermissions(editingUser.id)
+    try {
+      const response = await fetch('/api/admin/user-permissions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: editingUser.id,
+          permission_ids: newPermIds,
+        }),
+      })
+
+      if (response.ok) {
+        await loadUserPermissions(editingUser.id)
+      }
+    } catch {
+      // Ignore errors
+    }
   }
 
   const hasPermission = (permissionName: string) => {
@@ -259,58 +256,38 @@ export default function UsersPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    
-    // Get current user's org_id
-    const { data: { user: currentUser } } = await supabase.auth.getUser()
-    if (!currentUser) {
-      setError('Not authenticated')
-      setSaving(false)
-      return
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: createEmail.trim(),
+          password: createPassword,
+          full_name: createFullName.trim(),
+          phone: createPhone.trim() || null,
+          role: formRole,
+          custom_role_id: formCustomRoleId || null,
+          team_id: formTeamId || null,
+          region_id: formRegionId || null,
+          manager_user_id: formManagerId || null,
+          permission_ids: Array.from(createPermissions),
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setError(result.error || 'Failed to create user')
+        setSaving(false)
+        return
+      }
+
+      setShowCreateModal(false)
+      resetCreateForm()
+      await loadData()
+    } catch {
+      setError('Failed to create user')
     }
-
-    const { data: currentProfile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', currentUser.id)
-      .single()
-
-    if (!currentProfile?.org_id) {
-      setError('Could not determine organization')
-      setSaving(false)
-      return
-    }
-
-    // Create the auth user via admin API
-    const response = await fetch('/api/admin/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: createEmail.trim(),
-        password: createPassword,
-        full_name: createFullName.trim(),
-        phone: createPhone.trim() || null,
-        role: formRole,
-        custom_role_id: formCustomRoleId || null,
-        team_id: formTeamId || null,
-        region_id: formRegionId || null,
-        manager_user_id: formManagerId || null,
-        org_id: currentProfile.org_id,
-        permission_ids: Array.from(createPermissions),
-      }),
-    })
-
-    const result = await response.json()
-
-    if (!response.ok) {
-      setError(result.error || 'Failed to create user')
-      setSaving(false)
-      return
-    }
-
-    setShowCreateModal(false)
-    resetCreateForm()
-    await loadData()
     setSaving(false)
   }
 
@@ -331,23 +308,29 @@ export default function UsersPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({
-        role: formRole,
-        custom_role_id: formCustomRoleId || null,
-        team_id: formTeamId || null,
-        region_id: formRegionId || null,
-        manager_user_id: formManagerId || null,
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingUser.id,
+          role: formRole,
+          custom_role_id: formCustomRoleId || null,
+          team_id: formTeamId || null,
+          region_id: formRegionId || null,
+          manager_user_id: formManagerId || null,
+        }),
       })
-      .eq('id', editingUser.id)
 
-    if (updateError) {
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to update user')
+      } else {
+        setEditingUser(null)
+        await loadData()
+      }
+    } catch {
       setError('Failed to update user')
-    } else {
-      setEditingUser(null)
-      await loadData()
     }
     setSaving(false)
   }
@@ -363,13 +346,22 @@ export default function UsersPage() {
     const action = user.active ? 'deactivate' : 'activate'
     if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${user.full_name || 'this user'}?`)) return
 
-    const supabase = createClientBrowser()
-    await supabase
-      .from('users')
-      .update({ active: !user.active })
-      .eq('id', user.id)
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: user.id,
+          active: !user.active,
+        }),
+      })
 
-    await loadData()
+      if (response.ok) {
+        await loadData()
+      }
+    } catch {
+      // Ignore errors
+    }
   }
 
   const filteredUsers = users.filter(u => {
