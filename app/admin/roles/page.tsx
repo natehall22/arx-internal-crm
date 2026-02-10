@@ -673,15 +673,25 @@ export default function RolesPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Hierarchy Level
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
+                    <select
                       value={formHierarchyLevel}
-                      onChange={(e) => setFormHierarchyLevel(parseInt(e.target.value) || 0)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">Higher = more authority (Admin=100, Canvasser=20)</p>
+                      onChange={(e) => setFormHierarchyLevel(parseInt(e.target.value) || 50)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    >
+                      <option value={100}>100 - Admin/Owner</option>
+                      <option value={90}>90 - Regional Operations</option>
+                      <option value={85}>85 - Operations Manager</option>
+                      <option value={80}>80 - Regional Sales Manager</option>
+                      <option value={75}>75 - Operations</option>
+                      <option value={70}>70 - Sales Manager</option>
+                      <option value={65}>65 - Regional Setter Manager</option>
+                      <option value={60}>60 - Setter Manager</option>
+                      <option value={55}>55 - Field Operations</option>
+                      <option value={50}>50 - Sales Rep</option>
+                      <option value={40}>40 - Setter</option>
+                      <option value={30}>30 - Sub Contractor</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">Higher levels can manage lower levels</p>
                   </div>
 
                   <div>
@@ -980,12 +990,25 @@ export default function RolesPage() {
         {/* Info panel */}
         {activeTab === 'roles' && (
           <div className="mt-8 bg-blue-50 rounded-xl p-6">
-            <h3 className="font-semibold text-blue-900 mb-3">About Custom Roles</h3>
+            <h3 className="font-semibold text-blue-900 mb-3">Role Hierarchy</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-blue-800 mb-4">
+              <div><strong>100</strong> Admin/Owner</div>
+              <div><strong>90</strong> Regional Operations</div>
+              <div><strong>85</strong> Operations Manager</div>
+              <div><strong>80</strong> Regional Sales Manager</div>
+              <div><strong>75</strong> Operations</div>
+              <div><strong>70</strong> Sales Manager</div>
+              <div><strong>65</strong> Regional Setter Manager</div>
+              <div><strong>60</strong> Setter Manager</div>
+              <div><strong>55</strong> Field Operations</div>
+              <div><strong>50</strong> Sales Rep</div>
+              <div><strong>40</strong> Setter</div>
+              <div><strong>30</strong> Sub Contractor</div>
+            </div>
             <ul className="text-sm text-blue-800 space-y-2">
-              <li><strong>Hierarchy Level:</strong> Determines who can manage whom. Higher levels can manage lower levels.</li>
+              <li><strong>Hierarchy Level:</strong> Higher levels can manage and view data from lower levels.</li>
               <li><strong>Inheritance:</strong> A role can inherit permissions from a parent role, then add more specific ones.</li>
               <li><strong>System Roles:</strong> Built-in roles that cannot be deleted but can be modified.</li>
-              <li><strong>Example Roles:</strong> Setter Manager (level 45), Regional Setter Manager (level 55), Regional Ops Manager (level 65)</li>
             </ul>
           </div>
         )}
