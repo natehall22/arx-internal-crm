@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     return NextResponse.redirect(new URL('/projects', request.url), { status: 303 })
   }
 
-  if (profile.role === 'sales_rep') {
+  if (profile.role === 'rep') {
     return NextResponse.redirect(new URL(projectId ? `/projects/${projectId}` : '/projects', request.url), {
       status: 303,
     })
