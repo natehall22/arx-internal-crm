@@ -1,9 +1,39 @@
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
+
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
+
+function getSupabaseClient() {
+  const cookieStore = cookies()
+  
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options)
+            })
+          } catch {
+            // Ignore in read-only contexts
+          }
+        },
+      },
+    }
+  )
+}
 
 // GET - List all permission presets for the org
 export async function GET() {
-  const supabase = createClient()
+  const supabase = getSupabaseClient()
   
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -47,7 +77,7 @@ export async function GET() {
 
 // POST - Create a new permission preset
 export async function POST(request: NextRequest) {
-  const supabase = createClient()
+  const supabase = getSupabaseClient()
   
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -120,7 +150,7 @@ export async function POST(request: NextRequest) {
 
 // PUT - Update a permission preset
 export async function PUT(request: NextRequest) {
-  const supabase = createClient()
+  const supabase = getSupabaseClient()
   
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -187,7 +217,7 @@ export async function PUT(request: NextRequest) {
 
 // DELETE - Delete a permission preset
 export async function DELETE(request: NextRequest) {
-  const supabase = createClient()
+  const supabase = getSupabaseClient()
   
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
