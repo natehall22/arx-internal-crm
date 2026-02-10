@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 type Permission = {
   id: string
@@ -70,35 +69,21 @@ export default function PresetsPage() {
   }, [])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-
-    // Load all permissions
-    const { data: perms } = await supabase
-      .from('permissions')
-      .select('*')
-      .order('category')
-      .order('display_name')
-
-    setAllPermissions(perms || [])
-
-    // Load presets
-    const { data: presetsData } = await supabase
-      .from('permission_presets')
-      .select(`
-        *,
-        preset_permissions (
-          permission_id,
-          permissions (
-            id,
-            name,
-            display_name,
-            category
-          )
-        )
-      `)
-      .order('sort_order')
-
-    setPresets(presetsData || [])
+    try {
+      const response = await fetch('/api/admin/presets')
+      if (!response.ok) {
+        const err = await response.json()
+        setError(err.error || 'Failed to load data')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setAllPermissions(data.permissions || [])
+      setPresets(data.presets || [])
+    } catch (err) {
+      setError('Failed to load data')
+    }
     setLoading(false)
   }
 

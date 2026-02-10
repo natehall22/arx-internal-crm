@@ -74,7 +74,7 @@ function getAdminClient() {
   })
 }
 
-// GET - List all permission presets for the org
+// GET - List all permission presets for the org (and all permissions)
 export async function GET(request: NextRequest) {
   const { client: authClient, accessToken } = getAuthClient(request)
   
@@ -99,6 +99,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
 
+  // Get all permissions (for the modal)
+  const { data: allPermissions } = await adminClient
+    .from('permissions')
+    .select('*')
+    .order('category')
+    .order('display_name')
+
   // Get presets with their permissions
   const { data: presets, error } = await adminClient
     .from('permission_presets')
@@ -121,7 +128,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ presets })
+  return NextResponse.json({ presets, permissions: allPermissions || [] })
 }
 
 // POST - Create a new permission preset
