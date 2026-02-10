@@ -1,25 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-function getSupabaseClient(req: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll()
-        },
-        setAll() {
-          // No-op for JSON responses
-        },
-      },
+function getSessionFromRequest(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
+  const cookieName = `sb-${projectRef}-auth-token`
+  
+  // Try single cookie first
+  const singleCookie = req.cookies.get(cookieName)
+  if (singleCookie?.value) {
+    try {
+      return JSON.parse(singleCookie.value)
+    } catch {
+      return null
     }
-  )
+  }
+  
+  // Try chunked cookies
+  const chunks: string[] = []
+  let i = 0
+  while (true) {
+    const chunk = req.cookies.get(`${cookieName}.${i}`)
+    if (!chunk?.value) break
+    chunks.push(chunk.value)
+    i++
+  }
+  
+  if (chunks.length > 0) {
+    try {
+      return JSON.parse(chunks.join(''))
+    } catch {
+      return null
+    }
+  }
+  
+  return null
+}
+
+function getSupabaseClient(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const sessionData = getSessionFromRequest(req)
+  
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: sessionData?.access_token
+      ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
+      : undefined,
+  })
 }
 
 // GET - List all permission presets for the org
