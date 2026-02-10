@@ -1,0 +1,88 @@
+{
+  "name": "Canvass - Field Sales App",
+  "short_name": "Canvass",
+  "description": "Mobile canvassing app for door-to-door sales teams",
+  "start_url": "/canvass",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4F46E5",
+  "orientation": "portrait",
+  "scope": "/canvass",
+  "icons": [
+    {
+      "src": "/canvass-icons/icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/canvass-icons/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/canvass-icons/icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/canvass-icons/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/canvass-icons/icon-152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/canvass-icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/canvass-icons/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/canvass-icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "screenshots": [
+    {
+      "src": "/canvass-icons/screenshot-map.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Drop Pin",
+      "short_name": "Pin",
+      "description": "Drop a pin at your current location",
+      "url": "/canvass?action=drop-pin",
+      "icons": [{ "src": "/canvass-icons/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Today's Stats",
+      "short_name": "Stats",
+      "description": "View your daily statistics",
+      "url": "/canvass/stats",
+      "icons": [{ "src": "/canvass-icons/icon-96.png", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

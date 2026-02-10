@@ -1,0 +1,614 @@
+'use client'
+
+import { Document, Page, Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer'
+
+// Register fonts (using system fonts for now)
+Font.register({
+  family: 'Inter',
+  fonts: [
+    { src: 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2', fontWeight: 400 },
+    { src: 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuGKYAZ9hiJ-Ek-_EeA.woff2', fontWeight: 600 },
+    { src: 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuFuYAZ9hiJ-Ek-_EeA.woff2', fontWeight: 700 },
+  ],
+})
+
+interface ProposalData {
+  proposal: {
+    id: string
+    proposal_number: string
+    customer_name: string
+    customer_email?: string
+    customer_phone?: string
+    customer_address: string
+    title: string
+    status: string
+    subtotal: number
+    discount_amount: number
+    discount_percent: number
+    tax_rate: number
+    tax_amount: number
+    total: number
+    financing_available: boolean
+    financing_term_months?: number
+    financing_rate?: number
+    monthly_payment?: number
+    scope_of_work?: string
+    warranty_info?: string
+    accent_color: string
+    created_at: string
+  }
+  lineItems: Array<{
+    id: string
+    category: string
+    name: string
+    unit: string
+    quantity: number
+    unit_price: number
+    line_total: number
+    is_adder: boolean
+  }>
+  measurement?: {
+    total_squares: number
+    total_area_sqft: number
+    predominant_pitch: string
+    facet_count: number
+    ridges_lf?: number
+    eaves_lf?: number
+    valleys_lf?: number
+  }
+  company?: {
+    name: string
+    logo_url?: string
+    phone?: string
+    email?: string
+    address?: string
+    website?: string
+  }
+  rep?: {
+    full_name: string
+    email?: string
+    phone?: string
+  }
+}
+
+const styles = StyleSheet.create({
+  page: {
+    fontFamily: 'Inter',
+    fontSize: 10,
+    paddingTop: 0,
+    paddingBottom: 40,
+    paddingHorizontal: 0,
+    backgroundColor: '#ffffff',
+  },
+  // Cover Page
+  coverPage: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    padding: 40,
+  },
+  coverTitle: {
+    fontSize: 42,
+    fontWeight: 700,
+    color: '#ffffff',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  coverSubtitle: {
+    fontSize: 18,
+    color: '#94a3b8',
+    marginBottom: 40,
+    textAlign: 'center',
+  },
+  coverCustomer: {
+    fontSize: 24,
+    fontWeight: 600,
+    color: '#ffffff',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  coverAddress: {
+    fontSize: 14,
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+  coverPrice: {
+    marginTop: 60,
+    padding: 30,
+    backgroundColor: '#334155',
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  coverPriceLabel: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 2,
+  },
+  coverPriceValue: {
+    fontSize: 48,
+    fontWeight: 700,
+    color: '#22c55e',
+  },
+  // Header
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    padding: 30,
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  companyInfo: {
+    flex: 1,
+  },
+  companyName: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  companyDetail: {
+    fontSize: 9,
+    color: '#64748b',
+    marginBottom: 2,
+  },
+  proposalInfo: {
+    alignItems: 'flex-end',
+  },
+  proposalNumber: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  proposalDate: {
+    fontSize: 9,
+    color: '#64748b',
+  },
+  // Content
+  content: {
+    padding: 30,
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#1e293b',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: '#3b82f6',
+  },
+  // Customer Info
+  customerGrid: {
+    flexDirection: 'row',
+    gap: 40,
+  },
+  customerColumn: {
+    flex: 1,
+  },
+  label: {
+    fontSize: 8,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  value: {
+    fontSize: 11,
+    color: '#1e293b',
+    marginBottom: 12,
+  },
+  // Measurement Box
+  measurementBox: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+    padding: 20,
+    marginBottom: 24,
+  },
+  measurementTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#1e293b',
+    marginBottom: 16,
+  },
+  measurementGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 20,
+  },
+  measurementItem: {
+    width: '22%',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 6,
+  },
+  measurementValue: {
+    fontSize: 20,
+    fontWeight: 700,
+    color: '#3b82f6',
+    marginBottom: 4,
+  },
+  measurementLabel: {
+    fontSize: 8,
+    color: '#64748b',
+    textTransform: 'uppercase',
+  },
+  // Scope of Work
+  scopeText: {
+    fontSize: 10,
+    color: '#475569',
+    lineHeight: 1.6,
+  },
+  // Pricing Table
+  table: {
+    marginTop: 8,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#1e293b',
+    padding: 10,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+  },
+  tableHeaderCell: {
+    fontSize: 8,
+    fontWeight: 600,
+    color: '#ffffff',
+    textTransform: 'uppercase',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  tableRowAlt: {
+    backgroundColor: '#f8fafc',
+  },
+  tableCell: {
+    fontSize: 9,
+    color: '#475569',
+  },
+  tableCellBold: {
+    fontSize: 9,
+    fontWeight: 600,
+    color: '#1e293b',
+  },
+  col1: { width: '45%' },
+  col2: { width: '15%', textAlign: 'right' },
+  col3: { width: '20%', textAlign: 'right' },
+  col4: { width: '20%', textAlign: 'right' },
+  // Totals
+  totalsBox: {
+    marginTop: 16,
+    marginLeft: 'auto',
+    width: '50%',
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    padding: 16,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  totalLabel: {
+    fontSize: 10,
+    color: '#64748b',
+  },
+  totalValue: {
+    fontSize: 10,
+    color: '#1e293b',
+  },
+  grandTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    marginTop: 8,
+    borderTopWidth: 2,
+    borderTopColor: '#3b82f6',
+  },
+  grandTotalLabel: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#1e293b',
+  },
+  grandTotalValue: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#22c55e',
+  },
+  // Financing
+  financingBox: {
+    marginTop: 24,
+    padding: 20,
+    backgroundColor: '#eff6ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  financingTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#1e40af',
+    marginBottom: 8,
+  },
+  financingAmount: {
+    fontSize: 24,
+    fontWeight: 700,
+    color: '#1e40af',
+  },
+  financingTerms: {
+    fontSize: 9,
+    color: '#3b82f6',
+    marginTop: 4,
+  },
+  // Warranty
+  warrantyBox: {
+    padding: 16,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  warrantyTitle: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#166534',
+    marginBottom: 8,
+  },
+  warrantyText: {
+    fontSize: 9,
+    color: '#15803d',
+    lineHeight: 1.5,
+  },
+  // Footer
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: '#f8fafc',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  footerText: {
+    fontSize: 8,
+    color: '#64748b',
+  },
+  // Signature
+  signatureSection: {
+    marginTop: 40,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  signatureGrid: {
+    flexDirection: 'row',
+    gap: 40,
+  },
+  signatureBox: {
+    flex: 1,
+  },
+  signatureLine: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b',
+    marginBottom: 8,
+    height: 40,
+  },
+  signatureLabel: {
+    fontSize: 9,
+    color: '#64748b',
+  },
+})
+
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+  }).format(amount)
+}
+
+const formatDate = (dateString: string) => {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
+export const ProposalPDF = ({ data }: { data: ProposalData }) => {
+  const { proposal, lineItems, measurement, company, rep } = data
+
+  return (
+    <Document>
+      {/* Cover Page */}
+      <Page size="LETTER" style={styles.page}>
+        <View style={styles.coverPage}>
+          <Text style={styles.coverTitle}>ROOFING PROPOSAL</Text>
+          <Text style={styles.coverSubtitle}>Professional Roofing Services</Text>
+          
+          <Text style={styles.coverCustomer}>{proposal.customer_name}</Text>
+          <Text style={styles.coverAddress}>{proposal.customer_address}</Text>
+          
+          <View style={styles.coverPrice}>
+            <Text style={styles.coverPriceLabel}>Your Investment</Text>
+            <Text style={styles.coverPriceValue}>{formatCurrency(proposal.total)}</Text>
+          </View>
+        </View>
+      </Page>
+
+      {/* Details Page */}
+      <Page size="LETTER" style={styles.page}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.companyInfo}>
+            <Text style={styles.companyName}>{company?.name || 'Your Company'}</Text>
+            {company?.phone && <Text style={styles.companyDetail}>{company.phone}</Text>}
+            {company?.email && <Text style={styles.companyDetail}>{company.email}</Text>}
+            {company?.address && <Text style={styles.companyDetail}>{company.address}</Text>}
+          </View>
+          <View style={styles.proposalInfo}>
+            <Text style={styles.proposalNumber}>{proposal.proposal_number}</Text>
+            <Text style={styles.proposalDate}>{formatDate(proposal.created_at)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.content}>
+          {/* Customer & Rep Info */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Project Details</Text>
+            <View style={styles.customerGrid}>
+              <View style={styles.customerColumn}>
+                <Text style={styles.label}>Customer</Text>
+                <Text style={styles.value}>{proposal.customer_name}</Text>
+                <Text style={styles.label}>Property Address</Text>
+                <Text style={styles.value}>{proposal.customer_address}</Text>
+                {proposal.customer_phone && (
+                  <>
+                    <Text style={styles.label}>Phone</Text>
+                    <Text style={styles.value}>{proposal.customer_phone}</Text>
+                  </>
+                )}
+              </View>
+              <View style={styles.customerColumn}>
+                <Text style={styles.label}>Sales Representative</Text>
+                <Text style={styles.value}>{rep?.full_name || 'N/A'}</Text>
+                {rep?.phone && (
+                  <>
+                    <Text style={styles.label}>Rep Phone</Text>
+                    <Text style={styles.value}>{rep.phone}</Text>
+                  </>
+                )}
+                {rep?.email && (
+                  <>
+                    <Text style={styles.label}>Rep Email</Text>
+                    <Text style={styles.value}>{rep.email}</Text>
+                  </>
+                )}
+              </View>
+            </View>
+          </View>
+
+          {/* Measurement Data */}
+          {measurement && (
+            <View style={styles.measurementBox}>
+              <Text style={styles.measurementTitle}>Roof Measurements</Text>
+              <View style={styles.measurementGrid}>
+                <View style={styles.measurementItem}>
+                  <Text style={styles.measurementValue}>{measurement.total_squares?.toFixed(1) || '-'}</Text>
+                  <Text style={styles.measurementLabel}>Squares</Text>
+                </View>
+                <View style={styles.measurementItem}>
+                  <Text style={styles.measurementValue}>{measurement.total_area_sqft?.toLocaleString() || '-'}</Text>
+                  <Text style={styles.measurementLabel}>Sq Ft</Text>
+                </View>
+                <View style={styles.measurementItem}>
+                  <Text style={styles.measurementValue}>{measurement.predominant_pitch || '-'}</Text>
+                  <Text style={styles.measurementLabel}>Pitch</Text>
+                </View>
+                <View style={styles.measurementItem}>
+                  <Text style={styles.measurementValue}>{measurement.facet_count || '-'}</Text>
+                  <Text style={styles.measurementLabel}>Sections</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Scope of Work */}
+          {proposal.scope_of_work && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Scope of Work</Text>
+              <Text style={styles.scopeText}>{proposal.scope_of_work}</Text>
+            </View>
+          )}
+
+          {/* Investment Summary */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Investment Summary</Text>
+            
+            <View style={styles.totalsBox}>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Subtotal</Text>
+                <Text style={styles.totalValue}>{formatCurrency(proposal.subtotal)}</Text>
+              </View>
+              {proposal.discount_amount > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Discount</Text>
+                  <Text style={[styles.totalValue, { color: '#22c55e' }]}>-{formatCurrency(proposal.discount_amount)}</Text>
+                </View>
+              )}
+              {proposal.tax_amount > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Tax ({proposal.tax_rate}%)</Text>
+                  <Text style={styles.totalValue}>{formatCurrency(proposal.tax_amount)}</Text>
+                </View>
+              )}
+              <View style={styles.grandTotalRow}>
+                <Text style={styles.grandTotalLabel}>Total Investment</Text>
+                <Text style={styles.grandTotalValue}>{formatCurrency(proposal.total)}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Financing */}
+          {proposal.financing_available && proposal.monthly_payment && (
+            <View style={styles.financingBox}>
+              <Text style={styles.financingTitle}>Financing Available</Text>
+              <Text style={styles.financingAmount}>{formatCurrency(proposal.monthly_payment)}/month</Text>
+              <Text style={styles.financingTerms}>
+                {proposal.financing_term_months} months at {proposal.financing_rate}% APR
+              </Text>
+            </View>
+          )}
+
+          {/* Warranty */}
+          {proposal.warranty_info && (
+            <View style={[styles.section, { marginTop: 24 }]}>
+              <View style={styles.warrantyBox}>
+                <Text style={styles.warrantyTitle}>Warranty Information</Text>
+                <Text style={styles.warrantyText}>{proposal.warranty_info}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Signature Section */}
+          <View style={styles.signatureSection}>
+            <Text style={[styles.sectionTitle, { borderBottomColor: '#1e293b' }]}>Authorization</Text>
+            <View style={styles.signatureGrid}>
+              <View style={styles.signatureBox}>
+                <View style={styles.signatureLine} />
+                <Text style={styles.signatureLabel}>Customer Signature</Text>
+              </View>
+              <View style={styles.signatureBox}>
+                <View style={styles.signatureLine} />
+                <Text style={styles.signatureLabel}>Date</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>{company?.name || 'Your Company'}</Text>
+          <Text style={styles.footerText}>Proposal {proposal.proposal_number}</Text>
+          <Text style={styles.footerText}>Page 2 of 2</Text>
+        </View>
+      </Page>
+    </Document>
+  )
+}
+
+export default ProposalPDF

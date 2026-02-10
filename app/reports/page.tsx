@@ -1,0 +1,903 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import Nav from '@/components/Nav'
+import Link from 'next/link'
+import { createClientBrowser } from '@/lib/supabase/client'
+import { getReportScope, can, getRoleDisplayName } from '@/lib/permissions'
+import type { UserRole, User, Team, Region, InspectionOutcome } from '@/lib/types/database'
+
+type ReportMetrics = {
+  doorsKnocked: number
+  contacts: number
+  inspectionsSet: number
+  opportunitiesCreated: number
+  contractsSigned: number
+  projectsCompleted: number
+  inspectionsRun: number
+  closeRate: number
+}
+
+type UserMetrics = User & ReportMetrics
+type TeamMetrics = Team & ReportMetrics & { members: UserMetrics[] }
+type RegionMetrics = Region & ReportMetrics & { teams: TeamMetrics[] }
+
+type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all'
+
+export default function ReportsPage() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [dateRange, setDateRange] = useState<DateRange>('30d')
+  const [viewLevel, setViewLevel] = useState<'org' | 'region' | 'team' | 'user'>('org')
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null)
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
+  
+  const [orgMetrics, setOrgMetrics] = useState<ReportMetrics | null>(null)
+  const [regions, setRegions] = useState<RegionMetrics[]>([])
+  const [teams, setTeams] = useState<TeamMetrics[]>([])
+  const [users, setUsers] = useState<UserMetrics[]>([])
+  const [closeRateHistory, setCloseRateHistory] = useState<{ date: string; rate: number; inspections: number; sales: number }[]>([])
+  const [customReports, setCustomReports] = useState<any[]>([])
+  const [activeTab, setActiveTab] = useState<'overview' | 'custom'>('overview')
+
+  useEffect(() => {
+    loadCurrentUser()
+    loadCustomReports()
+  }, [])
+
+  useEffect(() => {
+    if (currentUser) {
+      loadMetrics()
+    }
+  }, [currentUser, dateRange, viewLevel, selectedRegionId, selectedTeamId])
+
+  const loadCurrentUser = async () => {
+    const supabase = createClientBrowser()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: profile } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+
+    setCurrentUser(profile)
+    setLoading(false)
+  }
+
+  const loadCustomReports = async () => {
+    try {
+      const res = await fetch('/api/reports/custom')
+      if (res.ok) {
+        const data = await res.json()
+        setCustomReports(data.reports || [])
+      }
+    } catch (error) {
+      console.error('Failed to load custom reports:', error)
+    }
+  }
+
+  const getDateFilter = () => {
+    const now = new Date()
+    switch (dateRange) {
+      case '7d':
+        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      case '30d':
+        return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      case '90d':
+        return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      case 'ytd':
+        return new Date(now.getFullYear(), 0, 1).toISOString()
+      case 'all':
+        return new Date(2000, 0, 1).toISOString()
+    }
+  }
+
+  const loadMetrics = async () => {
+    if (!currentUser) return
+    setLoading(true)
+
+    const supabase = createClientBrowser()
+    const dateFilter = getDateFilter()
+    const scope = getReportScope(currentUser.role as UserRole)
+
+    // Load org-level metrics
+    const [leadsRes, oppsRes, projectsRes, statusUpdatesRes] = await Promise.all([
+      supabase
+        .from('leads')
+        .select('id, status, canvass_disposition, created_at')
+        .gte('created_at', dateFilter),
+      supabase
+        .from('opportunities')
+        .select('id, status, inspection_outcome, inspection_outcome_at, created_at')
+        .gte('created_at', dateFilter),
+      supabase
+        .from('projects')
+        .select('id, status, created_at')
+        .gte('created_at', dateFilter),
+      supabase
+        .from('inspection_status_updates')
+        .select('id, outcome, completed_at, closer_user_id')
+        .gte('completed_at', dateFilter),
+    ])
+
+    const leads = leadsRes.data || []
+    const opps = oppsRes.data || []
+    const projects = projectsRes.data || []
+    const statusUpdates = statusUpdatesRes.data || []
+
+    // Calculate close rate from inspection outcomes
+    const inspectionsRun = opps.filter(o => o.inspection_outcome).length
+    const salesFromInspections = opps.filter(o => o.inspection_outcome === 'sale').length
+    const closeRate = inspectionsRun > 0 ? (salesFromInspections / inspectionsRun * 100) : 0
+
+    const orgMetricsData: ReportMetrics = {
+      doorsKnocked: leads.length,
+      contacts: leads.filter(l => 
+        ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
+      ).length,
+      inspectionsSet: leads.filter(l => l.status === 'inspection').length,
+      opportunitiesCreated: opps.length,
+      contractsSigned: opps.filter(o => o.status === 'won').length,
+      projectsCompleted: projects.filter(p => p.status === 'complete').length,
+      inspectionsRun,
+      closeRate,
+    }
+
+    setOrgMetrics(orgMetricsData)
+
+    // Calculate close rate history by week
+    const weeklyData: Record<string, { inspections: number; sales: number }> = {}
+    opps.filter(o => o.inspection_outcome && o.inspection_outcome_at).forEach(opp => {
+      const date = new Date(opp.inspection_outcome_at!)
+      const weekStart = new Date(date)
+      weekStart.setDate(date.getDate() - date.getDay())
+      const weekKey = weekStart.toISOString().split('T')[0]
+      
+      if (!weeklyData[weekKey]) {
+        weeklyData[weekKey] = { inspections: 0, sales: 0 }
+      }
+      weeklyData[weekKey].inspections++
+      if (opp.inspection_outcome === 'sale') {
+        weeklyData[weekKey].sales++
+      }
+    })
+
+    const history = Object.entries(weeklyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({
+        date,
+        inspections: data.inspections,
+        sales: data.sales,
+        rate: data.inspections > 0 ? (data.sales / data.inspections * 100) : 0,
+      }))
+    
+    setCloseRateHistory(history)
+
+    // Load regions if user can view them
+    if (scope === 'all' || scope === 'region') {
+      const { data: regionsData } = await supabase
+        .from('regions')
+        .select('*')
+        .order('name')
+
+      // For each region, calculate metrics
+      const regionsWithMetrics: RegionMetrics[] = []
+      for (const region of regionsData || []) {
+        // Get teams in this region
+        const { data: regionTeams } = await supabase
+          .from('teams')
+          .select('*')
+          .eq('region_id', region.id)
+
+        // Get users in those teams
+        const teamIds = (regionTeams || []).map(t => t.id)
+        const { data: regionUsers } = await supabase
+          .from('users')
+          .select('id')
+          .in('team_id', teamIds.length > 0 ? teamIds : ['none'])
+
+        const userIds = (regionUsers || []).map(u => u.id)
+
+        // Get leads for those users
+        const { data: regionLeads } = await supabase
+          .from('leads')
+          .select('id, status, canvass_disposition')
+          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
+          .gte('created_at', dateFilter)
+
+        const { data: regionOpps } = await supabase
+          .from('opportunities')
+          .select('id, status')
+          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
+          .gte('created_at', dateFilter)
+
+        const regionInspectionsRun = (regionOpps || []).filter(o => o.inspection_outcome).length
+        const regionSales = (regionOpps || []).filter(o => o.inspection_outcome === 'sale').length
+        
+        regionsWithMetrics.push({
+          ...region,
+          doorsKnocked: (regionLeads || []).length,
+          contacts: (regionLeads || []).filter(l => 
+            ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
+          ).length,
+          inspectionsSet: (regionLeads || []).filter(l => l.status === 'inspection').length,
+          opportunitiesCreated: (regionOpps || []).length,
+          contractsSigned: (regionOpps || []).filter(o => o.status === 'won').length,
+          projectsCompleted: 0,
+          inspectionsRun: regionInspectionsRun,
+          closeRate: regionInspectionsRun > 0 ? (regionSales / regionInspectionsRun * 100) : 0,
+          teams: [],
+        })
+      }
+
+      setRegions(regionsWithMetrics)
+    }
+
+    // Load teams if viewing team level
+    if (selectedRegionId || scope === 'team') {
+      let teamsQuery = supabase.from('teams').select('*').order('name')
+      
+      if (selectedRegionId) {
+        teamsQuery = teamsQuery.eq('region_id', selectedRegionId)
+      } else if (currentUser.team_id) {
+        teamsQuery = teamsQuery.eq('id', currentUser.team_id)
+      }
+
+      const { data: teamsData } = await teamsQuery
+
+      const teamsWithMetrics: TeamMetrics[] = []
+      for (const team of teamsData || []) {
+        const { data: teamUsers } = await supabase
+          .from('users')
+          .select('id')
+          .eq('team_id', team.id)
+
+        const userIds = (teamUsers || []).map(u => u.id)
+
+        const { data: teamLeads } = await supabase
+          .from('leads')
+          .select('id, status, canvass_disposition')
+          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
+          .gte('created_at', dateFilter)
+
+        const { data: teamOpps } = await supabase
+          .from('opportunities')
+          .select('id, status, inspection_outcome')
+          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
+          .gte('created_at', dateFilter)
+
+        const teamInspectionsRun = (teamOpps || []).filter(o => o.inspection_outcome).length
+        const teamSales = (teamOpps || []).filter(o => o.inspection_outcome === 'sale').length
+
+        teamsWithMetrics.push({
+          ...team,
+          doorsKnocked: (teamLeads || []).length,
+          contacts: (teamLeads || []).filter(l => 
+            ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
+          ).length,
+          inspectionsSet: (teamLeads || []).filter(l => l.status === 'inspection').length,
+          opportunitiesCreated: (teamOpps || []).length,
+          contractsSigned: (teamOpps || []).filter(o => o.status === 'won').length,
+          projectsCompleted: 0,
+          inspectionsRun: teamInspectionsRun,
+          closeRate: teamInspectionsRun > 0 ? (teamSales / teamInspectionsRun * 100) : 0,
+          members: [],
+        })
+      }
+
+      setTeams(teamsWithMetrics)
+    }
+
+    // Load individual users if viewing user level
+    if (selectedTeamId || scope === 'own') {
+      let usersQuery = supabase.from('users').select('*').eq('active', true).order('full_name')
+      
+      if (selectedTeamId) {
+        usersQuery = usersQuery.eq('team_id', selectedTeamId)
+      } else if (scope === 'own') {
+        usersQuery = usersQuery.eq('id', currentUser.id)
+      }
+
+      const { data: usersData } = await usersQuery
+
+      const usersWithMetrics: UserMetrics[] = []
+      for (const user of usersData || []) {
+        const { data: userLeads } = await supabase
+          .from('leads')
+          .select('id, status, canvass_disposition')
+          .eq('owner_user_id', user.id)
+          .gte('created_at', dateFilter)
+
+        const { data: userOpps } = await supabase
+          .from('opportunities')
+          .select('id, status, inspection_outcome')
+          .eq('owner_user_id', user.id)
+          .gte('created_at', dateFilter)
+
+        const userInspectionsRun = (userOpps || []).filter(o => o.inspection_outcome).length
+        const userSales = (userOpps || []).filter(o => o.inspection_outcome === 'sale').length
+
+        usersWithMetrics.push({
+          ...user,
+          doorsKnocked: (userLeads || []).length,
+          contacts: (userLeads || []).filter(l => 
+            ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
+          ).length,
+          inspectionsSet: (userLeads || []).filter(l => l.status === 'inspection').length,
+          opportunitiesCreated: (userOpps || []).length,
+          contractsSigned: (userOpps || []).filter(o => o.status === 'won').length,
+          projectsCompleted: 0,
+          inspectionsRun: userInspectionsRun,
+          closeRate: userInspectionsRun > 0 ? (userSales / userInspectionsRun * 100) : 0,
+        })
+      }
+
+      setUsers(usersWithMetrics)
+    }
+
+    setLoading(false)
+  }
+
+  const handleDrillDown = (level: 'region' | 'team' | 'user', id: string) => {
+    if (level === 'region') {
+      setSelectedRegionId(id)
+      setViewLevel('region')
+    } else if (level === 'team') {
+      setSelectedTeamId(id)
+      setViewLevel('team')
+    } else if (level === 'user') {
+      setSelectedUserId(id)
+      setViewLevel('user')
+    }
+  }
+
+  const handleBreadcrumbClick = (level: 'org' | 'region' | 'team') => {
+    if (level === 'org') {
+      setSelectedRegionId(null)
+      setSelectedTeamId(null)
+      setSelectedUserId(null)
+      setViewLevel('org')
+    } else if (level === 'region') {
+      setSelectedTeamId(null)
+      setSelectedUserId(null)
+      setViewLevel('region')
+    } else if (level === 'team') {
+      setSelectedUserId(null)
+      setViewLevel('team')
+    }
+  }
+
+  const MetricCard = ({ label, value, subtext }: { label: string; value: number; subtext?: string }) => (
+    <div className="bg-white rounded-xl shadow-sm border p-6">
+      <p className="text-sm font-medium text-gray-500 mb-1">{label}</p>
+      <p className="text-3xl font-bold text-gray-900">{value.toLocaleString()}</p>
+      {subtext && <p className="text-xs text-gray-400 mt-1">{subtext}</p>}
+    </div>
+  )
+
+  const scope = currentUser ? getReportScope(currentUser.role as UserRole) : 'own'
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Nav />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
+            <p className="mt-1 text-gray-600">
+              Performance metrics and analytics
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            {activeTab === 'overview' && (
+              <select
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value as DateRange)}
+                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+              >
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+                <option value="ytd">Year to date</option>
+                <option value="all">All time</option>
+              </select>
+            )}
+            {can.exportReports(currentUser?.role as UserRole) && activeTab === 'overview' && (
+              <Link
+                href={`/api/reports/export?range=${dateRange}`}
+                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm"
+              >
+                Export Excel
+              </Link>
+            )}
+            <Link
+              href="/reports/builder"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Create Report
+            </Link>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 border-b">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
+              activeTab === 'overview'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab('custom')}
+            className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px flex items-center gap-2 ${
+              activeTab === 'custom'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Custom Reports
+            {customReports.length > 0 && (
+              <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
+                {customReports.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {activeTab === 'custom' ? (
+          /* Custom Reports Tab */
+          <div>
+            {customReports.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
+                <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No custom reports yet</h3>
+                <p className="text-gray-500 mb-6">Create your first custom report to track the metrics that matter to you</p>
+                <Link
+                  href="/reports/builder"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Create Report
+                </Link>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {customReports.map((report) => (
+                  <CustomReportCard key={report.id} report={report} onRefresh={loadCustomReports} />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Breadcrumbs */}
+        <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+          <button
+            onClick={() => handleBreadcrumbClick('org')}
+            className={`hover:text-indigo-600 ${viewLevel === 'org' ? 'font-medium text-gray-900' : ''}`}
+          >
+            Organization
+          </button>
+          {selectedRegionId && (
+            <>
+              <span>/</span>
+              <button
+                onClick={() => handleBreadcrumbClick('region')}
+                className={`hover:text-indigo-600 ${viewLevel === 'region' ? 'font-medium text-gray-900' : ''}`}
+              >
+                {regions.find(r => r.id === selectedRegionId)?.name || 'Region'}
+              </button>
+            </>
+          )}
+          {selectedTeamId && (
+            <>
+              <span>/</span>
+              <button
+                onClick={() => handleBreadcrumbClick('team')}
+                className={`hover:text-indigo-600 ${viewLevel === 'team' ? 'font-medium text-gray-900' : ''}`}
+              >
+                {teams.find(t => t.id === selectedTeamId)?.name || 'Team'}
+              </button>
+            </>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+            Loading reports...
+          </div>
+        ) : (
+          <>
+            {/* Summary Metrics */}
+            {orgMetrics && (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
+                  <MetricCard label="Doors Knocked" value={orgMetrics.doorsKnocked} />
+                  <MetricCard label="Contacts" value={orgMetrics.contacts} />
+                  <MetricCard label="Inspections Set" value={orgMetrics.inspectionsSet} />
+                  <MetricCard label="Inspections Run" value={orgMetrics.inspectionsRun} />
+                  <MetricCard label="Opportunities" value={orgMetrics.opportunitiesCreated} />
+                  <MetricCard label="Contracts Signed" value={orgMetrics.contractsSigned} />
+                  <MetricCard label="Projects Complete" value={orgMetrics.projectsCompleted} />
+                  <div className="bg-white rounded-xl shadow-sm border p-6">
+                    <p className="text-sm font-medium text-gray-500 mb-1">Close Rate</p>
+                    <p className="text-3xl font-bold text-indigo-600">{orgMetrics.closeRate.toFixed(1)}%</p>
+                    <p className="text-xs text-gray-400 mt-1">From inspections run</p>
+                  </div>
+                </div>
+
+                {/* Close Rate Chart */}
+                {closeRateHistory.length > 1 && (
+                  <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Close Rate Trend</h2>
+                    <div className="h-64 relative">
+                      {/* Simple bar chart */}
+                      <div className="flex items-end justify-between h-48 gap-2 border-b border-l border-gray-200 px-2 pb-2">
+                        {closeRateHistory.slice(-12).map((week, idx) => {
+                          const maxRate = Math.max(...closeRateHistory.map(w => w.rate), 100)
+                          const height = (week.rate / maxRate) * 100
+                          return (
+                            <div key={week.date} className="flex-1 flex flex-col items-center group">
+                              <div className="relative w-full">
+                                <div
+                                  className="w-full bg-indigo-500 rounded-t transition-all hover:bg-indigo-600"
+                                  style={{ height: `${height * 1.8}px`, minHeight: week.rate > 0 ? '4px' : '0' }}
+                                />
+                                {/* Tooltip */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
+                                  <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                                    <p className="font-semibold">{week.rate.toFixed(1)}% close rate</p>
+                                    <p>{week.sales} sales / {week.inspections} inspections</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {/* X-axis labels */}
+                      <div className="flex justify-between px-2 mt-2">
+                        {closeRateHistory.slice(-12).map((week, idx) => (
+                          <div key={week.date} className="flex-1 text-center">
+                            <span className="text-xs text-gray-500">
+                              {new Date(week.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-4 flex items-center justify-center gap-6 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 bg-indigo-500 rounded" />
+                        <span className="text-gray-600">Close Rate by Week</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Inspection Outcomes Breakdown */}
+                <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Inspection Outcomes</h2>
+                  <div className="grid grid-cols-5 gap-4">
+                    {[
+                      { outcome: 'sale', label: 'Sales', color: 'bg-green-500', textColor: 'text-green-600' },
+                      { outcome: 'said_no', label: 'Said No', color: 'bg-red-500', textColor: 'text-red-600' },
+                      { outcome: 'not_home', label: 'Not Home', color: 'bg-amber-500', textColor: 'text-amber-600' },
+                      { outcome: 'failed_credit', label: 'Failed Credit', color: 'bg-orange-500', textColor: 'text-orange-600' },
+                      { outcome: 'rescheduled', label: 'Rescheduled', color: 'bg-blue-500', textColor: 'text-blue-600' },
+                    ].map(({ outcome, label, color, textColor }) => {
+                      // This would need actual data - for now showing placeholder
+                      return (
+                        <div key={outcome} className="text-center">
+                          <div className={`w-12 h-12 ${color} rounded-full mx-auto mb-2 flex items-center justify-center text-white font-bold`}>
+                            {/* Count would go here */}
+                            -
+                          </div>
+                          <p className="text-sm font-medium text-gray-900">{label}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Drill-down Tables */}
+            {viewLevel === 'org' && (scope === 'all' || scope === 'region') && regions.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-6">
+                <div className="px-6 py-4 border-b bg-gray-50">
+                  <h2 className="font-semibold text-gray-900">By Region</h2>
+                </div>
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Doors</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Contacts</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Insp. Set</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Insp. Run</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Close Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {regions.map((region) => (
+                      <tr
+                        key={region.id}
+                        onClick={() => handleDrillDown('region', region.id)}
+                        className="hover:bg-gray-50 cursor-pointer"
+                      >
+                        <td className="px-6 py-4 font-medium text-gray-900">{region.name}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{region.doorsKnocked}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{region.contacts}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{region.inspectionsSet}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{region.inspectionsRun}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{region.contractsSigned}</td>
+                        <td className="px-6 py-4 text-right font-semibold text-indigo-600">{region.closeRate.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {(viewLevel === 'region' || (viewLevel === 'org' && scope === 'team')) && teams.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-6">
+                <div className="px-6 py-4 border-b bg-gray-50">
+                  <h2 className="font-semibold text-gray-900">By Team</h2>
+                </div>
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Doors</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Contacts</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Insp. Set</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Insp. Run</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Close Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {teams.map((team) => (
+                      <tr
+                        key={team.id}
+                        onClick={() => handleDrillDown('team', team.id)}
+                        className="hover:bg-gray-50 cursor-pointer"
+                      >
+                        <td className="px-6 py-4 font-medium text-gray-900">{team.name}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{team.doorsKnocked}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{team.contacts}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{team.inspectionsSet}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{team.inspectionsRun}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{team.contractsSigned}</td>
+                        <td className="px-6 py-4 text-right font-semibold text-indigo-600">{team.closeRate.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {(viewLevel === 'team' || scope === 'own') && users.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                <div className="px-6 py-4 border-b bg-gray-50">
+                  <h2 className="font-semibold text-gray-900">By Individual</h2>
+                </div>
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Doors</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Contacts</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Insp. Set</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Insp. Run</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Close Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {users.map((user) => (
+                      <tr key={user.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-medium">
+                              {user.full_name?.charAt(0) || '?'}
+                            </div>
+                            <span className="font-medium text-gray-900">{user.full_name || 'Unknown'}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-gray-500 text-sm">
+                          {getRoleDisplayName(user.role as UserRole)}
+                        </td>
+                        <td className="px-6 py-4 text-right text-gray-600">{user.doorsKnocked}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{user.contacts}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{user.inspectionsSet}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{user.inspectionsRun}</td>
+                        <td className="px-6 py-4 text-right text-gray-600">{user.contractsSigned}</td>
+                        <td className="px-6 py-4 text-right font-semibold text-indigo-600">{user.closeRate.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+        </>
+      )}
+      </div>
+    </div>
+  )
+}
+
+// Custom Report Card Component
+function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () => void }) {
+  const [loading, setLoading] = useState(false)
+  const [data, setData] = useState<any[]>([])
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    executeReport()
+  }, [report.id])
+
+  const executeReport = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/reports/custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_id: report.id }),
+      })
+      if (res.ok) {
+        const result = await res.json()
+        setData(result.data || [])
+      }
+    } catch (error) {
+      console.error('Failed to execute report:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this report?')) return
+    setDeleting(true)
+    try {
+      const supabase = createClientBrowser()
+      await supabase.from('custom_reports').delete().eq('id', report.id)
+      onRefresh()
+    } catch (error) {
+      console.error('Failed to delete report:', error)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const getReportTypeIcon = (type: string) => {
+    switch (type) {
+      case 'bar_chart': return '📊'
+      case 'line_chart': return '📈'
+      case 'pie_chart': return '🥧'
+      case 'metric_card': return '🔢'
+      case 'table': return '📋'
+      case 'funnel': return '🔻'
+      default: return '📊'
+    }
+  }
+
+  const maxValue = Math.max(...data.map(d => d.value), 1)
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+      <div className="p-4 border-b">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">{getReportTypeIcon(report.report_type)}</span>
+            <div>
+              <h3 className="font-semibold text-gray-900">{report.name}</h3>
+              {report.description && (
+                <p className="text-xs text-gray-500 mt-0.5">{report.description}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Link
+              href={`/reports/builder?edit=${report.id}`}
+              className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </Link>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="p-1.5 text-gray-400 hover:text-red-600 rounded disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+          <span className="capitalize">{report.data_source}</span>
+          <span>•</span>
+          <span>{report.config?.dateRange || '30d'}</span>
+          {report.is_public && (
+            <>
+              <span>•</span>
+              <span className="text-green-600">Public</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="p-4">
+        {loading ? (
+          <div className="h-32 flex items-center justify-center text-gray-400">
+            Loading...
+          </div>
+        ) : report.report_type === 'metric_card' ? (
+          <div className="text-center py-4">
+            <p className="text-4xl font-bold text-gray-900">
+              {data[0]?.value?.toLocaleString() || 0}
+            </p>
+            <p className="text-sm text-gray-500 mt-1">{data[0]?.label || 'Total'}</p>
+          </div>
+        ) : report.report_type === 'bar_chart' ? (
+          <div className="space-y-2">
+            {data.slice(0, 5).map((item, idx) => (
+              <div key={idx}>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-600 truncate">{item.label}</span>
+                  <span className="font-medium text-gray-900">{item.value}</span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full"
+                    style={{ width: `${(item.value / maxValue) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+            {data.length > 5 && (
+              <p className="text-xs text-gray-400 text-center pt-2">
+                +{data.length - 5} more
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {data.slice(0, 6).map((item, idx) => (
+              <div key={idx} className="flex justify-between text-sm py-1 border-b last:border-0">
+                <span className="text-gray-600">{item.label}</span>
+                <span className="font-medium text-gray-900">{item.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 py-2 bg-gray-50 border-t text-xs text-gray-500">
+        Created by {report.creator?.full_name || 'Unknown'}
+      </div>
+    </div>
+  )
+}

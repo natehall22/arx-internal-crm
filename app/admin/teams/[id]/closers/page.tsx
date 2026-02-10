@@ -1,0 +1,467 @@
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import Nav from '@/components/Nav'
+import Link from 'next/link'
+import { createClientBrowser } from '@/lib/supabase/client'
+import type { Team, User, TeamCloserQueue } from '@/lib/types/database'
+
+type CloserWithQueue = User & {
+  queue?: TeamCloserQueue
+}
+
+export default function CloserQueuePage({ params }: { params: { id: string } }) {
+  const teamId = params.id
+
+  const [team, setTeam] = useState<Team | null>(null)
+  const [closers, setClosers] = useState<CloserWithQueue[]>([])
+  const [availableUsers, setAvailableUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    loadData()
+  }, [teamId])
+
+  const loadData = async () => {
+    const supabase = createClientBrowser()
+
+    // Load team
+    const { data: teamData, error: teamError } = await supabase
+      .from('teams')
+      .select('*')
+      .eq('id', teamId)
+      .single()
+
+    if (teamError || !teamData) {
+      setError('Team not found')
+      setLoading(false)
+      return
+    }
+
+    setTeam(teamData)
+
+    // Load closer queue for this team
+    const { data: queueData } = await supabase
+      .from('team_closer_queue')
+      .select('*, users(*)')
+      .eq('team_id', teamId)
+      .order('priority')
+
+    const closersWithQueue: CloserWithQueue[] = (queueData || []).map((q: any) => ({
+      ...q.users,
+      queue: {
+        id: q.id,
+        org_id: q.org_id,
+        team_id: q.team_id,
+        user_id: q.user_id,
+        priority: q.priority,
+        buffer_minutes: q.buffer_minutes,
+        active: q.active,
+        last_assigned_at: q.last_assigned_at,
+        created_at: q.created_at,
+        updated_at: q.updated_at,
+      }
+    }))
+
+    setClosers(closersWithQueue)
+
+    // Load available users (sales reps not in queue)
+    const queueUserIds = closersWithQueue.map(c => c.id)
+    const { data: usersData } = await supabase
+      .from('users')
+      .select('*')
+      .in('role', ['sales_rep', 'sales_manager'])
+      .eq('active', true)
+      .order('full_name')
+
+    const available = (usersData || []).filter(u => !queueUserIds.includes(u.id))
+    setAvailableUsers(available)
+
+    setLoading(false)
+  }
+
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    if (draggedIndex === null || draggedIndex === index) return
+
+    const newClosers = [...closers]
+    const draggedItem = newClosers[draggedIndex]
+    newClosers.splice(draggedIndex, 1)
+    newClosers.splice(index, 0, draggedItem)
+    
+    setClosers(newClosers)
+    setDraggedIndex(index)
+  }
+
+  const handleDragEnd = async () => {
+    if (draggedIndex === null) return
+    setDraggedIndex(null)
+
+    // Save new priorities
+    setSaving(true)
+    const supabase = createClientBrowser()
+
+    for (let i = 0; i < closers.length; i++) {
+      const closer = closers[i]
+      if (closer.queue && closer.queue.priority !== i) {
+        await supabase
+          .from('team_closer_queue')
+          .update({ priority: i })
+          .eq('id', closer.queue.id)
+      }
+    }
+
+    setSaving(false)
+  }
+
+  const handleAddCloser = async () => {
+    if (!selectedUserId) {
+      setError('Select a user to add')
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+
+    const supabase = createClientBrowser()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setError('Not authenticated')
+      setSaving(false)
+      return
+    }
+
+    const { data: profile } = await supabase
+      .from('users')
+      .select('org_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.org_id) {
+      setError('User profile not found')
+      setSaving(false)
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from('team_closer_queue')
+      .insert({
+        org_id: profile.org_id,
+        team_id: teamId,
+        user_id: selectedUserId,
+        priority: closers.length,
+        buffer_minutes: 60,
+        active: true,
+      })
+
+    if (insertError) {
+      setError('Failed to add closer')
+    } else {
+      setShowAddModal(false)
+      setSelectedUserId('')
+      await loadData()
+    }
+    setSaving(false)
+  }
+
+  const handleRemoveCloser = async (closer: CloserWithQueue) => {
+    if (!closer.queue) return
+    if (!confirm(`Remove ${closer.full_name || 'this user'} from the closer queue?`)) return
+
+    const supabase = createClientBrowser()
+    const { error: deleteError } = await supabase
+      .from('team_closer_queue')
+      .delete()
+      .eq('id', closer.queue.id)
+
+    if (deleteError) {
+      setError('Failed to remove closer')
+    } else {
+      await loadData()
+    }
+  }
+
+  const handleToggleActive = async (closer: CloserWithQueue) => {
+    if (!closer.queue) return
+
+    const supabase = createClientBrowser()
+    const { error: updateError } = await supabase
+      .from('team_closer_queue')
+      .update({ active: !closer.queue.active })
+      .eq('id', closer.queue.id)
+
+    if (updateError) {
+      setError('Failed to update closer')
+    } else {
+      await loadData()
+    }
+  }
+
+  const handleUpdateBuffer = async (closer: CloserWithQueue, minutes: number) => {
+    if (!closer.queue) return
+
+    const supabase = createClientBrowser()
+    await supabase
+      .from('team_closer_queue')
+      .update({ buffer_minutes: minutes })
+      .eq('id', closer.queue.id)
+
+    await loadData()
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Nav />
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
+            Loading...
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!team) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Nav />
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
+            <p className="text-red-600 mb-4">Team not found</p>
+            <Link href="/admin/teams" className="text-indigo-600 hover:underline">
+              Back to Teams
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Nav />
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+              <Link href="/admin" className="hover:text-indigo-600">Admin</Link>
+              <span>/</span>
+              <Link href="/admin/teams" className="hover:text-indigo-600">Teams</Link>
+              <span>/</span>
+              <span>{team.name}</span>
+              <span>/</span>
+              <span>Closer Queue</span>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900">Closer Queue</h1>
+            <p className="mt-1 text-gray-600">
+              Drag to reorder priority. Higher position = assigned first.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            disabled={availableUsers.length === 0}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            + Add Closer
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg">
+            {error}
+          </div>
+        )}
+
+        {saving && (
+          <div className="mb-6 p-4 bg-blue-50 text-blue-700 rounded-lg">
+            Saving changes...
+          </div>
+        )}
+
+        {closers.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
+            <div className="text-gray-400 mb-4">
+              <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-1">No closers in queue</h3>
+            <p className="text-gray-500 mb-4">
+              Add sales reps to the round-robin queue for automatic appointment assignment.
+            </p>
+            {availableUsers.length > 0 && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+              >
+                Add First Closer
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+            <div className="px-6 py-4 border-b bg-gray-50">
+              <div className="grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <div className="col-span-1">#</div>
+                <div className="col-span-4">Closer</div>
+                <div className="col-span-2">Status</div>
+                <div className="col-span-3">Buffer Time</div>
+                <div className="col-span-2">Actions</div>
+              </div>
+            </div>
+            <div className="divide-y">
+              {closers.map((closer, index) => (
+                <div
+                  key={closer.id}
+                  draggable
+                  onDragStart={() => handleDragStart(index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDragEnd={handleDragEnd}
+                  className={`px-6 py-4 cursor-move hover:bg-gray-50 transition-colors ${
+                    draggedIndex === index ? 'bg-indigo-50' : ''
+                  } ${!closer.queue?.active ? 'opacity-50' : ''}`}
+                >
+                  <div className="grid grid-cols-12 gap-4 items-center">
+                    <div className="col-span-1">
+                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm font-medium text-gray-600">
+                        {index + 1}
+                      </div>
+                    </div>
+                    <div className="col-span-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-medium">
+                          {closer.full_name?.charAt(0) || '?'}
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{closer.full_name || 'Unknown'}</p>
+                          <p className="text-sm text-gray-500">{closer.email}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-span-2">
+                      <button
+                        onClick={() => handleToggleActive(closer)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          closer.queue?.active
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        {closer.queue?.active ? 'Active' : 'Paused'}
+                      </button>
+                    </div>
+                    <div className="col-span-3">
+                      <select
+                        value={closer.queue?.buffer_minutes || 60}
+                        onChange={(e) => handleUpdateBuffer(closer, parseInt(e.target.value))}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                      >
+                        <option value={30}>30 min</option>
+                        <option value={45}>45 min</option>
+                        <option value={60}>1 hour</option>
+                        <option value={90}>1.5 hours</option>
+                        <option value={120}>2 hours</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2 flex items-center gap-2">
+                      <button
+                        onClick={() => handleRemoveCloser(closer)}
+                        className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                        title="Remove from queue"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                      <div className="text-gray-300 cursor-move" title="Drag to reorder">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+          <h3 className="font-medium text-blue-900 mb-2">How Round-Robin Works</h3>
+          <ul className="text-sm text-blue-800 space-y-1">
+            <li>1. When a canvasser schedules an inspection, the system checks this queue</li>
+            <li>2. The first active closer with availability (based on Google Calendar) is assigned</li>
+            <li>3. Buffer time ensures gaps between appointments</li>
+            <li>4. Drag closers to adjust priority based on close rate</li>
+          </ul>
+        </div>
+
+        {/* Add Closer Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Add Closer to Queue
+              </h2>
+
+              {availableUsers.length === 0 ? (
+                <p className="text-gray-500 mb-4">
+                  All eligible users are already in the queue.
+                </p>
+              ) : (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select User
+                  </label>
+                  <select
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                  >
+                    <option value="">Choose a sales rep...</option>
+                    {availableUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.full_name || 'Unknown'} ({user.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowAddModal(false)
+                    setSelectedUserId('')
+                  }}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg font-medium"
+                >
+                  Cancel
+                </button>
+                {availableUsers.length > 0 && (
+                  <button
+                    onClick={handleAddCloser}
+                    disabled={saving || !selectedUserId}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium disabled:opacity-50"
+                  >
+                    {saving ? 'Adding...' : 'Add to Queue'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
