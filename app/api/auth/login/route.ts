@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -30,29 +30,12 @@ export async function POST(req: NextRequest) {
       ? String(formData.get('next'))
       : '/dashboard'
 
-  const redirectUrl = new URL(req.url)
-  redirectUrl.pathname = nextPath
-  redirectUrl.search = ''
-
-  // CREATE RESPONSE FIRST
-  const res = NextResponse.redirect(redirectUrl, { status: 303 })
-
-  // Track if setAll was called
-  let cookiesWereSet = false
-
-  // SUPABASE WIRED DIRECTLY TO RESPONSE
-  const supabase = createServerClient(supabaseUrl, supabaseKey, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll()
-      },
-      setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
-        cookiesWereSet = true
-        console.log('LOGIN setAll called with', cookiesToSet.length, 'cookies:', cookiesToSet.map((c) => c.name))
-        cookiesToSet.forEach(({ name, value, options }) => {
-          res.cookies.set(name, value, options)
-        })
-      },
+  // Use regular supabase-js client for auth (not SSR)
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
     },
   })
 
@@ -61,32 +44,73 @@ export async function POST(req: NextRequest) {
     password,
   })
 
-  if (error) {
-    console.log('LOGIN error:', error.message)
+  if (error || !data.session) {
+    console.log('LOGIN error:', error?.message || 'No session')
     const errorUrl = new URL(req.url)
     errorUrl.pathname = '/login'
-    errorUrl.searchParams.set('error', error.message)
+    errorUrl.searchParams.set('error', error?.message || 'Authentication failed')
     errorUrl.searchParams.set('next', nextPath)
     return NextResponse.redirect(errorUrl, { status: 303 })
   }
 
-  // If setAll wasn't called by signInWithPassword, manually set the session
-  if (!cookiesWereSet && data.session) {
-    console.log('LOGIN: setAll was NOT called, manually setting session')
-    const { error: setError } = await supabase.auth.setSession({
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
+  // Build redirect URL
+  const redirectUrl = new URL(req.url)
+  redirectUrl.pathname = nextPath
+  redirectUrl.search = ''
+
+  // CREATE RESPONSE
+  const res = NextResponse.redirect(redirectUrl, { status: 303 })
+
+  // Get project ref from URL for cookie name
+  const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
+  const cookieName = `sb-${projectRef}-auth-token`
+
+  // Determine if we're on HTTPS
+  const isSecure = req.url.startsWith('https')
+
+  // Create the session cookie value
+  const cookieValue = JSON.stringify({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+    expires_at: data.session.expires_at,
+    expires_in: data.session.expires_in,
+    token_type: data.session.token_type,
+    user: data.session.user,
+  })
+
+  // Check if we need to chunk (cookies have ~4KB limit)
+  const maxChunkSize = 3500
+
+  if (cookieValue.length <= maxChunkSize) {
+    // Single cookie
+    res.cookies.set(cookieName, cookieValue, {
+      path: '/',
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
     })
-    if (setError) {
-      console.log('LOGIN setSession error:', setError.message)
+    console.log('LOGIN: Set single cookie', cookieName, 'length:', cookieValue.length)
+  } else {
+    // Chunk the cookie
+    const chunks: string[] = []
+    for (let i = 0; i < cookieValue.length; i += maxChunkSize) {
+      chunks.push(cookieValue.slice(i, i + maxChunkSize))
     }
+    
+    chunks.forEach((chunk, index) => {
+      const chunkName = `${cookieName}.${index}`
+      res.cookies.set(chunkName, chunk, {
+        path: '/',
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7,
+      })
+      console.log('LOGIN: Set chunk cookie', chunkName, 'length:', chunk.length)
+    })
   }
 
-  // If still no cookies, something is very wrong - log it
-  if (!cookiesWereSet) {
-    console.log('LOGIN WARNING: No cookies were set after login!')
-  }
-
-  console.log('LOGIN success, returning response with cookies')
+  console.log('LOGIN success for', email, '- redirecting to', nextPath)
   return res
 }

@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -32,46 +32,79 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Log incoming cookies for debugging
-  const incomingCookies = request.cookies.getAll()
-  console.log('MIDDLEWARE:', pathname, '- cookies:', incomingCookies.map(c => c.name))
+  // Get project ref for cookie name
+  const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
+  const cookieName = `sb-${projectRef}-auth-token`
 
-  // Create response FIRST - we will return THIS response with any cookie updates
-  const response = NextResponse.next({
-    request: { headers: request.headers },
-  })
+  // Try to get the auth cookie (might be single or chunked)
+  let sessionData: any = null
+  
+  const singleCookie = request.cookies.get(cookieName)
+  if (singleCookie?.value) {
+    try {
+      sessionData = JSON.parse(singleCookie.value)
+      console.log('MIDDLEWARE: Found single auth cookie')
+    } catch {
+      console.log('MIDDLEWARE: Failed to parse single cookie')
+    }
+  }
 
-  // Create Supabase client with cookie adapter
-  const supabase = createServerClient(supabaseUrl, supabaseKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll()
-      },
-      setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
-        console.log('MIDDLEWARE setAll:', cookiesToSet.map(c => c.name))
-        cookiesToSet.forEach(({ name, value, options }) => {
-          response.cookies.set(name, value, options)
-        })
+  // Try chunked cookies if single didn't work
+  if (!sessionData) {
+    const chunks: string[] = []
+    let i = 0
+    while (true) {
+      const chunk = request.cookies.get(`${cookieName}.${i}`)
+      if (!chunk?.value) break
+      chunks.push(chunk.value)
+      i++
+    }
+    if (chunks.length > 0) {
+      try {
+        sessionData = JSON.parse(chunks.join(''))
+        console.log('MIDDLEWARE: Found', chunks.length, 'chunked auth cookies')
+      } catch {
+        console.log('MIDDLEWARE: Failed to parse chunked cookies')
+      }
+    }
+  }
+
+  if (!sessionData?.access_token) {
+    console.log('MIDDLEWARE:', pathname, '- No valid session cookie found')
+    const loginUrl = new URL(request.url)
+    loginUrl.pathname = '/login'
+    loginUrl.searchParams.set('next', pathname)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // Verify the token with Supabase
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${sessionData.access_token}`,
       },
     },
   })
 
-  // Get user - this may refresh the session and call setAll
-  const { data: { user }, error } = await supabase.auth.getUser()
+  const { data: { user }, error } = await supabase.auth.getUser(sessionData.access_token)
 
   console.log('MIDDLEWARE:', pathname, '- user:', user?.email || 'none', '- error:', error?.message || 'none')
 
   if (error || !user) {
-    // Redirect to login preserving current host
+    // Token invalid or expired - redirect to login
     const loginUrl = new URL(request.url)
     loginUrl.pathname = '/login'
     loginUrl.searchParams.set('next', pathname)
-    console.log('MIDDLEWARE: Redirecting to login')
+    console.log('MIDDLEWARE: Token invalid, redirecting to login')
     return NextResponse.redirect(loginUrl)
   }
 
-  // Return the response (with any refreshed cookies)
-  return response
+  // User is authenticated
+  return NextResponse.next()
 }
 
 export const config = {
