@@ -79,7 +79,7 @@ export default function CompPlansPage() {
     plan_type: 'percentage' as CompPlan['plan_type'],
     flat_amount: '',
     base_percentage: '',
-    tiers: [{ min: 0, max: 10000, rate: 5 }],
+    tiers: [{ min: 0, max: 10000 as number | null, rate: 5 }],
     volume_bonuses: [] as VolumeTier[],
     // Manager-specific fields
     is_manager_plan: false,
@@ -264,7 +264,7 @@ export default function CompPlansPage() {
       plan_type: 'percentage',
       flat_amount: '',
       base_percentage: '',
-      tiers: [{ min: 0, max: 10000, rate: 5 }],
+      tiers: [{ min: 0, max: 10000 as number | null, rate: 5 }],
       volume_bonuses: [],
       is_manager_plan: false,
       personal_sales_enabled: true,

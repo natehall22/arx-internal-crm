@@ -57,6 +57,7 @@ export default function JobFilesPanel({ jobId, estimateId, onFileGenerated }: Pr
 
   useEffect(() => {
     loadFiles()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId])
 
   const loadFiles = async () => {
