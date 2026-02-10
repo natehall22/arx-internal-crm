@@ -18,8 +18,7 @@ export function createClient() {
               cookieStore.set(name, value, options)
             })
           } catch {
-            // In Server Components, cookies().set() will throw
-            // This is expected - cookies are persisted by middleware
+            // Server Components cannot set cookies - handled by middleware
           }
         },
       },
@@ -27,5 +26,4 @@ export function createClient() {
   )
 }
 
-// Alias for backwards compatibility
 export { createClient as createServerClient }

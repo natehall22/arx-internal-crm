@@ -1,13 +1,14 @@
+import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { NextResponse } from 'next/server'
 
-export async function POST(request: Request) {
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
+export async function POST(request: NextRequest) {
   const formData = await request.formData()
   const email = String(formData.get('email') || '')
   const password = String(formData.get('password') || '')
-
-  const cookieStore = cookies()
 
   // Buffer cookies Supabase wants to set
   const pendingCookies: Array<{ name: string; value: string; options?: CookieOptions }> = []
@@ -26,24 +27,19 @@ export async function POST(request: Request) {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll()
+          return request.cookies.getAll()
         },
         setAll(cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) {
           cookiesToSet.forEach(({ name, value, options }) => {
             // Patch cookie options for localhost/http dev
             const patched = {
               ...options,
-              secure: isHttps ? (options?.secure ?? true) : false, // MUST be false for http://localhost
+              secure: isHttps ? (options?.secure ?? true) : false,
               sameSite: (options?.sameSite as 'lax' | 'strict' | 'none') ?? 'lax',
               path: options?.path ?? '/',
               httpOnly: options?.httpOnly ?? true,
             }
             pendingCookies.push({ name, value, options: patched })
-            try {
-              cookieStore.set(name, value, patched)
-            } catch {
-              // ignore - cookies will be set via response.cookies below
-            }
           })
         },
       },

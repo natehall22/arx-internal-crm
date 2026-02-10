@@ -1,69 +1,54 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Public paths - no auth required
-  const publicPaths = [
-    '/',
-    '/login',
-    '/favicon.ico',
-  ]
-  
-  const publicPrefixes = [
-    '/login/',
-    '/contracts/',
-    '/sub-portal/',
-    '/api/',
-    '/_next/',
-  ]
-
-  const publicExtensions = ['.json', '.js', '.png', '.ico', '.svg', '.css']
-
-  const isPublic =
-    publicPaths.includes(pathname) ||
-    publicPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
-    publicExtensions.some((ext) => pathname.endsWith(ext))
-
-  if (isPublic) {
+  if (
+    pathname === '/' ||
+    pathname === '/login' ||
+    pathname.startsWith('/login/') ||
+    pathname.startsWith('/contracts/') ||
+    pathname.startsWith('/sub-portal/') ||
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/_next/') ||
+    pathname === '/favicon.ico' ||
+    pathname.endsWith('.json') ||
+    pathname.endsWith('.js') ||
+    pathname.endsWith('.png') ||
+    pathname.endsWith('.ico') ||
+    pathname.endsWith('.svg') ||
+    pathname.endsWith('.css')
+  ) {
     return NextResponse.next()
   }
 
-  // Check env vars
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseKey) {
-    console.error('Middleware: Missing Supabase env vars')
+    console.log('MIDDLEWARE: Missing Supabase env vars')
     return NextResponse.next()
   }
 
-  // Create a response that we'll modify
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+  // Log incoming cookies for debugging
+  const incomingCookies = request.cookies.getAll()
+  console.log('MIDDLEWARE:', pathname, '- cookies:', incomingCookies.map(c => c.name))
+
+  // Create response FIRST - we will return THIS response with any cookie updates
+  const response = NextResponse.next({
+    request: { headers: request.headers },
   })
 
-  // Create Supabase client with cookie handling
+  // Create Supabase client with cookie adapter
   const supabase = createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll()
       },
       setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
-        // Update request cookies for downstream
-        cookiesToSet.forEach(({ name, value }) => {
-          request.cookies.set(name, value)
-        })
-        // Create new response with updated cookies
-        response = NextResponse.next({
-          request: {
-            headers: request.headers,
-          },
-        })
-        // Set cookies on response
+        console.log('MIDDLEWARE setAll:', cookiesToSet.map(c => c.name))
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options)
         })
@@ -71,29 +56,24 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  // Get user - this also refreshes the session if needed
+  // Get user - this may refresh the session and call setAll
   const { data: { user }, error } = await supabase.auth.getUser()
 
+  console.log('MIDDLEWARE:', pathname, '- user:', user?.email || 'none', '- error:', error?.message || 'none')
+
   if (error || !user) {
-    // Not authenticated - redirect to login
-    const loginUrl = request.nextUrl.clone()
+    // Redirect to login preserving current host
+    const loginUrl = new URL(request.url)
     loginUrl.pathname = '/login'
     loginUrl.searchParams.set('next', pathname)
+    console.log('MIDDLEWARE: Redirecting to login')
     return NextResponse.redirect(loginUrl)
   }
 
-  // Authenticated - continue with possibly refreshed cookies
+  // Return the response (with any refreshed cookies)
   return response
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 }

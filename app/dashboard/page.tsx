@@ -11,15 +11,12 @@ export default async function DashboardPage() {
   const { profile } = await requireAuth()
   const supabase = createClient()
 
-  // Determine user scope for data access
   const isAdmin = profile.role === 'admin'
   const isRegionalManager = profile.role === 'regional_manager'
   const isSalesManager = profile.role === 'sales_manager'
 
-  // Get dashboard settings (cascade: user -> team -> region -> org)
   let dashboardSettings = null
   
-  // Try user-specific settings first
   const { data: userSettings } = await supabase
     .from('dashboard_settings')
     .select('*')
@@ -30,7 +27,6 @@ export default async function DashboardPage() {
   if (userSettings) {
     dashboardSettings = userSettings.settings
   } else if (profile.team_id) {
-    // Try team settings
     const { data: teamSettings } = await supabase
       .from('dashboard_settings')
       .select('*')
@@ -43,7 +39,6 @@ export default async function DashboardPage() {
   }
   
   if (!dashboardSettings && profile.region_id) {
-    // Try region settings
     const { data: regionSettings } = await supabase
       .from('dashboard_settings')
       .select('*')
@@ -56,13 +51,11 @@ export default async function DashboardPage() {
     if (regionSettings) dashboardSettings = regionSettings.settings
   }
 
-  // Default settings
   const settings = dashboardSettings || {
     widgets: ['stats', 'progress', 'appointments', 'activity'],
     goals: { doors_knocked: 100, inspections: 20, sales: 5 },
   }
 
-  // Get user's team members if they're a manager
   let teamMemberIds: string[] = [profile.id]
   if (isSalesManager && profile.team_id) {
     const { data: teamMembers } = await supabase
@@ -82,11 +75,9 @@ export default async function DashboardPage() {
       .in('team_id', teamIds)
     teamMemberIds = regionMembers?.map(m => m.id) || [profile.id]
   } else if (isAdmin) {
-    // Admin sees all
     teamMemberIds = []
   }
 
-  // Get leads stats
   let leadsQuery = supabase
     .from('leads')
     .select('status, canvass_disposition, created_at, owner_user_id')
@@ -101,7 +92,6 @@ export default async function DashboardPage() {
   }
   const { data: leads } = await leadsQuery
 
-  // Get opportunities
   let oppsQuery = supabase
     .from('opportunities')
     .select('status, inspection_outcome, created_at, owner_user_id')
@@ -116,7 +106,6 @@ export default async function DashboardPage() {
   }
   const { data: opportunities } = await oppsQuery
 
-  // Get projects
   let projectsQuery = supabase
     .from('projects')
     .select('status, created_at, owner_user_id')
@@ -131,7 +120,6 @@ export default async function DashboardPage() {
   }
   const { data: projects } = await projectsQuery
 
-  // Get pending status prompts for closers
   const { data: pendingPrompts } = await supabase
     .from('pending_status_prompts')
     .select(`
@@ -147,7 +135,6 @@ export default async function DashboardPage() {
     .lte('prompt_at', new Date().toISOString())
     .order('prompt_at', { ascending: true })
 
-  // Get upcoming appointments
   const { data: upcomingAppointments } = await supabase
     .from('scheduled_appointments')
     .select(`
@@ -160,7 +147,6 @@ export default async function DashboardPage() {
     .order('scheduled_for', { ascending: true })
     .limit(5)
 
-  // Get recent activities
   let activityQuery = supabase
     .from('activities')
     .select('*, users(full_name)')
@@ -173,7 +159,6 @@ export default async function DashboardPage() {
   }
   const { data: recentActivities } = await activityQuery
 
-  // Calculate metrics
   const now = new Date()
   const startOfWeek = new Date(now)
   startOfWeek.setDate(now.getDate() - now.getDay())
@@ -189,12 +174,10 @@ export default async function DashboardPage() {
     o.inspection_outcome === 'sale' && new Date(o.created_at) >= startOfWeek
   ).length || 0
 
-  // Calculate close rate
   const totalInspectionsRun = opportunities?.filter(o => o.inspection_outcome).length || 0
   const totalSales = opportunities?.filter(o => o.inspection_outcome === 'sale').length || 0
   const closeRate = totalInspectionsRun > 0 ? (totalSales / totalInspectionsRun * 100).toFixed(1) : '0'
 
-  // Progress toward goals
   const goals = settings.goals || { doors_knocked: 100, inspections: 20, sales: 5 }
   const progress = {
     doors_knocked: { current: doorsKnocked, goal: goals.doors_knocked },
@@ -203,7 +186,6 @@ export default async function DashboardPage() {
     sales: { current: salesThisWeek, goal: goals.sales },
   }
 
-  // Stats summary
   const stats = {
     totalLeads: leads?.length || 0,
     newLeads: leads?.filter(l => l.status === 'new').length || 0,

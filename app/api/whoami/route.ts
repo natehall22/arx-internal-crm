@@ -1,10 +1,12 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 
-export async function GET() {
-  const cookieStore = cookies()
-  const allCookies = cookieStore.getAll()
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
+export async function GET(request: NextRequest) {
+  const allCookies = request.cookies.getAll()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
   let expectedCookieName = ''
   try {
@@ -33,7 +35,7 @@ export async function GET() {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll()
+          return request.cookies.getAll()
         },
         setAll() {
           // No-op in GET route - we're just reading

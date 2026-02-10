@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createClient as createServerClient } from '@/lib/supabase/server'
+import { createServerClient } from '@supabase/ssr'
 
-// Create a Supabase admin client with service role key
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -19,11 +22,26 @@ function createAdminClient() {
   })
 }
 
-// POST - Create a new user
+function getSupabaseClient(req: NextRequest) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll()
+        },
+        setAll() {
+          // No-op for GET/POST that return JSON
+        },
+      },
+    }
+  )
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Verify the requesting user is an admin
-    const supabase = createServerClient()
+    const supabase = getSupabaseClient(request)
     const { data: { user } } = await supabase.auth.getUser()
     
     if (!user) {
@@ -55,7 +73,6 @@ export async function POST(request: NextRequest) {
       permission_ids,
     } = body
 
-    // Validate required fields
     if (!email || !password || !full_name) {
       return NextResponse.json({ error: 'Email, password, and full name are required' }, { status: 400 })
     }
@@ -64,19 +81,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
     }
 
-    // Ensure org_id matches the admin's org
     if (org_id !== profile.org_id) {
       return NextResponse.json({ error: 'Cannot create users in a different organization' }, { status: 403 })
     }
 
-    // Create admin client to create auth user
     const adminClient = createAdminClient()
 
-    // Create the auth user
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // Auto-confirm email
+      email_confirm: true,
       user_metadata: {
         full_name,
       },
@@ -94,7 +108,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create auth user' }, { status: 500 })
     }
 
-    // Create the user profile in the users table
     const { error: profileError } = await adminClient
       .from('users')
       .insert({
@@ -113,12 +126,10 @@ export async function POST(request: NextRequest) {
 
     if (profileError) {
       console.error('Profile error:', profileError)
-      // Try to clean up the auth user if profile creation fails
       await adminClient.auth.admin.deleteUser(authData.user.id)
       return NextResponse.json({ error: 'Failed to create user profile' }, { status: 500 })
     }
 
-    // Add individual permissions if provided
     if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
       const permissionInserts = permission_ids.map((permId: string) => ({
         org_id,
@@ -133,7 +144,6 @@ export async function POST(request: NextRequest) {
 
       if (permError) {
         console.error('Permission error:', permError)
-        // Don't fail the whole operation, just log the error
       }
     }
 
@@ -152,9 +162,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET - List users (optional, for future use)
-export async function GET() {
-  const supabase = createServerClient()
+export async function GET(request: NextRequest) {
+  const supabase = getSupabaseClient(request)
   
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {

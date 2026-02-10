@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { createServerClient } from '@supabase/ssr'
 import * as XLSX from 'xlsx'
+
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all'
 
@@ -20,16 +24,32 @@ function getDateFilter(range: DateRange): string {
   }
 }
 
+function getSupabaseClient(req: NextRequest) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll()
+        },
+        setAll() {
+          // No-op for GET that returns file
+        },
+      },
+    }
+  )
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const supabase = getSupabaseClient(request)
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user profile to check permissions
     const { data: profile } = await supabase
       .from('users')
       .select('role, org_id')
@@ -40,7 +60,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
-    // Check if user can export reports
     const canExport = ['admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)
     if (!canExport) {
       return NextResponse.json({ error: 'Not authorized to export reports' }, { status: 403 })
@@ -49,7 +68,6 @@ export async function GET(request: NextRequest) {
     const range = (request.nextUrl.searchParams.get('range') || '30d') as DateRange
     const dateFilter = getDateFilter(range)
 
-    // Fetch all data
     const [usersRes, leadsRes, oppsRes, projectsRes, regionsRes, teamsRes] = await Promise.all([
       supabase.from('users').select('*').eq('active', true).order('full_name'),
       supabase.from('leads').select('*').gte('created_at', dateFilter),
@@ -66,10 +84,8 @@ export async function GET(request: NextRequest) {
     const regions = regionsRes.data || []
     const teams = teamsRes.data || []
 
-    // Create workbook
     const wb = XLSX.utils.book_new()
 
-    // Summary Sheet
     const summaryData = [
       ['Report Summary'],
       ['Date Range', range],
@@ -86,7 +102,6 @@ export async function GET(request: NextRequest) {
     const summarySheet = XLSX.utils.aoa_to_sheet(summaryData)
     XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary')
 
-    // By User Sheet
     const userMetrics = users.map(u => {
       const userLeads = leads.filter(l => l.owner_user_id === u.id)
       const userOpps = opps.filter(o => o.owner_user_id === u.id)
@@ -104,7 +119,6 @@ export async function GET(request: NextRequest) {
     const userSheet = XLSX.utils.json_to_sheet(userMetrics)
     XLSX.utils.book_append_sheet(wb, userSheet, 'By User')
 
-    // By Team Sheet
     const teamMetrics = teams.map(t => {
       const teamUserIds = users.filter(u => u.team_id === t.id).map(u => u.id)
       const teamLeads = leads.filter(l => teamUserIds.includes(l.owner_user_id))
@@ -124,7 +138,6 @@ export async function GET(request: NextRequest) {
     const teamSheet = XLSX.utils.json_to_sheet(teamMetrics)
     XLSX.utils.book_append_sheet(wb, teamSheet, 'By Team')
 
-    // By Region Sheet
     const regionMetrics = regions.map(r => {
       const regionTeamIds = teams.filter(t => t.region_id === r.id).map(t => t.id)
       const regionUserIds = users.filter(u => regionTeamIds.includes(u.team_id || '')).map(u => u.id)
@@ -144,7 +157,6 @@ export async function GET(request: NextRequest) {
     const regionSheet = XLSX.utils.json_to_sheet(regionMetrics)
     XLSX.utils.book_append_sheet(wb, regionSheet, 'By Region')
 
-    // Leads Detail Sheet
     const leadsDetail = leads.map(l => ({
       ID: l.id,
       'Homeowner Name': l.homeowner_name,
@@ -160,7 +172,6 @@ export async function GET(request: NextRequest) {
     const leadsSheet = XLSX.utils.json_to_sheet(leadsDetail)
     XLSX.utils.book_append_sheet(wb, leadsSheet, 'Leads')
 
-    // Opportunities Detail Sheet
     const oppsDetail = opps.map(o => ({
       ID: o.id,
       Status: o.status,
@@ -172,10 +183,8 @@ export async function GET(request: NextRequest) {
     const oppsSheet = XLSX.utils.json_to_sheet(oppsDetail)
     XLSX.utils.book_append_sheet(wb, oppsSheet, 'Opportunities')
 
-    // Generate buffer
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
-    // Return as downloadable file
     const filename = `report_${range}_${new Date().toISOString().split('T')[0]}.xlsx`
     
     return new NextResponse(buffer, {
