@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
     if (profileError) {
       console.error('Profile error:', profileError)
       await adminClient.auth.admin.deleteUser(authData.user.id)
-      return NextResponse.json({ error: 'Failed to create user profile' }, { status: 500 })
+      return NextResponse.json({ error: `Failed to create user profile: ${profileError.message}` }, { status: 500 })
     }
 
     if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
