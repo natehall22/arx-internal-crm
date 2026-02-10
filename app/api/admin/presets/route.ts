@@ -41,32 +41,55 @@ function getSessionFromRequest(req: NextRequest) {
   return null
 }
 
-function getSupabaseClient(req: NextRequest) {
+// Auth client - uses access token for getUser()
+function getAuthClient(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const sessionData = getSessionFromRequest(req)
   
-  return createClient(supabaseUrl, supabaseKey, {
+  return {
+    client: createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+      global: sessionData?.access_token
+        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
+        : undefined,
+    }),
+    accessToken: sessionData?.access_token,
+  }
+}
+
+// Admin client - uses service role key to bypass RLS
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-    global: sessionData?.access_token
-      ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-      : undefined,
   })
 }
 
 // GET - List all permission presets for the org
 export async function GET(request: NextRequest) {
-  const supabase = getSupabaseClient(request)
+  const { client: authClient, accessToken } = getAuthClient(request)
   
-  const { data: { user } } = await supabase.auth.getUser()
+  if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  const { data: { user } } = await authClient.auth.getUser(accessToken)
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
+  const adminClient = getAdminClient()
+  
+  const { data: profile } = await adminClient
     .from('users')
     .select('org_id')
     .eq('id', user.id)
@@ -77,7 +100,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Get presets with their permissions
-  const { data: presets, error } = await supabase
+  const { data: presets, error } = await adminClient
     .from('permission_presets')
     .select(`
       *,
@@ -103,14 +126,20 @@ export async function GET(request: NextRequest) {
 
 // POST - Create a new permission preset
 export async function POST(request: NextRequest) {
-  const supabase = getSupabaseClient(request)
+  const { client: authClient, accessToken } = getAuthClient(request)
   
-  const { data: { user } } = await supabase.auth.getUser()
+  if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  const { data: { user } } = await authClient.auth.getUser(accessToken)
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
+  const adminClient = getAdminClient()
+
+  const { data: profile } = await adminClient
     .from('users')
     .select('role, org_id')
     .eq('id', user.id)
@@ -128,7 +157,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Get max sort order
-  const { data: maxOrder } = await supabase
+  const { data: maxOrder } = await adminClient
     .from('permission_presets')
     .select('sort_order')
     .eq('org_id', profile.org_id)
@@ -139,7 +168,7 @@ export async function POST(request: NextRequest) {
   const sortOrder = (maxOrder?.sort_order || 0) + 1
 
   // Create the preset
-  const { data: preset, error: presetError } = await supabase
+  const { data: preset, error: presetError } = await adminClient
     .from('permission_presets')
     .insert({
       org_id: profile.org_id,
@@ -168,7 +197,7 @@ export async function POST(request: NextRequest) {
       permission_id: permId,
     }))
 
-    await supabase.from('preset_permissions').insert(permInserts)
+    await adminClient.from('preset_permissions').insert(permInserts)
   }
 
   return NextResponse.json({ preset })
@@ -176,14 +205,20 @@ export async function POST(request: NextRequest) {
 
 // PUT - Update a permission preset
 export async function PUT(request: NextRequest) {
-  const supabase = getSupabaseClient(request)
+  const { client: authClient, accessToken } = getAuthClient(request)
   
-  const { data: { user } } = await supabase.auth.getUser()
+  if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  const { data: { user } } = await authClient.auth.getUser(accessToken)
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
+  const adminClient = getAdminClient()
+
+  const { data: profile } = await adminClient
     .from('users')
     .select('role, org_id')
     .eq('id', user.id)
@@ -201,7 +236,7 @@ export async function PUT(request: NextRequest) {
   }
 
   // Verify preset belongs to org
-  const { data: existing } = await supabase
+  const { data: existing } = await adminClient
     .from('permission_presets')
     .select('id, org_id, is_system')
     .eq('id', id)
@@ -212,7 +247,7 @@ export async function PUT(request: NextRequest) {
   }
 
   // Update the preset
-  const { error: updateError } = await supabase
+  const { error: updateError } = await adminClient
     .from('permission_presets')
     .update({
       name: name?.trim(),
@@ -227,7 +262,7 @@ export async function PUT(request: NextRequest) {
   }
 
   // Update permissions - delete existing and re-add
-  await supabase.from('preset_permissions').delete().eq('preset_id', id)
+  await adminClient.from('preset_permissions').delete().eq('preset_id', id)
 
   if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
     const permInserts = permission_ids.map((permId: string) => ({
@@ -235,7 +270,7 @@ export async function PUT(request: NextRequest) {
       permission_id: permId,
     }))
 
-    await supabase.from('preset_permissions').insert(permInserts)
+    await adminClient.from('preset_permissions').insert(permInserts)
   }
 
   return NextResponse.json({ success: true })
@@ -243,14 +278,20 @@ export async function PUT(request: NextRequest) {
 
 // DELETE - Delete a permission preset
 export async function DELETE(request: NextRequest) {
-  const supabase = getSupabaseClient(request)
+  const { client: authClient, accessToken } = getAuthClient(request)
   
-  const { data: { user } } = await supabase.auth.getUser()
+  if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  const { data: { user } } = await authClient.auth.getUser(accessToken)
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
+  const adminClient = getAdminClient()
+
+  const { data: profile } = await adminClient
     .from('users')
     .select('role, org_id')
     .eq('id', user.id)
@@ -266,7 +307,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   // Verify preset belongs to org and is not a system preset
-  const { data: existing } = await supabase
+  const { data: existing } = await adminClient
     .from('permission_presets')
     .select('id, org_id, is_system')
     .eq('id', presetId)
@@ -281,7 +322,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   // Delete preset (cascade will delete preset_permissions)
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('permission_presets')
     .delete()
     .eq('id', presetId)
