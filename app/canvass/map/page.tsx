@@ -1090,22 +1090,22 @@ export default function CanvassMapPage() {
                 </div>
               )}
 
-              {/* Legend */}
+              {/* Legend - positioned above mobile nav */}
               {mapStatus === 'loaded' && (
-                <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur rounded-lg shadow-lg p-3 z-10">
+                <div className="absolute bottom-20 lg:bottom-4 left-4 bg-white/95 backdrop-blur rounded-lg shadow-lg p-3 z-10">
                   <div className="text-xs font-medium text-gray-500 mb-2">Dispositions</div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <div className="grid grid-cols-3 gap-x-3 gap-y-1">
                     {dispositionOptions.map((opt) => (
-                      <div key={opt.id} className="flex items-center gap-2 text-xs">
+                      <div key={opt.id} className="flex items-center gap-1.5 text-xs">
                         <div 
-                          className="w-3 h-3 rounded-full" 
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
                           style={{ backgroundColor: opt.color }}
                         />
-                        <span className="text-gray-600">{opt.label}</span>
+                        <span className="text-gray-600 truncate">{opt.label}</span>
                       </div>
                     ))}
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-3 h-3 rounded-full bg-purple-500" />
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <div className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0" />
                       <span className="text-gray-600">New</span>
                     </div>
                   </div>

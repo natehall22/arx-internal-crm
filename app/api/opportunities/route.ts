@@ -128,6 +128,13 @@ export async function GET(request: NextRequest) {
 
     if (oppsError) {
       console.error('Opportunities fetch error:', oppsError)
+      // Handle case where table doesn't exist yet
+      if (oppsError.message?.includes('does not exist') || oppsError.message?.includes('schema cache')) {
+        return NextResponse.json({ 
+          opportunities: [],
+          warning: 'Opportunities table not found. Please run database migrations.'
+        })
+      }
       return NextResponse.json({ error: `Failed to fetch opportunities: ${oppsError.message}` }, { status: 500 })
     }
 
