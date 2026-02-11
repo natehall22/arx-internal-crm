@@ -117,9 +117,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch opportunities' }, { status: 500 })
     }
 
-    // If full data requested, fetch owner names separately
+    // If full data requested, fetch owner names separately to avoid join issues
     if (fullData && opportunities && opportunities.length > 0) {
-      const ownerIds = Array.from(new Set(opportunities.map((o: any) => o.owner_user_id).filter(Boolean)))
+      const uniqueOwnerIds = opportunities.map((o: any) => o.owner_user_id).filter(Boolean)
+      const ownerIds = uniqueOwnerIds.filter((id: string, index: number) => uniqueOwnerIds.indexOf(id) === index)
       
       if (ownerIds.length > 0) {
         const { data: owners } = await adminClient
