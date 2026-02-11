@@ -68,25 +68,31 @@ export async function GET(request: NextRequest) {
     const { client: authClient, accessToken } = getAuthClient(request)
     
     if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized - no access token' }, { status: 401 })
     }
     
     const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
     if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      console.error('Auth error:', userError)
+      return NextResponse.json({ error: 'Unauthorized - invalid token' }, { status: 401 })
     }
 
     const adminClient = getAdminClient()
 
     // Get user profile for org_id
-    const { data: profile } = await adminClient
+    const { data: profile, error: profileError } = await adminClient
       .from('users')
       .select('org_id')
       .eq('id', user.id)
       .single()
 
+    if (profileError) {
+      console.error('Profile fetch error:', profileError)
+      return NextResponse.json({ error: 'Failed to fetch user profile' }, { status: 500 })
+    }
+
     if (!profile?.org_id) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+      return NextResponse.json({ error: 'User profile not found - no org_id' }, { status: 404 })
     }
 
     const searchParams = request.nextUrl.searchParams
@@ -122,7 +128,7 @@ export async function GET(request: NextRequest) {
 
     if (oppsError) {
       console.error('Opportunities fetch error:', oppsError)
-      return NextResponse.json({ error: 'Failed to fetch opportunities' }, { status: 500 })
+      return NextResponse.json({ error: `Failed to fetch opportunities: ${oppsError.message}` }, { status: 500 })
     }
 
     // Fetch related data separately to avoid join issues
