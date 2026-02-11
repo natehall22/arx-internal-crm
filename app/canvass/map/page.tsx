@@ -152,6 +152,8 @@ export default function CanvassMapPage() {
   const [importing, setImporting] = useState(false)
   const [showAddressSearch, setShowAddressSearch] = useState(false)
   const [searchAddress, setSearchAddress] = useState('')
+  const [checkingAvailability, setCheckingAvailability] = useState(false)
+  const [availabilityStatus, setAvailabilityStatus] = useState<{ available: boolean; hasCalendar: boolean; message?: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchAutocompleteRef = useRef<any>(null)
@@ -548,6 +550,51 @@ export default function CanvassMapPage() {
     return () => window.removeEventListener('edit-lead', handleEditLead as EventListener)
   }, [leads])
 
+  // Check closer availability via Google Calendar
+  const checkAvailability = async (closerId: string, scheduledFor: string) => {
+    if (!closerId || !scheduledFor || !isOnline) {
+      setAvailabilityStatus(null)
+      return
+    }
+
+    setCheckingAvailability(true)
+    setAvailabilityStatus(null)
+
+    try {
+      const startTime = new Date(scheduledFor)
+      const endTime = new Date(startTime.getTime() + 60 * 60 * 1000) // 1 hour duration
+
+      const res = await fetch(`/api/calendar/sync?action=check&closer_user_id=${closerId}&start_time=${startTime.toISOString()}&end_time=${endTime.toISOString()}`)
+      
+      if (res.ok) {
+        const data = await res.json()
+        setAvailabilityStatus({
+          available: data.available,
+          hasCalendar: data.has_calendar,
+          message: data.has_calendar 
+            ? (data.available ? 'Time slot is available' : 'Time slot conflicts with existing calendar event')
+            : 'Calendar not connected - availability not checked'
+        })
+      }
+    } catch (error) {
+      console.error('Availability check failed:', error)
+    } finally {
+      setCheckingAvailability(false)
+    }
+  }
+
+  // Check availability when closer or time changes
+  useEffect(() => {
+    if (formState.schedule_inspection && formState.closer_user_id && formState.inspection_scheduled_for) {
+      const debounce = setTimeout(() => {
+        checkAvailability(formState.closer_user_id, formState.inspection_scheduled_for)
+      }, 500)
+      return () => clearTimeout(debounce)
+    } else {
+      setAvailabilityStatus(null)
+    }
+  }, [formState.closer_user_id, formState.inspection_scheduled_for, formState.schedule_inspection])
+
   const syncPendingPins = async () => {
     if (syncing || !isOnline) return
     setSyncing(true)
@@ -628,15 +675,23 @@ export default function CanvassMapPage() {
     }
 
     const data = await res.json()
+    let message = 'Lead saved'
     if (data?.opportunity_id) {
-      setStatusMessage('Lead saved + Opportunity created!')
-    } else {
-      setStatusMessage('Lead saved')
+      message = 'Lead saved + Opportunity created!'
     }
+    if (data?.calendar_synced && data?.setter_calendar_synced) {
+      message += ' Added to both calendars.'
+    } else if (data?.calendar_synced) {
+      message += ' Added to closer calendar.'
+    } else if (data?.setter_calendar_synced) {
+      message += ' Added to your calendar.'
+    }
+    setStatusMessage(message)
     setFormState(defaultForm)
     setShowForm(false)
+    setAvailabilityStatus(null)
     await loadData()
-    setTimeout(() => setStatusMessage(null), 2000)
+    setTimeout(() => setStatusMessage(null), 3000)
   }
 
   const centerOnUser = () => {
@@ -1215,6 +1270,44 @@ export default function CanvassMapPage() {
                           value={formState.inspection_scheduled_for}
                           onChange={(e) => setFormState((prev) => ({ ...prev, inspection_scheduled_for: e.target.value }))}
                         />
+                        
+                        {/* Availability indicator */}
+                        {(checkingAvailability || availabilityStatus) && (
+                          <div className={`flex items-center gap-2 text-sm p-2 rounded-lg ${
+                            checkingAvailability ? 'bg-gray-100 text-gray-600' :
+                            availabilityStatus?.available ? 'bg-green-50 text-green-700' :
+                            availabilityStatus?.hasCalendar ? 'bg-amber-50 text-amber-700' :
+                            'bg-gray-50 text-gray-600'
+                          }`}>
+                            {checkingAvailability ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                <span>Checking availability...</span>
+                              </>
+                            ) : availabilityStatus?.available ? (
+                              <>
+                                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>{availabilityStatus.message}</span>
+                              </>
+                            ) : availabilityStatus?.hasCalendar ? (
+                              <>
+                                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <span>{availabilityStatus.message}</span>
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>{availabilityStatus?.message}</span>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -1394,6 +1487,44 @@ export default function CanvassMapPage() {
                             value={formState.inspection_scheduled_for}
                             onChange={(e) => setFormState((prev) => ({ ...prev, inspection_scheduled_for: e.target.value }))}
                           />
+                          
+                          {/* Availability indicator - mobile */}
+                          {(checkingAvailability || availabilityStatus) && (
+                            <div className={`flex items-center gap-2 text-sm p-2 rounded-lg ${
+                              checkingAvailability ? 'bg-gray-100 text-gray-600' :
+                              availabilityStatus?.available ? 'bg-green-50 text-green-700' :
+                              availabilityStatus?.hasCalendar ? 'bg-amber-50 text-amber-700' :
+                              'bg-gray-50 text-gray-600'
+                            }`}>
+                              {checkingAvailability ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                  <span>Checking availability...</span>
+                                </>
+                              ) : availabilityStatus?.available ? (
+                                <>
+                                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  <span>{availabilityStatus.message}</span>
+                                </>
+                              ) : availabilityStatus?.hasCalendar ? (
+                                <>
+                                  <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                  </svg>
+                                  <span>{availabilityStatus.message}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  <span>{availabilityStatus?.message}</span>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </>
                       )}
                     </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { createClientBrowser } from '@/lib/supabase/client'
 
@@ -58,18 +58,42 @@ const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export default function SettingsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'display'>('notifications')
+  const [calendarMessage, setCalendarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const supabase = createClientBrowser()
 
   useEffect(() => {
     loadSettings()
-  }, [])
+    
+    // Check for OAuth callback messages
+    const success = searchParams.get('success')
+    const error = searchParams.get('error')
+    
+    if (success === 'calendar_connected') {
+      setCalendarMessage({ type: 'success', text: 'Google Calendar connected successfully!' })
+      setActiveTab('calendar')
+      // Clear URL params
+      router.replace('/settings')
+    } else if (error) {
+      const errorMessages: Record<string, string> = {
+        oauth_denied: 'Google Calendar authorization was denied.',
+        missing_params: 'Missing OAuth parameters. Please try again.',
+        no_profile: 'User profile not found.',
+        token_storage: 'Failed to store calendar tokens.',
+        callback_failed: 'Calendar connection failed. Please try again.',
+      }
+      setCalendarMessage({ type: 'error', text: errorMessages[error] || 'An error occurred.' })
+      setActiveTab('calendar')
+      router.replace('/settings')
+    }
+  }, [searchParams])
 
   const loadSettings = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -322,6 +346,38 @@ export default function SettingsPage() {
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Google Calendar Integration</h2>
+              
+              {/* Success/Error Message */}
+              {calendarMessage && (
+                <div className={`mb-4 p-4 rounded-lg ${
+                  calendarMessage.type === 'success' 
+                    ? 'bg-green-50 border border-green-200 text-green-800' 
+                    : 'bg-red-50 border border-red-200 text-red-800'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {calendarMessage.type === 'success' ? (
+                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                      <span>{calendarMessage.text}</span>
+                    </div>
+                    <button 
+                      onClick={() => setCalendarMessage(null)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
               
               <div className="p-4 bg-gray-50 rounded-lg mb-6">
                 <div className="flex items-center justify-between">

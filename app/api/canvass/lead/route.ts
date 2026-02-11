@@ -2,6 +2,12 @@ import { requireAuth } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { 
+  createCalendarEvent, 
+  refreshAccessToken,
+  isSlotAvailable,
+  CalendarEvent 
+} from '@/lib/google-calendar'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +18,181 @@ function getAdminClient() {
   return createServiceClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+// Helper to get valid access token (refresh if needed)
+async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
+  const { data: tokenData } = await adminClient
+    .from('user_google_tokens')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
+  if (!tokenData) return null
+
+  const expiresAt = new Date(tokenData.expires_at)
+  const now = new Date()
+
+  // If token expires in less than 5 minutes, refresh it
+  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+    try {
+      const refreshed = await refreshAccessToken(tokenData.refresh_token)
+      
+      // Update token in database
+      await adminClient
+        .from('user_google_tokens')
+        .update({
+          access_token: refreshed.access_token,
+          expires_at: refreshed.expires_at.toISOString(),
+        })
+        .eq('user_id', userId)
+
+      return refreshed.access_token
+    } catch (error) {
+      console.error('Failed to refresh token:', error)
+      return null
+    }
+  }
+
+  return tokenData.access_token
+}
+
+// Helper to sync appointment to Google Calendar for closer
+async function syncToGoogleCalendar(
+  adminClient: any,
+  closerUserId: string,
+  scheduledFor: string,
+  durationMinutes: number,
+  homeownerName: string | null,
+  addressText: string | null,
+  phone: string | null,
+  notes: string | null,
+  leadId: string,
+  opportunityId: string | null
+): Promise<{ synced: boolean; eventId?: string; error?: string }> {
+  try {
+    const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
+    
+    if (!googleAccessToken) {
+      return { synced: false, error: 'Closer does not have Google Calendar connected' }
+    }
+
+    const startTime = new Date(scheduledFor)
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
+
+    const event: CalendarEvent = {
+      summary: `Inspection: ${homeownerName || 'Customer'}`,
+      description: [
+        notes || '',
+        phone ? `Phone: ${phone}` : '',
+        `Lead ID: ${leadId}`,
+        opportunityId ? `Opportunity ID: ${opportunityId}` : '',
+      ].filter(Boolean).join('\n'),
+      location: addressText || undefined,
+      start: {
+        dateTime: startTime.toISOString(),
+        timeZone: 'America/Chicago',
+      },
+      end: {
+        dateTime: endTime.toISOString(),
+        timeZone: 'America/Chicago',
+      },
+    }
+
+    const createdEvent = await createCalendarEvent(googleAccessToken, event)
+    return { synced: true, eventId: createdEvent.id }
+  } catch (error) {
+    console.error('Google Calendar sync error:', error)
+    return { synced: false, error: error instanceof Error ? error.message : 'Calendar sync failed' }
+  }
+}
+
+// Helper to sync appointment to setter's Google Calendar (visibility only, can be double-booked)
+async function syncToSetterCalendar(
+  adminClient: any,
+  setterUserId: string,
+  closerName: string | null,
+  scheduledFor: string,
+  durationMinutes: number,
+  homeownerName: string | null,
+  addressText: string | null,
+  phone: string | null,
+  leadId: string,
+  opportunityId: string | null
+): Promise<{ synced: boolean; eventId?: string; error?: string }> {
+  try {
+    const googleAccessToken = await getValidAccessToken(adminClient, setterUserId)
+    
+    if (!googleAccessToken) {
+      return { synced: false, error: 'Setter does not have Google Calendar connected' }
+    }
+
+    const startTime = new Date(scheduledFor)
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
+
+    // Different title for setter - shows it's their set appointment
+    const event: CalendarEvent = {
+      summary: `[Set] ${homeownerName || 'Customer'}${closerName ? ` → ${closerName}` : ''}`,
+      description: [
+        'Appointment you scheduled',
+        closerName ? `Closer: ${closerName}` : '',
+        phone ? `Phone: ${phone}` : '',
+        `Lead ID: ${leadId}`,
+        opportunityId ? `Opportunity ID: ${opportunityId}` : '',
+      ].filter(Boolean).join('\n'),
+      location: addressText || undefined,
+      start: {
+        dateTime: startTime.toISOString(),
+        timeZone: 'America/Chicago',
+      },
+      end: {
+        dateTime: endTime.toISOString(),
+        timeZone: 'America/Chicago',
+      },
+    }
+
+    const createdEvent = await createCalendarEvent(googleAccessToken, event)
+    return { synced: true, eventId: createdEvent.id }
+  } catch (error) {
+    console.error('Setter calendar sync error:', error)
+    return { synced: false, error: error instanceof Error ? error.message : 'Setter calendar sync failed' }
+  }
+}
+
+// Helper to check closer availability via Google Calendar
+async function checkCloserAvailability(
+  adminClient: any,
+  closerUserId: string,
+  scheduledFor: string,
+  durationMinutes: number
+): Promise<{ available: boolean; hasCalendar: boolean; error?: string }> {
+  try {
+    const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
+    
+    if (!googleAccessToken) {
+      // No calendar connected - assume available
+      return { available: true, hasCalendar: false }
+    }
+
+    // Get closer's buffer settings
+    const { data: settings } = await adminClient
+      .from('user_settings')
+      .select('appointment_buffer_minutes')
+      .eq('user_id', closerUserId)
+      .single()
+
+    const bufferMinutes = settings?.appointment_buffer_minutes || 30
+
+    const startTime = new Date(scheduledFor)
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
+
+    const available = await isSlotAvailable(googleAccessToken, startTime, endTime, bufferMinutes)
+    return { available, hasCalendar: true }
+  } catch (error) {
+    console.error('Availability check error:', error)
+    // On error, assume available to not block scheduling
+    return { available: true, hasCalendar: false, error: error instanceof Error ? error.message : 'Check failed' }
+  }
 }
 
 export async function POST(request: Request) {
@@ -178,10 +359,76 @@ export async function POST(request: Request) {
     }
   }
 
+  // Sync to Google Calendar if we have a closer and scheduled time
+  let calendarSynced = false
+  let setterCalendarSynced = false
+  let googleEventId: string | null = null
+  
+  if (scheduleInspection && closerUserId && inspectionScheduledFor) {
+    // Get closer's name for setter calendar event
+    const { data: closerData } = await supabase
+      .from('users')
+      .select('full_name')
+      .eq('id', closerUserId)
+      .single()
+    const closerName = closerData?.full_name || assignedCloserName
+    
+    // Sync to closer's calendar (they need to be available)
+    const calendarResult = await syncToGoogleCalendar(
+      supabase,
+      closerUserId,
+      inspectionScheduledFor,
+      60, // duration in minutes
+      leadRow.homeowner_name,
+      leadRow.address_text,
+      leadRow.phone,
+      leadRow.notes,
+      leadRow.id,
+      opportunityId
+    )
+    
+    calendarSynced = calendarResult.synced
+    googleEventId = calendarResult.eventId || null
+    
+    // Store Google event ID in the appointment if we have one
+    if (appointmentId && googleEventId) {
+      await supabase
+        .from('scheduled_appointments')
+        .update({ google_event_id: googleEventId })
+        .eq('id', appointmentId)
+    }
+    
+    // Also sync to setter's calendar (for visibility - they can be double-booked)
+    // Only if setter is different from closer
+    if (profile.id !== closerUserId) {
+      const setterResult = await syncToSetterCalendar(
+        supabase,
+        profile.id, // setter is the current user who scheduled
+        closerName,
+        inspectionScheduledFor,
+        60,
+        leadRow.homeowner_name,
+        leadRow.address_text,
+        leadRow.phone,
+        leadRow.id,
+        opportunityId
+      )
+      setterCalendarSynced = setterResult.synced
+    }
+  }
+
   if (scheduleInspection) {
-    const activityBody = assignedCloserName 
+    let activityBody = assignedCloserName 
       ? `Inspection scheduled from canvassing. Assigned to ${assignedCloserName} via round-robin.`
       : 'Inspection scheduled from canvassing.'
+    
+    if (calendarSynced && setterCalendarSynced) {
+      activityBody += ' Added to closer and setter calendars.'
+    } else if (calendarSynced) {
+      activityBody += ' Added to closer calendar.'
+    } else if (setterCalendarSynced) {
+      activityBody += ' Added to setter calendar.'
+    }
     
     await supabase.from('activities').insert({
       org_id: profile.org_id,
@@ -207,5 +454,8 @@ export async function POST(request: Request) {
     opportunity_id: opportunityId,
     assigned_closer: assignedCloserName,
     appointment_id: appointmentId,
+    calendar_synced: calendarSynced,
+    setter_calendar_synced: setterCalendarSynced,
+    google_event_id: googleEventId,
   })
 }
