@@ -93,13 +93,21 @@ export async function GET(request: NextRequest) {
     const leadIds = searchParams.get('lead_ids')
     const fullData = searchParams.get('full') === 'true'
 
-    // Build the query based on what data is needed
+    // Build the query - fetch all columns explicitly to avoid join issues
     let query = adminClient
       .from('opportunities')
-      .select(fullData 
-        ? '*, customers(name), leads(homeowner_name)'
-        : 'id, lead_id, status, owner_user_id'
-      )
+      .select(`
+        id,
+        org_id,
+        lead_id,
+        customer_id,
+        owner_user_id,
+        address_text,
+        project_type,
+        status,
+        created_at,
+        updated_at
+      `)
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
 
@@ -117,22 +125,55 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch opportunities' }, { status: 500 })
     }
 
-    // If full data requested, fetch owner names separately to avoid join issues
+    // Fetch related data separately to avoid join issues
     if (fullData && opportunities && opportunities.length > 0) {
-      const uniqueOwnerIds = opportunities.map((o: any) => o.owner_user_id).filter(Boolean)
-      const ownerIds = uniqueOwnerIds.filter((id: string, index: number) => uniqueOwnerIds.indexOf(id) === index)
+      // Get unique IDs for related lookups
+      const ownerIdList = opportunities.map((o: any) => o.owner_user_id).filter(Boolean)
+      const leadIdList = opportunities.map((o: any) => o.lead_id).filter(Boolean)
+      const customerIdList = opportunities.map((o: any) => o.customer_id).filter(Boolean)
       
-      if (ownerIds.length > 0) {
+      // Fetch owners
+      if (ownerIdList.length > 0) {
         const { data: owners } = await adminClient
           .from('users')
           .select('id, full_name')
-          .in('id', ownerIds)
+          .in('id', ownerIdList)
 
-        const ownerMap = new Map((owners || []).map((u: any) => [u.id, u.full_name]))
+        const ownerMap: Record<string, string> = {}
+        ;(owners || []).forEach((u: any) => { ownerMap[u.id] = u.full_name })
         
-        // Add owner info to opportunities
         opportunities.forEach((opp: any) => {
-          opp.users = opp.owner_user_id ? { full_name: ownerMap.get(opp.owner_user_id) || null } : null
+          opp.users = opp.owner_user_id ? { full_name: ownerMap[opp.owner_user_id] || null } : null
+        })
+      }
+      
+      // Fetch leads
+      if (leadIdList.length > 0) {
+        const { data: leads } = await adminClient
+          .from('leads')
+          .select('id, homeowner_name')
+          .in('id', leadIdList)
+
+        const leadMap: Record<string, string> = {}
+        ;(leads || []).forEach((l: any) => { leadMap[l.id] = l.homeowner_name })
+        
+        opportunities.forEach((opp: any) => {
+          opp.leads = opp.lead_id ? { homeowner_name: leadMap[opp.lead_id] || null } : null
+        })
+      }
+      
+      // Fetch customers
+      if (customerIdList.length > 0) {
+        const { data: customers } = await adminClient
+          .from('customers')
+          .select('id, name')
+          .in('id', customerIdList)
+
+        const customerMap: Record<string, string> = {}
+        ;(customers || []).forEach((c: any) => { customerMap[c.id] = c.name })
+        
+        opportunities.forEach((opp: any) => {
+          opp.customers = opp.customer_id ? { name: customerMap[opp.customer_id] || null } : null
         })
       }
     }
@@ -145,4 +186,3 @@ export async function GET(request: NextRequest) {
     }, { status: 500 })
   }
 }
-// Build 1770774661
