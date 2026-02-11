@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import type { Region, Team } from '@/lib/types/database'
 
 type RegionWithTeams = Region & { teams: Team[] }
 
 export default function RegionsPage() {
+  const router = useRouter()
   const [regions, setRegions] = useState<RegionWithTeams[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -22,16 +23,29 @@ export default function RegionsPage() {
   }, [])
 
   const loadRegions = async () => {
-    const supabase = createClientBrowser()
-    const { data, error } = await supabase
-      .from('regions')
-      .select('*, teams(*)')
-      .order('name')
-
-    if (error) {
+    try {
+      const response = await fetch('/api/admin/data?resource=regions')
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        setError('Failed to load regions')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setRegions(data.regions || [])
+    } catch (err) {
       setError('Failed to load regions')
-    } else {
-      setRegions(data || [])
     }
     setLoading(false)
   }
@@ -45,37 +59,26 @@ export default function RegionsPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Not authenticated')
-      setSaving(false)
-      return
-    }
+    try {
+      const response = await fetch('/api/admin/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource: 'region',
+          name: formName.trim(),
+        }),
+      })
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      setError('User profile not found')
-      setSaving(false)
-      return
-    }
-
-    const { error: insertError } = await supabase
-      .from('regions')
-      .insert({ name: formName.trim(), org_id: profile.org_id })
-
-    if (insertError) {
-      console.error('Region create error:', insertError)
-      setError(`Failed to create region: ${insertError.message}`)
-    } else {
-      setShowCreateModal(false)
-      setFormName('')
-      await loadRegions()
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to create region')
+      } else {
+        setShowCreateModal(false)
+        setFormName('')
+        await loadRegions()
+      }
+    } catch (err) {
+      setError('Failed to create region')
     }
     setSaving(false)
   }
@@ -89,18 +92,27 @@ export default function RegionsPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    const { error: updateError } = await supabase
-      .from('regions')
-      .update({ name: formName.trim() })
-      .eq('id', editingRegion.id)
+    try {
+      const response = await fetch('/api/admin/data', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource: 'region',
+          id: editingRegion.id,
+          name: formName.trim(),
+        }),
+      })
 
-    if (updateError) {
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to update region')
+      } else {
+        setEditingRegion(null)
+        setFormName('')
+        await loadRegions()
+      }
+    } catch (err) {
       setError('Failed to update region')
-    } else {
-      setEditingRegion(null)
-      setFormName('')
-      await loadRegions()
     }
     setSaving(false)
   }
@@ -110,16 +122,19 @@ export default function RegionsPage() {
       return
     }
 
-    const supabase = createClientBrowser()
-    const { error: deleteError } = await supabase
-      .from('regions')
-      .delete()
-      .eq('id', region.id)
+    try {
+      const response = await fetch(`/api/admin/data?resource=region&id=${region.id}`, {
+        method: 'DELETE',
+      })
 
-    if (deleteError) {
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to delete region')
+      } else {
+        await loadRegions()
+      }
+    } catch (err) {
       setError('Failed to delete region')
-    } else {
-      await loadRegions()
     }
   }
 

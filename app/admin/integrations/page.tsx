@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface Integration {
   id: string
@@ -102,42 +101,38 @@ export default function AdminIntegrationsPage() {
     client_id: '',
   })
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
-    checkAccess()
+    loadIntegrations()
   }, [])
 
-  const checkAccess = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
+  const loadIntegrations = async () => {
+    try {
+      const response = await fetch('/api/admin/integrations')
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        console.error('Failed to load integrations')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setIntegrations(data.integrations || [])
+      setOrgId(data.orgId || '')
+      setLoading(false)
+    } catch (error) {
+      console.error('Error loading integrations:', error)
+      setLoading(false)
     }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
-      router.push('/dashboard')
-      return
-    }
-
-    setOrgId(profile.org_id)
-    await loadIntegrations(profile.org_id)
-    setLoading(false)
-  }
-
-  const loadIntegrations = async (orgId: string) => {
-    const { data } = await supabase
-      .from('integration_configs')
-      .select('*')
-      .eq('org_id', orgId)
-
-    setIntegrations(data || [])
   }
 
   const getIntegrationStatus = (providerId: string) => {
@@ -158,44 +153,35 @@ export default function AdminIntegrationsPage() {
   const saveIntegration = async () => {
     if (!selectedProvider) return
     
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
-
     setSaving(true)
 
-    const existing = integrations.find(i => i.provider === selectedProvider)
-
-    if (existing) {
-      await supabase
-        .from('integration_configs')
-        .update({
+    try {
+      const response = await fetch('/api/admin/integrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: selectedProvider,
           api_key: formData.api_key,
-          api_secret: formData.api_secret || null,
-          client_id: formData.client_id || null,
-          is_enabled: !!formData.api_key,
-        })
-        .eq('id', existing.id)
-    } else {
-      await supabase.from('integration_configs').insert({
-        org_id: profile.org_id,
-        provider: selectedProvider,
-        api_key: formData.api_key,
-        api_secret: formData.api_secret || null,
-        client_id: formData.client_id || null,
-        is_enabled: !!formData.api_key,
+          settings: {
+            api_secret: formData.api_secret || null,
+            client_id: formData.client_id || null,
+          },
+        }),
       })
-    }
 
-    await loadIntegrations(profile.org_id)
-    setSelectedProvider(null)
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to save integration')
+        setSaving(false)
+        return
+      }
+
+      await loadIntegrations()
+      setSelectedProvider(null)
+    } catch (error) {
+      console.error('Error saving integration:', error)
+      alert('Failed to save integration')
+    }
     setSaving(false)
   }
 

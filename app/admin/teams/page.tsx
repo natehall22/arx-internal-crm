@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { createClientBrowser } from '@/lib/supabase/client'
+import { useSearchParams, useRouter } from 'next/navigation'
 import type { Region, Team, User } from '@/lib/types/database'
 
 type TeamWithDetails = Team & { 
@@ -13,6 +12,7 @@ type TeamWithDetails = Team & {
 }
 
 export default function TeamsPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const regionFilter = searchParams.get('region')
 
@@ -31,51 +31,35 @@ export default function TeamsPage() {
   }, [regionFilter])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-    
-    // Load regions
-    const { data: regionsData } = await supabase
-      .from('regions')
-      .select('*')
-      .order('name')
-    
-    setRegions(regionsData || [])
-
-    // Load teams with region and member count
-    let query = supabase
-      .from('teams')
-      .select('*, regions(*)')
-      .order('name')
-
-    if (regionFilter) {
-      query = query.eq('region_id', regionFilter)
-    }
-
-    const { data: teamsData, error: teamsError } = await query
-
-    if (teamsError) {
+    try {
+      const url = regionFilter 
+        ? `/api/admin/data?resource=teams&region_id=${regionFilter}`
+        : '/api/admin/data?resource=teams'
+      
+      const response = await fetch(url)
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        setError('Failed to load teams')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setTeams(data.teams || [])
+      setRegions(data.regions || [])
+    } catch (err) {
       setError('Failed to load teams')
-      setLoading(false)
-      return
     }
-
-    // Load members for each team
-    const teamsWithMembers: TeamWithDetails[] = []
-    for (const team of teamsData || []) {
-      const { data: members } = await supabase
-        .from('users')
-        .select('*')
-        .eq('team_id', team.id)
-        .eq('active', true)
-        .order('full_name')
-
-      teamsWithMembers.push({
-        ...team,
-        members: members || []
-      })
-    }
-
-    setTeams(teamsWithMembers)
     setLoading(false)
   }
 
@@ -88,41 +72,28 @@ export default function TeamsPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Not authenticated')
-      setSaving(false)
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      setError('User profile not found')
-      setSaving(false)
-      return
-    }
-
-    const { error: insertError } = await supabase
-      .from('teams')
-      .insert({ 
-        name: formName.trim(), 
-        org_id: profile.org_id,
-        region_id: formRegionId || null
+    try {
+      const response = await fetch('/api/admin/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource: 'team',
+          name: formName.trim(),
+          region_id: formRegionId || null,
+        }),
       })
 
-    if (insertError) {
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to create team')
+      } else {
+        setShowCreateModal(false)
+        setFormName('')
+        setFormRegionId('')
+        await loadData()
+      }
+    } catch (err) {
       setError('Failed to create team')
-    } else {
-      setShowCreateModal(false)
-      setFormName('')
-      setFormRegionId('')
-      await loadData()
     }
     setSaving(false)
   }
@@ -136,22 +107,29 @@ export default function TeamsPage() {
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    const { error: updateError } = await supabase
-      .from('teams')
-      .update({ 
-        name: formName.trim(),
-        region_id: formRegionId || null
+    try {
+      const response = await fetch('/api/admin/data', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource: 'team',
+          id: editingTeam.id,
+          name: formName.trim(),
+          region_id: formRegionId || null,
+        }),
       })
-      .eq('id', editingTeam.id)
 
-    if (updateError) {
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to update team')
+      } else {
+        setEditingTeam(null)
+        setFormName('')
+        setFormRegionId('')
+        await loadData()
+      }
+    } catch (err) {
       setError('Failed to update team')
-    } else {
-      setEditingTeam(null)
-      setFormName('')
-      setFormRegionId('')
-      await loadData()
     }
     setSaving(false)
   }
@@ -165,16 +143,19 @@ export default function TeamsPage() {
       return
     }
 
-    const supabase = createClientBrowser()
-    const { error: deleteError } = await supabase
-      .from('teams')
-      .delete()
-      .eq('id', team.id)
+    try {
+      const response = await fetch(`/api/admin/data?resource=team&id=${team.id}`, {
+        method: 'DELETE',
+      })
 
-    if (deleteError) {
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to delete team')
+      } else {
+        await loadData()
+      }
+    } catch (err) {
       setError('Failed to delete team')
-    } else {
-      await loadData()
     }
   }
 

@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface VolumeTier {
   min_volume: number
@@ -98,74 +97,44 @@ export default function CompPlansPage() {
     override_percentage: '',
   })
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
     loadData()
   }, [])
 
   const loadData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
+    try {
+      const response = await fetch('/api/admin/data?resource=comp_plans')
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        console.error('Failed to load comp plans')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setCompPlans(data.compPlans || [])
+      setUserAssignments(data.userAssignments || [])
+      setUsers(data.users || [])
+    } catch (error) {
+      console.error('Error loading comp plans:', error)
     }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
-      router.push('/dashboard')
-      return
-    }
-
-    // Load comp plans
-    const { data: plans } = await supabase
-      .from('comp_plans')
-      .select('*')
-      .eq('org_id', profile.org_id)
-      .order('created_at', { ascending: false })
-
-    setCompPlans(plans || [])
-
-    // Load user assignments
-    const { data: assignments } = await supabase
-      .from('user_comp_plans')
-      .select('*, users(full_name, role), comp_plans(name)')
-      .eq('org_id', profile.org_id)
-      .order('effective_from', { ascending: false })
-
-    setUserAssignments(assignments || [])
-
-    // Load users for assignment
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, full_name, role')
-      .eq('org_id', profile.org_id)
-      .eq('active', true)
-
-    setUsers(usersData || [])
-
     setLoading(false)
   }
 
   const savePlan = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
-
     const planData = {
-      org_id: profile.org_id,
+      resource: editingPlan ? 'comp_plan' : 'comp_plan',
+      id: editingPlan?.id,
       name: planForm.name,
       description: planForm.description || null,
       plan_type: planForm.plan_type,
@@ -175,7 +144,6 @@ export default function CompPlansPage() {
         : null,
       tiers: planForm.plan_type === 'tiered' ? planForm.tiers : null,
       volume_bonuses: planForm.volume_bonuses.length > 0 ? planForm.volume_bonuses : null,
-      // Manager-specific fields
       is_manager_plan: planForm.is_manager_plan,
       personal_sales_enabled: planForm.is_manager_plan ? planForm.personal_sales_enabled : null,
       team_override_enabled: planForm.is_manager_plan ? planForm.team_override_enabled : null,
@@ -187,74 +155,95 @@ export default function CompPlansPage() {
       is_default: planForm.is_default,
     }
 
-    if (editingPlan) {
-      await supabase
-        .from('comp_plans')
-        .update(planData)
-        .eq('id', editingPlan.id)
-    } else {
-      await supabase
-        .from('comp_plans')
-        .insert(planData)
-    }
+    try {
+      const response = await fetch('/api/admin/data', {
+        method: editingPlan ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(planData),
+      })
 
-    // If setting as default, unset other defaults
-    if (planForm.is_default) {
-      await supabase
-        .from('comp_plans')
-        .update({ is_default: false })
-        .eq('org_id', profile.org_id)
-        .neq('id', editingPlan?.id || '')
-    }
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to save comp plan')
+        return
+      }
 
-    setShowPlanModal(false)
-    setEditingPlan(null)
-    resetPlanForm()
-    loadData()
+      setShowPlanModal(false)
+      setEditingPlan(null)
+      resetPlanForm()
+      loadData()
+    } catch (error) {
+      console.error('Error saving comp plan:', error)
+      alert('Failed to save comp plan')
+    }
   }
 
   const saveAssignment = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
-
-    await supabase
-      .from('user_comp_plans')
-      .insert({
-        org_id: profile.org_id,
-        user_id: assignForm.user_id,
-        comp_plan_id: assignForm.comp_plan_id,
-        effective_from: assignForm.effective_from,
-        override_percentage: assignForm.override_percentage ? parseFloat(assignForm.override_percentage) : null,
+    try {
+      const response = await fetch('/api/admin/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource: 'user_comp_plan',
+          user_id: assignForm.user_id,
+          comp_plan_id: assignForm.comp_plan_id,
+          effective_from: assignForm.effective_from,
+          override_percentage: assignForm.override_percentage ? parseFloat(assignForm.override_percentage) : null,
+        }),
       })
 
-    setShowAssignModal(false)
-    setAssignForm({
-      user_id: '',
-      comp_plan_id: '',
-      effective_from: new Date().toISOString().split('T')[0],
-      override_percentage: '',
-    })
-    loadData()
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to assign comp plan')
+        return
+      }
+
+      setShowAssignModal(false)
+      setAssignForm({
+        user_id: '',
+        comp_plan_id: '',
+        effective_from: new Date().toISOString().split('T')[0],
+        override_percentage: '',
+      })
+      loadData()
+    } catch (error) {
+      console.error('Error assigning comp plan:', error)
+      alert('Failed to assign comp plan')
+    }
   }
 
   const deletePlan = async (id: string) => {
     if (!confirm('Delete this comp plan?')) return
-    await supabase.from('comp_plans').delete().eq('id', id)
-    loadData()
+    try {
+      const response = await fetch(`/api/admin/data?resource=comp_plan&id=${id}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to delete comp plan')
+        return
+      }
+      loadData()
+    } catch (error) {
+      console.error('Error deleting comp plan:', error)
+    }
   }
 
   const deleteAssignment = async (id: string) => {
     if (!confirm('Remove this assignment?')) return
-    await supabase.from('user_comp_plans').delete().eq('id', id)
-    loadData()
+    try {
+      const response = await fetch(`/api/admin/data?resource=user_comp_plan&id=${id}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to remove assignment')
+        return
+      }
+      loadData()
+    } catch (error) {
+      console.error('Error removing assignment:', error)
+    }
   }
 
   const resetPlanForm = () => {

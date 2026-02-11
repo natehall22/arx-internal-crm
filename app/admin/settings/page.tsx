@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 type SettingsSection = 
   | 'contact-fields' 
@@ -109,84 +108,97 @@ export default function AdminSettingsPage() {
   const [showAddDisposition, setShowAddDisposition] = useState(false)
 
   useEffect(() => {
-    checkAccess()
+    loadSettings()
   }, [])
 
-  const checkAccess = async () => {
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
-      router.push('/dashboard')
-      return
-    }
-
-    await loadSettings()
-    setLoading(false)
-  }
-
   const loadSettings = async () => {
-    // Load org settings
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
-
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('*')
-      .eq('id', profile.org_id)
-      .single()
-
-    if (org) {
-      setGeneralSettings({
-        company_name: org.name || '',
-        company_phone: org.phone || '',
-        company_email: org.email || '',
-        company_address: org.address || '',
-        timezone: org.timezone || 'America/Chicago',
-        date_format: org.date_format || 'MM/DD/YYYY',
-        currency: org.currency || 'USD',
-      })
+    try {
+      const response = await fetch('/api/admin/settings')
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        console.error('Failed to load settings')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      
+      if (data.org) {
+        setGeneralSettings({
+          company_name: data.org.name || '',
+          company_phone: data.org.phone || '',
+          company_email: data.org.email || '',
+          company_address: data.org.address || '',
+          timezone: data.org.timezone || 'America/Chicago',
+          date_format: data.org.date_format || 'MM/DD/YYYY',
+          currency: data.org.currency || 'USD',
+        })
+      }
       
       // Load canvass dispositions from org settings
-      if (org.settings?.canvass_dispositions) {
-        setDispositions(org.settings.canvass_dispositions)
+      if (data.settings?.canvass_dispositions) {
+        setDispositions(data.settings.canvass_dispositions)
       }
       
       // Load commission settings
-      if (org.settings?.commission) {
+      if (data.settings?.commission) {
         setCommissionSettings(prev => ({
           ...prev,
-          ...org.settings.commission
+          ...data.settings.commission
         }))
       }
+      
+      // Load measurement settings
+      if (data.settings?.measure_tool_enabled !== undefined) {
+        setMeasurementSettings(prev => ({
+          ...prev,
+          measure_tool_enabled: data.settings.measure_tool_enabled,
+          ...(data.settings.external_integrations || {}),
+        }))
+      }
+      
+      setLoading(false)
+    } catch (error) {
+      console.error('Error loading settings:', error)
+      setLoading(false)
     }
   }
 
   const saveSettings = async () => {
     setSaving(true)
-    // Save logic here based on active section
-    await new Promise(resolve => setTimeout(resolve, 500))
-    setSaving(false)
-    alert('Settings saved!')
+    try {
+      const response = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'general',
+          ...generalSettings,
+        }),
+      })
+      
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to save settings')
+        return
+      }
+      
+      alert('Settings saved!')
+    } catch (error) {
+      console.error('Error saving settings:', error)
+      alert('Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const menuSections = [
@@ -680,34 +692,35 @@ export default function AdminSettingsPage() {
                 <button
                   onClick={async () => {
                     setSaving(true)
-                    const supabase = createClientBrowser()
-                    const { data: { user } } = await supabase.auth.getUser()
-                    if (user) {
-                      const { data: profile } = await supabase
-                        .from('users')
-                        .select('org_id')
-                        .eq('id', user.id)
-                        .single()
+                    try {
+                      const response = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'measurement_tools',
+                          measure_tool_enabled: measurementSettings.measure_tool_enabled,
+                          external_integrations: {
+                            eagleview: measurementSettings.eagleview_enabled,
+                            roofr: measurementSettings.roofr_enabled,
+                            solo: measurementSettings.solo_enabled,
+                            aurora: measurementSettings.aurora_enabled,
+                          }
+                        }),
+                      })
                       
-                      if (profile) {
-                        await supabase
-                          .from('orgs')
-                          .update({ 
-                            settings: {
-                              measure_tool_enabled: measurementSettings.measure_tool_enabled,
-                              external_integrations: {
-                                eagleview: measurementSettings.eagleview_enabled,
-                                roofr: measurementSettings.roofr_enabled,
-                                solo: measurementSettings.solo_enabled,
-                                aurora: measurementSettings.aurora_enabled,
-                              }
-                            }
-                          })
-                          .eq('id', profile.org_id)
+                      if (!response.ok) {
+                        const data = await response.json()
+                        alert(data.error || 'Failed to save settings')
+                        return
                       }
+                      
+                      alert('Settings saved!')
+                    } catch (error) {
+                      console.error('Error saving settings:', error)
+                      alert('Failed to save settings')
+                    } finally {
+                      setSaving(false)
                     }
-                    setSaving(false)
-                    alert('Settings saved!')
                   }}
                   disabled={saving}
                   className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
@@ -819,28 +832,29 @@ export default function AdminSettingsPage() {
                 <button
                   onClick={async () => {
                     setSaving(true)
-                    const supabase = createClientBrowser()
-                    const { data: { user } } = await supabase.auth.getUser()
-                    if (user) {
-                      const { data: profile } = await supabase
-                        .from('users')
-                        .select('org_id')
-                        .eq('id', user.id)
-                        .single()
+                    try {
+                      const response = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'canvass_dispositions',
+                          dispositions: dispositions,
+                        }),
+                      })
                       
-                      if (profile) {
-                        await supabase
-                          .from('orgs')
-                          .update({
-                            settings: {
-                              canvass_dispositions: dispositions
-                            }
-                          })
-                          .eq('id', profile.org_id)
+                      if (!response.ok) {
+                        const data = await response.json()
+                        alert(data.error || 'Failed to save dispositions')
+                        return
                       }
+                      
+                      alert('Dispositions saved!')
+                    } catch (error) {
+                      console.error('Error saving dispositions:', error)
+                      alert('Failed to save dispositions')
+                    } finally {
+                      setSaving(false)
                     }
-                    setSaving(false)
-                    alert('Dispositions saved!')
                   }}
                   disabled={saving}
                   className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
@@ -1105,35 +1119,29 @@ export default function AdminSettingsPage() {
                   <button
                     onClick={async () => {
                       setSaving(true)
-                      const supabase = createClientBrowser()
-                      const { data: { user } } = await supabase.auth.getUser()
-                      if (user) {
-                        const { data: profile } = await supabase
-                          .from('users')
-                          .select('org_id')
-                          .eq('id', user.id)
-                          .single()
+                      try {
+                        const response = await fetch('/api/admin/settings', {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            type: 'commission',
+                            commission: commissionSettings,
+                          }),
+                        })
                         
-                        if (profile) {
-                          const { data: org } = await supabase
-                            .from('orgs')
-                            .select('settings')
-                            .eq('id', profile.org_id)
-                            .single()
-                          
-                          await supabase
-                            .from('orgs')
-                            .update({
-                              settings: {
-                                ...org?.settings,
-                                commission: commissionSettings
-                              }
-                            })
-                            .eq('id', profile.org_id)
+                        if (!response.ok) {
+                          const data = await response.json()
+                          alert(data.error || 'Failed to save commission settings')
+                          return
                         }
+                        
+                        alert('Commission settings saved!')
+                      } catch (error) {
+                        console.error('Error saving commission settings:', error)
+                        alert('Failed to save commission settings')
+                      } finally {
+                        setSaving(false)
                       }
-                      setSaving(false)
-                      alert('Commission settings saved!')
                     }}
                     disabled={saving}
                     className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
