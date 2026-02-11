@@ -69,6 +69,7 @@ interface ProposalData {
     email?: string
     phone?: string
   }
+  satelliteImageUrl?: string
 }
 
 const styles = StyleSheet.create({
@@ -411,6 +412,22 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: '#64748b',
   },
+  // Satellite Image
+  satelliteSection: {
+    marginBottom: 24,
+  },
+  satelliteImage: {
+    width: '100%',
+    height: 200,
+    objectFit: 'cover',
+    borderRadius: 8,
+  },
+  satelliteCaption: {
+    fontSize: 8,
+    color: '#64748b',
+    marginTop: 4,
+    textAlign: 'center',
+  },
 })
 
 const formatCurrency = (amount: number) => {
@@ -430,7 +447,7 @@ const formatDate = (dateString: string) => {
 }
 
 export const ProposalPDF = ({ data }: { data: ProposalData }) => {
-  const { proposal, lineItems, measurement, company, rep } = data
+  const { proposal, lineItems, measurement, company, rep, satelliteImageUrl } = data
 
   return (
     <Document>
@@ -501,6 +518,15 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
               </View>
             </View>
           </View>
+
+          {/* Property Satellite Image */}
+          {satelliteImageUrl && (
+            <View style={styles.satelliteSection}>
+              <Text style={styles.sectionTitle}>Property Location</Text>
+              <Image src={satelliteImageUrl} style={styles.satelliteImage} />
+              <Text style={styles.satelliteCaption}>{proposal.customer_address}</Text>
+            </View>
+          )}
 
           {/* Measurement Data */}
           {measurement && (

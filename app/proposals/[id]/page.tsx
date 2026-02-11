@@ -143,6 +143,12 @@ export default function ProposalDetailPage() {
     setGenerating(true)
 
     try {
+      // Generate satellite image URL
+      const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+      const satelliteImageUrl = proposal.customer_address && googleMapsApiKey
+        ? `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${googleMapsApiKey}`
+        : undefined
+
       // Prepare data for PDF
       const pdfData = {
         proposal: {
@@ -154,6 +160,7 @@ export default function ProposalDetailPage() {
         measurement,
         company,
         rep,
+        satelliteImageUrl,
       }
 
       // Generate PDF blob
@@ -309,6 +316,24 @@ export default function ProposalDetailPage() {
                 )}
               </div>
             </div>
+
+            {/* Property Satellite Image */}
+            {proposal.customer_address && (
+              <div className="mb-8">
+                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Property Location</h3>
+                <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+                  <img
+                    src={`https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}`}
+                    alt={`Satellite view of ${proposal.customer_address}`}
+                    className="w-full h-64 object-cover"
+                    onError={(e) => {
+                      // Hide the image container if it fails to load
+                      (e.target as HTMLImageElement).parentElement!.style.display = 'none'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Measurement Summary */}
             {measurement && (
