@@ -188,24 +188,21 @@ export default function AdminIntegrationsPage() {
   const disconnectIntegration = async (providerId: string) => {
     if (!confirm('Disconnect this integration?')) return
 
-    const integration = integrations.find(i => i.provider === providerId)
-    if (!integration) return
+    try {
+      const response = await fetch(`/api/admin/integrations?provider=${providerId}`, {
+        method: 'DELETE',
+      })
 
-    await supabase
-      .from('integration_configs')
-      .update({ is_enabled: false, api_key: null })
-      .eq('id', integration.id)
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('org_id')
-        .eq('id', user.id)
-        .single()
-      if (profile) {
-        await loadIntegrations(profile.org_id)
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to disconnect integration')
+        return
       }
+
+      await loadIntegrations()
+    } catch (error) {
+      console.error('Error disconnecting integration:', error)
+      alert('Failed to disconnect integration')
     }
   }
 
