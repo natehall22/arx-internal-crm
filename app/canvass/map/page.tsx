@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Nav from '@/components/Nav'
-import { createClientBrowser } from '@/lib/supabase/client'
 import type { CanvassDisposition, Lead } from '@/lib/types/database'
 
 type UserOption = { id: string; full_name: string | null; role: string }
@@ -334,49 +333,31 @@ export default function CanvassMapPage() {
       return
     }
     
-    const supabase = createClientBrowser()
-    
-    // Get current user's role and org settings
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role, org_id')
-        .eq('id', user.id)
-        .single()
-      if (profile) {
-        setCurrentUserRole(profile.role)
-        
-        // Load org disposition settings
-        const { data: org } = await supabase
-          .from('orgs')
-          .select('settings')
-          .eq('id', profile.org_id)
-          .single()
-        
-        if (org?.settings?.canvass_dispositions) {
-          // Filter to only active dispositions
-          const activeDispositions = org.settings.canvass_dispositions.filter((d: any) => d.active !== false)
-          if (activeDispositions.length > 0) {
-            setDispositionOptions(activeDispositions)
-          }
+    try {
+      const response = await fetch('/api/canvass/data')
+      if (!response.ok) {
+        console.error('Failed to load canvass data')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      
+      setCurrentUserRole(data.currentUserRole || '')
+      setLeads(data.leads || [])
+      setClosers((data.users || []) as UserOption[])
+      
+      // Load org disposition settings
+      if (data.orgSettings?.canvass_dispositions) {
+        const activeDispositions = data.orgSettings.canvass_dispositions.filter((d: any) => d.active !== false)
+        if (activeDispositions.length > 0) {
+          setDispositionOptions(activeDispositions)
         }
       }
+    } catch (err) {
+      console.error('Error loading canvass data:', err)
     }
     
-    const { data: leadsData } = await supabase
-      .from('leads')
-      .select('*')
-      .not('lat', 'is', null)
-      .not('lng', 'is', null)
-
-    const { data: users } = await supabase
-      .from('users')
-      .select('id, full_name, role')
-      .order('full_name', { ascending: true })
-
-    setLeads(leadsData || [])
-    setClosers((users || []) as UserOption[])
     setLoading(false)
   }
 
@@ -399,6 +380,8 @@ export default function CanvassMapPage() {
       center: defaultCenter,
       zoom: 18,
       mapTypeId: mapType,
+      tilt: 0,
+      heading: 0,
       streetViewControl: false,
       mapTypeControl: false,
       fullscreenControl: false,
