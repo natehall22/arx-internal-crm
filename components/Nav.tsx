@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -23,6 +24,8 @@ export default function Nav() {
   const [userRole, setUserRole] = useState<AnyUserRole | null>(null)
   const [userPermissions, setUserPermissions] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [companyName, setCompanyName] = useState<string>('ARX CRM')
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null)
 
   useEffect(() => {
     const loadUserRoleAndPermissions = async () => {
@@ -33,12 +36,32 @@ export default function Nav() {
       if (user) {
         const { data: profile } = await supabase
           .from('users')
-          .select('role')
+          .select('role, org_id')
           .eq('id', user.id)
           .single()
         
         if (profile?.role) {
           setUserRole(profile.role as AnyUserRole)
+        }
+
+        // Load org info for company name and logo
+        if (profile?.org_id) {
+          const { data: org } = await supabase
+            .from('orgs')
+            .select('name, logo_url, settings')
+            .eq('id', profile.org_id)
+            .single()
+          
+          if (org) {
+            if (org.name) {
+              setCompanyName(org.name)
+            }
+            // Check for logo_url in column or settings
+            const logoUrl = org.logo_url || org.settings?.logo_url
+            if (logoUrl) {
+              setCompanyLogo(logoUrl)
+            }
+          }
         }
 
         // Load user-specific permissions
@@ -107,10 +130,27 @@ export default function Nav() {
     <nav className="bg-gray-800 text-white">
       <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+          {/* Company Logo/Name */}
           <div className="flex-shrink-0">
-            <Link href="/dashboard" className="text-xl font-bold whitespace-nowrap">
-              ARX CRM
+            <Link href="/dashboard" className="flex items-center gap-2 text-xl font-bold whitespace-nowrap">
+              {companyLogo ? (
+                <div className="relative w-8 h-8 rounded overflow-hidden bg-white/10">
+                  <Image
+                    src={companyLogo}
+                    alt={companyName}
+                    fill
+                    className="object-contain"
+                    unoptimized
+                  />
+                </div>
+              ) : null}
+              <span className="hidden sm:inline">{companyName}</span>
+              {/* Show abbreviated name on very small screens if no logo */}
+              {!companyLogo && (
+                <span className="sm:hidden">
+                  {companyName.length > 10 ? companyName.substring(0, 10) + '...' : companyName}
+                </span>
+              )}
             </Link>
           </div>
 
