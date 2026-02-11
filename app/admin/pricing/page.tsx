@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface Pricebook {
   id: string
@@ -103,149 +102,118 @@ export default function AdminPricingPage() {
   const [filterCategory, setFilterCategory] = useState('')
 
   useEffect(() => {
-    checkAccess()
+    loadData()
   }, [])
 
-  const checkAccess = async () => {
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
-      router.push('/dashboard')
-      return
-    }
-
-    setOrgId(profile.org_id)
-    await loadData(profile.org_id)
-    setLoading(false)
-  }
-
-  const loadData = async (orgId: string) => {
-    const supabase = createClientBrowser()
-    // Load pricebooks
-    let { data: pricebooksData } = await supabase
-      .from('pricebooks')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('is_default', { ascending: false })
-      .order('name')
-
-    // Auto-create default pricebook if none exists
-    if (!pricebooksData || pricebooksData.length === 0) {
-      const { data: newPricebook } = await supabase
-        .from('pricebooks')
-        .insert({
-          org_id: orgId,
-          name: 'Default Pricebook',
-          is_default: true,
-        })
-        .select()
-        .single()
+  const loadData = async (pricebookId?: string) => {
+    try {
+      const url = pricebookId 
+        ? `/api/admin/pricing?pricebook_id=${pricebookId}`
+        : '/api/admin/pricing'
       
-      if (newPricebook) {
-        pricebooksData = [newPricebook]
+      const response = await fetch(url)
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
       }
-    }
-
-    setPricebooks(pricebooksData || [])
-    
-    // Select default pricebook
-    const defaultPb = pricebooksData?.find(p => p.is_default) || pricebooksData?.[0]
-    if (defaultPb) {
-      setSelectedPricebook(defaultPb.id)
-      await loadItems(defaultPb.id)
-    }
-
-    // Load org pricing settings and custom categories
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', orgId)
-      .single()
-
-    if (org?.settings?.pricing) {
-      setOrgPricing(prev => ({ ...prev, ...org.settings.pricing }))
-    }
-    
-    // Load custom categories or use defaults
-    if (org?.settings?.categories && org.settings.categories.length > 0) {
-      setCategories(org.settings.categories)
-    } else {
-      setCategories(defaultCategories)
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        console.error('Failed to load pricing data')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      
+      setOrgId(data.orgId)
+      setPricebooks(data.pricebooks || [])
+      setItems(data.items || [])
+      
+      // Select default pricebook if not already selected
+      if (!pricebookId && data.pricebooks?.length > 0) {
+        const defaultPb = data.pricebooks.find((p: any) => p.is_default) || data.pricebooks[0]
+        setSelectedPricebook(defaultPb.id)
+      }
+      
+      // Load org pricing settings
+      if (data.orgSettings?.pricing) {
+        setOrgPricing(prev => ({ ...prev, ...data.orgSettings.pricing }))
+      }
+      
+      // Load custom categories or use defaults
+      if (data.orgSettings?.categories && data.orgSettings.categories.length > 0) {
+        setCategories(data.orgSettings.categories)
+      } else {
+        setCategories(defaultCategories)
+      }
+      
+      setLoading(false)
+    } catch (error) {
+      console.error('Error loading pricing data:', error)
+      setLoading(false)
     }
   }
 
   const loadItems = async (pricebookId: string) => {
-    const supabase = createClientBrowser()
-    const { data } = await supabase
-      .from('pricebook_items')
-      .select('*')
-      .eq('pricebook_id', pricebookId)
-      .order('category')
-      .order('name')
-
-    setItems(data || [])
+    try {
+      const response = await fetch(`/api/admin/pricing?pricebook_id=${pricebookId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setItems(data.items || [])
+      }
+    } catch (error) {
+      console.error('Error loading items:', error)
+    }
   }
 
   const saveOrgPricing = async () => {
     setSaving(true)
-    const supabase = createClientBrowser()
-    
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', orgId)
-      .single()
-
-    const currentSettings = org?.settings || {}
-    
-    await supabase
-      .from('orgs')
-      .update({
-        settings: {
-          ...currentSettings,
+    try {
+      const response = await fetch('/api/admin/pricing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'org_settings',
           pricing: orgPricing
-        }
+        })
       })
-      .eq('id', orgId)
-
+      
+      if (response.ok) {
+        alert('Pricing settings saved!')
+      } else {
+        const data = await response.json()
+        alert(`Failed to save: ${data.error}`)
+      }
+    } catch (error) {
+      alert('Failed to save pricing settings')
+    }
     setSaving(false)
-    alert('Pricing settings saved!')
   }
 
   const saveCategories = async (newCategories: CustomCategory[]) => {
     setSaving(true)
-    const supabase = createClientBrowser()
-    
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', orgId)
-      .single()
-
-    const currentSettings = org?.settings || {}
-    
-    await supabase
-      .from('orgs')
-      .update({
-        settings: {
-          ...currentSettings,
+    try {
+      const response = await fetch('/api/admin/pricing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'org_settings',
           categories: newCategories
-        }
+        })
       })
-      .eq('id', orgId)
-
-    setCategories(newCategories)
+      
+      if (response.ok) {
+        setCategories(newCategories)
+      }
+    } catch (error) {
+      console.error('Failed to save categories:', error)
+    }
     setSaving(false)
   }
 
@@ -312,47 +280,55 @@ export default function AdminPricingPage() {
     if (!pricebookName.trim()) return
 
     setSaving(true)
-    const supabase = createClientBrowser()
-    
-    const isFirst = pricebooks.length === 0
-    
-    await supabase.from('pricebooks').insert({
-      org_id: orgId,
-      name: pricebookName.trim(),
-      is_default: isFirst,
-    })
-
-    setShowPricebookModal(false)
-    setPricebookName('')
-    await loadData(orgId)
+    try {
+      const response = await fetch('/api/admin/pricing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'pricebook',
+          name: pricebookName.trim()
+        })
+      })
+      
+      if (response.ok) {
+        setShowPricebookModal(false)
+        setPricebookName('')
+        await loadData()
+      }
+    } catch (error) {
+      console.error('Failed to create pricebook:', error)
+    }
     setSaving(false)
   }
 
   const setDefaultPricebook = async (id: string) => {
     setSaving(true)
-    const supabase = createClientBrowser()
-    
-    // Unset all defaults
-    await supabase
-      .from('pricebooks')
-      .update({ is_default: false })
-      .eq('org_id', orgId)
-
-    // Set new default
-    await supabase
-      .from('pricebooks')
-      .update({ is_default: true })
-      .eq('id', id)
-
-    await loadData(orgId)
+    try {
+      await fetch('/api/admin/pricing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'pricebook_default',
+          id
+        })
+      })
+      await loadData()
+    } catch (error) {
+      console.error('Failed to set default pricebook:', error)
+    }
     setSaving(false)
   }
 
   const deletePricebook = async (id: string) => {
     if (!confirm('Delete this pricebook and all its items?')) return
-    const supabase = createClientBrowser()
-    await supabase.from('pricebooks').delete().eq('id', id)
-    await loadData(orgId)
+    try {
+      await fetch(`/api/admin/pricing?type=pricebook&id=${id}`, {
+        method: 'DELETE'
+      })
+      await loadData()
+    } catch (error) {
+      console.error('Failed to delete pricebook:', error)
+    }
   }
 
   const openItemModal = (item?: PricebookItem) => {
@@ -396,11 +372,9 @@ export default function AdminPricingPage() {
     }
 
     setSaving(true)
-    const supabase = createClientBrowser()
 
     const itemData = {
       pricebook_id: selectedPricebook,
-      org_id: orgId,
       category: itemForm.category,
       item_type: itemForm.item_type,
       name: itemForm.name,
@@ -409,52 +383,79 @@ export default function AdminPricingPage() {
       cost_price: itemForm.cost_price ? parseFloat(itemForm.cost_price) : null,
       is_labor: itemForm.is_labor,
       is_taxable: itemForm.is_taxable,
-      active: true,
     }
 
-    if (editingItem) {
-      const { error } = await supabase
-        .from('pricebook_items')
-        .update(itemData)
-        .eq('id', editingItem.id)
-      
-      if (error) {
-        console.error('Update error:', error)
-        alert(`Failed to update item: ${error.message}`)
-        setSaving(false)
-        return
+    try {
+      if (editingItem) {
+        const response = await fetch('/api/admin/pricing', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'item',
+            id: editingItem.id,
+            ...itemData
+          })
+        })
+        
+        if (!response.ok) {
+          const data = await response.json()
+          alert(`Failed to update item: ${data.error}`)
+          setSaving(false)
+          return
+        }
+      } else {
+        const response = await fetch('/api/admin/pricing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'item',
+            ...itemData
+          })
+        })
+        
+        if (!response.ok) {
+          const data = await response.json()
+          alert(`Failed to add item: ${data.error}`)
+          setSaving(false)
+          return
+        }
       }
-    } else {
-      const { error } = await supabase.from('pricebook_items').insert(itemData)
-      
-      if (error) {
-        console.error('Insert error:', error)
-        alert(`Failed to add item: ${error.message}`)
-        setSaving(false)
-        return
-      }
-    }
 
-    setShowItemModal(false)
-    await loadItems(selectedPricebook)
+      setShowItemModal(false)
+      await loadItems(selectedPricebook)
+    } catch (error) {
+      alert('Failed to save item')
+    }
     setSaving(false)
   }
 
   const toggleItemActive = async (item: PricebookItem) => {
-    const supabase = createClientBrowser()
-    await supabase
-      .from('pricebook_items')
-      .update({ active: !item.active })
-      .eq('id', item.id)
-
-    await loadItems(selectedPricebook)
+    try {
+      await fetch('/api/admin/pricing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'item',
+          id: item.id,
+          active: !item.active
+        })
+      })
+      await loadItems(selectedPricebook)
+    } catch (error) {
+      console.error('Failed to toggle item:', error)
+    }
   }
 
   const deleteItem = async (id: string) => {
     if (!confirm('Delete this item?')) return
-    const supabase = createClientBrowser()
-    await supabase.from('pricebook_items').delete().eq('id', id)
-    await loadItems(selectedPricebook)
+    try {
+      await fetch(`/api/admin/pricing?type=item&id=${id}`, {
+        method: 'DELETE'
+      })
+      await loadItems(selectedPricebook)
+    } catch (error) {
+      console.error('Failed to delete item:', error)
+    }
   }
 
   const filteredItems = filterCategory 
