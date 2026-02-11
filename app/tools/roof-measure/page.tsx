@@ -101,38 +101,55 @@ export default function RoofMeasurePage() {
       setAddress(urlAddress)
     }
     loadGoogleMaps()
+    
+    // Safety timeout - if still loading after 10 seconds, show error
+    const safetyTimeout = setTimeout(() => {
+      if (loading && !mapError) {
+        console.error('Map loading timed out')
+        setMapError('Map loading timed out. Please check your internet connection and refresh the page.')
+        setLoading(false)
+      }
+    }, 10000)
+    
+    return () => clearTimeout(safetyTimeout)
   }, [searchParams])
 
-  // Initialize map when both Google is loaded AND the ref is available
+  // Initialize map when Google is loaded
   useEffect(() => {
-    if (googleLoaded && mapRef.current && !mapReady) {
-      console.log('Both Google Maps and ref ready, initializing map...')
-      initializeMap()
-      setMapReady(true)
-      setMapsLoaded(true)
-      setLoading(false)
-    }
-  }, [googleLoaded, mapReady])
-
-  // Also check ref on mount with a small delay
-  useEffect(() => {
-    if (googleLoaded && !mapReady) {
-      const checkRef = setInterval(() => {
-        if (mapRef.current) {
-          console.log('Map ref now available')
-          clearInterval(checkRef)
-          initializeMap()
-          setMapReady(true)
-          setMapsLoaded(true)
-          setLoading(false)
-        }
-      }, 100)
-      
-      // Clean up after 5 seconds
-      setTimeout(() => clearInterval(checkRef), 5000)
-      
-      return () => clearInterval(checkRef)
-    }
+    if (!googleLoaded || mapReady) return
+    
+    // Use a small delay to ensure the DOM is ready
+    const initTimer = setTimeout(() => {
+      if (mapRef.current) {
+        console.log('Initializing map...')
+        initializeMap()
+        setMapReady(true)
+        setMapsLoaded(true)
+        setLoading(false)
+      } else {
+        // If ref still not ready, poll for it
+        let attempts = 0
+        const maxAttempts = 50 // 5 seconds
+        const checkRef = setInterval(() => {
+          attempts++
+          if (mapRef.current) {
+            console.log('Map ref now available after polling')
+            clearInterval(checkRef)
+            initializeMap()
+            setMapReady(true)
+            setMapsLoaded(true)
+            setLoading(false)
+          } else if (attempts >= maxAttempts) {
+            console.error('Map ref never became available')
+            clearInterval(checkRef)
+            setMapError('Failed to initialize map container. Please refresh the page.')
+            setLoading(false)
+          }
+        }, 100)
+      }
+    }, 50)
+    
+    return () => clearTimeout(initTimer)
   }, [googleLoaded, mapReady])
 
   // Auto-search when maps are loaded and we have an address from URL
@@ -149,8 +166,7 @@ export default function RoofMeasurePage() {
         const { opportunity } = await response.json()
         if (opportunity?.address_text) {
           setAddress(opportunity.address_text)
-          // Auto-search after loading
-          setTimeout(() => searchAddress(opportunity.address_text), 1000)
+          // Auto-search will happen via the mapsLoaded effect
         }
       }
     } catch (error) {
