@@ -462,7 +462,7 @@ export default function ProposalBuilderPage() {
       if (!response.ok) {
         const data = await response.json()
         console.error('Failed to save proposal:', data.error)
-        alert('Failed to save proposal')
+        alert(`Failed to save proposal: ${data.error || 'Unknown error'}`)
         setSaving(false)
         return
       }
@@ -471,7 +471,7 @@ export default function ProposalBuilderPage() {
       router.push(`/proposals/${proposal.id}`)
     } catch (error) {
       console.error('Error saving proposal:', error)
-      alert('Failed to save proposal')
+      alert(`Failed to save proposal: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setSaving(false)
     }

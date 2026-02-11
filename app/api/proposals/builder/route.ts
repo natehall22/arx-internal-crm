@@ -243,6 +243,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { proposal, lineItems } = body
 
+    // Validate required fields
+    if (!proposal.customer_name?.trim()) {
+      return NextResponse.json({ error: 'Customer name is required' }, { status: 400 })
+    }
+    if (!proposal.customer_address?.trim()) {
+      return NextResponse.json({ error: 'Customer address is required' }, { status: 400 })
+    }
+
     // Generate proposal number
     const { count } = await adminClient
       .from('proposals')
@@ -251,16 +259,40 @@ export async function POST(request: NextRequest) {
 
     const proposalNumber = `P-${String((count || 0) + 1).padStart(5, '0')}`
 
+    // Clean up proposal data - ensure required fields are not empty
+    const cleanProposal = {
+      org_id: profile.org_id,
+      created_by: user.id,
+      proposal_number: proposalNumber,
+      customer_name: proposal.customer_name.trim(),
+      customer_email: proposal.customer_email?.trim() || null,
+      customer_phone: proposal.customer_phone?.trim() || null,
+      customer_address: proposal.customer_address.trim(),
+      opportunity_id: proposal.opportunity_id || null,
+      title: proposal.title || 'Roofing Proposal',
+      status: 'draft',
+      subtotal: proposal.subtotal || 0,
+      discount_amount: proposal.discount_amount || 0,
+      discount_percent: proposal.discount_percent || 0,
+      tax_rate: proposal.tax_rate || 0,
+      tax_amount: proposal.tax_amount || 0,
+      total: proposal.total || 0,
+      financing_available: proposal.financing_available || false,
+      financing_term_months: proposal.financing_term_months || null,
+      financing_rate: proposal.financing_rate || null,
+      monthly_payment: proposal.monthly_payment || null,
+      scope_of_work: proposal.scope_of_work || null,
+      materials_description: proposal.materials_description || null,
+      warranty_info: proposal.warranty_info || null,
+      accent_color: proposal.accent_color || '#4f46e5',
+    }
+
+    console.log('Creating proposal with data:', JSON.stringify(cleanProposal, null, 2))
+
     // Create the proposal
     const { data: newProposal, error: proposalError } = await adminClient
       .from('proposals')
-      .insert({
-        org_id: profile.org_id,
-        created_by: user.id,
-        proposal_number: proposalNumber,
-        ...proposal,
-        status: 'draft',
-      })
+      .insert(cleanProposal)
       .select()
       .single()
 
