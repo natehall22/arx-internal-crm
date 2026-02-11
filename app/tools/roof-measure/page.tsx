@@ -87,6 +87,8 @@ export default function RoofMeasurePage() {
   const [opportunityId, setOpportunityId] = useState<string | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
   const [mapsLoaded, setMapsLoaded] = useState(false)
+  const [mapReady, setMapReady] = useState(false)
+  const [googleLoaded, setGoogleLoaded] = useState(false)
 
   useEffect(() => {
     const oppId = searchParams.get('opportunity_id') || searchParams.get('opportunity')
@@ -100,6 +102,38 @@ export default function RoofMeasurePage() {
     }
     loadGoogleMaps()
   }, [searchParams])
+
+  // Initialize map when both Google is loaded AND the ref is available
+  useEffect(() => {
+    if (googleLoaded && mapRef.current && !mapReady) {
+      console.log('Both Google Maps and ref ready, initializing map...')
+      initializeMap()
+      setMapReady(true)
+      setMapsLoaded(true)
+      setLoading(false)
+    }
+  }, [googleLoaded, mapReady])
+
+  // Also check ref on mount with a small delay
+  useEffect(() => {
+    if (googleLoaded && !mapReady) {
+      const checkRef = setInterval(() => {
+        if (mapRef.current) {
+          console.log('Map ref now available')
+          clearInterval(checkRef)
+          initializeMap()
+          setMapReady(true)
+          setMapsLoaded(true)
+          setLoading(false)
+        }
+      }, 100)
+      
+      // Clean up after 5 seconds
+      setTimeout(() => clearInterval(checkRef), 5000)
+      
+      return () => clearInterval(checkRef)
+    }
+  }, [googleLoaded, mapReady])
 
   // Auto-search when maps are loaded and we have an address from URL
   useEffect(() => {
@@ -139,10 +173,8 @@ export default function RoofMeasurePage() {
                                   window.google?.maps?.places
 
     if (window.google && window.google.maps && hasRequiredLibraries) {
-      console.log('Google Maps already loaded with required libraries, initializing...')
-      initializeMap()
-      setMapsLoaded(true)
-      setLoading(false)
+      console.log('Google Maps already loaded with required libraries')
+      setGoogleLoaded(true)
       return
     }
 
@@ -164,19 +196,14 @@ export default function RoofMeasurePage() {
         }
       } else if (window.google && window.google.maps) {
         // Script has libraries and is loaded
-        initializeMap()
-        setMapsLoaded(true)
-        setLoading(false)
+        console.log('Google Maps script already loaded with libraries')
+        setGoogleLoaded(true)
         return
       } else {
         // Script exists with libraries but not loaded yet, wait for it
         existingScript.addEventListener('load', () => {
           console.log('Existing Google Maps script loaded')
-          setTimeout(() => {
-            initializeMap()
-            setMapsLoaded(true)
-            setLoading(false)
-          }, 100)
+          setTimeout(() => setGoogleLoaded(true), 100)
         })
         return
       }
@@ -189,12 +216,7 @@ export default function RoofMeasurePage() {
     script.defer = true
     script.onload = () => {
       console.log('Google Maps script loaded successfully with libraries')
-      // Small delay to ensure Google Maps is fully initialized
-      setTimeout(() => {
-        initializeMap()
-        setMapsLoaded(true)
-        setLoading(false)
-      }, 100)
+      setTimeout(() => setGoogleLoaded(true), 100)
     }
     script.onerror = (error) => {
       console.error('Failed to load Google Maps:', error)

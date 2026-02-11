@@ -51,7 +51,18 @@ const defaultCategories: CustomCategory[] = [
   { id: 'addons', name: 'Add-ons', color: 'orange' },
 ]
 const itemTypeOptions = ['install', 'tearoff', 'material', 'addon', 'disposal', 'cleanup', 'dumpster', 'decking', 'flashing']
-const unitOptions = ['square', 'each', 'lf', 'sheet', 'job', 'hour', 'watt']
+const unitOptions = [
+  { value: 'square', label: 'Square (100 sq ft)', description: 'Roofing standard' },
+  { value: 'sqft', label: 'Sq Ft', description: 'Per square foot' },
+  { value: 'each', label: 'Each', description: 'Per unit' },
+  { value: 'lf', label: 'Linear Ft', description: 'Per linear foot' },
+  { value: 'sheet', label: 'Sheet', description: 'Per sheet' },
+  { value: 'job', label: 'Job', description: 'Flat rate per job' },
+  { value: 'hour', label: 'Hour', description: 'Per hour' },
+  { value: 'watt', label: 'Watt', description: 'Per watt (solar)' },
+  { value: 'bundle', label: 'Bundle', description: 'Per bundle' },
+  { value: 'roll', label: 'Roll', description: 'Per roll' },
+]
 
 export default function AdminPricingPage() {
   const router = useRouter()
@@ -1206,7 +1217,7 @@ export default function AdminPricingPage() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
                     >
                       {unitOptions.map(unit => (
-                        <option key={unit} value={unit}>{unit}</option>
+                        <option key={unit.value} value={unit.value}>{unit.label}</option>
                       ))}
                     </select>
                   </div>
