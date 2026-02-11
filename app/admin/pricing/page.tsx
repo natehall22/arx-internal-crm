@@ -60,7 +60,23 @@ interface CustomCategory {
   color?: string
 }
 
-type Tab = 'overview' | 'pricebook' | 'costs' | 'labor' | 'categories'
+type Tab = 'overview' | 'roofing-types' | 'pricebook' | 'costs' | 'labor' | 'categories'
+
+interface RoofingType {
+  id: string
+  name: string
+  description: string | null
+  price_per_square: number
+  material_cost_per_square: number | null
+  labor_cost_per_square: number | null
+  labor_multiplier: number
+  default_warranty_years: number
+  default_warranty_text: string | null
+  color: string
+  sort_order: number
+  is_default: boolean
+  active: boolean
+}
 
 const defaultCategories: CustomCategory[] = [
   { id: 'roofing', name: 'Roofing', color: 'blue' },
@@ -124,6 +140,23 @@ export default function AdminPricingPage() {
   const [showCategoryModal, setShowCategoryModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState<CustomCategory | null>(null)
   const [categoryForm, setCategoryForm] = useState({ name: '', color: 'blue' })
+  
+  // Roofing Types
+  const [roofingTypes, setRoofingTypes] = useState<RoofingType[]>([])
+  const [showRoofingTypeModal, setShowRoofingTypeModal] = useState(false)
+  const [editingRoofingType, setEditingRoofingType] = useState<RoofingType | null>(null)
+  const [roofingTypeForm, setRoofingTypeForm] = useState({
+    name: '',
+    description: '',
+    price_per_square: '',
+    material_cost_per_square: '',
+    labor_cost_per_square: '',
+    labor_multiplier: '1.00',
+    default_warranty_years: '25',
+    default_warranty_text: '',
+    color: '#4f46e5',
+    is_default: false,
+  })
   
   // Modal states
   const [showItemModal, setShowItemModal] = useState(false)
@@ -197,6 +230,17 @@ export default function AdminPricingPage() {
         setCategories(data.orgSettings.categories)
       } else {
         setCategories(defaultCategories)
+      }
+      
+      // Load roofing types
+      try {
+        const rtResponse = await fetch('/api/admin/roofing-types')
+        if (rtResponse.ok) {
+          const rtData = await rtResponse.json()
+          setRoofingTypes(rtData.roofingTypes || [])
+        }
+      } catch (err) {
+        console.error('Error loading roofing types:', err)
       }
       
       setLoading(false)
@@ -543,9 +587,10 @@ export default function AdminPricingPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 border-b">
+        <div className="flex gap-1 mb-6 border-b overflow-x-auto">
           {[
             { id: 'overview', label: 'Pricing Overview' },
+            { id: 'roofing-types', label: 'Roofing Types' },
             { id: 'pricebook', label: 'Pricebook Items' },
             { id: 'categories', label: 'Categories' },
             { id: 'costs', label: 'Cost Settings' },
@@ -783,6 +828,328 @@ export default function AdminPricingPage() {
                     : 'N/A'}
                 </p>
                 <p className="text-sm text-gray-500 mt-1">On items with cost data</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Roofing Types Tab */}
+        {activeTab === 'roofing-types' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Roofing Material Types</h2>
+                  <p className="text-sm text-gray-500">Configure different roofing materials with their own pricing. Sales reps will select the roofing type when building proposals.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingRoofingType(null)
+                    setRoofingTypeForm({
+                      name: '',
+                      description: '',
+                      price_per_square: '',
+                      material_cost_per_square: '',
+                      labor_cost_per_square: '',
+                      labor_multiplier: '1.00',
+                      default_warranty_years: '25',
+                      default_warranty_text: '',
+                      color: '#4f46e5',
+                      is_default: false,
+                    })
+                    setShowRoofingTypeModal(true)
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
+                >
+                  + Add Roofing Type
+                </button>
+              </div>
+
+              {roofingTypes.length === 0 ? (
+                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                  <p className="text-gray-500 mb-2">No roofing types configured</p>
+                  <p className="text-sm text-gray-400 mb-4">Add roofing types like Asphalt Shingles, Metal, Tile, etc.</p>
+                  <button
+                    onClick={() => {
+                      setShowRoofingTypeModal(true)
+                    }}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
+                  >
+                    Add First Roofing Type
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {roofingTypes.map((type) => (
+                    <div
+                      key={type.id}
+                      className="relative border rounded-xl p-5 hover:border-indigo-200 transition-colors"
+                    >
+                      {type.is_default && (
+                        <span className="absolute top-3 right-3 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                          Default
+                        </span>
+                      )}
+                      <div 
+                        className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
+                        style={{ backgroundColor: type.color + '20' }}
+                      >
+                        <svg 
+                          className="w-6 h-6" 
+                          fill="none" 
+                          stroke={type.color} 
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{type.name}</h3>
+                      {type.description && (
+                        <p className="text-sm text-gray-500 mb-3 line-clamp-2">{type.description}</p>
+                      )}
+                      <div className="flex items-baseline gap-1 mb-3">
+                        <span className="text-2xl font-bold" style={{ color: type.color }}>
+                          ${type.price_per_square.toLocaleString()}
+                        </span>
+                        <span className="text-sm text-gray-400">/square</span>
+                      </div>
+                      <div className="text-xs text-gray-500 space-y-1 mb-4">
+                        {type.material_cost_per_square && (
+                          <p>Material: ${type.material_cost_per_square}/sq</p>
+                        )}
+                        {type.labor_cost_per_square && (
+                          <p>Labor: ${type.labor_cost_per_square}/sq</p>
+                        )}
+                        {type.labor_multiplier !== 1 && (
+                          <p>Labor multiplier: {type.labor_multiplier}x</p>
+                        )}
+                        <p>Warranty: {type.default_warranty_years} years</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setEditingRoofingType(type)
+                            setRoofingTypeForm({
+                              name: type.name,
+                              description: type.description || '',
+                              price_per_square: type.price_per_square.toString(),
+                              material_cost_per_square: type.material_cost_per_square?.toString() || '',
+                              labor_cost_per_square: type.labor_cost_per_square?.toString() || '',
+                              labor_multiplier: type.labor_multiplier.toString(),
+                              default_warranty_years: type.default_warranty_years.toString(),
+                              default_warranty_text: type.default_warranty_text || '',
+                              color: type.color,
+                              is_default: type.is_default,
+                            })
+                            setShowRoofingTypeModal(true)
+                          }}
+                          className="flex-1 px-3 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Delete "${type.name}"?`)) return
+                            try {
+                              await fetch(`/api/admin/roofing-types?id=${type.id}`, { method: 'DELETE' })
+                              setRoofingTypes(prev => prev.filter(t => t.id !== type.id))
+                            } catch (err) {
+                              console.error('Error deleting roofing type:', err)
+                            }
+                          }}
+                          className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Roofing Type Modal */}
+        {showRoofingTypeModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b">
+                <h2 className="text-xl font-bold text-gray-900">
+                  {editingRoofingType ? 'Edit Roofing Type' : 'Add Roofing Type'}
+                </h2>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Name *</label>
+                  <input
+                    type="text"
+                    value={roofingTypeForm.name}
+                    onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    placeholder="Asphalt Shingles"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                  <textarea
+                    value={roofingTypeForm.description}
+                    onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    rows={2}
+                    placeholder="3-tab or architectural asphalt shingles"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Price Per Square *</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={roofingTypeForm.price_per_square}
+                      onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, price_per_square: e.target.value }))}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg"
+                      placeholder="350.00"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">The price charged to customers per square (100 sq ft)</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Material Cost/Sq</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={roofingTypeForm.material_cost_per_square}
+                        onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, material_cost_per_square: e.target.value }))}
+                        className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg"
+                        placeholder="125.00"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Labor Cost/Sq</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={roofingTypeForm.labor_cost_per_square}
+                        onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, labor_cost_per_square: e.target.value }))}
+                        className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg"
+                        placeholder="145.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Labor Multiplier</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={roofingTypeForm.labor_multiplier}
+                      onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, labor_multiplier: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      placeholder="1.00"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">1.5 = 50% more labor time</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Warranty Years</label>
+                    <input
+                      type="number"
+                      value={roofingTypeForm.default_warranty_years}
+                      onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, default_warranty_years: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      placeholder="25"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                  <div className="flex gap-2">
+                    {['#4f46e5', '#64748b', '#dc2626', '#0891b2', '#a16207', '#1e293b', '#059669', '#7c3aed'].map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setRoofingTypeForm(prev => ({ ...prev, color }))}
+                        className={`w-8 h-8 rounded-full border-2 ${roofingTypeForm.color === color ? 'border-gray-900 scale-110' : 'border-transparent'}`}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={roofingTypeForm.is_default}
+                    onChange={(e) => setRoofingTypeForm(prev => ({ ...prev, is_default: e.target.checked }))}
+                    className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                  />
+                  <span className="text-sm text-gray-700">Set as default roofing type</span>
+                </label>
+              </div>
+              <div className="p-6 border-t flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowRoofingTypeModal(false)
+                    setEditingRoofingType(null)
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      const method = editingRoofingType ? 'PATCH' : 'POST'
+                      const body = editingRoofingType 
+                        ? { id: editingRoofingType.id, ...roofingTypeForm }
+                        : roofingTypeForm
+                      
+                      const response = await fetch('/api/admin/roofing-types', {
+                        method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                      })
+                      
+                      if (response.ok) {
+                        const data = await response.json()
+                        if (editingRoofingType) {
+                          setRoofingTypes(prev => prev.map(t => 
+                            t.id === editingRoofingType.id ? data.roofingType : t
+                          ))
+                        } else {
+                          setRoofingTypes(prev => [...prev, data.roofingType])
+                        }
+                        // If set as default, update others
+                        if (roofingTypeForm.is_default) {
+                          setRoofingTypes(prev => prev.map(t => ({
+                            ...t,
+                            is_default: t.id === (data.roofingType?.id || editingRoofingType?.id)
+                          })))
+                        }
+                        setShowRoofingTypeModal(false)
+                        setEditingRoofingType(null)
+                      }
+                    } catch (err) {
+                      console.error('Error saving roofing type:', err)
+                    }
+                    setSaving(false)
+                  }}
+                  disabled={saving || !roofingTypeForm.name || !roofingTypeForm.price_per_square}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : editingRoofingType ? 'Update' : 'Create'}
+                </button>
               </div>
             </div>
           </div>

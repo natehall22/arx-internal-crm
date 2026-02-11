@@ -149,6 +149,14 @@ export async function GET(request: NextRequest) {
       measurement = meas
     }
 
+    // Load roofing types
+    const { data: roofingTypes } = await adminClient
+      .from('roofing_types')
+      .select('*')
+      .eq('org_id', profile.org_id)
+      .eq('active', true)
+      .order('sort_order')
+
     // If no pricebook items exist, create default items from org pricing settings
     let pricebookItems = visibleItems.filter((i: any) => !i.is_adder)
     
@@ -189,6 +197,7 @@ export async function GET(request: NextRequest) {
       pricebookItems,
       adders: visibleItems.filter((i: any) => i.is_adder),
       templates: templates || [],
+      roofingTypes: roofingTypes || [],
       opportunity,
       measurement,
       role: profile.role,

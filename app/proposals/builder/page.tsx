@@ -15,6 +15,34 @@ interface PricebookItem {
   visibility: string
 }
 
+interface RoofingType {
+  id: string
+  name: string
+  description: string | null
+  price_per_square: number
+  material_cost_per_square: number | null
+  labor_cost_per_square: number | null
+  labor_multiplier: number
+  default_warranty_years: number
+  default_warranty_text: string | null
+  color: string
+  is_default: boolean
+}
+
+interface RoofingType {
+  id: string
+  name: string
+  description: string | null
+  price_per_square: number
+  material_cost_per_square: number | null
+  labor_cost_per_square: number | null
+  labor_multiplier: number
+  default_warranty_years: number
+  default_warranty_text: string | null
+  color: string
+  is_default: boolean
+}
+
 interface LineItem {
   id: string
   pricebook_item_id: string | null
@@ -44,6 +72,7 @@ interface ProposalForm {
   financing_term_months: number
   financing_rate: number
   accent_color: string
+  roofing_type_id: string | null
 }
 
 const defaultForm: ProposalForm = {
@@ -62,6 +91,7 @@ const defaultForm: ProposalForm = {
   financing_term_months: 60,
   financing_rate: 9.99,
   accent_color: '#4f46e5',
+  roofing_type_id: null,
 }
 
 const adderCategories = [
@@ -96,6 +126,8 @@ export default function ProposalBuilderPage() {
   const [userRole, setUserRole] = useState<string>('')
   const [templates, setTemplates] = useState<any[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
+  const [roofingTypes, setRoofingTypes] = useState<RoofingType[]>([])
+  const [selectedRoofingType, setSelectedRoofingType] = useState<RoofingType | null>(null)
 
   useEffect(() => {
     loadData()
@@ -125,6 +157,14 @@ export default function ProposalBuilderPage() {
       setPricebookItems(data.pricebookItems || [])
       setAdders(data.adders || [])
       setTemplates(data.templates || [])
+      setRoofingTypes(data.roofingTypes || [])
+      
+      // Set default roofing type
+      if (data.roofingTypes?.length) {
+        const defaultType = data.roofingTypes.find((t: RoofingType) => t.is_default) || data.roofingTypes[0]
+        setSelectedRoofingType(defaultType)
+        setForm(prev => ({ ...prev, roofing_type_id: defaultType.id }))
+      }
 
       // Apply template defaults
       if (data.templates?.length) {
@@ -448,9 +488,10 @@ export default function ProposalBuilderPage() {
             <div className="flex items-center gap-8">
               {[
                 { num: 1, label: 'Customer Info' },
-                { num: 2, label: 'Line Items' },
-                { num: 3, label: 'Adders' },
-                { num: 4, label: 'Review' },
+                { num: 2, label: 'Roofing Type' },
+                { num: 3, label: 'Pricing' },
+                { num: 4, label: 'Adders' },
+                { num: 5, label: 'Review' },
               ].map((s, idx) => (
                 <button
                   key={s.num}
@@ -598,8 +639,148 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Step 2: Line Items */}
+        {/* Step 2: Roofing Type Selection */}
         {step === 2 && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Roofing Type</h2>
+              <p className="text-gray-500 mb-6">Choose the type of roofing material for this project. Pricing will be calculated based on your selection.</p>
+
+              {roofingTypes.length === 0 ? (
+                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                  <p className="text-gray-500 mb-2">No roofing types configured</p>
+                  <p className="text-sm text-gray-400">Ask your admin to set up roofing types in Admin → Pricing & Costs</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {roofingTypes.map((type) => (
+                    <button
+                      key={type.id}
+                      onClick={() => {
+                        setSelectedRoofingType(type)
+                        setForm(prev => ({ ...prev, roofing_type_id: type.id }))
+                        // Update warranty info if the type has default warranty text
+                        if (type.default_warranty_text) {
+                          setForm(prev => ({ ...prev, warranty_info: type.default_warranty_text || prev.warranty_info }))
+                        }
+                        // Auto-populate line items based on roofing type
+                        const squares = measurementData?.total_squares || parseFloat(urlSquares || '0')
+                        if (squares > 0) {
+                          const newLineItem: LineItem = {
+                            id: `roofing-${type.id}`,
+                            pricebook_item_id: null,
+                            category: 'Roofing',
+                            name: `${type.name} Installation`,
+                            description: type.description || '',
+                            unit: 'square',
+                            quantity: squares,
+                            unit_price: type.price_per_square,
+                            line_total: squares * type.price_per_square,
+                            is_adder: false,
+                          }
+                          // Replace any existing roofing line items
+                          setLineItems(prev => {
+                            const nonRoofingItems = prev.filter(item => 
+                              !item.name.toLowerCase().includes('roofing') && 
+                              !item.name.toLowerCase().includes('installation') ||
+                              item.is_adder
+                            )
+                            return [newLineItem, ...nonRoofingItems.filter(i => !i.is_adder)]
+                          })
+                        }
+                      }}
+                      className={`relative p-6 rounded-xl border-2 text-left transition-all ${
+                        selectedRoofingType?.id === type.id
+                          ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-600'
+                          : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {type.is_default && (
+                        <span className="absolute top-3 right-3 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                          Default
+                        </span>
+                      )}
+                      <div 
+                        className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
+                        style={{ backgroundColor: type.color + '20' }}
+                      >
+                        <svg 
+                          className="w-6 h-6" 
+                          fill="none" 
+                          stroke={type.color} 
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{type.name}</h3>
+                      {type.description && (
+                        <p className="text-sm text-gray-500 mb-3 line-clamp-2">{type.description}</p>
+                      )}
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-2xl font-bold" style={{ color: type.color }}>
+                          ${type.price_per_square.toLocaleString()}
+                        </span>
+                        <span className="text-sm text-gray-400">/square</span>
+                      </div>
+                      {type.default_warranty_years && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          {type.default_warranty_years} year warranty
+                        </p>
+                      )}
+                      {selectedRoofingType?.id === type.id && (
+                        <div className="absolute top-3 left-3">
+                          <svg className="w-6 h-6 text-indigo-600" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                          </svg>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Show calculated price if roofing type selected and measurement available */}
+              {selectedRoofingType && (measurementData?.total_squares || urlSquares) && (
+                <div className="mt-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Estimated Base Price</p>
+                      <p className="text-xs text-gray-500">
+                        {measurementData?.total_squares?.toFixed(1) || urlSquares} squares × ${selectedRoofingType.price_per_square.toLocaleString()}/sq
+                      </p>
+                    </div>
+                    <p className="text-2xl font-bold text-indigo-600">
+                      ${((measurementData?.total_squares || parseFloat(urlSquares || '0')) * selectedRoofingType.price_per_square).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between">
+              <button
+                onClick={() => setStep(1)}
+                className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
+              >
+                Back
+              </button>
+              <button
+                onClick={() => setStep(3)}
+                disabled={roofingTypes.length > 0 && !selectedRoofingType}
+                className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Continue to Pricing
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Line Items / Pricing */}
+        {step === 3 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Project Items</h2>
@@ -699,13 +880,13 @@ export default function ProposalBuilderPage() {
 
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(1)}
+                onClick={() => setStep(2)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
               </button>
               <button
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
               >
                 Continue to Adders
@@ -714,8 +895,8 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Step 3: Adders */}
-        {step === 3 && (
+        {/* Step 4: Adders */}
+        {step === 4 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Add-Ons & Upgrades</h2>
@@ -807,13 +988,13 @@ export default function ProposalBuilderPage() {
 
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(2)}
+                onClick={() => setStep(3)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
               </button>
               <button
-                onClick={() => setStep(4)}
+                onClick={() => setStep(5)}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
               >
                 Review Proposal
@@ -822,8 +1003,8 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Step 4: Review */}
-        {step === 4 && (
+        {/* Step 5: Review */}
+        {step === 5 && (
           <div className="space-y-6">
             {/* Preview Card */}
             <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
@@ -1065,7 +1246,7 @@ export default function ProposalBuilderPage() {
             {/* Actions */}
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
