@@ -272,8 +272,9 @@ export async function POST(request: NextRequest) {
     // Create line items
     if (lineItems && lineItems.length > 0) {
       const lineItemsToInsert = lineItems.map((item: any, index: number) => ({
+        org_id: profile.org_id,
         proposal_id: newProposal.id,
-        pricebook_item_id: item.pricebook_item_id,
+        pricebook_item_id: item.pricebook_item_id || null,
         category: item.category,
         name: item.name,
         description: item.description || '',
