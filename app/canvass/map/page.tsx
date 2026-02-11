@@ -587,14 +587,11 @@ export default function CanvassMapPage() {
       setStatusMessage('Drop a pin to set the location first.')
       return
     }
-    if (formState.schedule_inspection && !formState.closer_user_id) {
-      setStatusMessage('Select a closer before scheduling.')
-      return
-    }
     if (formState.schedule_inspection && !formState.inspection_scheduled_for) {
       setStatusMessage('Select inspection date/time.')
       return
     }
+    // Note: closer_user_id is optional - if not set, round-robin will assign one
 
     // If offline, cache the pin locally
     if (!isOnline) {

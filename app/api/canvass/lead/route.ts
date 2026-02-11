@@ -142,12 +142,12 @@ export async function POST(request: Request) {
     if (existingOpportunity?.id) {
       opportunityId = existingOpportunity.id
     } else {
-      const { data: createdOpportunity } = await supabase
+      const { data: createdOpportunity, error: oppError } = await supabase
         .from('opportunities')
         .insert({
           org_id: profile.org_id,
           lead_id: leadRow.id,
-          owner_user_id: closerUserId || leadRow.owner_user_id,
+          owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
           status: 'open',
           project_type: 'roofing',
           address_text: leadRow.address_text,
@@ -158,6 +158,9 @@ export async function POST(request: Request) {
         .select('id')
         .single()
 
+      if (oppError) {
+        console.error('Opportunity creation error:', oppError)
+      }
       opportunityId = createdOpportunity?.id ?? null
 
       // Update appointment with opportunity_id
