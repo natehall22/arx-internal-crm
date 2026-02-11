@@ -158,6 +158,18 @@ export default async function LeadDetailPage({
 
     if (!freshLead) return
 
+    // When converting to opportunity (status = inspection), require name, phone, and address
+    if (status === 'inspection') {
+      const missingFields: string[] = []
+      if (!freshLead.homeowner_name?.trim()) missingFields.push('Name')
+      if (!freshLead.phone?.trim()) missingFields.push('Phone')
+      if (!freshLead.address_text?.trim()) missingFields.push('Address')
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Cannot convert to opportunity. Missing required fields: ${missingFields.join(', ')}. Please update the lead info first.`)
+      }
+    }
+
     const updates: Record<string, any> = {
       status,
       source: source || null,

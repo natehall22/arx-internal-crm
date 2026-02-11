@@ -638,9 +638,25 @@ export default function CanvassMapPage() {
       setStatusMessage('Drop a pin to set the location first.')
       return
     }
-    if (formState.schedule_inspection && !formState.inspection_scheduled_for) {
-      setStatusMessage('Select inspection date/time.')
-      return
+    
+    // When scheduling an inspection (converting to opportunity), require name, phone, and address
+    if (formState.schedule_inspection) {
+      if (!formState.homeowner_name?.trim()) {
+        setStatusMessage('Homeowner name is required to schedule an inspection.')
+        return
+      }
+      if (!formState.phone?.trim()) {
+        setStatusMessage('Phone number is required to schedule an inspection.')
+        return
+      }
+      if (!formState.address_text?.trim()) {
+        setStatusMessage('Address is required to schedule an inspection.')
+        return
+      }
+      if (!formState.inspection_scheduled_for) {
+        setStatusMessage('Select inspection date/time.')
+        return
+      }
     }
     // Note: closer_user_id is optional - if not set, round-robin will assign one
 

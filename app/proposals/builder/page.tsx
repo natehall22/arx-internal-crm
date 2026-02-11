@@ -396,6 +396,19 @@ export default function ProposalBuilderPage() {
   }
 
   const saveProposal = async (asDraft: boolean = true) => {
+    // Validate required fields
+    const missingFields: string[] = []
+    if (!form.customer_name?.trim()) missingFields.push('Customer Name')
+    if (!form.customer_phone?.trim()) missingFields.push('Phone Number')
+    if (!form.customer_address?.trim()) missingFields.push('Address')
+    if (!form.customer_email?.trim()) missingFields.push('Email')
+    
+    if (missingFields.length > 0) {
+      alert(`Please fill in required fields: ${missingFields.join(', ')}`)
+      setStep(1) // Go back to customer info step
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -570,48 +583,54 @@ export default function ProposalBuilderPage() {
           <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Customer Information</h2>
             
+            <p className="text-sm text-gray-500 mb-4">Fields marked with * are required</p>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Customer Name *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Customer Name <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   value={form.customer_name}
                   onChange={(e) => setForm(prev => ({ ...prev, customer_name: e.target.value }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl text-lg"
+                  className={`w-full px-4 py-3 border rounded-xl text-lg ${!form.customer_name?.trim() ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder="John Smith"
+                  required
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email <span className="text-red-500">*</span></label>
                 <input
                   type="email"
                   value={form.customer_email}
                   onChange={(e) => setForm(prev => ({ ...prev, customer_email: e.target.value }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl"
+                  className={`w-full px-4 py-3 border rounded-xl ${!form.customer_email?.trim() ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder="john@example.com"
+                  required
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Phone <span className="text-red-500">*</span></label>
                 <input
                   type="tel"
                   value={form.customer_phone}
                   onChange={(e) => setForm(prev => ({ ...prev, customer_phone: e.target.value }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl"
+                  className={`w-full px-4 py-3 border rounded-xl ${!form.customer_phone?.trim() ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder="(555) 123-4567"
+                  required
                 />
               </div>
               
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Property Address *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Property Address <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   value={form.customer_address}
                   onChange={(e) => setForm(prev => ({ ...prev, customer_address: e.target.value }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl"
+                  className={`w-full px-4 py-3 border rounded-xl ${!form.customer_address?.trim() ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder="123 Main St, City, State 12345"
+                  required
                 />
               </div>
 
@@ -630,7 +649,7 @@ export default function ProposalBuilderPage() {
             <div className="mt-8 flex justify-end">
               <button
                 onClick={() => setStep(2)}
-                disabled={!form.customer_name || !form.customer_address}
+                disabled={!form.customer_name?.trim() || !form.customer_address?.trim() || !form.customer_phone?.trim() || !form.customer_email?.trim()}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Continue
