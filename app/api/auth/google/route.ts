@@ -58,6 +58,23 @@ function getAuthClient(req: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    // Check if Google OAuth is configured
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      console.error('Google Calendar integration not configured: GOOGLE_CLIENT_ID missing')
+      return NextResponse.json(
+        { error: 'Google Calendar integration is not configured. Please contact your administrator.' },
+        { status: 503 }
+      )
+    }
+
+    if (!process.env.GOOGLE_CLIENT_SECRET) {
+      console.error('Google Calendar integration not configured: GOOGLE_CLIENT_SECRET missing')
+      return NextResponse.json(
+        { error: 'Google Calendar integration is not configured. Please contact your administrator.' },
+        { status: 503 }
+      )
+    }
+
     const { client: authClient, accessToken } = getAuthClient(request)
     
     // Get current user
@@ -72,8 +89,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(authUrl)
   } catch (error) {
     console.error('Google auth error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
-      { error: 'Failed to initiate Google authentication' },
+      { error: `Failed to initiate Google authentication: ${errorMessage}` },
       { status: 500 }
     )
   }
