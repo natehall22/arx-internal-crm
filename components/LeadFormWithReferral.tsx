@@ -179,11 +179,11 @@ export default function LeadFormWithReferral({ orgId, userId, defaultBonusAmount
 
     const supabase = createClientBrowser()
 
-    // Create the lead
-    const { data: lead, error: leadError } = await supabase
-      .from('leads')
-      .insert({
-        org_id: orgId,
+    // Create the lead via API
+    const response = await fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         owner_user_id: userId,
         homeowner_name: form.homeowner_name || null,
         phone: form.phone || null,
@@ -192,16 +192,19 @@ export default function LeadFormWithReferral({ orgId, userId, defaultBonusAmount
         source: source || null,
         status: form.status,
         notes: form.notes || null,
-      })
-      .select('id')
-      .single()
+      }),
+    })
 
-    if (leadError || !lead) {
-      console.error('Lead creation error:', leadError)
-      alert('Failed to create lead. Please try again.')
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      console.error('Lead creation error:', errorData)
+      alert(errorData.error || 'Failed to create lead. Please try again.')
       setSaving(false)
       return
     }
+
+    const { lead_id } = await response.json()
+    const lead = { id: lead_id }
 
     // If there's a referrer selected, create the referral record
     if (selectedReferrer && source === 'referral') {
