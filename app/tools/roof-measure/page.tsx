@@ -220,18 +220,18 @@ export default function RoofMeasurePage() {
     try {
       const map = new google.maps.Map(mapRef.current, {
         center: mapCenter,
-        zoom: 18, // Start at a reasonable zoom level
-        mapTypeId: 'hybrid', // Use hybrid so you can see streets + satellite
+        zoom: 19,
+        mapTypeId: 'satellite',
         tilt: 0,
         mapTypeControl: true,
         mapTypeControlOptions: {
-          position: (google.maps as any).ControlPosition.TOP_RIGHT,
+          position: google.maps.ControlPosition.TOP_RIGHT,
           mapTypeIds: ['satellite', 'hybrid', 'roadmap'],
         },
         fullscreenControl: true,
         streetViewControl: false,
-        gestureHandling: 'greedy', // Allow easy zooming/panning
-      } as any)
+        gestureHandling: 'greedy',
+      })
 
       googleMapRef.current = map
       console.log('Map created successfully')
@@ -241,9 +241,9 @@ export default function RoofMeasurePage() {
         console.log('Map tiles loaded successfully')
       })
       
-      // Add listener for errors
-      google.maps.event.addListener(map, 'error', (e: any) => {
-        console.error('Map error:', e)
+      // Add idle listener to confirm map is ready
+      google.maps.event.addListenerOnce(map, 'idle', () => {
+        console.log('Map is idle and ready')
       })
 
       // Initialize drawing manager
@@ -890,21 +890,33 @@ export default function RoofMeasurePage() {
         </div>
 
         {/* Map */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-h-[400px]">
           {/* Map container - Google Maps will render here */}
           <div 
             ref={mapRef} 
             id="roof-measure-map"
-            className="w-full h-full bg-gray-600"
+            className="absolute inset-0 bg-gray-600"
+            style={{ minHeight: '400px' }}
           />
           
           {/* Status overlay for debugging */}
-          {!mapsLoaded && (
+          {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto mb-4" />
                 <p className="text-white">Loading Google Maps...</p>
                 <p className="text-gray-400 text-sm mt-2">If this takes too long, check the browser console</p>
+              </div>
+            </div>
+          )}
+          
+          {/* Error overlay */}
+          {mapError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90">
+              <div className="text-center max-w-md p-6">
+                <div className="text-red-500 text-4xl mb-4">⚠️</div>
+                <p className="text-white font-medium mb-2">Map Error</p>
+                <p className="text-gray-400 text-sm">{mapError}</p>
               </div>
             </div>
           )}
