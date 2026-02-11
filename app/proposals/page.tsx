@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface Proposal {
   id: string
@@ -22,48 +21,41 @@ interface Proposal {
 export default function ProposalsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [filter, setFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
-
-  const supabase = createClientBrowser()
 
   useEffect(() => {
     loadProposals()
   }, [])
 
   const loadProposals = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/proposals')
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/login')
+          return
+        }
+        const data = await response.json()
+        setError(data.error || 'Failed to load proposals')
+        setProposals([])
+        return
+      }
+
+      const { proposals: proposalsData } = await response.json()
+      setProposals(proposalsData || [])
+    } catch (err) {
+      console.error('Error loading proposals:', err)
+      setError('Failed to load proposals')
+      setProposals([])
+    } finally {
+      setLoading(false)
     }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      router.push('/dashboard')
-      return
-    }
-
-    let query = supabase
-      .from('proposals')
-      .select('*, users(full_name)')
-      .eq('org_id', profile.org_id)
-      .order('created_at', { ascending: false })
-
-    // Non-admin users only see their own proposals
-    if (!['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)) {
-      query = query.eq('created_by', user.id)
-    }
-
-    const { data } = await query
-    setProposals(data || [])
-    setLoading(false)
   }
 
   const getStatusColor = (status: string) => {

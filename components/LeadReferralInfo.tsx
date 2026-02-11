@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface ReferrerResult {
   id: string
@@ -54,33 +53,20 @@ export default function LeadReferralInfo({
 
   useEffect(() => {
     loadReferral()
-    loadDefaultBonus()
   }, [leadId])
 
-  const loadDefaultBonus = async () => {
-    const supabase = createClientBrowser()
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', orgId)
-      .single()
-    
-    if (org?.settings?.referral_bonus) {
-      setBonusAmount(org.settings.referral_bonus.toString())
-    }
-  }
-
   const loadReferral = async () => {
-    const supabase = createClientBrowser()
-    
-    const { data } = await supabase
-      .from('referrals')
-      .select('*')
-      .eq('referred_lead_id', leadId)
-      .maybeSingle()
-
-    setReferral(data)
-    setLoading(false)
+    try {
+      const response = await fetch(`/api/referrals?lead_id=${leadId}`)
+      if (response.ok) {
+        const { referral: data } = await response.json()
+        setReferral(data)
+      }
+    } catch (err) {
+      console.error('Error loading referral:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Debounced search
@@ -107,134 +93,46 @@ export default function LeadReferralInfo({
 
   const searchReferrers = async (query: string) => {
     setSearching(true)
-    const supabase = createClientBrowser()
-    const searchPattern = `%${query}%`
-
-    const { data: customers } = await supabase
-      .from('customers')
-      .select('id, name, phone, email, address_text')
-      .eq('org_id', orgId)
-      .or(`name.ilike.${searchPattern},phone.ilike.${searchPattern},email.ilike.${searchPattern},address_text.ilike.${searchPattern}`)
-      .limit(10)
-
-    const { data: leads } = await supabase
-      .from('leads')
-      .select('id, homeowner_name, phone, email, address_text')
-      .eq('org_id', orgId)
-      .neq('id', leadId) // Exclude current lead
-      .in('status', ['won', 'appointment', 'inspection', 'estimate_sent'])
-      .or(`homeowner_name.ilike.${searchPattern},phone.ilike.${searchPattern},email.ilike.${searchPattern},address_text.ilike.${searchPattern}`)
-      .limit(10)
-
-    const results: ReferrerResult[] = [
-      ...(customers || []).map(c => ({
-        id: c.id,
-        type: 'customer' as const,
-        name: c.name || 'Unnamed Customer',
-        phone: c.phone,
-        email: c.email,
-        address: c.address_text,
-      })),
-      ...(leads || []).map(l => ({
-        id: l.id,
-        type: 'lead' as const,
-        name: l.homeowner_name || 'Unnamed Lead',
-        phone: l.phone,
-        email: l.email,
-        address: l.address_text,
-      })),
-    ]
-
-    const seen = new Set<string>()
-    const uniqueResults = results.filter(r => {
-      const key = `${r.name}-${r.phone}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-
-    setSearchResults(uniqueResults)
-    setSearching(false)
+    try {
+      const response = await fetch(`/api/referrals?q=${encodeURIComponent(query)}&exclude_lead_id=${leadId}`)
+      if (response.ok) {
+        const { results } = await response.json()
+        setSearchResults(results || [])
+      }
+    } catch (err) {
+      console.error('Error searching referrers:', err)
+      setSearchResults([])
+    } finally {
+      setSearching(false)
+    }
   }
 
   const selectReferrer = async (referrer: ReferrerResult) => {
     setSaving(true)
-    const supabase = createClientBrowser()
-
-    // Ensure we have a customer ID
-    let referrerCustomerId = referrer.type === 'customer' ? referrer.id : null
-
-    if (referrer.type === 'lead') {
-      // Check if this lead has an associated customer by phone (most reliable)
-      let existingCustomer = null
-      if (referrer.phone) {
-        const { data } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('org_id', orgId)
-          .eq('phone', referrer.phone)
-          .limit(1)
-          .maybeSingle()
-        existingCustomer = data
-      }
-      
-      // If not found by phone, try by name
-      if (!existingCustomer && referrer.name) {
-        const { data } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('org_id', orgId)
-          .eq('name', referrer.name)
-          .limit(1)
-          .maybeSingle()
-        existingCustomer = data
-      }
-
-      if (existingCustomer) {
-        referrerCustomerId = existingCustomer.id
-      } else {
-        const { data: newCustomer } = await supabase
-          .from('customers')
-          .insert({
-            org_id: orgId,
-            name: referrer.name,
-            phone: referrer.phone,
-            email: referrer.email,
-            address_text: referrer.address,
-          })
-          .select('id')
-          .single()
-
-        if (newCustomer) {
-          referrerCustomerId = newCustomer.id
-        }
-      }
-    }
-
-    if (referrerCustomerId) {
-      const { error } = await supabase
-        .from('referrals')
-        .insert({
-          org_id: orgId,
-          referrer_customer_id: referrerCustomerId,
-          referrer_name: referrer.name,
-          referrer_email: referrer.email,
-          referrer_phone: referrer.phone,
-          referred_name: leadName || 'Lead',
-          referred_email: leadEmail,
-          referred_phone: leadPhone,
-          referred_address: leadAddress,
-          referred_lead_id: leadId,
-          bonus_amount: parseFloat(bonusAmount) || 100,
-          bonus_type: 'cash',
-          status: 'pending',
+    try {
+      const response = await fetch('/api/referrals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          referrer,
+          leadId,
+          leadName,
+          leadEmail,
+          leadPhone,
+          leadAddress,
+          bonusAmount: parseFloat(bonusAmount) || 100,
         })
+      })
 
-      if (error) {
-        alert(`Failed to link referral: ${error.message}`)
+      if (!response.ok) {
+        const data = await response.json()
+        alert(`Failed to link referral: ${data.error}`)
       } else {
         await loadReferral()
       }
+    } catch (err) {
+      console.error('Error creating referral:', err)
+      alert('Failed to link referral')
     }
 
     setShowSearch(false)
@@ -247,9 +145,16 @@ export default function LeadReferralInfo({
     if (!referral) return
     if (!confirm('Remove this referral link? The referral record will be deleted.')) return
 
-    const supabase = createClientBrowser()
-    await supabase.from('referrals').delete().eq('id', referral.id)
-    setReferral(null)
+    try {
+      const response = await fetch(`/api/referrals?id=${referral.id}`, {
+        method: 'DELETE'
+      })
+      if (response.ok) {
+        setReferral(null)
+      }
+    } catch (err) {
+      console.error('Error removing referral:', err)
+    }
   }
 
   if (loading) {

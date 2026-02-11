@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface PricebookItem {
   id: string
@@ -103,128 +102,90 @@ export default function ProposalBuilderPage() {
   }, [])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
+    try {
+      // Build query params
+      const params = new URLSearchParams()
+      if (opportunityId) params.set('opportunity_id', opportunityId)
+      if (measurementId) params.set('measurement_id', measurementId)
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      router.push('/dashboard')
-      return
-    }
-
-    setUserRole(profile.role)
-
-    // Load pricebook items based on visibility
-    const { data: items } = await supabase
-      .from('pricebook_items')
-      .select('*')
-      .eq('org_id', profile.org_id)
-      .eq('active', true)
-      .order('category')
-      .order('name')
-
-    // Filter based on visibility
-    const visibleItems = (items || []).filter(item => {
-      if (!item.visibility || item.visibility === 'all' || item.visibility === 'sales_reps') return true
-      if (item.visibility === 'managers' && ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)) return true
-      if (item.visibility === 'admin_only' && profile.role === 'admin') return true
-      return false
-    })
-
-    setPricebookItems(visibleItems.filter(i => !i.is_adder))
-    setAdders(visibleItems.filter(i => i.is_adder))
-
-    // Load templates
-    const { data: templateData } = await supabase
-      .from('proposal_templates')
-      .select('*')
-      .eq('org_id', profile.org_id)
-      .eq('active', true)
-
-    setTemplates(templateData || [])
-    if (templateData?.length) {
-      const defaultTemplate = templateData.find(t => t.is_default) || templateData[0]
-      setSelectedTemplate(defaultTemplate.id)
-      if (defaultTemplate.default_scope_of_work) {
-        setForm(prev => ({ ...prev, scope_of_work: defaultTemplate.default_scope_of_work }))
+      const response = await fetch(`/api/proposals/builder?${params.toString()}`)
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/login')
+          return
+        }
+        router.push('/dashboard')
+        return
       }
-      if (defaultTemplate.default_warranty_info) {
-        setForm(prev => ({ ...prev, warranty_info: defaultTemplate.default_warranty_info }))
-      }
-      if (defaultTemplate.accent_color) {
-        setForm(prev => ({ ...prev, accent_color: defaultTemplate.accent_color }))
-      }
-    }
 
-    // Load opportunity data if provided
-    if (opportunityId) {
-      const { data: opp } = await supabase
-        .from('opportunities')
-        .select('*, leads(*)')
-        .eq('id', opportunityId)
-        .single()
+      const data = await response.json()
+      
+      setUserRole(data.role)
+      setPricebookItems(data.pricebookItems || [])
+      setAdders(data.adders || [])
+      setTemplates(data.templates || [])
 
-      if (opp) {
+      // Apply template defaults
+      if (data.templates?.length) {
+        const defaultTemplate = data.templates.find((t: any) => t.is_default) || data.templates[0]
+        setSelectedTemplate(defaultTemplate.id)
+        if (defaultTemplate.default_scope_of_work) {
+          setForm(prev => ({ ...prev, scope_of_work: defaultTemplate.default_scope_of_work }))
+        }
+        if (defaultTemplate.default_warranty_info) {
+          setForm(prev => ({ ...prev, warranty_info: defaultTemplate.default_warranty_info }))
+        }
+        if (defaultTemplate.accent_color) {
+          setForm(prev => ({ ...prev, accent_color: defaultTemplate.accent_color }))
+        }
+      }
+
+      // Apply opportunity data
+      if (data.opportunity) {
+        const opp = data.opportunity
         setForm(prev => ({
           ...prev,
-          customer_name: opp.leads?.homeowner_name || opp.leads?.first_name + ' ' + opp.leads?.last_name || '',
+          customer_name: opp.leads?.homeowner_name || (opp.leads?.first_name + ' ' + opp.leads?.last_name) || '',
           customer_email: opp.leads?.email || '',
           customer_phone: opp.leads?.phone || '',
           customer_address: opp.address_text || opp.leads?.address_text || '',
         }))
+      } else if (urlCustomerName || urlCustomerAddress) {
+        setForm(prev => ({
+          ...prev,
+          customer_name: urlCustomerName || prev.customer_name,
+          customer_address: urlCustomerAddress || prev.customer_address,
+        }))
       }
-    } else if (urlCustomerName || urlCustomerAddress) {
-      // Use URL params if no opportunity but params provided
-      setForm(prev => ({
-        ...prev,
-        customer_name: urlCustomerName || prev.customer_name,
-        customer_address: urlCustomerAddress || prev.customer_address,
-      }))
-    }
 
-    // Load measurement data if provided
-    if (measurementId) {
-      const { data: measurement } = await supabase
-        .from('roof_measurements')
-        .select('*')
-        .eq('id', measurementId)
-        .single()
-
-      if (measurement) {
-        setMeasurementData(measurement)
+      // Apply measurement data
+      if (data.measurement) {
+        setMeasurementData(data.measurement)
         
-        // Update address from measurement if not already set
-        if (measurement.address_text) {
+        if (data.measurement.address_text) {
           setForm(prev => ({
             ...prev,
-            customer_address: prev.customer_address || measurement.address_text,
+            customer_address: prev.customer_address || data.measurement.address_text,
           }))
         }
 
-        // Auto-add roofing line items based on squares
-        const squares = measurement.total_squares || parseFloat(urlSquares || '0')
+        const squares = data.measurement.total_squares || parseFloat(urlSquares || '0')
         if (squares > 0) {
-          autoPopulateLineItems(visibleItems.filter(i => !i.is_adder), squares)
+          autoPopulateLineItems(data.pricebookItems || [], squares)
+        }
+      } else if (urlSquares) {
+        const squares = parseFloat(urlSquares)
+        if (squares > 0) {
+          autoPopulateLineItems(data.pricebookItems || [], squares)
         }
       }
-    } else if (urlSquares) {
-      // Use squares from URL if no measurement ID
-      const squares = parseFloat(urlSquares)
-      if (squares > 0) {
-        autoPopulateLineItems(visibleItems.filter(i => !i.is_adder), squares)
-      }
+    } catch (error) {
+      console.error('Error loading builder data:', error)
+      router.push('/dashboard')
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   const autoPopulateLineItems = (items: PricebookItem[], squares: number) => {
@@ -338,86 +299,71 @@ export default function ProposalBuilderPage() {
 
   const saveProposal = async (asDraft: boolean = true) => {
     setSaving(true)
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
+    try {
+      const totals = calculateTotals()
 
-    if (!profile) return
+      const proposalData = {
+        opportunity_id: opportunityId || null,
+        customer_name: form.customer_name,
+        customer_email: form.customer_email,
+        customer_phone: form.customer_phone,
+        customer_address: form.customer_address,
+        title: form.title,
+        status: asDraft ? 'draft' : 'sent',
+        subtotal: totals.subtotal,
+        discount_amount: totals.discountAmount,
+        discount_percent: form.discount_percent,
+        tax_rate: form.tax_rate,
+        tax_amount: totals.taxAmount,
+        total: totals.total,
+        financing_available: form.financing_available,
+        financing_term_months: form.financing_term_months,
+        financing_rate: form.financing_rate,
+        monthly_payment: totals.monthlyPayment,
+        scope_of_work: form.scope_of_work,
+        materials_description: form.materials_description,
+        warranty_info: form.warranty_info,
+        accent_color: form.accent_color,
+      }
 
-    const totals = calculateTotals()
+      const lineItemsData = lineItems.map((item, idx) => ({
+        pricebook_item_id: item.pricebook_item_id,
+        category: item.category,
+        name: item.name,
+        description: item.description,
+        unit: item.unit,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        line_total: item.line_total,
+        is_adder: item.is_adder,
+      }))
 
-    // Generate proposal number
-    const { data: proposalNumber } = await supabase.rpc('generate_proposal_number', {
-      p_org_id: profile.org_id
-    })
+      const response = await fetch('/api/proposals/builder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposal: proposalData,
+          lineItems: lineItemsData,
+        })
+      })
 
-    const proposalData = {
-      org_id: profile.org_id,
-      opportunity_id: opportunityId || null,
-      created_by: user.id,
-      proposal_number: proposalNumber || `P${Date.now()}`,
-      customer_name: form.customer_name,
-      customer_email: form.customer_email,
-      customer_phone: form.customer_phone,
-      customer_address: form.customer_address,
-      title: form.title,
-      status: asDraft ? 'draft' : 'sent',
-      subtotal: totals.subtotal,
-      discount_amount: totals.discountAmount,
-      discount_percent: form.discount_percent,
-      tax_rate: form.tax_rate,
-      tax_amount: totals.taxAmount,
-      total: totals.total,
-      financing_available: form.financing_available,
-      financing_term_months: form.financing_term_months,
-      financing_rate: form.financing_rate,
-      monthly_payment: totals.monthlyPayment,
-      scope_of_work: form.scope_of_work,
-      materials_description: form.materials_description,
-      warranty_info: form.warranty_info,
-      accent_color: form.accent_color,
-    }
+      if (!response.ok) {
+        const data = await response.json()
+        console.error('Failed to save proposal:', data.error)
+        alert('Failed to save proposal')
+        setSaving(false)
+        return
+      }
 
-    const { data: proposal, error } = await supabase
-      .from('proposals')
-      .insert(proposalData)
-      .select()
-      .single()
-
-    if (error || !proposal) {
-      console.error('Failed to save proposal:', error)
+      const { proposal } = await response.json()
+      router.push(`/proposals/${proposal.id}`)
+    } catch (error) {
+      console.error('Error saving proposal:', error)
       alert('Failed to save proposal')
+    } finally {
       setSaving(false)
-      return
     }
-
-    // Save line items
-    const lineItemsData = lineItems.map((item, idx) => ({
-      org_id: profile.org_id,
-      proposal_id: proposal.id,
-      pricebook_item_id: item.pricebook_item_id,
-      category: item.category,
-      name: item.name,
-      description: item.description,
-      unit: item.unit,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      line_total: item.line_total,
-      is_adder: item.is_adder,
-      show_on_pdf: false,
-      sort_order: idx,
-    }))
-
-    await supabase.from('proposal_line_items').insert(lineItemsData)
-
-    setSaving(false)
-    router.push(`/proposals/${proposal.id}`)
   }
 
   const totals = calculateTotals()

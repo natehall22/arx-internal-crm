@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 import { pdf } from '@react-pdf/renderer'
 import ProposalPDF from '@/components/ProposalPDF'
 
@@ -57,6 +56,7 @@ export default function ProposalDetailPage() {
   const proposalId = params.id as string
   
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [proposal, setProposal] = useState<Proposal | null>(null)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [userRole, setUserRole] = useState<string>('')
@@ -66,100 +66,75 @@ export default function ProposalDetailPage() {
   const [company, setCompany] = useState<any>(null)
   const [rep, setRep] = useState<any>(null)
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
     loadProposal()
   }, [proposalId])
 
   const loadProposal = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
+    setLoading(true)
+    setError(null)
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    setUserRole(profile?.role || '')
-
-    const { data: proposalData } = await supabase
-      .from('proposals')
-      .select('*, users:created_by(full_name, email, phone)')
-      .eq('id', proposalId)
-      .single()
-
-    if (!proposalData) {
-      router.push('/proposals')
-      return
-    }
-
-    setProposal(proposalData)
-    setRep(proposalData.users)
-
-    // Load company info
-    const { data: profileData } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (profileData?.org_id) {
-      const { data: orgData } = await supabase
-        .from('orgs')
-        .select('name, logo_url, phone, email, address, website')
-        .eq('id', profileData.org_id)
-        .single()
-      setCompany(orgData)
-    }
-
-    const { data: items } = await supabase
-      .from('proposal_line_items')
-      .select('*')
-      .eq('proposal_id', proposalId)
-      .order('sort_order')
-
-    setLineItems(items || [])
-
-    // Load measurement data
-    if (proposalData.opportunity_id) {
-      const { data: measurementData } = await supabase
-        .from('roof_measurements')
-        .select('*')
-        .eq('opportunity_id', proposalData.opportunity_id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-      
-      if (measurementData) {
-        setMeasurement(measurementData)
+    try {
+      const response = await fetch(`/api/proposals/${proposalId}`)
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/login')
+          return
+        }
+        if (response.status === 404) {
+          router.push('/proposals')
+          return
+        }
+        const data = await response.json()
+        setError(data.error || 'Failed to load proposal')
+        return
       }
-    }
 
-    setLoading(false)
+      const data = await response.json()
+      setProposal(data.proposal)
+      setLineItems(data.lineItems || [])
+      setCompany(data.company)
+      setRep(data.rep)
+      setMeasurement(data.measurement)
+      setUserRole(data.role || '')
+    } catch (err) {
+      console.error('Error loading proposal:', err)
+      setError('Failed to load proposal')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const sendProposal = async () => {
     if (!proposal) return
     setSending(true)
 
-    // Update status to sent
-    await supabase
-      .from('proposals')
-      .update({ 
-        status: 'sent',
-        sent_at: new Date().toISOString()
+    try {
+      // Update status to sent via API
+      const response = await fetch(`/api/proposals/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'sent',
+          sent_at: new Date().toISOString()
+        })
       })
-      .eq('id', proposalId)
 
-    // In a real app, this would send an email with the proposal link
-    alert(`Proposal would be sent to ${proposal.customer_email || 'customer'}`)
-    
-    await loadProposal()
+      if (!response.ok) {
+        const data = await response.json()
+        alert(`Failed to send proposal: ${data.error}`)
+        setSending(false)
+        return
+      }
+
+      // In a real app, this would send an email with the proposal link
+      alert(`Proposal would be sent to ${proposal.customer_email || 'customer'}`)
+      
+      await loadProposal()
+    } catch (err) {
+      console.error('Error sending proposal:', err)
+      alert('Failed to send proposal')
+    }
     setSending(false)
   }
 
@@ -187,46 +162,7 @@ export default function ProposalDetailPage() {
       // Create filename
       const filename = `${proposal.proposal_number}_${proposal.customer_name.replace(/\s+/g, '_')}.pdf`
       
-      // Upload to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('proposals')
-        .upload(`pdfs/${proposal.id}/${filename}`, blob, {
-          contentType: 'application/pdf',
-          upsert: true,
-        })
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError)
-        // If storage bucket doesn't exist, just download locally
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-        
-        alert('PDF downloaded! (Storage bucket not configured for cloud storage)')
-        setGenerating(false)
-        return
-      }
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('proposals')
-        .getPublicUrl(`pdfs/${proposal.id}/${filename}`)
-
-      // Update proposal with PDF URL
-      await supabase
-        .from('proposals')
-        .update({
-          pdf_url: urlData.publicUrl,
-          pdf_generated_at: new Date().toISOString(),
-        })
-        .eq('id', proposal.id)
-
-      // Download the file
+      // Download the file locally
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -235,6 +171,15 @@ export default function ProposalDetailPage() {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
+
+      // Update proposal with PDF generated timestamp via API
+      await fetch(`/api/proposals/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdf_generated_at: new Date().toISOString(),
+        })
+      })
 
       // Reload to show updated PDF info
       await loadProposal()

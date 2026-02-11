@@ -1,5 +1,5 @@
 import { requireAuth } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -13,7 +13,7 @@ export default async function LeadDetailPage({
   params: { id: string }
 }) {
   const { profile } = await requireAuth()
-  const supabase = createClient()
+  const supabase = createServiceClient()
 
   let leadQuery = supabase
     .from('leads')
@@ -91,7 +91,7 @@ export default async function LeadDetailPage({
   const updateLead = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
-    const supabase = createClient()
+    const supabase = createServiceClient()
     const status = String(formData.get('status') ?? lead.status)
     const source = String(formData.get('source') ?? lead.source ?? '')
     const canvassDisposition = String(formData.get('canvass_disposition') ?? '')
