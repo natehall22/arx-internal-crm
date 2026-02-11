@@ -205,6 +205,17 @@ export default function CanvassMapPage() {
     }
   }, [isOnline, pendingCount])
 
+  // Listen for service worker sync events
+  useEffect(() => {
+    const handleSwSync = () => {
+      if (isOnline && pendingCount > 0) {
+        syncPendingPins()
+      }
+    }
+    window.addEventListener('sw-sync-pins', handleSwSync)
+    return () => window.removeEventListener('sw-sync-pins', handleSwSync)
+  }, [isOnline, pendingCount])
+
   useEffect(() => {
     loadData()
   }, [])
@@ -434,13 +445,25 @@ export default function CanvassMapPage() {
         }
         return
       }
+      
+      // Timeout for slow connections (15 seconds)
+      const timeout = setTimeout(() => {
+        reject(new Error('Map loading timed out - check your connection'))
+      }, 15000)
+      
       const script = document.createElement('script')
       // Include libraries for compatibility with roof measure tool
       script.src = `https://maps.googleapis.com/maps/api/js?key=${mapKey}&libraries=drawing,geometry,places`
       script.async = true
       script.defer = true
-      script.onload = () => resolve()
-      script.onerror = () => reject()
+      script.onload = () => {
+        clearTimeout(timeout)
+        resolve()
+      }
+      script.onerror = () => {
+        clearTimeout(timeout)
+        reject(new Error('Failed to load map'))
+      }
       document.head.appendChild(script)
     })
   }

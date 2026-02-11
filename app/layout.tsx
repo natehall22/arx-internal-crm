@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 
 export const metadata: Metadata = {
   title: 'ARX Internal CRM',
@@ -36,7 +37,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
-      <body className="overscroll-none">{children}</body>
+      <body className="overscroll-none">
+        {children}
+        <ServiceWorkerRegistration />
+      </body>
     </html>
   )
 }

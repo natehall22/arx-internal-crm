@@ -1,8 +1,9 @@
 {
-  "name": "ARX CRM",
+  "name": "ARX CRM - Canvassing",
   "short_name": "ARX",
-  "description": "ARX Internal CRM - Canvassing, Sales & Operations",
+  "description": "ARX Internal CRM - Door-to-door canvassing with offline support",
   "start_url": "/canvass/map",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#4f46e5",
@@ -23,5 +24,12 @@
   ],
   "categories": ["business", "productivity"],
   "screenshots": [],
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "serviceworker": {
+    "src": "/sw.js",
+    "scope": "/",
+    "type": "module"
+  },
+  "offline_enabled": true,
+  "handle_links": "preferred"
 }
