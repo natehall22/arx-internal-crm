@@ -188,6 +188,55 @@ export default function ProposalBuilderPage() {
     }
   }
 
+  // Convert quantity based on unit type
+  // 1 square = 100 sq ft
+  const convertQuantityForUnit = (squares: number, unit: string): number => {
+    const unitLower = unit?.toLowerCase() || ''
+    
+    if (unitLower === 'sqft' || unitLower === 'sq ft' || unitLower === 'sf') {
+      // Convert squares to square feet (1 square = 100 sq ft)
+      return squares * 100
+    }
+    if (unitLower === 'square' || unitLower === 'sq' || unitLower === 'squares') {
+      return squares
+    }
+    // For other units (each, lf, job, etc.), default to 1 or the squares value
+    // depending on context - for now, use squares as a reasonable default
+    return squares
+  }
+
+  const getUnitLabel = (unit: string): string => {
+    const unitLower = unit?.toLowerCase() || ''
+    switch (unitLower) {
+      case 'square':
+      case 'sq':
+      case 'squares':
+        return 'squares'
+      case 'sqft':
+      case 'sq ft':
+      case 'sf':
+        return 'sq ft'
+      case 'lf':
+        return 'linear ft'
+      case 'each':
+        return 'each'
+      case 'job':
+        return 'job'
+      case 'hour':
+        return 'hours'
+      case 'watt':
+        return 'watts'
+      case 'bundle':
+        return 'bundles'
+      case 'roll':
+        return 'rolls'
+      case 'sheet':
+        return 'sheets'
+      default:
+        return unit || 'units'
+    }
+  }
+
   const autoPopulateLineItems = (items: PricebookItem[], squares: number) => {
     // Find main roofing product (usually priced per square)
     const roofingItems = items.filter(item => 
@@ -202,6 +251,7 @@ export default function ProposalBuilderPage() {
     // Add main roofing product
     if (roofingItems.length > 0) {
       const mainProduct = roofingItems[0]
+      const quantity = convertQuantityForUnit(squares, mainProduct.unit)
       newLineItems.push({
         id: crypto.randomUUID(),
         pricebook_item_id: mainProduct.id,
@@ -209,14 +259,14 @@ export default function ProposalBuilderPage() {
         name: mainProduct.name,
         description: '',
         unit: mainProduct.unit,
-        quantity: squares,
+        quantity,
         unit_price: mainProduct.unit_price,
-        line_total: mainProduct.unit_price * squares,
+        line_total: mainProduct.unit_price * quantity,
         is_adder: false,
       })
     }
 
-    // Add labor if available (also per square typically)
+    // Add labor if available
     const laborItems = items.filter(item => 
       item.category?.toLowerCase().includes('labor') ||
       item.name?.toLowerCase().includes('labor') ||
@@ -225,6 +275,7 @@ export default function ProposalBuilderPage() {
 
     if (laborItems.length > 0) {
       const laborItem = laborItems[0]
+      const quantity = convertQuantityForUnit(squares, laborItem.unit)
       newLineItems.push({
         id: crypto.randomUUID(),
         pricebook_item_id: laborItem.id,
@@ -232,9 +283,9 @@ export default function ProposalBuilderPage() {
         name: laborItem.name,
         description: '',
         unit: laborItem.unit,
-        quantity: squares,
+        quantity,
         unit_price: laborItem.unit_price,
-        line_total: laborItem.unit_price * squares,
+        line_total: laborItem.unit_price * quantity,
         is_adder: false,
       })
     }
@@ -244,7 +295,14 @@ export default function ProposalBuilderPage() {
     }
   }
 
-  const addLineItem = (item: PricebookItem, quantity: number = 1) => {
+  const addLineItem = (item: PricebookItem, quantity?: number) => {
+    // If no quantity provided, calculate based on measurement data and unit type
+    let calculatedQuantity = quantity || 1
+    
+    if (!quantity && measurementData?.total_squares) {
+      calculatedQuantity = convertQuantityForUnit(measurementData.total_squares, item.unit)
+    }
+    
     const newItem: LineItem = {
       id: crypto.randomUUID(),
       pricebook_item_id: item.id,
@@ -252,9 +310,9 @@ export default function ProposalBuilderPage() {
       name: item.name,
       description: '',
       unit: item.unit,
-      quantity,
+      quantity: calculatedQuantity,
       unit_price: item.unit_price,
-      line_total: item.unit_price * quantity,
+      line_total: item.unit_price * calculatedQuantity,
       is_adder: item.is_adder,
     }
     setLineItems(prev => [...prev, newItem])
@@ -581,7 +639,7 @@ export default function ProposalBuilderPage() {
                           min="0"
                           step="0.1"
                         />
-                        <span className="text-gray-500 text-sm w-16">{item.unit}</span>
+                        <span className="text-gray-500 text-sm w-20">{getUnitLabel(item.unit)}</span>
                         {userRole === 'admin' && (
                           <span className="text-gray-900 font-medium w-24 text-right">
                             ${item.unit_price.toFixed(2)}
@@ -977,7 +1035,7 @@ export default function ProposalBuilderPage() {
                         {userRole === 'admin' && (
                           <p className="font-bold text-indigo-600">${item.unit_price.toLocaleString()}</p>
                         )}
-                        <p className="text-xs text-gray-400">per {item.unit}</p>
+                        <p className="text-xs text-gray-400">per {getUnitLabel(item.unit)}</p>
                       </div>
                     </button>
                   ))}
