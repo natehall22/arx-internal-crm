@@ -421,20 +421,24 @@ export default function CanvassMapPage() {
 
   const loadGoogleMapsScript = () => {
     return new Promise<void>((resolve, reject) => {
-      if (window.google) {
+      if (window.google && window.google.maps) {
         resolve()
         return
       }
-      const existing = document.querySelector('script[data-google-maps]')
+      const existing = document.querySelector('script[src*="maps.googleapis.com"]')
       if (existing) {
-        existing.addEventListener('load', () => resolve())
+        if (window.google && window.google.maps) {
+          resolve()
+        } else {
+          existing.addEventListener('load', () => resolve())
+        }
         return
       }
       const script = document.createElement('script')
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${mapKey}`
+      // Include libraries for compatibility with roof measure tool
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${mapKey}&libraries=drawing,geometry,places`
       script.async = true
       script.defer = true
-      script.dataset.googleMaps = 'true'
       script.onload = () => resolve()
       script.onerror = () => reject()
       document.head.appendChild(script)

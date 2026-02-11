@@ -133,35 +133,62 @@ export default function RoofMeasurePage() {
       return
     }
 
-    // Check if script already exists
-    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]')
-    
-    if (window.google && window.google.maps) {
-      console.log('Google Maps already loaded, initializing...')
+    // Check if Google Maps is already loaded WITH the required libraries
+    const hasRequiredLibraries = window.google?.maps?.drawing && 
+                                  window.google?.maps?.geometry && 
+                                  window.google?.maps?.places
+
+    if (window.google && window.google.maps && hasRequiredLibraries) {
+      console.log('Google Maps already loaded with required libraries, initializing...')
       initializeMap()
       setMapsLoaded(true)
       setLoading(false)
       return
     }
 
+    // Check if script already exists but may not have our required libraries
+    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]')
+    
     if (existingScript) {
-      // Script exists but not loaded yet, wait for it
-      existingScript.addEventListener('load', () => {
-        console.log('Existing Google Maps script loaded')
+      // Remove the existing script if it doesn't have our libraries
+      const scriptSrc = existingScript.getAttribute('src') || ''
+      if (!scriptSrc.includes('libraries=') || 
+          !scriptSrc.includes('drawing') || 
+          !scriptSrc.includes('geometry') || 
+          !scriptSrc.includes('places')) {
+        console.log('Existing script missing required libraries, reloading...')
+        existingScript.remove()
+        // Clear any existing google object
+        if (window.google) {
+          delete (window as any).google
+        }
+      } else if (window.google && window.google.maps) {
+        // Script has libraries and is loaded
         initializeMap()
         setMapsLoaded(true)
         setLoading(false)
-      })
-      return
+        return
+      } else {
+        // Script exists with libraries but not loaded yet, wait for it
+        existingScript.addEventListener('load', () => {
+          console.log('Existing Google Maps script loaded')
+          setTimeout(() => {
+            initializeMap()
+            setMapsLoaded(true)
+            setLoading(false)
+          }, 100)
+        })
+        return
+      }
     }
 
-    // Create new script
+    // Create new script with all required libraries
     const script = document.createElement('script')
     script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=drawing,geometry,places`
     script.async = true
     script.defer = true
     script.onload = () => {
-      console.log('Google Maps script loaded successfully')
+      console.log('Google Maps script loaded successfully with libraries')
       // Small delay to ensure Google Maps is fully initialized
       setTimeout(() => {
         initializeMap()
