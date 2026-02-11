@@ -1,7 +1,6 @@
 export const dynamic = 'force-dynamic'
 
 import { requireAuth } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -14,8 +13,8 @@ export default async function OpportunityDetailPage({
   params: { id: string }
 }) {
   const { profile } = await requireAuth()
-  const supabase = createClient()
-  const serviceSupabase = createServiceClient()
+  // Use service client to bypass RLS
+  const supabase = createServiceClient()
 
   let opportunityQuery = supabase
     .from('opportunities')
@@ -79,8 +78,7 @@ export default async function OpportunityDetailPage({
   const uploadDesignPdf = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
-    const supabase = createClient()
-    const serviceSupabase = createServiceClient()
+    const supabase = createServiceClient()
 
     const file = formData.get('design_pdf')
     if (!(file instanceof File) || file.size === 0) return
@@ -88,7 +86,7 @@ export default async function OpportunityDetailPage({
     const fileBuffer = Buffer.from(await file.arrayBuffer())
     const storagePath = `org/${profile.org_id}/opportunities/${params.id}/design/${Date.now()}_${file.name}`
 
-    const { error: uploadError } = await serviceSupabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('files')
       .upload(storagePath, fileBuffer, {
         contentType: file.type,
@@ -123,8 +121,7 @@ export default async function OpportunityDetailPage({
   const uploadSignedContract = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
-    const supabase = createClient()
-    const serviceSupabase = createServiceClient()
+    const supabase = createServiceClient()
 
     const file = formData.get('signed_contract')
     if (!(file instanceof File) || file.size === 0) return
@@ -199,7 +196,7 @@ export default async function OpportunityDetailPage({
     const fileBuffer = Buffer.from(await file.arrayBuffer())
     const storagePath = `org/${profile.org_id}/opportunities/${params.id}/contracts/${Date.now()}_${file.name}`
 
-    const { error: uploadError } = await serviceSupabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('files')
       .upload(storagePath, fileBuffer, {
         contentType: file.type,
@@ -264,7 +261,7 @@ export default async function OpportunityDetailPage({
   const markOpportunityLost = async () => {
     'use server'
     const { profile } = await requireAuth()
-    const supabase = createClient()
+    const supabase = createServiceClient()
 
     await supabase
       .from('opportunities')

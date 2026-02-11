@@ -91,11 +91,16 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const leadIds = searchParams.get('lead_ids')
+    const fullData = searchParams.get('full') === 'true'
 
     let query = adminClient
       .from('opportunities')
-      .select('id, lead_id, status, owner_user_id')
+      .select(fullData 
+        ? '*, customers(name), leads(homeowner_name), users:users!opportunities_owner_user_id_fkey(full_name)'
+        : 'id, lead_id, status, owner_user_id'
+      )
       .eq('org_id', profile.org_id)
+      .order('created_at', { ascending: false })
 
     if (leadIds) {
       const ids = leadIds.split(',').filter(Boolean)
