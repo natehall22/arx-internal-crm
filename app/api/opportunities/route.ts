@@ -93,10 +93,11 @@ export async function GET(request: NextRequest) {
     const leadIds = searchParams.get('lead_ids')
     const fullData = searchParams.get('full') === 'true'
 
+    // Build the query based on what data is needed
     let query = adminClient
       .from('opportunities')
       .select(fullData 
-        ? '*, customers(name), leads(homeowner_name), users:users!opportunities_owner_user_id_fkey(full_name)'
+        ? '*, customers(name), leads(homeowner_name)'
         : 'id, lead_id, status, owner_user_id'
       )
       .eq('org_id', profile.org_id)
@@ -114,6 +115,25 @@ export async function GET(request: NextRequest) {
     if (oppsError) {
       console.error('Opportunities fetch error:', oppsError)
       return NextResponse.json({ error: 'Failed to fetch opportunities' }, { status: 500 })
+    }
+
+    // If full data requested, fetch owner names separately
+    if (fullData && opportunities && opportunities.length > 0) {
+      const ownerIds = [...new Set(opportunities.map((o: any) => o.owner_user_id).filter(Boolean))]
+      
+      if (ownerIds.length > 0) {
+        const { data: owners } = await adminClient
+          .from('users')
+          .select('id, full_name')
+          .in('id', ownerIds)
+
+        const ownerMap = new Map((owners || []).map((u: any) => [u.id, u.full_name]))
+        
+        // Add owner info to opportunities
+        opportunities.forEach((opp: any) => {
+          opp.users = opp.owner_user_id ? { full_name: ownerMap.get(opp.owner_user_id) || null } : null
+        })
+      }
     }
 
     return NextResponse.json({ opportunities: opportunities || [] })
