@@ -1,12 +1,22 @@
 import { requireAuth } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createServiceClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
 export async function POST(request: Request) {
   const { profile } = await requireAuth()
-  const supabase = createClient()
+  const supabase = getAdminClient()
   const body = await request.json().catch(() => ({}))
 
   const leadId = String(body.lead_id || '')
