@@ -142,7 +142,7 @@ export default function CanvassMapPage() {
   )
   const [allowManualKey, setAllowManualKey] = useState(false)
   const [mapStatus, setMapStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('loading')
-  const [mapType, setMapType] = useState<MapType>('roadmap')
+  const [mapType, setMapType] = useState<MapType>('hybrid')
   const [isOnline, setIsOnline] = useState(true)
   const [pendingCount, setPendingCount] = useState(0)
   const [syncing, setSyncing] = useState(false)
