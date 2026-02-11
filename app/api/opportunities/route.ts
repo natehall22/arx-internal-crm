@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
 
     // If full data requested, fetch owner names separately
     if (fullData && opportunities && opportunities.length > 0) {
-      const ownerIds = [...new Set(opportunities.map((o: any) => o.owner_user_id).filter(Boolean))]
+      const ownerIds = Array.from(new Set(opportunities.map((o: any) => o.owner_user_id).filter(Boolean)))
       
       if (ownerIds.length > 0) {
         const { data: owners } = await adminClient
