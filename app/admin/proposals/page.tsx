@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface PricebookItem {
   id: string
@@ -86,209 +85,175 @@ export default function AdminProposalsPage() {
     is_default: false,
   })
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
-    checkAccess()
+    loadData()
   }, [])
 
-  const checkAccess = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
+  const loadData = async () => {
+    try {
+      const response = await fetch('/api/admin/proposals')
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        console.error('Failed to load proposals data')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      setPricebookItems(data.pricebookItems || [])
+      setTemplates(data.templates || [])
+      setLoading(false)
+    } catch (err) {
+      console.error('Error loading data:', err)
+      setLoading(false)
     }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
-      router.push('/dashboard')
-      return
-    }
-
-    await loadData(profile.org_id)
-    setLoading(false)
-  }
-
-  const loadData = async (orgId: string) => {
-    // Load pricebook items
-    const { data: items } = await supabase
-      .from('pricebook_items')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('category')
-      .order('name')
-
-    setPricebookItems(items || [])
-
-    // Load templates
-    const { data: templateData } = await supabase
-      .from('proposal_templates')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('name')
-
-    setTemplates(templateData || [])
   }
 
   const updateItemVisibility = async (itemId: string, visibility: string) => {
     setSaving(true)
-    await supabase
-      .from('pricebook_items')
-      .update({ visibility })
-      .eq('id', itemId)
-
-    setPricebookItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, visibility } : item
-    ))
+    try {
+      const response = await fetch('/api/admin/proposals', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'visibility', id: itemId, data: { visibility } }),
+      })
+      
+      if (response.ok) {
+        setPricebookItems(prev => prev.map(item => 
+          item.id === itemId ? { ...item, visibility } : item
+        ))
+      }
+    } catch (err) {
+      console.error('Error updating visibility:', err)
+    }
     setSaving(false)
   }
 
   const toggleAdder = async (itemId: string, isAdder: boolean) => {
     setSaving(true)
-    await supabase
-      .from('pricebook_items')
-      .update({ is_adder: isAdder })
-      .eq('id', itemId)
-
-    setPricebookItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, is_adder: isAdder } : item
-    ))
+    try {
+      const response = await fetch('/api/admin/proposals', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'toggle_adder', id: itemId, data: { is_adder: isAdder } }),
+      })
+      
+      if (response.ok) {
+        setPricebookItems(prev => prev.map(item => 
+          item.id === itemId ? { ...item, is_adder: isAdder } : item
+        ))
+      }
+    } catch (err) {
+      console.error('Error toggling adder:', err)
+    }
     setSaving(false)
   }
 
   const saveAdder = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
-
     setSaving(true)
-
-    // Get default pricebook
-    const { data: pricebook } = await supabase
-      .from('pricebooks')
-      .select('id')
-      .eq('org_id', profile.org_id)
-      .eq('is_default', true)
-      .single()
-
-    await supabase.from('pricebook_items').insert({
-      org_id: profile.org_id,
-      pricebook_id: pricebook?.id,
-      name: adderForm.name,
-      category: adderForm.category,
-      unit: adderForm.price_type === 'percentage' ? 'percent' : adderForm.unit,
-      unit_price: parseFloat(adderForm.unit_price) || 0,
-      is_adder: true,
-      adder_category: adderForm.adder_category,
-      price_type: adderForm.price_type,
-      is_commissionable: adderForm.is_commissionable,
-      commission_percent: adderForm.is_commissionable ? (parseFloat(adderForm.commission_percent) || 100) : null,
-      commission_cap: adderForm.is_commissionable && adderForm.commission_cap ? parseFloat(adderForm.commission_cap) : null,
-      visibility: 'sales_reps',
-      active: true,
-    })
-
-    setShowAddAdder(false)
-    setAdderForm({
-      name: '',
-      category: 'Other',
-      unit: 'each',
-      unit_price: '',
-      adder_category: 'Other',
-      price_type: 'fixed',
-      is_commissionable: false,
-      commission_percent: '100',
-      commission_cap: '',
-    })
-    
-    await loadData(profile.org_id)
+    try {
+      const response = await fetch('/api/admin/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'adder', data: adderForm }),
+      })
+      
+      if (response.ok) {
+        setShowAddAdder(false)
+        setAdderForm({
+          name: '',
+          category: 'Other',
+          unit: 'each',
+          unit_price: '',
+          adder_category: 'Other',
+          price_type: 'fixed',
+          is_commissionable: false,
+          commission_percent: '100',
+          commission_cap: '',
+        })
+        await loadData()
+      }
+    } catch (err) {
+      console.error('Error saving adder:', err)
+    }
     setSaving(false)
   }
 
   const saveTemplate = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
-
     setSaving(true)
-
-    const templateData = {
-      org_id: profile.org_id,
-      name: templateForm.name,
-      description: templateForm.description,
-      accent_color: templateForm.accent_color,
-      default_scope_of_work: templateForm.default_scope_of_work,
-      default_warranty_info: templateForm.default_warranty_info,
-      default_terms_conditions: templateForm.default_terms_conditions,
-      is_default: templateForm.is_default,
-      active: true,
+    try {
+      const response = await fetch('/api/admin/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          type: 'template', 
+          data: {
+            ...templateForm,
+            id: editingTemplate?.id,
+          }
+        }),
+      })
+      
+      if (response.ok) {
+        setShowAddTemplate(false)
+        setEditingTemplate(null)
+        setTemplateForm({
+          name: '',
+          description: '',
+          accent_color: '#4f46e5',
+          default_scope_of_work: '',
+          default_warranty_info: '',
+          default_terms_conditions: '',
+          is_default: false,
+        })
+        await loadData()
+      }
+    } catch (err) {
+      console.error('Error saving template:', err)
     }
-
-    if (editingTemplate) {
-      await supabase
-        .from('proposal_templates')
-        .update(templateData)
-        .eq('id', editingTemplate.id)
-    } else {
-      await supabase.from('proposal_templates').insert(templateData)
-    }
-
-    // If setting as default, unset others
-    if (templateForm.is_default) {
-      await supabase
-        .from('proposal_templates')
-        .update({ is_default: false })
-        .eq('org_id', profile.org_id)
-        .neq('id', editingTemplate?.id || '')
-    }
-
-    setShowAddTemplate(false)
-    setEditingTemplate(null)
-    setTemplateForm({
-      name: '',
-      description: '',
-      accent_color: '#4f46e5',
-      default_scope_of_work: '',
-      default_warranty_info: '',
-      default_terms_conditions: '',
-      is_default: false,
-    })
-
-    await loadData(profile.org_id)
     setSaving(false)
   }
 
   const deleteAdder = async (id: string) => {
     if (!confirm('Delete this adder?')) return
     
-    await supabase.from('pricebook_items').delete().eq('id', id)
-    setPricebookItems(prev => prev.filter(item => item.id !== id))
+    try {
+      const response = await fetch(`/api/admin/proposals?type=adder&id=${id}`, {
+        method: 'DELETE',
+      })
+      
+      if (response.ok) {
+        setPricebookItems(prev => prev.filter(item => item.id !== id))
+      }
+    } catch (err) {
+      console.error('Error deleting adder:', err)
+    }
   }
 
   const deleteTemplate = async (id: string) => {
     if (!confirm('Delete this template?')) return
     
-    await supabase.from('proposal_templates').delete().eq('id', id)
-    setTemplates(prev => prev.filter(t => t.id !== id))
+    try {
+      const response = await fetch(`/api/admin/proposals?type=template&id=${id}`, {
+        method: 'DELETE',
+      })
+      
+      if (response.ok) {
+        setTemplates(prev => prev.filter(t => t.id !== id))
+      }
+    } catch (err) {
+      console.error('Error deleting template:', err)
+    }
   }
 
   const openEditTemplate = (template: ProposalTemplate) => {
