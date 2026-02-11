@@ -9,9 +9,10 @@ interface RoofingType {
   id: string
   name: string
   description: string | null
-  price_per_square: number
-  material_cost_per_square: number | null
-  labor_cost_per_square: number | null
+  pricing_unit: 'square' | 'sqft' | 'lf'
+  unit_price: number
+  material_cost: number | null
+  labor_cost: number | null
   default_warranty_years: number
   color: string
   is_default: boolean
@@ -22,6 +23,18 @@ interface OrgPricing {
   sub_install_per_square: number | null
   sub_tearoff_per_square: number | null
   sub_dump_run_flat: number | null
+}
+
+const UNIT_LABELS: Record<string, string> = {
+  'square': 'per square (100 sq ft)',
+  'sqft': 'per sq ft',
+  'lf': 'per linear ft',
+}
+
+const UNIT_SHORT: Record<string, string> = {
+  'square': '/sq',
+  'sqft': '/sf',
+  'lf': '/lf',
 }
 
 export default function AdminPricingPage() {
@@ -43,7 +56,8 @@ export default function AdminPricingPage() {
   const [editingType, setEditingType] = useState<RoofingType | null>(null)
   const [typeForm, setTypeForm] = useState({
     name: '',
-    price_per_square: '',
+    pricing_unit: 'square' as 'square' | 'sqft' | 'lf',
+    unit_price: '',
     material_cost: '',
     labor_cost: '',
     warranty_years: '25',
@@ -89,8 +103,8 @@ export default function AdminPricingPage() {
   }
 
   const saveRoofingType = async () => {
-    if (!typeForm.name || !typeForm.price_per_square) {
-      alert('Please enter a name and price per square')
+    if (!typeForm.name || !typeForm.unit_price) {
+      alert('Please enter a name and price')
       return
     }
 
@@ -100,9 +114,10 @@ export default function AdminPricingPage() {
       const body = {
         ...(editingType && { id: editingType.id }),
         name: typeForm.name,
-        price_per_square: typeForm.price_per_square,
-        material_cost_per_square: typeForm.material_cost || null,
-        labor_cost_per_square: typeForm.labor_cost || null,
+        pricing_unit: typeForm.pricing_unit,
+        unit_price: typeForm.unit_price,
+        material_cost: typeForm.material_cost || null,
+        labor_cost: typeForm.labor_cost || null,
         default_warranty_years: typeForm.warranty_years || '25',
         color: typeForm.color,
         is_default: roofingTypes.length === 0, // First one is default
@@ -169,7 +184,8 @@ export default function AdminPricingPage() {
     setEditingType(null)
     setTypeForm({
       name: '',
-      price_per_square: '',
+      pricing_unit: 'square',
+      unit_price: '',
       material_cost: '',
       labor_cost: '',
       warranty_years: '25',
@@ -182,9 +198,10 @@ export default function AdminPricingPage() {
     setEditingType(type)
     setTypeForm({
       name: type.name,
-      price_per_square: type.price_per_square.toString(),
-      material_cost: type.material_cost_per_square?.toString() || '',
-      labor_cost: type.labor_cost_per_square?.toString() || '',
+      pricing_unit: type.pricing_unit || 'square',
+      unit_price: type.unit_price.toString(),
+      material_cost: type.material_cost?.toString() || '',
+      labor_cost: type.labor_cost?.toString() || '',
       warranty_years: type.default_warranty_years.toString(),
       color: type.color,
     })
@@ -201,6 +218,15 @@ export default function AdminPricingPage() {
     const cost = (material || 0) + (labor || 0)
     if (cost === 0) return null
     return ((price - cost) / price * 100).toFixed(0)
+  }
+
+  // Get placeholder based on unit
+  const getPricePlaceholder = (unit: string) => {
+    switch (unit) {
+      case 'sqft': return '3.50'
+      case 'lf': return '12.00'
+      default: return '350'
+    }
   }
 
   if (loading) {
@@ -227,7 +253,7 @@ export default function AdminPricingPage() {
 
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Pricing Setup</h1>
-          <p className="text-gray-500 mt-1">Set your prices for different roofing types. Reps will select from these when building proposals.</p>
+          <p className="text-gray-500 mt-1">Set your prices for different job types. Reps will select from these when building proposals.</p>
         </div>
 
         {/* Quick Start Guide - only show if no roofing types */}
@@ -235,24 +261,23 @@ export default function AdminPricingPage() {
           <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-8 text-white mb-8">
             <h2 className="text-2xl font-bold mb-2">Welcome! Let's set up your pricing.</h2>
             <p className="text-indigo-100 mb-6">
-              Add your first roofing type to get started. You can add different types like Asphalt Shingles, Metal, Tile, etc. 
-              Each type can have its own price per square.
+              Add your first service type to get started. You can price by square (100 sq ft), per sq ft, or per linear foot.
             </p>
             <button
               onClick={openAddModal}
               className="px-6 py-3 bg-white text-indigo-600 font-semibold rounded-xl hover:bg-indigo-50"
             >
-              + Add Your First Roofing Type
+              + Add Your First Service Type
             </button>
           </div>
         )}
 
-        {/* Roofing Types Section */}
+        {/* Service Types Section */}
         <div className="bg-white rounded-2xl shadow-sm border p-6 mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Roofing Types & Prices</h2>
-              <p className="text-sm text-gray-500">What you charge customers per square (100 sq ft)</p>
+              <h2 className="text-xl font-bold text-gray-900">Service Types & Prices</h2>
+              <p className="text-sm text-gray-500">What you charge customers for each type of work</p>
             </div>
             {roofingTypes.length > 0 && (
               <button
@@ -266,12 +291,12 @@ export default function AdminPricingPage() {
 
           {roofingTypes.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              No roofing types yet. Add one to get started.
+              No service types yet. Add one to get started.
             </div>
           ) : (
             <div className="space-y-3">
               {roofingTypes.map((type) => {
-                const margin = calculateMargin(type.price_per_square, type.material_cost_per_square, type.labor_cost_per_square)
+                const margin = calculateMargin(type.unit_price, type.material_cost, type.labor_cost)
                 return (
                   <div
                     key={type.id}
@@ -307,9 +332,9 @@ export default function AdminPricingPage() {
                     <div className="flex items-center gap-6">
                       <div className="text-right">
                         <p className="text-2xl font-bold" style={{ color: type.color }}>
-                          ${type.price_per_square.toLocaleString()}
+                          ${type.unit_price.toLocaleString(undefined, { minimumFractionDigits: type.pricing_unit === 'square' ? 0 : 2 })}
                         </p>
-                        <p className="text-xs text-gray-400">per square</p>
+                        <p className="text-xs text-gray-400">{UNIT_LABELS[type.pricing_unit] || 'per square'}</p>
                       </div>
                       
                       <div className="flex items-center gap-2">
@@ -467,51 +492,81 @@ export default function AdminPricingPage() {
         </div>
       </div>
 
-      {/* Add/Edit Roofing Type Modal */}
+      {/* Add/Edit Service Type Modal */}
       {showAddType && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b">
               <h2 className="text-xl font-bold text-gray-900">
-                {editingType ? 'Edit Roofing Type' : 'Add Roofing Type'}
+                {editingType ? 'Edit Service Type' : 'Add Service Type'}
               </h2>
               <p className="text-sm text-gray-500 mt-1">
-                Set the price you charge customers for this type of roofing.
+                Set the price you charge customers for this type of work.
               </p>
             </div>
             
             <div className="p-6 space-y-5">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Roofing Type Name *
+                  Service Name *
                 </label>
                 <input
                   type="text"
                   value={typeForm.name}
                   onChange={(e) => setTypeForm(prev => ({ ...prev, name: e.target.value }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg"
-                  placeholder="e.g., Asphalt Shingles"
+                  placeholder="e.g., Asphalt Shingles, Gutters, Siding"
                   autoFocus
                 />
               </div>
 
+              {/* Pricing Unit Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Price Per Square *
+                  How do you price this?
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'square', label: 'Per Square', desc: '100 sq ft' },
+                    { value: 'sqft', label: 'Per Sq Ft', desc: 'square foot' },
+                    { value: 'lf', label: 'Per Linear Ft', desc: 'linear foot' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setTypeForm(prev => ({ ...prev, pricing_unit: option.value as any }))}
+                      className={`p-3 rounded-lg border-2 text-left transition-all ${
+                        typeForm.pricing_unit === option.value
+                          ? 'border-indigo-600 bg-indigo-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <p className={`font-medium text-sm ${typeForm.pricing_unit === option.value ? 'text-indigo-700' : 'text-gray-900'}`}>
+                        {option.label}
+                      </p>
+                      <p className="text-xs text-gray-500">{option.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Price {UNIT_SHORT[typeForm.pricing_unit]} *
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">$</span>
                   <input
                     type="number"
                     step="0.01"
-                    value={typeForm.price_per_square}
-                    onChange={(e) => setTypeForm(prev => ({ ...prev, price_per_square: e.target.value }))}
+                    value={typeForm.unit_price}
+                    onChange={(e) => setTypeForm(prev => ({ ...prev, unit_price: e.target.value }))}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-lg font-semibold"
-                    placeholder="350"
+                    placeholder={getPricePlaceholder(typeForm.pricing_unit)}
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  This is what you charge customers. 1 square = 100 sq ft.
+                  This is what you charge customers {UNIT_LABELS[typeForm.pricing_unit]}.
                 </p>
               </div>
 
@@ -519,7 +574,7 @@ export default function AdminPricingPage() {
                 <p className="text-sm font-medium text-gray-700 mb-3">Your Costs (optional - for margin tracking)</p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Material Cost/Sq</label>
+                    <label className="block text-xs text-gray-500 mb-1">Material Cost</label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                       <input
@@ -528,12 +583,12 @@ export default function AdminPricingPage() {
                         value={typeForm.material_cost}
                         onChange={(e) => setTypeForm(prev => ({ ...prev, material_cost: e.target.value }))}
                         className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
-                        placeholder="125"
+                        placeholder={typeForm.pricing_unit === 'square' ? '125' : '1.50'}
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Labor Cost/Sq</label>
+                    <label className="block text-xs text-gray-500 mb-1">Labor Cost</label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                       <input
@@ -542,18 +597,18 @@ export default function AdminPricingPage() {
                         value={typeForm.labor_cost}
                         onChange={(e) => setTypeForm(prev => ({ ...prev, labor_cost: e.target.value }))}
                         className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
-                        placeholder="145"
+                        placeholder={typeForm.pricing_unit === 'square' ? '145' : '1.75'}
                       />
                     </div>
                   </div>
                 </div>
-                {typeForm.price_per_square && (typeForm.material_cost || typeForm.labor_cost) && (
+                {typeForm.unit_price && (typeForm.material_cost || typeForm.labor_cost) && (
                   <div className="mt-3 pt-3 border-t border-gray-200">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Your margin:</span>
                       <span className="font-semibold text-green-600">
                         {calculateMargin(
-                          parseFloat(typeForm.price_per_square) || 0,
+                          parseFloat(typeForm.unit_price) || 0,
                           parseFloat(typeForm.material_cost) || null,
                           parseFloat(typeForm.labor_cost) || null
                         )}%
@@ -603,10 +658,10 @@ export default function AdminPricingPage() {
               </button>
               <button
                 onClick={saveRoofingType}
-                disabled={saving || !typeForm.name || !typeForm.price_per_square}
+                disabled={saving || !typeForm.name || !typeForm.unit_price}
                 className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
               >
-                {saving ? 'Saving...' : editingType ? 'Save Changes' : 'Add Roofing Type'}
+                {saving ? 'Saving...' : editingType ? 'Save Changes' : 'Add Service Type'}
               </button>
             </div>
           </div>

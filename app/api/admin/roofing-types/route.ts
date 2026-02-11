@@ -150,9 +150,10 @@ export async function POST(request: NextRequest) {
         org_id: profile.org_id,
         name: body.name,
         description: body.description || null,
-        price_per_square: parseFloat(body.price_per_square) || 350,
-        material_cost_per_square: body.material_cost_per_square ? parseFloat(body.material_cost_per_square) : null,
-        labor_cost_per_square: body.labor_cost_per_square ? parseFloat(body.labor_cost_per_square) : null,
+        pricing_unit: body.pricing_unit || 'square',
+        unit_price: parseFloat(body.unit_price) || 350,
+        material_cost: body.material_cost ? parseFloat(body.material_cost) : null,
+        labor_cost: body.labor_cost ? parseFloat(body.labor_cost) : null,
         labor_multiplier: parseFloat(body.labor_multiplier) || 1.0,
         default_warranty_years: parseInt(body.default_warranty_years) || 10,
         default_warranty_text: body.default_warranty_text || null,
@@ -220,9 +221,10 @@ export async function PATCH(request: NextRequest) {
     const updateData: any = {}
     if (updates.name !== undefined) updateData.name = updates.name
     if (updates.description !== undefined) updateData.description = updates.description
-    if (updates.price_per_square !== undefined) updateData.price_per_square = parseFloat(updates.price_per_square)
-    if (updates.material_cost_per_square !== undefined) updateData.material_cost_per_square = updates.material_cost_per_square ? parseFloat(updates.material_cost_per_square) : null
-    if (updates.labor_cost_per_square !== undefined) updateData.labor_cost_per_square = updates.labor_cost_per_square ? parseFloat(updates.labor_cost_per_square) : null
+    if (updates.pricing_unit !== undefined) updateData.pricing_unit = updates.pricing_unit
+    if (updates.unit_price !== undefined) updateData.unit_price = parseFloat(updates.unit_price)
+    if (updates.material_cost !== undefined) updateData.material_cost = updates.material_cost ? parseFloat(updates.material_cost) : null
+    if (updates.labor_cost !== undefined) updateData.labor_cost = updates.labor_cost ? parseFloat(updates.labor_cost) : null
     if (updates.labor_multiplier !== undefined) updateData.labor_multiplier = parseFloat(updates.labor_multiplier)
     if (updates.default_warranty_years !== undefined) updateData.default_warranty_years = parseInt(updates.default_warranty_years)
     if (updates.default_warranty_text !== undefined) updateData.default_warranty_text = updates.default_warranty_text

@@ -4,10 +4,12 @@ CREATE TABLE IF NOT EXISTS roofing_types (
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT,
-  -- Pricing
-  price_per_square NUMERIC(10, 2) NOT NULL DEFAULT 350.00,
-  material_cost_per_square NUMERIC(10, 2),
-  labor_cost_per_square NUMERIC(10, 2),
+  -- Pricing unit: 'square' (100 sq ft), 'sqft' (per sq ft), 'lf' (linear foot)
+  pricing_unit TEXT NOT NULL DEFAULT 'square',
+  -- Pricing (interpreted based on pricing_unit)
+  unit_price NUMERIC(10, 2) NOT NULL DEFAULT 350.00,
+  material_cost NUMERIC(10, 2),
+  labor_cost NUMERIC(10, 2),
   -- Labor multipliers (some roofing types take longer)
   labor_multiplier NUMERIC(4, 2) DEFAULT 1.00,
   -- Warranty info
@@ -43,15 +45,16 @@ CREATE POLICY "Admins can manage roofing types"
     AND (SELECT role FROM users WHERE id = auth.uid()) IN ('admin', 'operations')
   );
 
--- Insert default roofing types for existing orgs
-INSERT INTO roofing_types (org_id, name, description, price_per_square, material_cost_per_square, labor_cost_per_square, labor_multiplier, default_warranty_years, color, sort_order, is_default)
+-- Insert default roofing types for existing orgs (only if table is empty for that org)
+INSERT INTO roofing_types (org_id, name, description, pricing_unit, unit_price, material_cost, labor_cost, labor_multiplier, default_warranty_years, color, sort_order, is_default)
 SELECT 
   id as org_id,
   'Asphalt Shingles' as name,
   '3-tab or architectural asphalt shingles - most common residential roofing' as description,
-  350.00 as price_per_square,
-  125.00 as material_cost_per_square,
-  145.00 as labor_cost_per_square,
+  'square' as pricing_unit,
+  350.00 as unit_price,
+  125.00 as material_cost,
+  145.00 as labor_cost,
   1.00 as labor_multiplier,
   25 as default_warranty_years,
   '#6366f1' as color,
@@ -61,14 +64,15 @@ FROM orgs
 WHERE NOT EXISTS (SELECT 1 FROM roofing_types WHERE roofing_types.org_id = orgs.id);
 
 -- Add more default types
-INSERT INTO roofing_types (org_id, name, description, price_per_square, material_cost_per_square, labor_cost_per_square, labor_multiplier, default_warranty_years, color, sort_order)
+INSERT INTO roofing_types (org_id, name, description, pricing_unit, unit_price, material_cost, labor_cost, labor_multiplier, default_warranty_years, color, sort_order)
 SELECT 
   id as org_id,
   'Metal Roofing' as name,
   'Standing seam or metal panels - durable, long-lasting' as description,
-  850.00 as price_per_square,
-  450.00 as material_cost_per_square,
-  280.00 as labor_cost_per_square,
+  'square' as pricing_unit,
+  850.00 as unit_price,
+  450.00 as material_cost,
+  280.00 as labor_cost,
   1.50 as labor_multiplier,
   50 as default_warranty_years,
   '#64748b' as color,
@@ -76,14 +80,15 @@ SELECT
 FROM orgs
 WHERE NOT EXISTS (SELECT 1 FROM roofing_types WHERE roofing_types.org_id = orgs.id AND name = 'Metal Roofing');
 
-INSERT INTO roofing_types (org_id, name, description, price_per_square, material_cost_per_square, labor_cost_per_square, labor_multiplier, default_warranty_years, color, sort_order)
+INSERT INTO roofing_types (org_id, name, description, pricing_unit, unit_price, material_cost, labor_cost, labor_multiplier, default_warranty_years, color, sort_order)
 SELECT 
   id as org_id,
   'Tile Roofing' as name,
   'Clay or concrete tiles - premium aesthetic' as description,
-  750.00 as price_per_square,
-  350.00 as material_cost_per_square,
-  300.00 as labor_cost_per_square,
+  'square' as pricing_unit,
+  750.00 as unit_price,
+  350.00 as material_cost,
+  300.00 as labor_cost,
   1.75 as labor_multiplier,
   50 as default_warranty_years,
   '#dc2626' as color,
@@ -91,14 +96,15 @@ SELECT
 FROM orgs
 WHERE NOT EXISTS (SELECT 1 FROM roofing_types WHERE roofing_types.org_id = orgs.id AND name = 'Tile Roofing');
 
-INSERT INTO roofing_types (org_id, name, description, price_per_square, material_cost_per_square, labor_cost_per_square, labor_multiplier, default_warranty_years, color, sort_order)
+INSERT INTO roofing_types (org_id, name, description, pricing_unit, unit_price, material_cost, labor_cost, labor_multiplier, default_warranty_years, color, sort_order)
 SELECT 
   id as org_id,
   'Flat/TPO' as name,
   'TPO, EPDM, or modified bitumen - commercial and low-slope' as description,
-  450.00 as price_per_square,
-  180.00 as material_cost_per_square,
-  200.00 as labor_cost_per_square,
+  'sqft' as pricing_unit,
+  4.50 as unit_price,
+  1.80 as material_cost,
+  2.00 as labor_cost,
   1.25 as labor_multiplier,
   20 as default_warranty_years,
   '#0891b2' as color,
@@ -106,14 +112,15 @@ SELECT
 FROM orgs
 WHERE NOT EXISTS (SELECT 1 FROM roofing_types WHERE roofing_types.org_id = orgs.id AND name = 'Flat/TPO');
 
-INSERT INTO roofing_types (org_id, name, description, price_per_square, material_cost_per_square, labor_cost_per_square, labor_multiplier, default_warranty_years, color, sort_order)
+INSERT INTO roofing_types (org_id, name, description, pricing_unit, unit_price, material_cost, labor_cost, labor_multiplier, default_warranty_years, color, sort_order)
 SELECT 
   id as org_id,
   'Wood Shake' as name,
   'Cedar shakes or shingles - natural aesthetic' as description,
-  650.00 as price_per_square,
-  300.00 as material_cost_per_square,
-  250.00 as labor_cost_per_square,
+  'square' as pricing_unit,
+  650.00 as unit_price,
+  300.00 as material_cost,
+  250.00 as labor_cost,
   1.40 as labor_multiplier,
   30 as default_warranty_years,
   '#a16207' as color,
@@ -121,20 +128,37 @@ SELECT
 FROM orgs
 WHERE NOT EXISTS (SELECT 1 FROM roofing_types WHERE roofing_types.org_id = orgs.id AND name = 'Wood Shake');
 
-INSERT INTO roofing_types (org_id, name, description, price_per_square, material_cost_per_square, labor_cost_per_square, labor_multiplier, default_warranty_years, color, sort_order)
+INSERT INTO roofing_types (org_id, name, description, pricing_unit, unit_price, material_cost, labor_cost, labor_multiplier, default_warranty_years, color, sort_order)
 SELECT 
   id as org_id,
   'Slate' as name,
   'Natural or synthetic slate - premium, long-lasting' as description,
-  1200.00 as price_per_square,
-  650.00 as material_cost_per_square,
-  400.00 as labor_cost_per_square,
+  'square' as pricing_unit,
+  1200.00 as unit_price,
+  650.00 as material_cost,
+  400.00 as labor_cost,
   2.00 as labor_multiplier,
   75 as default_warranty_years,
   '#1e293b' as color,
   6 as sort_order
 FROM orgs
 WHERE NOT EXISTS (SELECT 1 FROM roofing_types WHERE roofing_types.org_id = orgs.id AND name = 'Slate');
+
+-- Gutters example - priced per linear foot
+INSERT INTO roofing_types (org_id, name, description, pricing_unit, unit_price, material_cost, labor_cost, default_warranty_years, color, sort_order)
+SELECT 
+  id as org_id,
+  'Gutters (5" Seamless)' as name,
+  'Standard 5-inch seamless aluminum gutters' as description,
+  'lf' as pricing_unit,
+  12.00 as unit_price,
+  4.00 as material_cost,
+  6.00 as labor_cost,
+  10 as default_warranty_years,
+  '#059669' as color,
+  7 as sort_order
+FROM orgs
+WHERE NOT EXISTS (SELECT 1 FROM roofing_types WHERE roofing_types.org_id = orgs.id AND name = 'Gutters (5" Seamless)');
 
 -- Add roofing_type_id to proposals table if it exists
 DO $$
