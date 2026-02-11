@@ -1194,13 +1194,18 @@ export default function ProposalBuilderPage() {
                         onChange={(e) => setForm(prev => ({ ...prev, financing_term_months: parseInt(e.target.value) }))}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                       >
-                        <option value={12}>12 months</option>
-                        <option value={24}>24 months</option>
-                        <option value={36}>36 months</option>
-                        <option value={48}>48 months</option>
-                        <option value={60}>60 months</option>
-                        <option value={72}>72 months</option>
-                        <option value={84}>84 months</option>
+                        <option value={12}>12 months (1 year)</option>
+                        <option value={24}>24 months (2 years)</option>
+                        <option value={36}>36 months (3 years)</option>
+                        <option value={48}>48 months (4 years)</option>
+                        <option value={60}>60 months (5 years)</option>
+                        <option value={72}>72 months (6 years)</option>
+                        <option value={84}>84 months (7 years)</option>
+                        <option value={120}>120 months (10 years)</option>
+                        <option value={144}>144 months (12 years)</option>
+                        <option value={180}>180 months (15 years)</option>
+                        <option value={240}>240 months (20 years)</option>
+                        <option value={300}>300 months (25 years)</option>
                       </select>
                     </div>
                     <div>
