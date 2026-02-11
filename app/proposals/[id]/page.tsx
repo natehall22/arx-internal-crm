@@ -298,19 +298,19 @@ export default function ProposalDetailPage() {
           <div className="p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
               <div>
-                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Customer</h3>
+                <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Customer</h3>
                 <p className="font-medium text-gray-900">{proposal.customer_name}</p>
-                <p className="text-gray-600">{proposal.customer_address}</p>
-                {proposal.customer_phone && <p className="text-gray-600">{proposal.customer_phone}</p>}
-                {proposal.customer_email && <p className="text-gray-600">{proposal.customer_email}</p>}
+                <p className="text-gray-900">{proposal.customer_address}</p>
+                {proposal.customer_phone && <p className="text-gray-900">{proposal.customer_phone}</p>}
+                {proposal.customer_email && <p className="text-gray-900">{proposal.customer_email}</p>}
               </div>
               <div className="text-right">
-                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Project Total</h3>
+                <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Project Total</h3>
                 <p className="text-4xl font-bold" style={{ color: proposal.accent_color || '#4f46e5' }}>
                   ${proposal.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </p>
                 {proposal.financing_available && proposal.monthly_payment && (
-                  <p className="text-gray-500 mt-1">
+                  <p className="text-gray-900 mt-1">
                     or ${proposal.monthly_payment.toFixed(2)}/mo for {proposal.financing_term_months} months
                   </p>
                 )}
@@ -320,7 +320,7 @@ export default function ProposalDetailPage() {
             {/* Property Satellite Image */}
             {proposal.customer_address && (
               <div className="mb-8">
-                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Property Location</h3>
+                <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-3">Property Location</h3>
                 <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
                   <img
                     src={`https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}`}
@@ -338,43 +338,43 @@ export default function ProposalDetailPage() {
             {/* Measurement Summary */}
             {measurement && (
               <div className="mb-8 p-6 bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl text-white">
-                <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider mb-4">Roof Measurements</h3>
+                <h3 className="text-sm font-medium text-white uppercase tracking-wider mb-4">Roof Measurements</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-400">{measurement.total_squares?.toFixed(1) || '-'}</div>
-                    <div className="text-xs text-slate-400 uppercase">Squares</div>
+                    <div className="text-3xl font-bold text-blue-300">{measurement.total_squares?.toFixed(1) || '-'}</div>
+                    <div className="text-xs text-white uppercase">Squares</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-400">{measurement.total_area_sqft?.toLocaleString() || '-'}</div>
-                    <div className="text-xs text-slate-400 uppercase">Sq Ft</div>
+                    <div className="text-3xl font-bold text-blue-300">{measurement.total_area_sqft?.toLocaleString() || '-'}</div>
+                    <div className="text-xs text-white uppercase">Sq Ft</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-400">{measurement.predominant_pitch || '-'}</div>
-                    <div className="text-xs text-slate-400 uppercase">Pitch</div>
+                    <div className="text-3xl font-bold text-blue-300">{measurement.predominant_pitch || '-'}</div>
+                    <div className="text-xs text-white uppercase">Pitch</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-400">{measurement.facet_count || '-'}</div>
-                    <div className="text-xs text-slate-400 uppercase">Sections</div>
+                    <div className="text-3xl font-bold text-blue-300">{measurement.facet_count || '-'}</div>
+                    <div className="text-xs text-white uppercase">Sections</div>
                   </div>
                 </div>
                 {(measurement.ridges_lf || measurement.eaves_lf || measurement.valleys_lf) && (
-                  <div className="mt-4 pt-4 border-t border-slate-600 grid grid-cols-3 gap-4 text-center">
+                  <div className="mt-4 pt-4 border-t border-slate-500 grid grid-cols-3 gap-4 text-center">
                     {measurement.ridges_lf && (
                       <div>
-                        <div className="text-lg font-semibold">{measurement.ridges_lf} LF</div>
-                        <div className="text-xs text-slate-400">Ridges</div>
+                        <div className="text-lg font-semibold text-white">{measurement.ridges_lf} LF</div>
+                        <div className="text-xs text-white">Ridges</div>
                       </div>
                     )}
                     {measurement.eaves_lf && (
                       <div>
-                        <div className="text-lg font-semibold">{measurement.eaves_lf} LF</div>
-                        <div className="text-xs text-slate-400">Eaves</div>
+                        <div className="text-lg font-semibold text-white">{measurement.eaves_lf} LF</div>
+                        <div className="text-xs text-white">Eaves</div>
                       </div>
                     )}
                     {measurement.valleys_lf && (
                       <div>
-                        <div className="text-lg font-semibold">{measurement.valleys_lf} LF</div>
-                        <div className="text-xs text-slate-400">Valleys</div>
+                        <div className="text-lg font-semibold text-white">{measurement.valleys_lf} LF</div>
+                        <div className="text-xs text-white">Valleys</div>
                       </div>
                     )}
                   </div>
@@ -386,7 +386,7 @@ export default function ProposalDetailPage() {
             {proposal.scope_of_work && (
               <div className="mb-8">
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Scope of Work</h3>
-                <p className="text-gray-600 whitespace-pre-wrap">{proposal.scope_of_work}</p>
+                <p className="text-gray-900 whitespace-pre-wrap">{proposal.scope_of_work}</p>
               </div>
             )}
 
@@ -398,10 +398,10 @@ export default function ProposalDetailPage() {
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Qty</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Unit Price</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Item</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Qty</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Unit Price</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Total</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -409,10 +409,10 @@ export default function ProposalDetailPage() {
                         <tr key={item.id} className={item.is_adder ? 'bg-green-50' : ''}>
                           <td className="px-4 py-3">
                             <p className="font-medium text-gray-900">{item.name}</p>
-                            <p className="text-sm text-gray-500">{item.category}</p>
+                            <p className="text-sm text-gray-700">{item.category}</p>
                           </td>
-                          <td className="px-4 py-3 text-right text-gray-600">{item.quantity} {item.unit}</td>
-                          <td className="px-4 py-3 text-right text-gray-600">${item.unit_price.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right text-gray-900">{item.quantity} {item.unit}</td>
+                          <td className="px-4 py-3 text-right text-gray-900">${item.unit_price.toFixed(2)}</td>
                           <td className="px-4 py-3 text-right font-medium text-gray-900">${item.line_total.toFixed(2)}</td>
                         </tr>
                       ))}
@@ -426,18 +426,18 @@ export default function ProposalDetailPage() {
             <div className="bg-gray-50 rounded-xl p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Investment Summary</h3>
               <div className="space-y-2">
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between text-gray-900">
                   <span>Project Total</span>
                   <span>${proposal.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
                 {proposal.discount_amount > 0 && (
-                  <div className="flex justify-between text-green-600">
+                  <div className="flex justify-between text-green-700">
                     <span>Discount</span>
                     <span>-${proposal.discount_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 {proposal.tax_amount > 0 && (
-                  <div className="flex justify-between text-gray-600">
+                  <div className="flex justify-between text-gray-900">
                     <span>Tax ({proposal.tax_rate}%)</span>
                     <span>${proposal.tax_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
@@ -453,10 +453,10 @@ export default function ProposalDetailPage() {
             {proposal.financing_available && (
               <div className="mt-6 p-6 bg-indigo-50 rounded-xl border border-indigo-100">
                 <h3 className="text-lg font-semibold text-indigo-900 mb-2">Financing Available</h3>
-                <p className="text-indigo-700">
+                <p className="text-indigo-900">
                   As low as <span className="font-bold text-2xl">${proposal.monthly_payment?.toFixed(2)}</span>/month
                 </p>
-                <p className="text-sm text-indigo-600 mt-1">
+                <p className="text-sm text-indigo-800 mt-1">
                   {proposal.financing_term_months} months at {proposal.financing_rate}% APR
                 </p>
               </div>
@@ -468,24 +468,24 @@ export default function ProposalDetailPage() {
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full bg-green-500" />
-                  <span className="text-gray-600">Created on {new Date(proposal.created_at).toLocaleString()}</span>
+                  <span className="text-gray-900">Created on {new Date(proposal.created_at).toLocaleString()}</span>
                 </div>
                 {proposal.sent_at && (
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-blue-500" />
-                    <span className="text-gray-600">Sent on {new Date(proposal.sent_at).toLocaleString()}</span>
+                    <span className="text-gray-900">Sent on {new Date(proposal.sent_at).toLocaleString()}</span>
                   </div>
                 )}
                 {proposal.viewed_at && (
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-amber-500" />
-                    <span className="text-gray-600">Viewed on {new Date(proposal.viewed_at).toLocaleString()}</span>
+                    <span className="text-gray-900">Viewed on {new Date(proposal.viewed_at).toLocaleString()}</span>
                   </div>
                 )}
                 {proposal.accepted_at && (
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-green-500" />
-                    <span className="text-gray-600">Accepted on {new Date(proposal.accepted_at).toLocaleString()}</span>
+                    <span className="text-gray-900">Accepted on {new Date(proposal.accepted_at).toLocaleString()}</span>
                   </div>
                 )}
               </div>
