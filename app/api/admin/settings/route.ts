@@ -89,8 +89,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    // Check admin access
-    if (!['admin', 'regional_manager', 'manager'].includes(profile.role)) {
+    // Check admin access - allow admin, regional_manager, sales_manager, and operations
+    if (!['admin', 'regional_manager', 'sales_manager', 'manager', 'operations'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 

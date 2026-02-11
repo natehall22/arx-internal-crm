@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
       manager_user_id,
       org_id,
       permission_ids,
+      canvass_pin_visibility,
     } = body
 
     if (!email || !password || !full_name) {
@@ -154,6 +155,7 @@ export async function POST(request: NextRequest) {
         manager_user_id: manager_user_id || null,
         org_id: targetOrgId,
         active: true,
+        canvass_pin_visibility: canvass_pin_visibility || 'org',
       })
 
     if (profileError) {
@@ -312,7 +314,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { id, role, custom_role_id, team_id, region_id, manager_user_id, active } = body
+  const { id, role, custom_role_id, team_id, region_id, manager_user_id, active, canvass_pin_visibility } = body
 
   if (!id) {
     return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
@@ -336,6 +338,7 @@ export async function PUT(request: NextRequest) {
   if (region_id !== undefined) updateData.region_id = region_id || null
   if (manager_user_id !== undefined) updateData.manager_user_id = manager_user_id || null
   if (active !== undefined) updateData.active = active
+  if (canvass_pin_visibility !== undefined) updateData.canvass_pin_visibility = canvass_pin_visibility
 
   const { error: updateError } = await adminClient
     .from('users')

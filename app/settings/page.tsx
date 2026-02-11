@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface UserSettings {
   notifications_enabled: boolean
@@ -67,8 +66,6 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'display'>('notifications')
   const [calendarMessage, setCalendarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
     loadSettings()
     
@@ -96,83 +93,78 @@ export default function SettingsPage() {
   }, [searchParams])
 
   const loadSettings = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
+    try {
+      const response = await fetch('/api/settings')
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (!response.ok) {
+        console.error('Failed to load settings')
+        setLoading(false)
+        return
+      }
+      
+      const data = await response.json()
+      
+      if (data.profile) {
+        setUserProfile(data.profile)
+      }
+
+      if (data.userSettings) {
+        setSettings({
+          notifications_enabled: data.userSettings.notifications_enabled,
+          email_notifications: data.userSettings.email_notifications,
+          push_notifications: data.userSettings.push_notifications,
+          notification_types: data.userSettings.notification_types || defaultSettings.notification_types,
+          google_calendar_connected: data.userSettings.google_calendar_connected,
+          default_appointment_duration: data.userSettings.default_appointment_duration,
+          appointment_buffer_minutes: data.userSettings.appointment_buffer_minutes,
+          working_hours_start: data.userSettings.working_hours_start || '08:00',
+          working_hours_end: data.userSettings.working_hours_end || '18:00',
+          working_days: data.userSettings.working_days || [1, 2, 3, 4, 5],
+          ai_enabled: data.userSettings.ai_enabled,
+          ai_suggestions_enabled: data.userSettings.ai_suggestions_enabled,
+          ai_auto_notes: data.userSettings.ai_auto_notes,
+          theme: data.userSettings.theme || 'light',
+        })
+      }
+
+      if (data.googleToken) {
+        setGoogleToken(data.googleToken)
+        setSettings(prev => ({ ...prev, google_calendar_connected: true }))
+      }
+
+      setLoading(false)
+    } catch (error) {
+      console.error('Error loading settings:', error)
+      setLoading(false)
     }
-
-    // Load user settings
-    const { data: userSettings } = await supabase
-      .from('user_settings')
-      .select('*')
-      .eq('user_id', user.id)
-      .single()
-
-    // Get user profile for role-based features
-    const { data: profile } = await supabase
-      .from('users')
-      .select('role, full_name')
-      .eq('id', user.id)
-      .single()
-
-    if (profile) {
-      setUserProfile(profile)
-    }
-
-    if (userSettings) {
-      setSettings({
-        notifications_enabled: userSettings.notifications_enabled,
-        email_notifications: userSettings.email_notifications,
-        push_notifications: userSettings.push_notifications,
-        notification_types: userSettings.notification_types || defaultSettings.notification_types,
-        google_calendar_connected: userSettings.google_calendar_connected,
-        default_appointment_duration: userSettings.default_appointment_duration,
-        appointment_buffer_minutes: userSettings.appointment_buffer_minutes,
-        working_hours_start: userSettings.working_hours_start || '08:00',
-        working_hours_end: userSettings.working_hours_end || '18:00',
-        working_days: userSettings.working_days || [1, 2, 3, 4, 5],
-        ai_enabled: userSettings.ai_enabled,
-        ai_suggestions_enabled: userSettings.ai_suggestions_enabled,
-        ai_auto_notes: userSettings.ai_auto_notes,
-        theme: userSettings.theme || 'light',
-      })
-    }
-
-    // Check Google Calendar connection
-    const { data: token } = await supabase
-      .from('user_google_tokens')
-      .select('*')
-      .eq('user_id', user.id)
-      .single()
-
-    setGoogleToken(token)
-    if (token) {
-      setSettings(prev => ({ ...prev, google_calendar_connected: true }))
-    }
-
-    setLoading(false)
   }
 
   const saveSettings = async () => {
     setSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      })
 
-    const { error } = await supabase
-      .from('user_settings')
-      .upsert({
-        user_id: user.id,
-        ...settings,
-        notification_types: settings.notification_types,
-      }, { onConflict: 'user_id' })
-
-    if (error) {
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to save settings')
+      } else {
+        alert('Settings saved!')
+      }
+    } catch (error) {
       console.error('Failed to save settings:', error)
       alert('Failed to save settings')
-    } else {
-      alert('Settings saved!')
     }
+    
     setSaving(false)
   }
 
@@ -183,16 +175,19 @@ export default function SettingsPage() {
   const disconnectGoogleCalendar = async () => {
     if (!confirm('Disconnect Google Calendar?')) return
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    await supabase
-      .from('user_google_tokens')
-      .delete()
-      .eq('user_id', user.id)
-
-    setGoogleToken(null)
-    setSettings(prev => ({ ...prev, google_calendar_connected: false }))
+    try {
+      const response = await fetch('/api/settings', { method: 'DELETE' })
+      
+      if (response.ok) {
+        setGoogleToken(null)
+        setSettings(prev => ({ ...prev, google_calendar_connected: false }))
+      } else {
+        alert('Failed to disconnect Google Calendar')
+      }
+    } catch (error) {
+      console.error('Error disconnecting:', error)
+      alert('Failed to disconnect Google Calendar')
+    }
   }
 
   const toggleWorkingDay = (day: number) => {

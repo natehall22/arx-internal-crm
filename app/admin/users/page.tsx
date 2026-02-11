@@ -75,6 +75,7 @@ export default function UsersPage() {
   const [formTeamId, setFormTeamId] = useState('')
   const [formRegionId, setFormRegionId] = useState('')
   const [formManagerId, setFormManagerId] = useState('')
+  const [formCanvassVisibility, setFormCanvassVisibility] = useState<'own' | 'team' | 'region' | 'org'>('org')
   // Create user form fields
   const [createEmail, setCreateEmail] = useState('')
   const [createFullName, setCreateFullName] = useState('')
@@ -191,6 +192,7 @@ export default function UsersPage() {
     setFormTeamId('')
     setFormRegionId('')
     setFormManagerId('')
+    setFormCanvassVisibility('org')
     setSelectedPreset('')
     setCreatePermissions(new Set())
     setError(null)
@@ -270,6 +272,7 @@ export default function UsersPage() {
           team_id: formTeamId || null,
           region_id: formRegionId || null,
           manager_user_id: formManagerId || null,
+          canvass_pin_visibility: formCanvassVisibility,
           permission_ids: Array.from(createPermissions),
         }),
       })
@@ -298,6 +301,7 @@ export default function UsersPage() {
     setFormTeamId(user.team_id || '')
     setFormRegionId(user.region_id || '')
     setFormManagerId(user.manager_user_id || '')
+    setFormCanvassVisibility((user as any).canvass_pin_visibility || 'org')
     setError(null)
     await loadUserPermissions(user.id)
   }
@@ -319,6 +323,7 @@ export default function UsersPage() {
           team_id: formTeamId || null,
           region_id: formRegionId || null,
           manager_user_id: formManagerId || null,
+          canvass_pin_visibility: formCanvassVisibility,
         }),
       })
 
@@ -909,6 +914,46 @@ export default function UsersPage() {
                     </div>
                   </div>
 
+                  {/* Canvass Pin Visibility */}
+                  <div className="border-t pt-4">
+                    <h3 className="text-sm font-medium text-gray-900 mb-2">Canvass Map Pin Visibility</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Control which pins this user can see in the canvassing app. This helps prevent data overload in large organizations.
+                    </p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {[
+                        { value: 'own', label: 'Own Pins Only', desc: 'Only their own pins', icon: '👤' },
+                        { value: 'team', label: 'Team Pins', desc: 'Pins from their team', icon: '👥' },
+                        { value: 'region', label: 'Region Pins', desc: 'Pins from their region', icon: '🗺️' },
+                        { value: 'org', label: 'All Company', desc: 'All pins in company', icon: '🏢' },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setFormCanvassVisibility(option.value as any)}
+                          className={`p-3 rounded-lg border text-left transition-all ${
+                            formCanvassVisibility === option.value
+                              ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500'
+                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span>{option.icon}</span>
+                            <span className={`font-medium text-sm ${
+                              formCanvassVisibility === option.value ? 'text-indigo-700' : 'text-gray-900'
+                            }`}>
+                              {option.label}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500">{option.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                      Note: Admins and managers always see all pins regardless of this setting.
+                    </p>
+                  </div>
+
                   {/* Permissions */}
                   <div className="border-t pt-4">
                     <div className="flex items-center justify-between mb-3">
@@ -1129,6 +1174,43 @@ export default function UsersPage() {
                   <p className="mt-1 text-xs text-gray-500">
                     Set who this user reports to in the org hierarchy
                   </p>
+                </div>
+
+                {/* Canvass Pin Visibility */}
+                <div className="border-t pt-4 mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Canvass Map Pin Visibility
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Control which pins this user can see in the canvassing app.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'own', label: 'Own Only', icon: '👤' },
+                      { value: 'team', label: 'Team', icon: '👥' },
+                      { value: 'region', label: 'Region', icon: '🗺️' },
+                      { value: 'org', label: 'All Company', icon: '🏢' },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setFormCanvassVisibility(option.value as any)}
+                        className={`p-2 rounded-lg border text-sm font-medium transition-all flex items-center gap-2 ${
+                          formCanvassVisibility === option.value
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span>{option.icon}</span>
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {['admin', 'regional_manager', 'sales_manager', 'operations'].includes(formRole) && (
+                    <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                      This user&apos;s role grants them access to all pins regardless of this setting.
+                    </p>
+                  )}
                 </div>
 
                 {/* Additional Permissions */}
