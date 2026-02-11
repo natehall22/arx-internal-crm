@@ -101,55 +101,57 @@ export default function RoofMeasurePage() {
       setAddress(urlAddress)
     }
     loadGoogleMaps()
-    
-    // Safety timeout - if still loading after 10 seconds, show error
-    const safetyTimeout = setTimeout(() => {
-      if (loading && !mapError) {
-        console.error('Map loading timed out')
-        setMapError('Map loading timed out. Please check your internet connection and refresh the page.')
-        setLoading(false)
-      }
-    }, 10000)
-    
-    return () => clearTimeout(safetyTimeout)
   }, [searchParams])
 
   // Initialize map when Google is loaded
   useEffect(() => {
     if (!googleLoaded || mapReady) return
     
-    // Use a small delay to ensure the DOM is ready
-    const initTimer = setTimeout(() => {
-      if (mapRef.current) {
-        console.log('Initializing map...')
-        initializeMap()
-        setMapReady(true)
-        setMapsLoaded(true)
-        setLoading(false)
-      } else {
-        // If ref still not ready, poll for it
-        let attempts = 0
-        const maxAttempts = 50 // 5 seconds
-        const checkRef = setInterval(() => {
-          attempts++
-          if (mapRef.current) {
-            console.log('Map ref now available after polling')
-            clearInterval(checkRef)
-            initializeMap()
-            setMapReady(true)
-            setMapsLoaded(true)
-            setLoading(false)
-          } else if (attempts >= maxAttempts) {
-            console.error('Map ref never became available')
-            clearInterval(checkRef)
-            setMapError('Failed to initialize map container. Please refresh the page.')
-            setLoading(false)
-          }
-        }, 100)
-      }
-    }, 50)
+    console.log('Google loaded, waiting for map ref...')
     
-    return () => clearTimeout(initTimer)
+    // Poll for the map ref to be available
+    let attempts = 0
+    const maxAttempts = 100 // 10 seconds max
+    
+    const checkAndInit = () => {
+      attempts++
+      
+      if (mapRef.current) {
+        console.log('Map ref available, initializing map...')
+        try {
+          initializeMap()
+          setMapReady(true)
+          setMapsLoaded(true)
+          setLoading(false)
+        } catch (error) {
+          console.error('Error initializing map:', error)
+          setMapError('Failed to initialize map. Please refresh the page.')
+          setLoading(false)
+        }
+        return true // Success
+      }
+      
+      if (attempts >= maxAttempts) {
+        console.error('Map ref never became available after', attempts, 'attempts')
+        setMapError('Failed to initialize map container. Please refresh the page.')
+        setLoading(false)
+        return true // Stop polling
+      }
+      
+      return false // Keep polling
+    }
+    
+    // Try immediately first
+    if (checkAndInit()) return
+    
+    // Then poll
+    const pollInterval = setInterval(() => {
+      if (checkAndInit()) {
+        clearInterval(pollInterval)
+      }
+    }, 100)
+    
+    return () => clearInterval(pollInterval)
   }, [googleLoaded, mapReady])
 
   // Auto-search when maps are loaded and we have an address from URL
@@ -688,21 +690,8 @@ export default function RoofMeasurePage() {
     setSelectedFacet(null)
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900">
-        <Nav />
-        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4" />
-            <p className="text-gray-400">Loading satellite imagery...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (mapError) {
+  // Show error page only for configuration errors (like missing API key)
+  if (mapError && mapError.includes('API key')) {
     return (
       <div className="min-h-screen bg-gray-900">
         <Nav />
@@ -737,6 +726,8 @@ export default function RoofMeasurePage() {
       </div>
     )
   }
+  
+  // For other errors or loading state, render the full UI with overlays
 
   return (
     <div className="min-h-screen bg-gray-900">
@@ -950,11 +941,17 @@ export default function RoofMeasurePage() {
           
           {/* Error overlay */}
           {mapError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90 z-10">
               <div className="text-center max-w-md p-6">
                 <div className="text-red-500 text-4xl mb-4">⚠️</div>
                 <p className="text-white font-medium mb-2">Map Error</p>
-                <p className="text-gray-400 text-sm">{mapError}</p>
+                <p className="text-gray-400 text-sm mb-4">{mapError}</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                >
+                  Retry
+                </button>
               </div>
             </div>
           )}
