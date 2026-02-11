@@ -260,7 +260,8 @@ export default function RoofMeasurePage() {
     try {
       const map = new google.maps.Map(mapRef.current, {
         center: mapCenter,
-        zoom: 19,
+        zoom: 20,
+        maxZoom: 22,
         mapTypeId: 'satellite',
         tilt: 0,
         mapTypeControl: true,
