@@ -468,6 +468,12 @@ export default function UsersPage() {
           </div>
         </div>
 
+        {error && !editingUser && !showCreateModal && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+            <strong>Error:</strong> {error}
+          </div>
+        )}
+
         {loading ? (
           <div className="bg-white rounded-xl shadow-sm border p-8 text-center text-gray-500">
             Loading users...

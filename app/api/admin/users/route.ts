@@ -195,45 +195,46 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const { client: authClient, accessToken } = getAuthClient(request)
-  
-  if (!accessToken) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  
-  const { data: { user } } = await authClient.auth.getUser(accessToken)
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  try {
+    const { client: authClient, accessToken } = getAuthClient(request)
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized - no token' }, { status: 401 })
+    }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: `Unauthorized - ${userError?.message || 'no user'}` }, { status: 401 })
+    }
 
-  const adminClient = getAdminClient()
+    const adminClient = getAdminClient()
 
-  const { data: profile } = await adminClient
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
+    const { data: profile, error: profileError } = await adminClient
+      .from('users')
+      .select('role, org_id')
+      .eq('id', user.id)
+      .single()
 
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
+    if (profileError || !profile) {
+      return NextResponse.json({ error: `Profile not found: ${profileError?.message || 'no data'}` }, { status: 404 })
+    }
 
-  // Get users with all related data
-  const { data: users, error } = await adminClient
-    .from('users')
-    .select(`
-      *,
-      teams(*),
-      regions(*),
-      custom_roles(*),
-      manager:users!users_manager_user_id_fkey(id, full_name, email, role)
-    `)
-    .eq('org_id', profile.org_id)
-    .order('full_name')
+    // Get users with all related data
+    const { data: users, error } = await adminClient
+      .from('users')
+      .select(`
+        *,
+        teams(*),
+        regions(*),
+        custom_roles(*),
+        manager:users!users_manager_user_id_fkey(id, full_name, email, role)
+      `)
+      .eq('org_id', profile.org_id)
+      .order('full_name')
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+    if (error) {
+      return NextResponse.json({ error: `Users query failed: ${error.message}` }, { status: 500 })
+    }
 
   // Get teams, regions, custom roles, permissions, and presets
   const [teamsRes, regionsRes, rolesRes, permsRes, presetsRes] = await Promise.all([
@@ -255,21 +256,25 @@ export async function GET(request: NextRequest) {
     `).eq('org_id', profile.org_id).order('sort_order'),
   ])
 
-  return NextResponse.json({ 
-    users: (users || []).map(u => ({
-      ...u,
-      team: u.teams,
-      region: u.regions,
-      custom_role: u.custom_roles,
-      manager: u.manager,
-    })),
-    teams: teamsRes.data || [],
-    regions: regionsRes.data || [],
-    customRoles: rolesRes.data || [],
-    permissions: permsRes.data || [],
-    permissionPresets: presetsRes.data || [],
-    currentUserOrgId: profile.org_id,
-  })
+    return NextResponse.json({ 
+      users: (users || []).map(u => ({
+        ...u,
+        team: u.teams,
+        region: u.regions,
+        custom_role: u.custom_roles,
+        manager: u.manager,
+      })),
+      teams: teamsRes.data || [],
+      regions: regionsRes.data || [],
+      customRoles: rolesRes.data || [],
+      permissions: permsRes.data || [],
+      permissionPresets: presetsRes.data || [],
+      currentUserOrgId: profile.org_id,
+    })
+  } catch (err) {
+    console.error('GET /api/admin/users error:', err)
+    return NextResponse.json({ error: `Server error: ${err instanceof Error ? err.message : 'unknown'}` }, { status: 500 })
+  }
 }
 
 // PUT - Update a user
