@@ -1,42 +1,107 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSessionFromRequest, getAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
+
+export const dynamic = 'force-dynamic'
+
+function getSessionFromRequest(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
+  const cookieName = `sb-${projectRef}-auth-token`
+  
+  const singleCookie = req.cookies.get(cookieName)
+  if (singleCookie?.value) {
+    try {
+      return JSON.parse(singleCookie.value)
+    } catch {
+      return null
+    }
+  }
+  
+  const chunks: string[] = []
+  let i = 0
+  while (true) {
+    const chunk = req.cookies.get(`${cookieName}.${i}`)
+    if (!chunk?.value) break
+    chunks.push(chunk.value)
+    i++
+  }
+  
+  if (chunks.length > 0) {
+    try {
+      return JSON.parse(chunks.join(''))
+    } catch {
+      return null
+    }
+  }
+  
+  return null
+}
+
+function getAuthClient(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const sessionData = getSessionFromRequest(req)
+  
+  return {
+    client: createClient(supabaseUrl, supabaseKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: sessionData?.access_token
+        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
+        : undefined,
+    }),
+    accessToken: sessionData?.access_token,
+  }
+}
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    // Get user profile
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile || !['admin', 'regional_manager', 'manager', 'operations'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    const supabase = getAdminClient()
-
     // Load pricebook items
-    const { data: items, error: itemsError } = await supabase
+    const { data: items } = await adminClient
       .from('pricebook_items')
       .select('*')
       .eq('org_id', profile.org_id)
       .order('category')
       .order('name')
 
-    if (itemsError) {
-      console.error('Error loading pricebook items:', itemsError)
-    }
-
     // Load templates
-    const { data: templates, error: templatesError } = await supabase
+    const { data: templates } = await adminClient
       .from('proposal_templates')
       .select('*')
       .eq('org_id', profile.org_id)
       .order('name')
-
-    if (templatesError) {
-      console.error('Error loading templates:', templatesError)
-    }
 
     return NextResponse.json({
       pricebookItems: items || [],
@@ -52,11 +117,24 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
@@ -65,18 +143,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { type, data } = body
 
-    const supabase = getAdminClient()
-
     if (type === 'adder') {
       // Get default pricebook
-      const { data: pricebook } = await supabase
+      const { data: pricebook } = await adminClient
         .from('pricebooks')
         .select('id')
         .eq('org_id', profile.org_id)
         .eq('is_default', true)
         .single()
 
-      const { data: newAdder, error: adderError } = await supabase
+      const { data: newAdder, error: adderError } = await adminClient
         .from('pricebook_items')
         .insert({
           org_id: profile.org_id,
@@ -120,7 +196,7 @@ export async function POST(request: NextRequest) {
 
       if (data.id) {
         // Update existing
-        const { data: updated, error: updateError } = await supabase
+        const { data: updated, error: updateError } = await adminClient
           .from('proposal_templates')
           .update(templateData)
           .eq('id', data.id)
@@ -134,7 +210,7 @@ export async function POST(request: NextRequest) {
 
         // If setting as default, unset others
         if (data.is_default) {
-          await supabase
+          await adminClient
             .from('proposal_templates')
             .update({ is_default: false })
             .eq('org_id', profile.org_id)
@@ -144,7 +220,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ template: updated })
       } else {
         // Create new
-        const { data: newTemplate, error: createError } = await supabase
+        const { data: newTemplate, error: createError } = await adminClient
           .from('proposal_templates')
           .insert(templateData)
           .select()
@@ -157,7 +233,7 @@ export async function POST(request: NextRequest) {
 
         // If setting as default, unset others
         if (data.is_default && newTemplate) {
-          await supabase
+          await adminClient
             .from('proposal_templates')
             .update({ is_default: false })
             .eq('org_id', profile.org_id)
@@ -177,11 +253,24 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
@@ -190,10 +279,8 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     const { type, id, data } = body
 
-    const supabase = getAdminClient()
-
     if (type === 'visibility') {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await adminClient
         .from('pricebook_items')
         .update({ visibility: data.visibility })
         .eq('id', id)
@@ -208,7 +295,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (type === 'toggle_adder') {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await adminClient
         .from('pricebook_items')
         .update({ is_adder: data.is_adder })
         .eq('id', id)
@@ -231,11 +318,24 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
@@ -249,10 +349,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Missing type or id' }, { status: 400 })
     }
 
-    const supabase = getAdminClient()
-
     if (type === 'adder') {
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await adminClient
         .from('pricebook_items')
         .delete()
         .eq('id', id)
@@ -267,7 +365,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (type === 'template') {
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await adminClient
         .from('proposal_templates')
         .delete()
         .eq('id', id)

@@ -1,24 +1,97 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSessionFromRequest, getAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
+
+export const dynamic = 'force-dynamic'
+
+function getSessionFromRequest(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
+  const cookieName = `sb-${projectRef}-auth-token`
+  
+  const singleCookie = req.cookies.get(cookieName)
+  if (singleCookie?.value) {
+    try {
+      return JSON.parse(singleCookie.value)
+    } catch {
+      return null
+    }
+  }
+  
+  const chunks: string[] = []
+  let i = 0
+  while (true) {
+    const chunk = req.cookies.get(`${cookieName}.${i}`)
+    if (!chunk?.value) break
+    chunks.push(chunk.value)
+    i++
+  }
+  
+  if (chunks.length > 0) {
+    try {
+      return JSON.parse(chunks.join(''))
+    } catch {
+      return null
+    }
+  }
+  
+  return null
+}
+
+function getAuthClient(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const sessionData = getSessionFromRequest(req)
+  
+  return {
+    client: createClient(supabaseUrl, supabaseKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: sessionData?.access_token
+        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
+        : undefined,
+    }),
+    accessToken: sessionData?.access_token,
+  }
+}
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 403 })
     }
 
-    const supabase = getAdminClient()
-
-    const { data: roofingTypes, error: fetchError } = await supabase
+    const { data: roofingTypes, error: fetchError } = await adminClient
       .from('roofing_types')
       .select('*')
       .eq('org_id', profile.org_id)
+      .eq('active', true)
       .order('sort_order')
 
     if (fetchError) {
@@ -38,28 +111,40 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile || !['admin', 'operations'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied. Only admins and operations managers can manage roofing types.' }, { status: 403 })
     }
 
     const body = await request.json()
-    const supabase = getAdminClient()
 
     // If setting as default, unset others first
     if (body.is_default) {
-      await supabase
+      await adminClient
         .from('roofing_types')
         .update({ is_default: false })
         .eq('org_id', profile.org_id)
     }
 
-    const { data: newType, error: insertError } = await supabase
+    const { data: newType, error: insertError } = await adminClient
       .from('roofing_types')
       .insert({
         org_id: profile.org_id,
@@ -93,11 +178,24 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile || !['admin', 'operations'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
@@ -110,11 +208,9 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     }
 
-    const supabase = getAdminClient()
-
     // If setting as default, unset others first
     if (updates.is_default) {
-      await supabase
+      await adminClient
         .from('roofing_types')
         .update({ is_default: false })
         .eq('org_id', profile.org_id)
@@ -135,7 +231,7 @@ export async function PATCH(request: NextRequest) {
     if (updates.is_default !== undefined) updateData.is_default = updates.is_default
     if (updates.active !== undefined) updateData.active = updates.active
 
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await adminClient
       .from('roofing_types')
       .update(updateData)
       .eq('id', id)
@@ -157,11 +253,24 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { session, profile, error } = await getSessionFromRequest(request)
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    if (error || !session) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
 
     if (!profile || !['admin', 'operations'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
@@ -174,10 +283,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     }
 
-    const supabase = getAdminClient()
-
     // Soft delete - just mark as inactive
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await adminClient
       .from('roofing_types')
       .update({ active: false })
       .eq('id', id)
