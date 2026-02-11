@@ -209,6 +209,14 @@ export async function POST(request: Request) {
       : null
     const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
 
+    // Log incoming data for debugging
+    console.log('Canvass lead payload:', {
+      lat: body.lat,
+      lng: body.lng,
+      canvass_disposition: body.canvass_disposition,
+      homeowner_name: body.homeowner_name,
+    })
+
     const leadPayload: Record<string, any> = {
       homeowner_name: body.homeowner_name || null,
       phone: body.phone || null,
@@ -269,6 +277,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `Failed to create lead: ${createError.message}` }, { status: 400 })
       }
       leadRow = createdLead
+      console.log('Created lead:', { id: leadRow?.id, lat: leadRow?.lat, lng: leadRow?.lng, disposition: leadRow?.canvass_disposition })
     }
 
     if (!leadRow) {

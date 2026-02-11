@@ -356,6 +356,8 @@ export default function CanvassMapPage() {
       
       const data = await response.json()
       
+      console.log('Canvass data loaded:', data.leads?.length, 'leads')
+      
       setCurrentUserRole(data.currentUserRole || '')
       setLeads(data.leads || [])
       setClosers((data.users || []) as UserOption[])
@@ -484,10 +486,16 @@ export default function CanvassMapPage() {
     Object.values(markersRef.current).forEach((marker) => marker.setMap(null))
     markersRef.current = {}
 
+    console.log('Rendering', leads.length, 'markers')
+
     leads.forEach((lead) => {
-      if (lead.lat == null || lead.lng == null) return
+      if (lead.lat == null || lead.lng == null) {
+        console.log('Skipping lead without lat/lng:', lead.id)
+        return
+      }
       
       const color = getDispositionColor(lead.canvass_disposition)
+      console.log('Marker for lead', lead.id, '- disposition:', lead.canvass_disposition, '- color:', color)
       
       // Create round bubble marker
       const marker = new window.google.maps.Marker({

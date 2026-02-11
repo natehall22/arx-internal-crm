@@ -77,12 +77,30 @@ export async function GET(request: NextRequest) {
 
     const adminClient = getAdminClient()
 
-    // Get user profile with visibility setting
-    const { data: profile } = await adminClient
+    // Get user profile - try with visibility setting first, fall back if column doesn't exist
+    let profile: any = null
+    
+    const { data: profileData, error: profileError } = await adminClient
       .from('users')
       .select('role, org_id, team_id, region_id, canvass_pin_visibility')
       .eq('id', user.id)
       .single()
+
+    if (profileError) {
+      console.error('Profile query error:', profileError)
+      // If canvass_pin_visibility column doesn't exist, try without it
+      const { data: fallbackProfile } = await adminClient
+        .from('users')
+        .select('role, org_id, team_id, region_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (fallbackProfile) {
+        profile = { ...fallbackProfile, canvass_pin_visibility: 'org' }
+      }
+    } else {
+      profile = profileData
+    }
 
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
@@ -168,6 +186,8 @@ export async function GET(request: NextRequest) {
     if (leadsError) {
       console.error('Leads error:', leadsError)
     }
+    
+    console.log('Canvass data: returning', leads?.length || 0, 'leads, visibility:', visibility, 'filter:', visibleUserIds.length > 0 ? visibleUserIds : 'all')
 
     // Get users for closer selection
     const { data: users } = await adminClient
