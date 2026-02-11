@@ -89,6 +89,52 @@ export default async function LeadDetailPage({
     { id: 'not_interested', label: 'Not interested (contact)' },
   ]
 
+  // Update basic lead info (name, phone, email, address)
+  const updateLeadInfo = async (formData: FormData) => {
+    'use server'
+    const { profile } = await requireAuth()
+    const supabase = createServiceClient()
+    
+    // Verify user has access to this lead
+    let leadQuery = supabase
+      .from('leads')
+      .select('id')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+    if (profile.role === 'rep') {
+      leadQuery = leadQuery.eq('owner_user_id', profile.id)
+    }
+    const { data: accessCheck } = await leadQuery.single()
+    if (!accessCheck) return
+
+    const homeownerName = String(formData.get('homeowner_name') ?? '')
+    const phone = String(formData.get('phone') ?? '')
+    const email = String(formData.get('email') ?? '')
+    const addressText = String(formData.get('address_text') ?? '')
+    const notes = String(formData.get('notes') ?? '')
+
+    await supabase
+      .from('leads')
+      .update({
+        homeowner_name: homeownerName || null,
+        phone: phone || null,
+        email: email || null,
+        address_text: addressText || null,
+        notes: notes || null,
+      })
+      .eq('id', params.id)
+
+    await supabase.from('activities').insert({
+      org_id: profile.org_id,
+      lead_id: params.id,
+      user_id: profile.id,
+      type: 'note',
+      body: 'Lead contact information updated',
+    })
+
+    revalidatePath(`/leads/${params.id}`)
+  }
+
   const updateLead = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
@@ -240,75 +286,111 @@ export default async function LeadDetailPage({
               <DeleteLeadButton leadId={params.id} />
             )}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Homeowner</h3>
-              <p className="mt-1 text-sm text-gray-900">{lead.homeowner_name || 'N/A'}</p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Status</h3>
-              <p className="mt-1 text-sm text-gray-900 capitalize">
-                {lead.status.replace('_', ' ')}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Address</h3>
-              <p className="mt-1 text-sm text-gray-900">{lead.address_text || 'N/A'}</p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Phone</h3>
-              <p className="mt-1 text-sm text-gray-900">{lead.phone || 'N/A'}</p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Email</h3>
-              <p className="mt-1 text-sm text-gray-900">{lead.email || 'N/A'}</p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Owner</h3>
-              <p className="mt-1 text-sm text-gray-900">
-                {lead.users?.full_name || 'Unassigned'}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Closer</h3>
-              <p className="mt-1 text-sm text-gray-900">
-                {closerName || 'Unassigned'}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Canvass disposition</h3>
-              <p className="mt-1 text-sm text-gray-900 capitalize">
-                {lead.canvass_disposition
-                  ? lead.canvass_disposition.replace('_', ' ')
-                  : 'Not set'}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Inspection scheduled for</h3>
-              <p className="mt-1 text-sm text-gray-900">
-                {lead.inspection_scheduled_for
-                  ? new Date(lead.inspection_scheduled_for).toLocaleString()
-                  : 'Not scheduled'}
-              </p>
-            </div>
-            {lead.lat && lead.lng && (
+          <form action={updateLeadInfo}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-500">Homeowner Name</label>
+                <input
+                  type="text"
+                  name="homeowner_name"
+                  defaultValue={lead.homeowner_name || ''}
+                  placeholder="Enter name"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Phone</label>
+                <input
+                  type="tel"
+                  name="phone"
+                  defaultValue={lead.phone || ''}
+                  placeholder="Enter phone"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Email</label>
+                <input
+                  type="email"
+                  name="email"
+                  defaultValue={lead.email || ''}
+                  placeholder="Enter email"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Address</label>
+                <input
+                  type="text"
+                  name="address_text"
+                  defaultValue={lead.address_text || ''}
+                  placeholder="Enter address"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
               <div className="md:col-span-2">
-                <h3 className="text-sm font-medium text-gray-500 mb-2">Location</h3>
-                <div className="h-64 bg-gray-200 rounded">
-                  {/* Map will be integrated here */}
-                  <p className="text-center text-gray-500 pt-20">
-                    Map: {lead.lat}, {lead.lng}
-                  </p>
+                <label className="text-sm font-medium text-gray-500">Notes</label>
+                <textarea
+                  name="notes"
+                  defaultValue={lead.notes || ''}
+                  placeholder="Add notes about this lead..."
+                  rows={3}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* Read-only info */}
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="text-gray-500">Status:</span>
+                <span className="ml-2 text-gray-900 capitalize">{lead.status.replace('_', ' ')}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Owner:</span>
+                <span className="ml-2 text-gray-900">{lead.users?.full_name || 'Unassigned'}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Closer:</span>
+                <span className="ml-2 text-gray-900">{closerName || 'Unassigned'}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Disposition:</span>
+                <span className="ml-2 text-gray-900 capitalize">
+                  {lead.canvass_disposition?.replace('_', ' ') || 'Not set'}
+                </span>
+              </div>
+              {lead.inspection_scheduled_for && (
+                <div className="col-span-2">
+                  <span className="text-gray-500">Inspection:</span>
+                  <span className="ml-2 text-gray-900">
+                    {new Date(lead.inspection_scheduled_for).toLocaleString()}
+                  </span>
                 </div>
-              </div>
-            )}
-            {lead.notes && (
-              <div className="md:col-span-2">
-                <h3 className="text-sm font-medium text-gray-500">Notes</h3>
-                <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{lead.notes}</p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+
+          {lead.lat && lead.lng && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 mb-2">Location</h3>
+              <div className="h-48 bg-gray-200 rounded flex items-center justify-center">
+                <p className="text-gray-500 text-sm">
+                  Coordinates: {lead.lat}, {lead.lng}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Referral Info - shows if source is referral */}
