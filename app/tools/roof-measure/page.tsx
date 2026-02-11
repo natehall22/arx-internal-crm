@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 declare const google: any
 
@@ -110,17 +109,18 @@ export default function RoofMeasurePage() {
   }, [mapsLoaded, address])
 
   const loadOpportunityAddress = async (oppId: string) => {
-    const supabase = createClientBrowser()
-    const { data } = await supabase
-      .from('opportunities')
-      .select('address_text, lat, lng')
-      .eq('id', oppId)
-      .single()
-    
-    if (data?.address_text) {
-      setAddress(data.address_text)
-      // Auto-search after loading
-      setTimeout(() => searchAddress(data.address_text), 1000)
+    try {
+      const response = await fetch(`/api/measurements?opportunity_id=${oppId}`)
+      if (response.ok) {
+        const { opportunity } = await response.json()
+        if (opportunity?.address_text) {
+          setAddress(opportunity.address_text)
+          // Auto-search after loading
+          setTimeout(() => searchAddress(opportunity.address_text), 1000)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading opportunity address:', error)
     }
   }
 
@@ -572,65 +572,25 @@ export default function RoofMeasurePage() {
 
   const saveMeasurement = async () => {
     if (!measurements) return
-    
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
 
     setSaving(true)
 
     try {
-      // Save main measurement
-      const { data: measurement, error } = await supabase
-        .from('roof_measurements')
-        .insert({
-          org_id: profile.org_id,
-          opportunity_id: opportunityId,
-          created_by: user.id,
-          address_text: measurements.address,
-          lat: measurements.lat,
-          lng: measurements.lng,
-          source: 'in_house',
-          status: 'completed',
-          total_area_sqft: measurements.total_area_sqft,
-          total_squares: measurements.total_squares,
-          ridges_lf: measurements.ridges_lf,
-          hips_lf: measurements.hips_lf,
-          valleys_lf: measurements.valleys_lf,
-          eaves_lf: measurements.eaves_lf,
-          rakes_lf: measurements.rakes_lf,
-          predominant_pitch: measurements.predominant_pitch,
-          facet_count: measurements.facets.length,
-          suggested_waste_percent: measurements.suggested_waste,
-          raw_data: measurements,
+      const response = await fetch('/api/measurements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurements,
+          opportunityId,
         })
-        .select()
-        .single()
+      })
 
-      if (error) throw error
-
-      // Save facets
-      if (measurement) {
-        const facetInserts = measurements.facets.map((f, idx) => ({
-          measurement_id: measurement.id,
-          facet_number: idx + 1,
-          area_sqft: f.area_sqft,
-          pitch: f.pitch,
-          pitch_degrees: f.pitch_degrees,
-          orientation: f.orientation,
-          polygon_coords: f.points,
-        }))
-
-        await supabase.from('roof_facets').insert(facetInserts)
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to save measurement')
       }
+
+      const { measurement } = await response.json()
 
       setShowSaveModal(false)
       
@@ -646,7 +606,7 @@ export default function RoofMeasurePage() {
       router.push(`/proposals/builder?${params.toString()}`)
     } catch (error: any) {
       console.error('Error saving measurement:', error)
-      const errorMessage = error?.message || error?.details || 'Unknown error'
+      const errorMessage = error?.message || 'Unknown error'
       alert(`Failed to save measurement: ${errorMessage}`)
     } finally {
       setSaving(false)

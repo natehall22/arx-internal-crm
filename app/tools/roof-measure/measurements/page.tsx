@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface Measurement {
   id: string
@@ -39,35 +38,28 @@ export default function MeasurementsListPage() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
     loadMeasurements()
   }, [])
 
   const loadMeasurements = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
+    try {
+      const response = await fetch('/api/measurements?list=true')
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/login')
+          return
+        }
+        return
+      }
+
+      const { measurements: data } = await response.json()
+      setMeasurements(data || [])
+    } catch (error) {
+      console.error('Error loading measurements:', error)
+    } finally {
+      setLoading(false)
     }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) return
-
-    const { data } = await supabase
-      .from('roof_measurements')
-      .select('*, opportunities(id, status)')
-      .eq('org_id', profile.org_id)
-      .order('created_at', { ascending: false })
-
-    setMeasurements(data || [])
-    setLoading(false)
   }
 
   const filteredMeasurements = measurements.filter(m =>
