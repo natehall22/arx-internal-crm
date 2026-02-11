@@ -512,28 +512,42 @@ export default function CanvassMapPage() {
     })
   }
 
-  const openInfoWindow = (marker: any, lead: Lead) => {
+  const openInfoWindow = (marker: any, lead: Lead & { owner?: { id: string; full_name: string } }) => {
     if (!infoWindowRef.current) return
 
     const color = getDispositionColor(lead.canvass_disposition)
     const label = getDispositionLabel(lead.canvass_disposition)
     const category = getDispositionCategory(lead.canvass_disposition)
+    const ownerName = (lead as any).owner?.full_name || 'Unknown'
+    const createdDate = lead.created_at ? new Date(lead.created_at).toLocaleDateString() : ''
     
-    // Rich info window with all customer details
+    // Rich info window with all customer details and rep info
     const content = `
-      <div style="min-width:240px;max-width:300px;font-family:system-ui,-apple-system,sans-serif">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <div style="width:12px;height:12px;border-radius:50%;background:${color}"></div>
-          <span style="font-size:12px;color:#6b7280">${category ? category + ' - ' : ''}${label}</span>
+      <div style="min-width:260px;max-width:320px;font-family:system-ui,-apple-system,sans-serif">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:12px;height:12px;border-radius:50%;background:${color}"></div>
+            <span style="font-size:12px;font-weight:600;color:${color}">${label}</span>
+          </div>
+          ${category ? `<span style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:4px">${category}</span>` : ''}
         </div>
         <div style="font-weight:600;font-size:16px;margin-bottom:4px">${lead.homeowner_name || 'Unknown'}</div>
-        <div style="font-size:13px;color:#4b5563;margin-bottom:8px">${lead.address_text || 'No address'}</div>
-        ${lead.phone ? `<div style="font-size:13px;margin-bottom:2px"><a href="tel:${lead.phone}" style="color:#3b82f6">${lead.phone}</a></div>` : ''}
-        ${lead.email ? `<div style="font-size:13px;margin-bottom:8px"><a href="mailto:${lead.email}" style="color:#3b82f6">${lead.email}</a></div>` : ''}
-        ${lead.canvass_notes ? `<div style="font-size:12px;color:#6b7280;background:#f3f4f6;padding:8px;border-radius:6px;margin-top:8px;white-space:pre-wrap">${lead.canvass_notes}</div>` : ''}
+        <div style="font-size:13px;color:#374151;margin-bottom:8px">${lead.address_text || 'No address'}</div>
+        ${lead.phone ? `<div style="font-size:13px;margin-bottom:2px"><a href="tel:${lead.phone}" style="color:#3b82f6;text-decoration:none">${lead.phone}</a></div>` : ''}
+        ${lead.email ? `<div style="font-size:13px;margin-bottom:8px"><a href="mailto:${lead.email}" style="color:#3b82f6;text-decoration:none">${lead.email}</a></div>` : ''}
+        ${lead.canvass_notes ? `
+          <div style="margin-top:8px">
+            <div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:4px">NOTES</div>
+            <div style="font-size:12px;color:#374151;background:#f3f4f6;padding:8px;border-radius:6px;white-space:pre-wrap">${lead.canvass_notes}</div>
+          </div>
+        ` : ''}
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:11px;color:#6b7280">
+          <span>Rep: <strong style="color:#374151">${ownerName}</strong></span>
+          ${createdDate ? `<span>${createdDate}</span>` : ''}
+        </div>
         <button 
           onclick="window.dispatchEvent(new CustomEvent('edit-lead', {detail: '${lead.id}'}))"
-          style="margin-top:12px;width:100%;padding:8px;background:#4f46e5;color:white;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer"
+          style="margin-top:10px;width:100%;padding:10px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer"
         >
           Edit Lead
         </button>

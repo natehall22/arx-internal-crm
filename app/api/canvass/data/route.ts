@@ -95,10 +95,10 @@ export async function GET(request: NextRequest) {
       .eq('id', profile.org_id)
       .single()
 
-    // Get leads with lat/lng for this org
+    // Get leads with lat/lng for this org - include owner info
     const { data: leads, error: leadsError } = await adminClient
       .from('leads')
-      .select('*')
+      .select('*, owner:users!leads_owner_user_id_fkey(id, full_name)')
       .eq('org_id', profile.org_id)
       .not('lat', 'is', null)
       .not('lng', 'is', null)
