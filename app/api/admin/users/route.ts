@@ -219,15 +219,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: `Profile not found: ${profileError?.message || 'no data'}` }, { status: 404 })
     }
 
-    // Get users with all related data
+    // Get users with all related data (without self-join for manager)
     const { data: users, error } = await adminClient
       .from('users')
       .select(`
         *,
         teams(*),
         regions(*),
-        custom_roles(*),
-        manager:users!users_manager_user_id_fkey(id, full_name, email, role)
+        custom_roles(*)
       `)
       .eq('org_id', profile.org_id)
       .order('full_name')
@@ -235,6 +234,17 @@ export async function GET(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: `Users query failed: ${error.message}` }, { status: 500 })
     }
+
+    // Manually add manager info
+    const usersWithManagers = (users || []).map(u => {
+      const manager = u.manager_user_id 
+        ? users?.find(m => m.id === u.manager_user_id)
+        : null
+      return {
+        ...u,
+        manager: manager ? { id: manager.id, full_name: manager.full_name, email: manager.email, role: manager.role } : null
+      }
+    })
 
   // Get teams, regions, custom roles, permissions, and presets
   const [teamsRes, regionsRes, rolesRes, permsRes, presetsRes] = await Promise.all([
@@ -257,12 +267,11 @@ export async function GET(request: NextRequest) {
   ])
 
     return NextResponse.json({ 
-      users: (users || []).map(u => ({
+      users: usersWithManagers.map(u => ({
         ...u,
         team: u.teams,
         region: u.regions,
         custom_role: u.custom_roles,
-        manager: u.manager,
       })),
       teams: teamsRes.data || [],
       regions: regionsRes.data || [],
