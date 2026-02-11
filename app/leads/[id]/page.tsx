@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import LeadAIHelper from '@/components/LeadAIHelper'
 import LeadReferralInfo from '@/components/LeadReferralInfo'
+import DeleteLeadButton from '@/components/DeleteLeadButton'
 
 export default async function LeadDetailPage({
   params,
@@ -214,6 +215,11 @@ export default async function LeadDetailPage({
     revalidatePath('/dashboard')
   }
 
+  // Check if user can delete this lead
+  const isAdmin = ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)
+  const isOwner = lead.owner_user_id === profile.id
+  const canDelete = isAdmin || isOwner
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -228,7 +234,12 @@ export default async function LeadDetailPage({
         </div>
 
         <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Lead Details</h1>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold text-gray-900">Lead Details</h1>
+            {canDelete && (
+              <DeleteLeadButton leadId={params.id} />
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h3 className="text-sm font-medium text-gray-500">Homeowner</h3>
