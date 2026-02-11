@@ -261,9 +261,11 @@ export default function RoofMeasurePage() {
       const map = new google.maps.Map(mapRef.current, {
         center: mapCenter,
         zoom: 20,
-        maxZoom: 22,
+        maxZoom: 23,           // Allow max zoom (Google will cap based on available imagery)
+        minZoom: 3,
         mapTypeId: 'satellite',
         tilt: 0,
+        isFractionalZoomEnabled: true,  // Allows smoother zoom between levels
         mapTypeControl: true,
         mapTypeControlOptions: {
           position: google.maps.ControlPosition.TOP_RIGHT,
@@ -272,6 +274,11 @@ export default function RoofMeasurePage() {
         fullscreenControl: true,
         streetViewControl: false,
         gestureHandling: 'greedy',
+        scrollwheel: true,
+        zoomControl: true,
+        zoomControlOptions: {
+          position: google.maps.ControlPosition.RIGHT_CENTER,
+        },
       })
 
       googleMapRef.current = map
