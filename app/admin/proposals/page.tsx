@@ -17,6 +17,8 @@ interface PricebookItem {
   adder_category: string | null
   price_type: 'fixed' | 'percentage' | null
   is_commissionable: boolean
+  commission_percent: number | null  // What % of the adder is commissionable (0-100)
+  commission_cap: number | null      // Max commissionable amount per instance
   active: boolean
 }
 
@@ -70,6 +72,8 @@ export default function AdminProposalsPage() {
     adder_category: 'Other',
     price_type: 'fixed' as 'fixed' | 'percentage',
     is_commissionable: false,
+    commission_percent: '100',  // Default 100% if commissionable
+    commission_cap: '',         // No cap by default
   })
   
   const [templateForm, setTemplateForm] = useState({
@@ -190,6 +194,8 @@ export default function AdminProposalsPage() {
       adder_category: adderForm.adder_category,
       price_type: adderForm.price_type,
       is_commissionable: adderForm.is_commissionable,
+      commission_percent: adderForm.is_commissionable ? (parseFloat(adderForm.commission_percent) || 100) : null,
+      commission_cap: adderForm.is_commissionable && adderForm.commission_cap ? parseFloat(adderForm.commission_cap) : null,
       visibility: 'sales_reps',
       active: true,
     })
@@ -203,6 +209,8 @@ export default function AdminProposalsPage() {
       adder_category: 'Other',
       price_type: 'fixed',
       is_commissionable: false,
+      commission_percent: '100',
+      commission_cap: '',
     })
     
     await loadData(profile.org_id)
@@ -469,6 +477,17 @@ export default function AdminProposalsPage() {
                           </span>
                         )}
                       </div>
+                      {/* Commission Details */}
+                      {item.is_commissionable && (item.commission_percent !== 100 || item.commission_cap) && (
+                        <div className="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-600">
+                          {item.commission_percent !== null && item.commission_percent !== 100 && (
+                            <p>Rep earns on {item.commission_percent}% of value</p>
+                          )}
+                          {item.commission_cap && (
+                            <p>Max commissionable: ${item.commission_cap.toLocaleString()}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -677,6 +696,89 @@ export default function AdminProposalsPage() {
                       </p>
                     </div>
                   </label>
+
+                  {/* Commission Settings - shown when commissionable */}
+                  {adderForm.is_commissionable && (
+                    <div className="mt-4 ml-7 p-4 bg-green-50 rounded-lg space-y-4">
+                      <h4 className="text-sm font-medium text-green-800">Commission Settings</h4>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Commission Percentage
+                        </label>
+                        <div className="relative w-32">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={adderForm.commission_percent}
+                            onChange={(e) => setAdderForm(prev => ({ ...prev, commission_percent: e.target.value }))}
+                            className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm"
+                            placeholder="100"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          What percentage of this adder counts toward commission (e.g., 50% means rep earns on half the value)
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Commission Cap (Optional)
+                        </label>
+                        <div className="relative w-40">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="100"
+                            value={adderForm.commission_cap}
+                            onChange={(e) => setAdderForm(prev => ({ ...prev, commission_cap: e.target.value }))}
+                            className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            placeholder="No cap"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Maximum amount of this adder that counts toward commission. Leave empty for no cap.
+                        </p>
+                      </div>
+
+                      {/* Example calculation */}
+                      {(adderForm.unit_price && (adderForm.commission_percent !== '100' || adderForm.commission_cap)) && (
+                        <div className="p-3 bg-white rounded-lg border border-green-200">
+                          <p className="text-xs font-medium text-gray-700 mb-1">Example:</p>
+                          <p className="text-xs text-gray-600">
+                            {(() => {
+                              const price = parseFloat(adderForm.unit_price) || 0
+                              const percent = parseFloat(adderForm.commission_percent) || 100
+                              const cap = adderForm.commission_cap ? parseFloat(adderForm.commission_cap) : null
+                              
+                              let commissionable = price * (percent / 100)
+                              if (cap && commissionable > cap) {
+                                commissionable = cap
+                              }
+                              
+                              return (
+                                <>
+                                  If rep adds ${price.toLocaleString()}: 
+                                  {cap && price * (percent / 100) > cap ? (
+                                    <> min(${(price * percent / 100).toLocaleString()}, ${cap.toLocaleString()}) = </>
+                                  ) : (
+                                    <> ${price.toLocaleString()} × {percent}% = </>
+                                  )}
+                                  <span className="font-medium text-green-700">
+                                    ${commissionable.toLocaleString()} commissionable
+                                  </span>
+                                </>
+                              )
+                            })()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="p-6 border-t flex justify-end gap-3">

@@ -32,6 +32,8 @@ interface Adder {
   unit_price: number
   price_type: 'fixed' | 'percentage' | null
   is_commissionable: boolean
+  commission_percent: number | null  // What % of adder is commissionable (0-100)
+  commission_cap: number | null      // Max commissionable amount per instance
   unit: string
 }
 
@@ -137,7 +139,7 @@ export default function CommissionEstimatorPage() {
     // Load adders for commission calculation
     const { data: adderData } = await supabase
       .from('pricebook_items')
-      .select('id, name, unit_price, price_type, is_commissionable, unit')
+      .select('id, name, unit_price, price_type, is_commissionable, commission_percent, commission_cap, unit')
       .eq('org_id', profile.org_id)
       .eq('is_adder', true)
       .eq('active', true)
@@ -171,7 +173,27 @@ export default function CommissionEstimatorPage() {
         }
         
         if (adder.is_commissionable) {
-          commissionableAdders += adderAmount
+          // Apply commission_percent and commission_cap per instance
+          const commissionPercent = adder.commission_percent ?? 100
+          const commissionCap = adder.commission_cap
+          
+          // Calculate per-instance commissionable amount
+          let perInstanceCommissionable = (adder.price_type === 'percentage' 
+            ? baseSales * (adder.unit_price / 100) 
+            : adder.unit_price) * (commissionPercent / 100)
+          
+          // Apply cap per instance if set
+          if (commissionCap && perInstanceCommissionable > commissionCap) {
+            perInstanceCommissionable = commissionCap
+          }
+          
+          commissionableAdders += perInstanceCommissionable * qty
+          
+          // The non-commissionable portion of a commissionable adder
+          const nonCommissionablePortion = adderAmount - (perInstanceCommissionable * qty)
+          if (nonCommissionablePortion > 0) {
+            nonCommissionableAdders += nonCommissionablePortion
+          }
         } else {
           nonCommissionableAdders += adderAmount
         }
@@ -333,7 +355,15 @@ export default function CommissionEstimatorPage() {
                                   ? `${adder.unit_price}% of base` 
                                   : `$${adder.unit_price.toFixed(2)}/${adder.unit}`}
                                 {adder.is_commissionable ? (
-                                  <span className="ml-2 text-green-600">• Commissionable</span>
+                                  <>
+                                    <span className="ml-2 text-green-600">• Commissionable</span>
+                                    {(adder.commission_percent !== null && adder.commission_percent !== 100) && (
+                                      <span className="text-green-600"> ({adder.commission_percent}%)</span>
+                                    )}
+                                    {adder.commission_cap && (
+                                      <span className="text-green-600"> (max ${adder.commission_cap.toLocaleString()})</span>
+                                    )}
+                                  </>
                                 ) : (
                                   <span className="ml-2 text-gray-400">• Non-commissionable</span>
                                 )}
