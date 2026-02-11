@@ -34,6 +34,24 @@ interface OrgPricing {
   default_tax_rate: number | null
   default_markup_percent: number | null
   labor_rate_per_hour: number | null
+  // New fields for flexible labor rate
+  labor_rate_type: 'hour' | 'square' | 'kw' | null
+  labor_rate_value: number | null
+  // Separated costs - Sub rates
+  material_cost_per_square: number | null
+  labor_cost_per_square: number | null
+  material_cost_per_watt: number | null
+  labor_cost_per_watt: number | null
+  // Sub-contractor rates by task
+  sub_install_per_square: number | null
+  sub_tearoff_per_square: number | null
+  sub_dump_run_flat: number | null
+  // In-house labor settings
+  inhouse_enabled: boolean
+  inhouse_install_per_square: number | null
+  inhouse_tearoff_per_square: number | null
+  inhouse_hourly_rate: number | null
+  inhouse_solar_per_watt: number | null
 }
 
 interface CustomCategory {
@@ -83,6 +101,22 @@ export default function AdminPricingPage() {
     default_tax_rate: null,
     default_markup_percent: null,
     labor_rate_per_hour: null,
+    labor_rate_type: 'hour',
+    labor_rate_value: null,
+    material_cost_per_square: null,
+    labor_cost_per_square: null,
+    material_cost_per_watt: null,
+    labor_cost_per_watt: null,
+    // Sub rates
+    sub_install_per_square: null,
+    sub_tearoff_per_square: null,
+    sub_dump_run_flat: null,
+    // In-house rates
+    inhouse_enabled: false,
+    inhouse_install_per_square: null,
+    inhouse_tearoff_per_square: null,
+    inhouse_hourly_rate: null,
+    inhouse_solar_per_watt: null,
   })
   
   // Categories
@@ -130,6 +164,7 @@ export default function AdminPricingPage() {
       }
       
       if (response.status === 403) {
+        alert('Access denied. Only admins and operations managers can access pricing and cost data.')
         router.push('/dashboard')
         return
       }
@@ -622,7 +657,7 @@ export default function AdminPricingPage() {
               </div>
 
               <div className="mt-6 pt-6 border-t">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Default Tax Rate (%)
@@ -656,27 +691,59 @@ export default function AdminPricingPage() {
                       placeholder="35"
                     />
                   </div>
+                </div>
+              </div>
 
-                  <div>
+              {/* Labor Rate with Unit Selection */}
+              <div className="mt-6 pt-6 border-t">
+                <h3 className="text-md font-semibold text-gray-900 mb-4">Default Labor Rate</h3>
+                <div className="flex gap-4 items-end">
+                  <div className="flex-1">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Labor Rate ($/hour)
+                      Rate Type
+                    </label>
+                    <select
+                      value={orgPricing.labor_rate_type || 'hour'}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        labor_rate_type: e.target.value as 'hour' | 'square' | 'kw'
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white"
+                    >
+                      <option value="hour">Per Hour</option>
+                      <option value="square">Per Square (100 sq ft)</option>
+                      <option value="kw">Per kW</option>
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Rate Amount
                     </label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                       <input
                         type="number"
                         step="0.01"
-                        value={orgPricing.labor_rate_per_hour || ''}
+                        value={orgPricing.labor_rate_value || ''}
                         onChange={(e) => setOrgPricing(prev => ({ 
                           ...prev, 
-                          labor_rate_per_hour: e.target.value ? parseFloat(e.target.value) : null 
+                          labor_rate_value: e.target.value ? parseFloat(e.target.value) : null 
                         }))}
                         className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg"
-                        placeholder="75.00"
+                        placeholder={
+                          orgPricing.labor_rate_type === 'hour' ? '75.00' :
+                          orgPricing.labor_rate_type === 'square' ? '65.00' :
+                          '0.15'
+                        }
                       />
                     </div>
                   </div>
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {orgPricing.labor_rate_type === 'hour' && 'Standard hourly labor rate for time-based work'}
+                  {orgPricing.labor_rate_type === 'square' && 'Labor rate per roofing square (100 sq ft) for roofing jobs'}
+                  {orgPricing.labor_rate_type === 'kw' && 'Labor rate per kilowatt for solar installations'}
+                </p>
               </div>
 
               <div className="mt-6 flex justify-end">
@@ -967,120 +1034,401 @@ export default function AdminPricingPage() {
 
         {/* Cost Settings Tab */}
         {activeTab === 'costs' && (
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Cost Configuration</h2>
-            
-            <div className="space-y-8">
-              {/* Material Costs */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center gap-2">
-                  <span className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                    </svg>
-                  </span>
-                  Material Costs
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 ml-10">
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Shingles (per square)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input type="number" className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" placeholder="85.00" />
+          <div className="space-y-6">
+            {/* Material Costs */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Material / Product Costs</h2>
+              <p className="text-sm text-gray-500 mb-6">Your cost for materials before labor</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-5 bg-blue-50 rounded-xl border border-blue-100">
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                      </svg>
+                    </span>
+                    <div>
+                      <h3 className="font-semibold text-gray-900">Roofing Materials</h3>
+                      <p className="text-xs text-gray-500">Shingles, underlayment, nails, etc.</p>
                     </div>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Underlayment (per roll)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input type="number" className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" placeholder="45.00" />
-                    </div>
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Ridge Cap (per bundle)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input type="number" className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" placeholder="55.00" />
-                    </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={orgPricing.material_cost_per_square || ''}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        material_cost_per_square: e.target.value ? parseFloat(e.target.value) : null 
+                      }))}
+                      className="w-full pl-8 pr-16 py-3 border border-gray-300 rounded-lg text-lg font-medium"
+                      placeholder="85.00"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">/square</span>
                   </div>
                 </div>
-              </div>
 
-              {/* Labor Costs */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center gap-2">
-                  <span className="w-8 h-8 bg-green-100 text-green-600 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  </span>
-                  Labor Costs (Sub Rates)
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 ml-10">
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Install (per square)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input type="number" className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" placeholder="65.00" />
+                <div className="p-5 bg-yellow-50 rounded-xl border border-yellow-100">
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="w-10 h-10 bg-yellow-100 text-yellow-600 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                      </svg>
+                    </span>
+                    <div>
+                      <h3 className="font-semibold text-gray-900">Solar Equipment</h3>
+                      <p className="text-xs text-gray-500">Panels, inverters, racking</p>
                     </div>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Tear-off (per square)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input type="number" className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" placeholder="35.00" />
-                    </div>
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Dump Run (flat)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input type="number" className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" placeholder="150.00" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Overhead */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center gap-2">
-                  <span className="w-8 h-8 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
-                  </span>
-                  Overhead & Operating Costs
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 ml-10">
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">OPEX per Job</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input 
-                        type="number" 
-                        value={orgPricing.opex_per_job || ''}
-                        onChange={(e) => setOrgPricing(prev => ({ 
-                          ...prev, 
-                          opex_per_job: e.target.value ? parseFloat(e.target.value) : null 
-                        }))}
-                        className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
-                        placeholder="500.00" 
-                      />
-                    </div>
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Insurance (% of job)</label>
-                    <input type="number" className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="3.5" />
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <label className="block text-sm text-gray-600 mb-1">Warranty Reserve (%)</label>
-                    <input type="number" className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="2.0" />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={orgPricing.material_cost_per_watt || ''}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        material_cost_per_watt: e.target.value ? parseFloat(e.target.value) : null 
+                      }))}
+                      className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-lg font-medium"
+                      placeholder="1.50"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">/watt</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="mt-8 flex justify-end">
+            {/* Sub-Contractor Labor Rates */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <span className="w-10 h-10 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </span>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Sub-Contractor Labor Rates</h2>
+                  <p className="text-sm text-gray-500">What you pay sub-contractors for labor</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Install (per square)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={orgPricing.sub_install_per_square || ''}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        sub_install_per_square: e.target.value ? parseFloat(e.target.value) : null 
+                      }))}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                      placeholder="145.00" 
+                    />
+                  </div>
+                </div>
+                <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tear-off (per square)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={orgPricing.sub_tearoff_per_square || ''}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        sub_tearoff_per_square: e.target.value ? parseFloat(e.target.value) : null 
+                      }))}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                      placeholder="75.00" 
+                    />
+                  </div>
+                </div>
+                <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Dump Run (flat)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={orgPricing.sub_dump_run_flat || ''}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        sub_dump_run_flat: e.target.value ? parseFloat(e.target.value) : null 
+                      }))}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                      placeholder="150.00" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sub total cost calculation */}
+              {(orgPricing.material_cost_per_square && orgPricing.sub_install_per_square) && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700">Total Sub Cost per Square (Material + Install):</span>
+                    <span className="text-lg font-bold text-gray-900">
+                      ${((orgPricing.material_cost_per_square || 0) + (orgPricing.sub_install_per_square || 0)).toFixed(2)}
+                    </span>
+                  </div>
+                  {orgPricing.price_per_square_installed && (
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t">
+                      <span className="text-sm font-medium text-gray-700">Gross Margin (Sub):</span>
+                      <span className="text-lg font-bold text-green-600">
+                        ${(orgPricing.price_per_square_installed - (orgPricing.material_cost_per_square || 0) - (orgPricing.sub_install_per_square || 0)).toFixed(2)}
+                        <span className="text-sm font-normal text-gray-500 ml-2">
+                          ({(((orgPricing.price_per_square_installed - (orgPricing.material_cost_per_square || 0) - (orgPricing.sub_install_per_square || 0)) / orgPricing.price_per_square_installed) * 100).toFixed(1)}%)
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* In-House Labor Rates */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <span className="w-10 h-10 bg-green-100 text-green-600 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">In-House Labor Rates</h2>
+                    <p className="text-sm text-gray-500">Your internal crew labor costs</p>
+                  </div>
+                </div>
+                
+                {/* Toggle for In-House */}
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <span className={`text-sm font-medium ${orgPricing.inhouse_enabled ? 'text-green-600' : 'text-gray-500'}`}>
+                    {orgPricing.inhouse_enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      checked={orgPricing.inhouse_enabled || false}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        inhouse_enabled: e.target.checked 
+                      }))}
+                      className="sr-only"
+                    />
+                    <div className={`w-14 h-7 rounded-full transition-colors ${orgPricing.inhouse_enabled ? 'bg-green-500' : 'bg-gray-300'}`}>
+                      <div className={`w-6 h-6 bg-white rounded-full shadow-md transform transition-transform mt-0.5 ${orgPricing.inhouse_enabled ? 'translate-x-7' : 'translate-x-0.5'}`} />
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {!orgPricing.inhouse_enabled ? (
+                <div className="p-8 bg-gray-50 rounded-lg text-center">
+                  <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                  <p className="text-gray-500 font-medium">In-House Labor is Disabled</p>
+                  <p className="text-sm text-gray-400 mt-1">Enable to set rates for your internal installation crews</p>
+                </div>
+              ) : (
+                <>
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+                    <p className="text-sm text-amber-800">
+                      <strong>Important:</strong> Sub and in-house rates cannot be combined on the same work item. 
+                      Use sub rates for subcontracted work (e.g., roofing) and in-house rates for internal crew work (e.g., siding).
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Install (per square)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                        <input 
+                          type="number"
+                          step="0.01"
+                          value={orgPricing.inhouse_install_per_square || ''}
+                          onChange={(e) => setOrgPricing(prev => ({ 
+                            ...prev, 
+                            inhouse_install_per_square: e.target.value ? parseFloat(e.target.value) : null 
+                          }))}
+                          className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                          placeholder="95.00" 
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Per roofing square</p>
+                    </div>
+                    <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Tear-off (per square)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                        <input 
+                          type="number"
+                          step="0.01"
+                          value={orgPricing.inhouse_tearoff_per_square || ''}
+                          onChange={(e) => setOrgPricing(prev => ({ 
+                            ...prev, 
+                            inhouse_tearoff_per_square: e.target.value ? parseFloat(e.target.value) : null 
+                          }))}
+                          className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                          placeholder="50.00" 
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Per roofing square</p>
+                    </div>
+                    <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Hourly Rate</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                        <input 
+                          type="number"
+                          step="0.01"
+                          value={orgPricing.inhouse_hourly_rate || ''}
+                          onChange={(e) => setOrgPricing(prev => ({ 
+                            ...prev, 
+                            inhouse_hourly_rate: e.target.value ? parseFloat(e.target.value) : null 
+                          }))}
+                          className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                          placeholder="45.00" 
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Per labor hour</p>
+                    </div>
+                    <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Solar (per watt)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                        <input 
+                          type="number"
+                          step="0.01"
+                          value={orgPricing.inhouse_solar_per_watt || ''}
+                          onChange={(e) => setOrgPricing(prev => ({ 
+                            ...prev, 
+                            inhouse_solar_per_watt: e.target.value ? parseFloat(e.target.value) : null 
+                          }))}
+                          className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                          placeholder="0.35" 
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Per watt installed</p>
+                    </div>
+                  </div>
+
+                  {/* In-house total cost calculation */}
+                  {(orgPricing.material_cost_per_square && orgPricing.inhouse_install_per_square) && (
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-700">Total In-House Cost per Square (Material + Install):</span>
+                        <span className="text-lg font-bold text-gray-900">
+                          ${((orgPricing.material_cost_per_square || 0) + (orgPricing.inhouse_install_per_square || 0)).toFixed(2)}
+                        </span>
+                      </div>
+                      {orgPricing.price_per_square_installed && (
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t">
+                          <span className="text-sm font-medium text-gray-700">Gross Margin (In-House):</span>
+                          <span className="text-lg font-bold text-green-600">
+                            ${(orgPricing.price_per_square_installed - (orgPricing.material_cost_per_square || 0) - (orgPricing.inhouse_install_per_square || 0)).toFixed(2)}
+                            <span className="text-sm font-normal text-gray-500 ml-2">
+                              ({(((orgPricing.price_per_square_installed - (orgPricing.material_cost_per_square || 0) - (orgPricing.inhouse_install_per_square || 0)) / orgPricing.price_per_square_installed) * 100).toFixed(1)}%)
+                            </span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Comparison if both sub and in-house are set */}
+                  {orgPricing.sub_install_per_square && orgPricing.inhouse_install_per_square && (
+                    <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                      <h4 className="text-sm font-semibold text-indigo-900 mb-2">Sub vs In-House Comparison (Install per Square)</h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-600">Sub Rate:</span>
+                          <span className="font-bold text-gray-900 ml-2">${orgPricing.sub_install_per_square.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">In-House Rate:</span>
+                          <span className="font-bold text-gray-900 ml-2">${orgPricing.inhouse_install_per_square.toFixed(2)}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-gray-600">Difference:</span>
+                          <span className={`font-bold ml-2 ${orgPricing.sub_install_per_square > orgPricing.inhouse_install_per_square ? 'text-green-600' : 'text-red-600'}`}>
+                            ${Math.abs(orgPricing.sub_install_per_square - orgPricing.inhouse_install_per_square).toFixed(2)} 
+                            {orgPricing.sub_install_per_square > orgPricing.inhouse_install_per_square ? ' saved with in-house' : ' more with in-house'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Overhead & Operating Costs */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">Overhead & Operating Costs</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">OPEX per Job</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                    <input 
+                      type="number" 
+                      value={orgPricing.opex_per_job || ''}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        opex_per_job: e.target.value ? parseFloat(e.target.value) : null 
+                      }))}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                      placeholder="500.00" 
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Fixed overhead per job</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Dump Cost per Square</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                    <input 
+                      type="number" 
+                      value={orgPricing.dump_cost_per_square || ''}
+                      onChange={(e) => setOrgPricing(prev => ({ 
+                        ...prev, 
+                        dump_cost_per_square: e.target.value ? parseFloat(e.target.value) : null 
+                      }))}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg" 
+                      placeholder="25.00" 
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Disposal/dumpster cost</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Default Markup (%)</label>
+                  <input 
+                    type="number" 
+                    value={orgPricing.default_markup_percent || ''}
+                    onChange={(e) => setOrgPricing(prev => ({ 
+                      ...prev, 
+                      default_markup_percent: e.target.value ? parseFloat(e.target.value) : null 
+                    }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg" 
+                    placeholder="35" 
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Applied to cost calculations</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
               <button
                 onClick={saveOrgPricing}
                 disabled={saving}
@@ -1094,68 +1442,175 @@ export default function AdminPricingPage() {
 
         {/* Labor Rates Tab */}
         {activeTab === 'labor' && (
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Labor Rate Configuration</h2>
-            
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
+          <div className="space-y-6">
+            {/* Default Labor Rate with Unit Selection */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Default Labor Rate</h2>
+              <p className="text-sm text-gray-500 mb-6">Set your primary labor rate and choose how it's calculated</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Rate Type Selection */}
+                <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Standard Labor Rate ($/hour)
+                    Rate Type
+                  </label>
+                  <div className="space-y-2">
+                    {[
+                      { value: 'hour', label: 'Per Hour', description: 'Time-based billing', icon: '⏱️' },
+                      { value: 'square', label: 'Per Square', description: 'Roofing (100 sq ft)', icon: '🏠' },
+                      { value: 'kw', label: 'Per kW', description: 'Solar installations', icon: '☀️' },
+                    ].map((option) => (
+                      <label
+                        key={option.value}
+                        className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                          orgPricing.labor_rate_type === option.value
+                            ? 'border-indigo-500 bg-indigo-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="labor_rate_type"
+                          value={option.value}
+                          checked={orgPricing.labor_rate_type === option.value}
+                          onChange={(e) => setOrgPricing(prev => ({ 
+                            ...prev, 
+                            labor_rate_type: e.target.value as 'hour' | 'square' | 'kw'
+                          }))}
+                          className="sr-only"
+                        />
+                        <span className="text-xl">{option.icon}</span>
+                        <div>
+                          <p className="font-medium text-gray-900">{option.label}</p>
+                          <p className="text-xs text-gray-500">{option.description}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Rate Value */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Rate Amount
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-lg">$</span>
                     <input
                       type="number"
                       step="0.01"
-                      value={orgPricing.labor_rate_per_hour || ''}
+                      value={orgPricing.labor_rate_value || ''}
                       onChange={(e) => setOrgPricing(prev => ({ 
                         ...prev, 
-                        labor_rate_per_hour: e.target.value ? parseFloat(e.target.value) : null 
+                        labor_rate_value: e.target.value ? parseFloat(e.target.value) : null 
                       }))}
-                      className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg"
-                      placeholder="75.00"
+                      className="w-full pl-10 pr-20 py-4 border border-gray-300 rounded-lg text-2xl font-medium"
+                      placeholder={
+                        orgPricing.labor_rate_type === 'hour' ? '75.00' :
+                        orgPricing.labor_rate_type === 'square' ? '65.00' :
+                        '0.15'
+                      }
                     />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
+                      {orgPricing.labor_rate_type === 'hour' && '/hour'}
+                      {orgPricing.labor_rate_type === 'square' && '/square'}
+                      {orgPricing.labor_rate_type === 'kw' && '/kW'}
+                    </span>
                   </div>
-                </div>
-              </div>
-
-              <div className="border-t pt-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-4">Labor Rates by Task Type</h3>
-                <div className="space-y-3">
-                  {[
-                    { name: 'Roof Installation', unit: 'per square', placeholder: '65.00' },
-                    { name: 'Tear-off', unit: 'per square', placeholder: '35.00' },
-                    { name: 'Decking Replacement', unit: 'per sheet', placeholder: '25.00' },
-                    { name: 'Flashing Install', unit: 'per linear foot', placeholder: '8.00' },
-                    { name: 'Skylight Install', unit: 'each', placeholder: '350.00' },
-                    { name: 'Chimney Flashing', unit: 'each', placeholder: '275.00' },
-                  ].map((task) => (
-                    <div key={task.name} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
-                      <span className="flex-1 text-sm text-gray-700">{task.name}</span>
-                      <span className="text-xs text-gray-500 w-24">{task.unit}</span>
-                      <div className="relative w-32">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                        <input
-                          type="number"
-                          className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
-                          placeholder={task.placeholder}
-                        />
-                      </div>
+                  
+                  {/* Example calculations */}
+                  {orgPricing.labor_rate_value && (
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                      <p className="text-sm font-medium text-gray-700 mb-2">Example Calculations:</p>
+                      {orgPricing.labor_rate_type === 'hour' && (
+                        <div className="space-y-1 text-sm text-gray-600">
+                          <p>8-hour day: <span className="font-medium text-gray-900">${(orgPricing.labor_rate_value * 8).toFixed(2)}</span></p>
+                          <p>40-hour week: <span className="font-medium text-gray-900">${(orgPricing.labor_rate_value * 40).toFixed(2)}</span></p>
+                        </div>
+                      )}
+                      {orgPricing.labor_rate_type === 'square' && (
+                        <div className="space-y-1 text-sm text-gray-600">
+                          <p>20-square job: <span className="font-medium text-gray-900">${(orgPricing.labor_rate_value * 20).toFixed(2)}</span></p>
+                          <p>35-square job: <span className="font-medium text-gray-900">${(orgPricing.labor_rate_value * 35).toFixed(2)}</span></p>
+                        </div>
+                      )}
+                      {orgPricing.labor_rate_type === 'kw' && (
+                        <div className="space-y-1 text-sm text-gray-600">
+                          <p>8 kW system: <span className="font-medium text-gray-900">${(orgPricing.labor_rate_value * 8000).toFixed(2)}</span></p>
+                          <p>12 kW system: <span className="font-medium text-gray-900">${(orgPricing.labor_rate_value * 12000).toFixed(2)}</span></p>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
+            </div>
 
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={saveOrgPricing}
-                  disabled={saving}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {saving ? 'Saving...' : 'Save Labor Rates'}
-                </button>
+            {/* Task-Specific Labor Rates */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Task-Specific Labor Rates</h2>
+              <p className="text-sm text-gray-500 mb-6">Override the default rate for specific task types</p>
+              
+              <div className="space-y-3">
+                {[
+                  { name: 'Roof Installation', unit: 'per square', placeholder: '65.00', unitType: 'square' },
+                  { name: 'Tear-off', unit: 'per square', placeholder: '35.00', unitType: 'square' },
+                  { name: 'Decking Replacement', unit: 'per sheet', placeholder: '25.00', unitType: 'each' },
+                  { name: 'Flashing Install', unit: 'per linear foot', placeholder: '8.00', unitType: 'lf' },
+                  { name: 'Skylight Install', unit: 'each', placeholder: '350.00', unitType: 'each' },
+                  { name: 'Chimney Flashing', unit: 'each', placeholder: '275.00', unitType: 'each' },
+                  { name: 'Solar Panel Install', unit: 'per kW', placeholder: '150.00', unitType: 'kw' },
+                  { name: 'Electrical Work', unit: 'per hour', placeholder: '85.00', unitType: 'hour' },
+                ].map((task) => (
+                  <div key={task.name} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <span className="flex-1 text-sm font-medium text-gray-700">{task.name}</span>
+                    <span className="text-xs text-gray-500 w-28 text-right">{task.unit}</span>
+                    <div className="relative w-36">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        placeholder={task.placeholder}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
+            </div>
+
+            {/* Legacy Hourly Rate (for backward compatibility) */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Legacy Hourly Rate</h2>
+              <p className="text-sm text-gray-500 mb-4">Standard hourly rate for miscellaneous work</p>
+              
+              <div className="max-w-xs">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={orgPricing.labor_rate_per_hour || ''}
+                    onChange={(e) => setOrgPricing(prev => ({ 
+                      ...prev, 
+                      labor_rate_per_hour: e.target.value ? parseFloat(e.target.value) : null 
+                    }))}
+                    className="w-full pl-8 pr-16 py-3 border border-gray-300 rounded-lg"
+                    placeholder="75.00"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">/hour</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={saveOrgPricing}
+                disabled={saving}
+                className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Save Labor Rates'}
+              </button>
             </div>
           </div>
         )}

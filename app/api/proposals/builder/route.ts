@@ -117,6 +117,15 @@ export async function GET(request: NextRequest) {
       .eq('org_id', profile.org_id)
       .eq('active', true)
 
+    // Load org pricing settings (for default pricing)
+    const { data: org } = await adminClient
+      .from('orgs')
+      .select('settings')
+      .eq('id', profile.org_id)
+      .single()
+
+    const orgPricing = org?.settings?.pricing || {}
+
     // Load opportunity data if provided
     let opportunity = null
     if (opportunityId) {
@@ -140,8 +149,44 @@ export async function GET(request: NextRequest) {
       measurement = meas
     }
 
+    // If no pricebook items exist, create default items from org pricing settings
+    let pricebookItems = visibleItems.filter((i: any) => !i.is_adder)
+    
+    if (pricebookItems.length === 0 && orgPricing.price_per_square_installed) {
+      // Create virtual pricebook items from org pricing
+      const defaultItems = []
+      
+      if (orgPricing.price_per_square_installed) {
+        defaultItems.push({
+          id: 'default-roofing-install',
+          name: 'Roofing Installation',
+          category: 'Roofing',
+          unit: 'square',
+          unit_price: orgPricing.price_per_square_installed,
+          is_adder: false,
+          visibility: 'all',
+          is_virtual: true, // Flag to indicate this is not from pricebook
+        })
+      }
+      
+      if (orgPricing.price_per_watt) {
+        defaultItems.push({
+          id: 'default-solar-install',
+          name: 'Solar Installation',
+          category: 'Solar',
+          unit: 'watt',
+          unit_price: orgPricing.price_per_watt,
+          is_adder: false,
+          visibility: 'all',
+          is_virtual: true,
+        })
+      }
+      
+      pricebookItems = defaultItems
+    }
+
     return NextResponse.json({
-      pricebookItems: visibleItems.filter((i: any) => !i.is_adder),
+      pricebookItems,
       adders: visibleItems.filter((i: any) => i.is_adder),
       templates: templates || [],
       opportunity,
@@ -149,6 +194,7 @@ export async function GET(request: NextRequest) {
       role: profile.role,
       orgId: profile.org_id,
       userId: user.id,
+      orgPricing, // Include pricing settings for reference
     })
   } catch (error) {
     console.error('Proposal builder data API error:', error)

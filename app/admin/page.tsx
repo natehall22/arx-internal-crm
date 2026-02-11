@@ -72,12 +72,15 @@ export default async function AdminPage() {
     redirect('/dashboard')
   }
 
-  // Only admin, regional_manager, and legacy 'manager' can access admin
-  const adminRoles = ['admin', 'regional_manager', 'manager']
+  // Only admin, regional_manager, operations, and legacy 'manager' can access admin
+  const adminRoles = ['admin', 'regional_manager', 'manager', 'operations']
   if (!adminRoles.includes(profile.role)) {
     console.log('Admin page: Access denied, role is:', profile.role)
     redirect('/dashboard')
   }
+
+  // Check if user can access cost/pricing data (admin and operations only)
+  const canAccessCostData = ['admin', 'operations'].includes(profile.role)
 
   const adminSections = [
     {
@@ -176,6 +179,7 @@ export default async function AdminPage() {
       title: 'Pricing & Costs',
       description: 'Set prices per square, PPW, dump costs, OPEX, and pricebook items',
       href: '/admin/pricing',
+      requiresCostAccess: true, // Only admin and operations
       icon: (
         <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -183,8 +187,8 @@ export default async function AdminPage() {
       ),
     },
     {
-      title: 'Proposals & Templates',
-      description: 'Manage pricing visibility, adders, and PDF templates',
+      title: 'Proposals & Adders',
+      description: 'Manage add-ons (ventilation, gutters, skylights, etc.), pricing visibility, and PDF templates',
       href: '/admin/proposals',
       icon: (
         <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -234,7 +238,15 @@ export default async function AdminPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {adminSections.map((section) => (
+          {adminSections
+            .filter((section) => {
+              // Filter out cost-related sections for non-admin/ops users
+              if (section.requiresCostAccess && !canAccessCostData) {
+                return false
+              }
+              return true
+            })
+            .map((section) => (
             <Link
               key={section.href}
               href={section.href}

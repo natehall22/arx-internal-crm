@@ -602,63 +602,97 @@ export default function ProposalBuilderPage() {
         {step === 2 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Project Items</h2>
-                <button
-                  onClick={() => setShowAddItem(true)}
-                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700"
-                >
-                  + Add Item
-                </button>
-              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Project Items</h2>
 
-              {lineItems.filter(i => !i.is_adder).length === 0 ? (
-                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-                  <p className="text-gray-500 mb-4">No items added yet</p>
-                  <button
-                    onClick={() => setShowAddItem(true)}
-                    className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700"
-                  >
-                    Add First Item
-                  </button>
-                </div>
+              {/* Admin/Ops view - can see and edit line items */}
+              {['admin', 'operations'].includes(userRole) ? (
+                <>
+                  <div className="flex justify-end mb-4">
+                    <button
+                      onClick={() => setShowAddItem(true)}
+                      className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700"
+                    >
+                      + Add Item
+                    </button>
+                  </div>
+
+                  {lineItems.filter(i => !i.is_adder).length === 0 ? (
+                    <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                      <p className="text-gray-500 mb-4">No items added yet</p>
+                      <button
+                        onClick={() => setShowAddItem(true)}
+                        className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700"
+                      >
+                        Add First Item
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {lineItems.filter(i => !i.is_adder).map((item) => (
+                        <div key={item.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">{item.name}</p>
+                            <p className="text-sm text-gray-500">{item.category}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                              className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-center"
+                              min="0"
+                              step="0.1"
+                            />
+                            <span className="text-gray-500 text-sm w-20">{getUnitLabel(item.unit)}</span>
+                            <span className="text-gray-900 font-medium w-24 text-right">
+                              ${item.unit_price.toFixed(2)}
+                            </span>
+                            <span className="text-indigo-600 font-bold w-28 text-right">
+                              ${item.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                            <button
+                              onClick={() => removeLineItem(item.id)}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="space-y-3">
-                  {lineItems.filter(i => !i.is_adder).map((item) => (
-                    <div key={item.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{item.name}</p>
-                        <p className="text-sm text-gray-500">{item.category}</p>
+                /* Sales Rep view - only sees total, not line items */
+                <div className="space-y-6">
+                  <div className="p-6 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Base Project Price</h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {measurementData ? (
+                            <>Based on {measurementData.total_squares?.toFixed(1) || urlSquares} squares</>
+                          ) : (
+                            <>Calculated from measurement data</>
+                          )}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="number"
-                          value={item.quantity}
-                          onChange={(e) => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                          className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-center"
-                          min="0"
-                          step="0.1"
-                        />
-                        <span className="text-gray-500 text-sm w-20">{getUnitLabel(item.unit)}</span>
-                        {userRole === 'admin' && (
-                          <span className="text-gray-900 font-medium w-24 text-right">
-                            ${item.unit_price.toFixed(2)}
-                          </span>
-                        )}
-                        <span className="text-indigo-600 font-bold w-28 text-right">
-                          ${item.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </span>
-                        <button
-                          onClick={() => removeLineItem(item.id)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
+                      <div className="text-right">
+                        <p className="text-3xl font-bold text-indigo-600">
+                          ${lineItems.filter(i => !i.is_adder).reduce((sum, i) => sum + i.line_total, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
                       </div>
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-gray-600">
+                      <strong>Note:</strong> The base price is automatically calculated from the roof measurement and your company's pricing. 
+                      You can add optional upgrades on the next step.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -685,7 +719,13 @@ export default function ProposalBuilderPage() {
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Add-Ons & Upgrades</h2>
-              <p className="text-gray-500 mb-6">Select additional items for this project</p>
+              <p className="text-gray-500 mb-4">Select additional items for this project</p>
+              
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-6">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> Add-on pricing is visible to you while building. The customer proposal will only show the <strong>final total price</strong> - individual add-ons will not be itemized.
+                </p>
+              </div>
 
               {/* Category filter */}
               <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
@@ -827,9 +867,12 @@ export default function ProposalBuilderPage() {
                   </div>
                 )}
 
-                {/* Pricing Summary (only total shown to customer) */}
+                {/* Customer-Facing Pricing Summary - ONLY shows total */}
                 <div className="bg-gray-50 rounded-xl p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Investment Summary</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">Investment Summary</h3>
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">Customer View</span>
+                  </div>
                   <div className="space-y-2">
                     <div className="flex justify-between text-gray-600">
                       <span>Project Total</span>
@@ -852,6 +895,9 @@ export default function ProposalBuilderPage() {
                       <span>${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </div>
                   </div>
+                  <p className="text-xs text-gray-500 mt-4 pt-3 border-t">
+                    Note: Customer will only see the total investment amount. Line items and adders are not shown on the customer proposal.
+                  </p>
                 </div>
 
                 {/* Financing */}
@@ -864,6 +910,46 @@ export default function ProposalBuilderPage() {
                     <p className="text-sm text-indigo-600 mt-1">
                       {form.financing_term_months} months at {form.financing_rate}% APR
                     </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Internal Breakdown - NOT shown to customer */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 md:p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-amber-900">Internal Breakdown</h3>
+                <span className="px-2 py-1 bg-amber-200 text-amber-800 text-xs font-medium rounded">Not shown to customer</span>
+              </div>
+              
+              <div className="space-y-3">
+                {/* Base Price */}
+                <div className="flex justify-between py-2 border-b border-amber-200">
+                  <span className="text-amber-900">Base Project Price</span>
+                  <span className="font-medium text-amber-900">
+                    ${lineItems.filter(i => !i.is_adder).reduce((sum, i) => sum + i.line_total, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                {/* Adders breakdown */}
+                {lineItems.filter(i => i.is_adder).length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-amber-800">Add-Ons Included:</p>
+                    {lineItems.filter(i => i.is_adder).map((item) => (
+                      <div key={item.id} className="flex justify-between text-sm pl-4">
+                        <span className="text-amber-700">{item.name} {item.quantity > 1 && `(×${item.quantity})`}</span>
+                        <span className="text-amber-700">${item.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between py-2 border-t border-amber-200">
+                      <span className="text-amber-900">Total Add-Ons</span>
+                      <span className="font-medium text-amber-900">
+                        ${lineItems.filter(i => i.is_adder).reduce((sum, i) => sum + i.line_total, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1020,26 +1106,39 @@ export default function ProposalBuilderPage() {
                 </button>
               </div>
               <div className="p-6 overflow-y-auto max-h-[60vh]">
-                <div className="space-y-2">
-                  {pricebookItems.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => addLineItem(item)}
-                      className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50 transition-all text-left"
-                    >
-                      <div>
-                        <p className="font-medium text-gray-900">{item.name}</p>
-                        <p className="text-sm text-gray-500">{item.category}</p>
-                      </div>
-                      <div className="text-right">
-                        {userRole === 'admin' && (
+                {pricebookItems.length === 0 ? (
+                  <div className="text-center py-8">
+                    <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Pricebook Items</h3>
+                    <p className="text-gray-500 mb-4">
+                      No items have been added to your pricebook yet.
+                    </p>
+                    <p className="text-sm text-gray-400">
+                      Go to <span className="font-medium">Admin → Pricing & Costs → Pricebook Items</span> to add items.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {pricebookItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => addLineItem(item)}
+                        className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50 transition-all text-left"
+                      >
+                        <div>
+                          <p className="font-medium text-gray-900">{item.name}</p>
+                          <p className="text-sm text-gray-500">{item.category}</p>
+                        </div>
+                        <div className="text-right">
                           <p className="font-bold text-indigo-600">${item.unit_price.toLocaleString()}</p>
-                        )}
-                        <p className="text-xs text-gray-400">per {getUnitLabel(item.unit)}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                          <p className="text-xs text-gray-400">per {getUnitLabel(item.unit)}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
