@@ -338,7 +338,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
       </div>
 
       {/* Leads Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="bg-white shadow rounded-lg overflow-x-auto">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading leads...</div>
         ) : filteredLeads.length === 0 ? (
@@ -361,33 +361,33 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
             )}
           </div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Lead
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Address
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Status
                 </th>
                 {canViewInbound && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     Channel
                   </th>
                 )}
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Source
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Owner
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Opportunity
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Actions
                 </th>
               </tr>
@@ -395,7 +395,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredLeads.map((lead) => (
                 <tr key={lead.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4 whitespace-nowrap">
                     <Link
                       href={`/leads/${lead.id}`}
                       className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
@@ -406,12 +406,12 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                       {lead.phone || lead.email || 'No contact'}
                     </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900 max-w-xs truncate">
+                  <td className="px-4 py-4">
+                    <div className="text-sm text-gray-900 max-w-[200px] truncate" title={lead.address_text || ''}>
                       {lead.address_text || 'N/A'}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-4 py-4 whitespace-nowrap">
                     <span className={`px-2 py-1 text-xs font-semibold rounded-full capitalize ${
                       statusColors[lead.status] || 'bg-gray-100 text-gray-800'
                     }`}>
@@ -419,7 +419,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                     </span>
                   </td>
                   {canViewInbound && (
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap">
                       {lead.channel && (
                         <span className={`px-2 py-1 text-xs font-medium rounded capitalize ${
                           channelColors[lead.channel] || 'bg-gray-100 text-gray-700'
@@ -429,7 +429,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                       )}
                     </td>
                   )}
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-4 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">
                       {lead.lead_sources?.name || lead.source || '-'}
                     </div>
@@ -437,29 +437,29 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                       <div className="text-xs text-gray-500">{lead.campaigns.name}</div>
                     )}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                     {lead.users?.full_name || (
                       <span className="text-orange-600 font-medium">Unassigned</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm">
                     {opportunities.has(lead.id) ? (
                       <Link
                         href={`/opportunities/${opportunities.get(lead.id)}`}
                         className="text-indigo-600 hover:text-indigo-800"
                       >
-                        View
+                        Open
                       </Link>
                     ) : (
                       <span className="text-gray-400">-</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                     <Link
                       href={`/leads/${lead.id}`}
                       className="text-indigo-600 hover:text-indigo-900"
                     >
-                      Open
+                      View
                     </Link>
                   </td>
                 </tr>
