@@ -196,266 +196,281 @@ async function checkCloserAvailability(
 }
 
 export async function POST(request: Request) {
-  const { profile } = await requireAuth()
-  const supabase = getAdminClient()
-  const body = await request.json().catch(() => ({}))
+  try {
+    const { profile } = await requireAuth()
+    const supabase = getAdminClient()
+    const body = await request.json().catch(() => ({}))
 
-  const leadId = String(body.lead_id || '')
-  let closerUserId = body.closer_user_id ? String(body.closer_user_id) : null
-  const scheduleInspection = Boolean(body.schedule_inspection)
-  const inspectionScheduledFor = body.inspection_scheduled_for
-    ? new Date(body.inspection_scheduled_for).toISOString()
-    : null
-  const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
+    const leadId = String(body.lead_id || '')
+    let closerUserId = body.closer_user_id ? String(body.closer_user_id) : null
+    const scheduleInspection = Boolean(body.schedule_inspection)
+    const inspectionScheduledFor = body.inspection_scheduled_for
+      ? new Date(body.inspection_scheduled_for).toISOString()
+      : null
+    const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
 
-  const leadPayload: Record<string, any> = {
-    homeowner_name: body.homeowner_name || null,
-    phone: body.phone || null,
-    email: body.email || null,
-    address_text: body.address_text || null,
-    lat: body.lat ?? null,
-    lng: body.lng ?? null,
-    notes: body.notes || null,
-    canvass_disposition: body.canvass_disposition || null,
-    canvass_notes: body.canvass_notes || null,
-    closer_user_id: closerUserId,
-    inspection_scheduled_for: inspectionScheduledFor,
-  }
-
-  if (Object.prototype.hasOwnProperty.call(body, 'source')) {
-    leadPayload.source = body.source || null
-  }
-
-  if (scheduleInspection) {
-    leadPayload.status = 'inspection'
-    leadPayload.inspection_scheduled_at = new Date().toISOString()
-    if (closerUserId) {
-      leadPayload.owner_user_id = closerUserId
+    const leadPayload: Record<string, any> = {
+      homeowner_name: body.homeowner_name || null,
+      phone: body.phone || null,
+      email: body.email || null,
+      address_text: body.address_text || null,
+      lat: body.lat ?? null,
+      lng: body.lng ?? null,
+      notes: body.notes || null,
+      canvass_disposition: body.canvass_disposition || null,
+      canvass_notes: body.canvass_notes || null,
+      closer_user_id: closerUserId,
+      inspection_scheduled_for: inspectionScheduledFor,
     }
-  }
 
-  let leadRow: any = null
+    if (Object.prototype.hasOwnProperty.call(body, 'source')) {
+      leadPayload.source = body.source || null
+    }
 
-  if (leadId) {
-    const { data: updatedLead } = await supabase
-      .from('leads')
-      .update(leadPayload)
-      .eq('id', leadId)
-      .eq('org_id', profile.org_id)
-      .select('*')
-      .single()
-
-    leadRow = updatedLead
-  } else {
-    const { data: createdLead } = await supabase
-      .from('leads')
-      .insert({
-        org_id: profile.org_id,
-        owner_user_id: scheduleInspection && closerUserId ? closerUserId : profile.id,
-        status: scheduleInspection ? 'inspection' : 'new',
-        source: body.source || 'door_to_door',
-        ...leadPayload,
-      })
-      .select('*')
-      .single()
-
-    leadRow = createdLead
-  }
-
-  if (!leadRow) {
-    return NextResponse.json({ error: 'Unable to save lead' }, { status: 400 })
-  }
-
-  let opportunityId: string | null = null
-  let assignedCloserName: string | null = null
-  let appointmentId: string | null = null
-
-  // Round-robin assignment if no closer specified
-  if (useRoundRobin && inspectionScheduledFor) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (supabaseUrl && supabaseServiceKey) {
-      const serviceClient = createServiceClient(supabaseUrl, supabaseServiceKey)
-      
-      // Get user's team or default team
-      const teamId = profile.team_id || await getDefaultTeam(serviceClient, profile.org_id)
-
-      if (teamId) {
-        const assignment = await assignNextAvailableCloser(
-          supabaseUrl,
-          supabaseServiceKey,
-          teamId,
-          new Date(inspectionScheduledFor),
-          60, // duration
-          leadRow.id,
-          undefined, // opportunity_id - will be created below
-          leadRow.address_text,
-          profile.id, // canvasser
-          profile.org_id
-        )
-
-        if (assignment.success && assignment.closerId) {
-          closerUserId = assignment.closerId
-          assignedCloserName = assignment.closerName || null
-          appointmentId = assignment.appointmentId || null
-
-          // Update lead with assigned closer
-          await supabase
-            .from('leads')
-            .update({ 
-              closer_user_id: closerUserId,
-              owner_user_id: closerUserId 
-            })
-            .eq('id', leadRow.id)
-        }
+    if (scheduleInspection) {
+      leadPayload.status = 'inspection'
+      leadPayload.inspection_scheduled_at = new Date().toISOString()
+      if (closerUserId) {
+        leadPayload.owner_user_id = closerUserId
       }
     }
-  }
 
-  if (scheduleInspection) {
-    const { data: existingOpportunity } = await supabase
-      .from('opportunities')
-      .select('id')
-      .eq('lead_id', leadRow.id)
-      .maybeSingle()
+    let leadRow: any = null
 
-    if (existingOpportunity?.id) {
-      opportunityId = existingOpportunity.id
-    } else {
-      const { data: createdOpportunity, error: oppError } = await supabase
-        .from('opportunities')
-        .insert({
-          org_id: profile.org_id,
-          lead_id: leadRow.id,
-          owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
-          status: 'open',
-          project_type: 'roofing',
-          address_text: leadRow.address_text,
-          lat: leadRow.lat,
-          lng: leadRow.lng,
-          notes: leadRow.notes,
-        })
-        .select('id')
+    if (leadId) {
+      const { data: updatedLead, error: updateError } = await supabase
+        .from('leads')
+        .update(leadPayload)
+        .eq('id', leadId)
+        .eq('org_id', profile.org_id)
+        .select('*')
         .single()
 
-      if (oppError) {
-        console.error('Opportunity creation error:', oppError)
+      if (updateError) {
+        console.error('Lead update error:', updateError)
+        return NextResponse.json({ error: `Failed to update lead: ${updateError.message}` }, { status: 400 })
       }
-      opportunityId = createdOpportunity?.id ?? null
+      leadRow = updatedLead
+    } else {
+      const { data: createdLead, error: createError } = await supabase
+        .from('leads')
+        .insert({
+          org_id: profile.org_id,
+          owner_user_id: scheduleInspection && closerUserId ? closerUserId : profile.id,
+          status: scheduleInspection ? 'inspection' : 'new',
+          source: body.source || 'door_to_door',
+          ...leadPayload,
+        })
+        .select('*')
+        .single()
 
-      // Update appointment with opportunity_id
-      if (appointmentId && opportunityId) {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-        if (supabaseUrl && supabaseServiceKey) {
-          const serviceClient = createServiceClient(supabaseUrl, supabaseServiceKey)
-          await serviceClient
-            .from('scheduled_appointments')
-            .update({ opportunity_id: opportunityId })
-            .eq('id', appointmentId)
+      if (createError) {
+        console.error('Lead creation error:', createError)
+        return NextResponse.json({ error: `Failed to create lead: ${createError.message}` }, { status: 400 })
+      }
+      leadRow = createdLead
+    }
+
+    if (!leadRow) {
+      return NextResponse.json({ error: 'Unable to save lead' }, { status: 400 })
+    }
+
+    let opportunityId: string | null = null
+    let assignedCloserName: string | null = null
+    let appointmentId: string | null = null
+
+    // Round-robin assignment if no closer specified
+    if (useRoundRobin && inspectionScheduledFor) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+      if (supabaseUrl && supabaseServiceKey) {
+        const serviceClient = createServiceClient(supabaseUrl, supabaseServiceKey)
+        
+        // Get user's team or default team
+        const teamId = profile.team_id || await getDefaultTeam(serviceClient, profile.org_id)
+
+        if (teamId) {
+          const assignment = await assignNextAvailableCloser(
+            supabaseUrl,
+            supabaseServiceKey,
+            teamId,
+            new Date(inspectionScheduledFor),
+            60, // duration
+            leadRow.id,
+            undefined, // opportunity_id - will be created below
+            leadRow.address_text,
+            profile.id, // canvasser
+            profile.org_id
+          )
+
+          if (assignment.success && assignment.closerId) {
+            closerUserId = assignment.closerId
+            assignedCloserName = assignment.closerName || null
+            appointmentId = assignment.appointmentId || null
+
+            // Update lead with assigned closer
+            await supabase
+              .from('leads')
+              .update({ 
+                closer_user_id: closerUserId,
+                owner_user_id: closerUserId 
+              })
+              .eq('id', leadRow.id)
+          }
         }
       }
     }
-  }
 
-  // Sync to Google Calendar if we have a closer and scheduled time
-  let calendarSynced = false
-  let setterCalendarSynced = false
-  let googleEventId: string | null = null
-  
-  if (scheduleInspection && closerUserId && inspectionScheduledFor) {
-    // Get closer's name for setter calendar event
-    const { data: closerData } = await supabase
-      .from('users')
-      .select('full_name')
-      .eq('id', closerUserId)
-      .single()
-    const closerName = closerData?.full_name || assignedCloserName
-    
-    // Sync to closer's calendar (they need to be available)
-    const calendarResult = await syncToGoogleCalendar(
-      supabase,
-      closerUserId,
-      inspectionScheduledFor,
-      60, // duration in minutes
-      leadRow.homeowner_name,
-      leadRow.address_text,
-      leadRow.phone,
-      leadRow.notes,
-      leadRow.id,
-      opportunityId
-    )
-    
-    calendarSynced = calendarResult.synced
-    googleEventId = calendarResult.eventId || null
-    
-    // Store Google event ID in the appointment if we have one
-    if (appointmentId && googleEventId) {
-      await supabase
-        .from('scheduled_appointments')
-        .update({ google_event_id: googleEventId })
-        .eq('id', appointmentId)
+    if (scheduleInspection) {
+      const { data: existingOpportunity } = await supabase
+        .from('opportunities')
+        .select('id')
+        .eq('lead_id', leadRow.id)
+        .maybeSingle()
+
+      if (existingOpportunity?.id) {
+        opportunityId = existingOpportunity.id
+      } else {
+        const { data: createdOpportunity, error: oppError } = await supabase
+          .from('opportunities')
+          .insert({
+            org_id: profile.org_id,
+            lead_id: leadRow.id,
+            owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
+            status: 'open',
+            project_type: 'roofing',
+            address_text: leadRow.address_text,
+            lat: leadRow.lat,
+            lng: leadRow.lng,
+            notes: leadRow.notes,
+          })
+          .select('id')
+          .single()
+
+        if (oppError) {
+          console.error('Opportunity creation error:', oppError)
+        }
+        opportunityId = createdOpportunity?.id ?? null
+
+        // Update appointment with opportunity_id
+        if (appointmentId && opportunityId) {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+          const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+          if (supabaseUrl && supabaseServiceKey) {
+            const serviceClient = createServiceClient(supabaseUrl, supabaseServiceKey)
+            await serviceClient
+              .from('scheduled_appointments')
+              .update({ opportunity_id: opportunityId })
+              .eq('id', appointmentId)
+          }
+        }
+      }
     }
+
+    // Sync to Google Calendar if we have a closer and scheduled time
+    let calendarSynced = false
+    let setterCalendarSynced = false
+    let googleEventId: string | null = null
     
-    // Also sync to setter's calendar (for visibility - they can be double-booked)
-    // Only if setter is different from closer
-    if (profile.id !== closerUserId) {
-      const setterResult = await syncToSetterCalendar(
+    if (scheduleInspection && closerUserId && inspectionScheduledFor) {
+      // Get closer's name for setter calendar event
+      const { data: closerData } = await supabase
+        .from('users')
+        .select('full_name')
+        .eq('id', closerUserId)
+        .single()
+      const closerName = closerData?.full_name || assignedCloserName
+      
+      // Sync to closer's calendar (they need to be available)
+      const calendarResult = await syncToGoogleCalendar(
         supabase,
-        profile.id, // setter is the current user who scheduled
-        closerName,
+        closerUserId,
         inspectionScheduledFor,
-        60,
+        60, // duration in minutes
         leadRow.homeowner_name,
         leadRow.address_text,
         leadRow.phone,
+        leadRow.notes,
         leadRow.id,
         opportunityId
       )
-      setterCalendarSynced = setterResult.synced
+      
+      calendarSynced = calendarResult.synced
+      googleEventId = calendarResult.eventId || null
+      
+      // Store Google event ID in the appointment if we have one
+      if (appointmentId && googleEventId) {
+        await supabase
+          .from('scheduled_appointments')
+          .update({ google_event_id: googleEventId })
+          .eq('id', appointmentId)
+      }
+      
+      // Also sync to setter's calendar (for visibility - they can be double-booked)
+      // Only if setter is different from closer
+      if (profile.id !== closerUserId) {
+        const setterResult = await syncToSetterCalendar(
+          supabase,
+          profile.id, // setter is the current user who scheduled
+          closerName,
+          inspectionScheduledFor,
+          60,
+          leadRow.homeowner_name,
+          leadRow.address_text,
+          leadRow.phone,
+          leadRow.id,
+          opportunityId
+        )
+        setterCalendarSynced = setterResult.synced
+      }
     }
-  }
 
-  if (scheduleInspection) {
-    let activityBody = assignedCloserName 
-      ? `Inspection scheduled from canvassing. Assigned to ${assignedCloserName} via round-robin.`
-      : 'Inspection scheduled from canvassing.'
-    
-    if (calendarSynced && setterCalendarSynced) {
-      activityBody += ' Added to closer and setter calendars.'
-    } else if (calendarSynced) {
-      activityBody += ' Added to closer calendar.'
-    } else if (setterCalendarSynced) {
-      activityBody += ' Added to setter calendar.'
+    if (scheduleInspection) {
+      let activityBody = assignedCloserName 
+        ? `Inspection scheduled from canvassing. Assigned to ${assignedCloserName} via round-robin.`
+        : 'Inspection scheduled from canvassing.'
+      
+      if (calendarSynced && setterCalendarSynced) {
+        activityBody += ' Added to closer and setter calendars.'
+      } else if (calendarSynced) {
+        activityBody += ' Added to closer calendar.'
+      } else if (setterCalendarSynced) {
+        activityBody += ' Added to setter calendar.'
+      }
+      
+      await supabase.from('activities').insert({
+        org_id: profile.org_id,
+        lead_id: leadRow.id,
+        user_id: profile.id,
+        type: 'status_change',
+        body: activityBody,
+      })
     }
-    
-    await supabase.from('activities').insert({
-      org_id: profile.org_id,
+
+    if (opportunityId) {
+      await supabase.from('activities').insert({
+        org_id: profile.org_id,
+        opportunity_id: opportunityId,
+        user_id: profile.id,
+        type: 'status_change',
+        body: 'Opportunity created from canvassing inspection.',
+      })
+    }
+
+    return NextResponse.json({
       lead_id: leadRow.id,
-      user_id: profile.id,
-      type: 'status_change',
-      body: activityBody,
-    })
-  }
-
-  if (opportunityId) {
-    await supabase.from('activities').insert({
-      org_id: profile.org_id,
       opportunity_id: opportunityId,
-      user_id: profile.id,
-      type: 'status_change',
-      body: 'Opportunity created from canvassing inspection.',
+      assigned_closer: assignedCloserName,
+      appointment_id: appointmentId,
+      calendar_synced: calendarSynced,
+      setter_calendar_synced: setterCalendarSynced,
+      google_event_id: googleEventId,
     })
+  } catch (error) {
+    console.error('Canvass lead API error:', error)
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to process lead' 
+    }, { status: 500 })
   }
-
-  return NextResponse.json({
-    lead_id: leadRow.id,
-    opportunity_id: opportunityId,
-    assigned_closer: assignedCloserName,
-    appointment_id: appointmentId,
-    calendar_synced: calendarSynced,
-    setter_calendar_synced: setterCalendarSynced,
-    google_event_id: googleEventId,
-  })
 }
