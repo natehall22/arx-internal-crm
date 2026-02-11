@@ -154,19 +154,53 @@ export async function PATCH(request: NextRequest) {
     const currentSettings = org?.settings || {}
 
     if (type === 'general') {
-      // Update org-level fields
-      const { error } = await adminClient
+      // Try to update org-level fields directly first
+      // If columns don't exist, fall back to storing in settings JSONB
+      const orgUpdate: Record<string, any> = {
+        name: data.company_name,
+      }
+      
+      // These columns may not exist in older schemas, so we try them
+      // and fall back to settings if they fail
+      const optionalFields = {
+        phone: data.company_phone,
+        email: data.company_email,
+        address: data.company_address,
+        timezone: data.timezone,
+        date_format: data.date_format,
+        currency: data.currency,
+      }
+
+      // First try with all fields
+      let { error } = await adminClient
         .from('orgs')
-        .update({
-          name: data.company_name,
-          phone: data.company_phone,
-          email: data.company_email,
-          address: data.company_address,
-          timezone: data.timezone,
-          date_format: data.date_format,
-          currency: data.currency,
-        })
+        .update({ ...orgUpdate, ...optionalFields })
         .eq('id', profile.org_id)
+
+      if (error && error.message.includes('column')) {
+        // Columns don't exist, store in settings JSONB instead
+        console.log('Org columns not found, storing in settings JSONB')
+        const { error: settingsError } = await adminClient
+          .from('orgs')
+          .update({
+            name: data.company_name,
+            settings: {
+              ...currentSettings,
+              company_phone: data.company_phone,
+              company_email: data.company_email,
+              company_address: data.company_address,
+              timezone: data.timezone,
+              date_format: data.date_format,
+              currency: data.currency,
+            }
+          })
+          .eq('id', profile.org_id)
+
+        if (settingsError) {
+          return NextResponse.json({ error: settingsError.message }, { status: 400 })
+        }
+        return NextResponse.json({ success: true })
+      }
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
