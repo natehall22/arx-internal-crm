@@ -87,68 +87,76 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
 
   const loadLeads = async () => {
     setLoading(true)
-    const supabase = createClientBrowser()
+    
+    try {
+      // Fetch leads via API to bypass RLS
+      const response = await fetch('/api/leads')
+      if (!response.ok) {
+        console.error('Failed to fetch leads')
+        setLeads([])
+        setLoading(false)
+        return
+      }
+      
+      const { leads: allLeads } = await response.json()
+      
+      // Apply client-side filtering
+      let filteredData = allLeads || []
+      
+      // Role-based filtering
+      if (profile.role === 'rep' || profile.role === 'sales_rep' || profile.role === 'canvasser') {
+        filteredData = filteredData.filter((lead: Lead) => lead.owner_user_id === profile.id)
+      }
 
-    let query = supabase
-      .from('leads')
-      .select(`
-        *,
-        users:users!leads_owner_user_id_fkey(full_name),
-        campaigns(name),
-        lead_sources(name)
-      `)
-      .eq('org_id', profile.org_id)
-      .order('created_at', { ascending: false })
+      // Channel filter based on permissions
+      if (!canViewInbound) {
+        filteredData = filteredData.filter((lead: Lead) => 
+          lead.channel === 'outbound' || !lead.channel || lead.owner_user_id === profile.id
+        )
+      }
 
-    // Role-based filtering
-    if (profile.role === 'rep' || profile.role === 'sales_rep' || profile.role === 'canvasser') {
-      // Sales reps can only see their own leads
-      query = query.eq('owner_user_id', profile.id)
-    }
+      // Apply view mode filter
+      if (viewMode === 'inbound') {
+        filteredData = filteredData.filter((lead: Lead) => lead.channel === 'inbound')
+      } else if (viewMode === 'outbound') {
+        filteredData = filteredData.filter((lead: Lead) => lead.channel === 'outbound' || !lead.channel)
+      }
 
-    // Channel filter based on permissions
-    if (!canViewInbound) {
-      // User can't see inbound leads unless they own them
-      query = query.or(`channel.eq.outbound,channel.is.null,owner_user_id.eq.${profile.id}`)
-    }
+      // Apply filters
+      if (filterChannel) {
+        filteredData = filteredData.filter((lead: Lead) => lead.channel === filterChannel)
+      }
+      if (filterStatus) {
+        filteredData = filteredData.filter((lead: Lead) => lead.status === filterStatus)
+      }
+      if (filterCampaign) {
+        filteredData = filteredData.filter((lead: Lead) => lead.campaign_id === filterCampaign)
+      }
+      if (filterSource) {
+        filteredData = filteredData.filter((lead: Lead) => lead.lead_source_id === filterSource)
+      }
+      if (filterOwner) {
+        if (filterOwner === 'unassigned') {
+          filteredData = filteredData.filter((lead: Lead) => !lead.owner_user_id)
+        } else {
+          filteredData = filteredData.filter((lead: Lead) => lead.owner_user_id === filterOwner)
+        }
+      }
 
-    // Apply view mode filter
-    if (viewMode === 'inbound') {
-      query = query.eq('channel', 'inbound')
-    } else if (viewMode === 'outbound') {
-      query = query.or('channel.eq.outbound,channel.is.null')
-    }
+      setLeads(filteredData)
 
-    // Apply filters
-    if (filterChannel) {
-      query = query.eq('channel', filterChannel)
-    }
-    if (filterStatus) {
-      query = query.eq('status', filterStatus)
-    }
-    if (filterCampaign) {
-      query = query.eq('campaign_id', filterCampaign)
-    }
-    if (filterSource) {
-      query = query.eq('lead_source_id', filterSource)
-    }
-    if (filterOwner) {
-      query = query.eq('owner_user_id', filterOwner)
-    }
-
-    const { data: leadsData } = await query
-
-    setLeads(leadsData || [])
-
-    // Load opportunities
-    const leadIds = (leadsData || []).map((lead) => lead.id)
-    if (leadIds.length > 0) {
-      const { data: opps } = await supabase
-        .from('opportunities')
-        .select('id, lead_id')
-        .in('lead_id', leadIds)
-
-      setOpportunities(new Map((opps || []).map((o) => [o.lead_id, o.id])))
+      // Load opportunities via API
+      const leadIds = filteredData.map((lead: Lead) => lead.id)
+      if (leadIds.length > 0) {
+        const oppsResponse = await fetch('/api/opportunities?lead_ids=' + leadIds.join(','))
+        if (oppsResponse.ok) {
+          const { opportunities: opps } = await oppsResponse.json()
+          setOpportunities(new Map((opps || []).map((o: any) => [o.lead_id, o.id])))
+        }
+      }
+    } catch (error) {
+      console.error('Error loading leads:', error)
+      setLeads([])
     }
 
     setLoading(false)

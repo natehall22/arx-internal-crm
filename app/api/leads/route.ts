@@ -151,10 +151,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    // Get leads
+    // Get leads with related data
     const { data: leads, error: leadsError } = await adminClient
       .from('leads')
-      .select('*')
+      .select(`
+        *,
+        users:users!leads_owner_user_id_fkey(full_name),
+        campaigns(name),
+        lead_sources(name)
+      `)
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
 
