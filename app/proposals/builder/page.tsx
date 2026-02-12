@@ -131,6 +131,7 @@ export default function ProposalBuilderPage() {
   const [isTearOff, setIsTearOff] = useState<boolean | null>(null)
   const [tearOffOptions, setTearOffOptions] = useState<PricebookItem[]>([])
   const [selectedTearOff, setSelectedTearOff] = useState<PricebookItem | null>(null)
+  const [wastePercent, setWastePercent] = useState<number>(10) // Default 10% waste
 
   useEffect(() => {
     loadData()
@@ -230,6 +231,13 @@ export default function ProposalBuilderPage() {
       setLoading(false)
     }
   }
+
+  // Calculate base squares from measurement data
+  const baseSquares = measurementData?.total_squares || parseFloat(urlSquares || '0')
+  
+  // Calculate waste squares and total squares
+  const wasteSquares = baseSquares * (wastePercent / 100)
+  const totalSquaresWithWaste = baseSquares + wasteSquares
 
   // Convert quantity based on unit type
   // 1 square = 100 sq ft
@@ -669,8 +677,115 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Step 2: Roofing Type Selection */}
+        {/* Step 2: Waste Factor */}
         {step === 2 && (
+          <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Material Waste Factor</h2>
+            <p className="text-gray-500 mb-6">
+              Add a waste percentage to account for cuts, overlaps, and material waste. Industry standard is typically 10-15%.
+            </p>
+
+            {/* Base Measurement Display */}
+            <div className="bg-gray-50 rounded-xl p-6 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Measured Area</p>
+                  <p className="text-2xl font-bold text-gray-900">{baseSquares.toFixed(1)}</p>
+                  <p className="text-xs text-gray-400">squares</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Waste Factor</p>
+                  <p className="text-2xl font-bold text-amber-600">+{wastePercent}%</p>
+                  <p className="text-xs text-gray-400">{wasteSquares.toFixed(1)} squares</p>
+                </div>
+                <div className="col-span-2 md:col-span-1">
+                  <p className="text-sm text-gray-500 mb-1">Total Material</p>
+                  <p className="text-2xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)}</p>
+                  <p className="text-xs text-gray-400">squares needed</p>
+                </div>
+                <div className="col-span-2 md:col-span-1">
+                  <p className="text-sm text-gray-500 mb-1">Total Sq Ft</p>
+                  <p className="text-2xl font-bold text-gray-700">{(totalSquaresWithWaste * 100).toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">square feet</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Waste Percentage Selector */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">Select Waste Percentage</label>
+              <div className="grid grid-cols-5 gap-3">
+                {[5, 10, 12, 15, 20].map((percent) => (
+                  <button
+                    key={percent}
+                    onClick={() => setWastePercent(percent)}
+                    className={`py-4 px-3 rounded-xl font-semibold border-2 transition-all ${
+                      wastePercent === percent
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
+                    }`}
+                  >
+                    {percent}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Waste Input */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Or enter custom percentage</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  step="0.5"
+                  value={wastePercent}
+                  onChange={(e) => setWastePercent(parseFloat(e.target.value) || 0)}
+                  className="w-32 px-4 py-3 border border-gray-300 rounded-xl text-center text-lg font-semibold"
+                />
+                <span className="text-gray-500 font-medium">%</span>
+              </div>
+            </div>
+
+            {/* Visual Breakdown */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 border border-indigo-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">Material Breakdown</h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Measured Roof Area</span>
+                  <span className="font-semibold text-gray-900">{baseSquares.toFixed(1)} squares</span>
+                </div>
+                <div className="flex justify-between items-center text-amber-700">
+                  <span>Waste ({wastePercent}%)</span>
+                  <span className="font-semibold">+{wasteSquares.toFixed(1)} squares</span>
+                </div>
+                <div className="border-t border-indigo-200 pt-3 flex justify-between items-center">
+                  <span className="font-semibold text-gray-900">Total Material Needed</span>
+                  <span className="text-xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)} squares</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 flex justify-between">
+              <button
+                onClick={() => setStep(1)}
+                className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
+              >
+                Back
+              </button>
+              <button
+                onClick={() => setStep(3)}
+                className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
+              >
+                Continue to Roofing Type
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Roofing Type Selection */}
+        {step === 3 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Roofing Type</h2>
@@ -696,19 +811,18 @@ export default function ProposalBuilderPage() {
                         if (type.default_warranty_text) {
                           setForm(prev => ({ ...prev, warranty_info: type.default_warranty_text || prev.warranty_info }))
                         }
-                        // Auto-populate line items based on roofing type
-                        const squares = measurementData?.total_squares || parseFloat(urlSquares || '0')
-                        if (squares > 0) {
+                        // Auto-populate line items based on roofing type (using total with waste)
+                        if (totalSquaresWithWaste > 0) {
                           const newLineItem: LineItem = {
                             id: `roofing-${type.id}`,
                             pricebook_item_id: null,
                             category: 'Roofing',
                             name: `${type.name} Installation`,
-                            description: type.description || '',
+                            description: `${baseSquares.toFixed(1)} sq + ${wastePercent}% waste = ${totalSquaresWithWaste.toFixed(1)} sq`,
                             unit: 'square',
-                            quantity: squares,
+                            quantity: totalSquaresWithWaste,
                             unit_price: type.price_per_square,
-                            line_total: squares * type.price_per_square,
+                            line_total: totalSquaresWithWaste * type.price_per_square,
                             is_adder: false,
                           }
                           // Replace any existing roofing line items
@@ -774,17 +888,17 @@ export default function ProposalBuilderPage() {
               )}
 
               {/* Show calculated price if roofing type selected and measurement available */}
-              {selectedRoofingType && (measurementData?.total_squares || urlSquares) && (
+              {selectedRoofingType && totalSquaresWithWaste > 0 && (
                 <div className="mt-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-gray-700">Estimated Base Price</p>
                       <p className="text-xs text-gray-500">
-                        {measurementData?.total_squares?.toFixed(1) || urlSquares} squares × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
+                        {totalSquaresWithWaste.toFixed(1)} squares (incl. {wastePercent}% waste) × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
                       </p>
                     </div>
                     <p className="text-2xl font-bold text-indigo-600">
-                      ${((measurementData?.total_squares || parseFloat(urlSquares || '0')) * (selectedRoofingType?.price_per_square || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ${(totalSquaresWithWaste * (selectedRoofingType?.price_per_square || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </p>
                   </div>
                 </div>
@@ -893,7 +1007,7 @@ export default function ProposalBuilderPage() {
 
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(1)}
+                onClick={() => setStep(2)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
@@ -902,8 +1016,7 @@ export default function ProposalBuilderPage() {
                 onClick={() => {
                   // If tear-off is selected and an option is chosen, add it to line items
                   if (isTearOff === true && selectedTearOff) {
-                    const squares = measurementData?.total_squares || parseFloat(urlSquares || '0')
-                    const quantity = selectedTearOff.unit === 'square' ? squares : 1
+                    const quantity = selectedTearOff.unit === 'square' ? totalSquaresWithWaste : 1
                     const newLineItem: LineItem = {
                       id: crypto.randomUUID(),
                       pricebook_item_id: selectedTearOff.id,
@@ -922,7 +1035,7 @@ export default function ProposalBuilderPage() {
                       setLineItems(prev => [...prev, newLineItem])
                     }
                   }
-                  setStep(3)
+                  setStep(4)
                 }}
                 disabled={roofingTypes.length > 0 && !selectedRoofingType}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -933,8 +1046,8 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Step 3: Line Items / Pricing */}
-        {step === 3 && (
+        {/* Step 4: Line Items / Pricing */}
+        {step === 4 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Project Items</h2>
@@ -1034,13 +1147,13 @@ export default function ProposalBuilderPage() {
 
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(2)}
+                onClick={() => setStep(3)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
               </button>
               <button
-                onClick={() => setStep(4)}
+                onClick={() => setStep(5)}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
               >
                 Continue to Adders
@@ -1049,8 +1162,8 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Step 4: Adders */}
-        {step === 4 && (
+        {/* Step 5: Adders */}
+        {step === 5 && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Add-Ons & Upgrades</h2>
@@ -1142,13 +1255,13 @@ export default function ProposalBuilderPage() {
 
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
               </button>
               <button
-                onClick={() => setStep(5)}
+                onClick={() => setStep(6)}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
               >
                 Review Proposal
@@ -1157,8 +1270,8 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Step 5: Review */}
-        {step === 5 && (
+        {/* Step 6: Review */}
+        {step === 6 && (
           <div className="space-y-6">
             {/* Preview Card */}
             <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
@@ -1405,7 +1518,7 @@ export default function ProposalBuilderPage() {
             {/* Actions */}
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(4)}
+                onClick={() => setStep(5)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
