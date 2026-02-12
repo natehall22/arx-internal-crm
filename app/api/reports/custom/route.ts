@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch creator names separately to avoid foreign key issues
-    const creatorIds = [...new Set((reports || []).map(r => r.created_by).filter(Boolean))]
+    const creatorIds = Array.from(new Set((reports || []).map(r => r.created_by).filter(Boolean)))
     let creatorMap: Record<string, string> = {}
     
     if (creatorIds.length > 0) {
