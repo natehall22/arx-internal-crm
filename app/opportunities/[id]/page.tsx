@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import ContractUpload from '@/components/ContractUpload'
 
 export default async function OpportunityDetailPage({
   params,
@@ -116,146 +117,6 @@ export default async function OpportunityDetailPage({
     })
 
     revalidatePath(`/opportunities/${params.id}`)
-  }
-
-  const uploadSignedContract = async (formData: FormData) => {
-    'use server'
-    const { profile } = await requireAuth()
-    const supabase = createServiceClient()
-
-    const file = formData.get('signed_contract')
-    if (!(file instanceof File) || file.size === 0) return
-
-    let opportunityQuery = supabase
-      .from('opportunities')
-      .select('*, leads(*)')
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-
-    if (profile.role === 'rep') {
-      opportunityQuery = opportunityQuery.eq('owner_user_id', profile.id)
-    }
-
-    const { data: freshOpportunity } = await opportunityQuery.single()
-    if (!freshOpportunity) return
-
-    const { data: existingProject } = freshOpportunity.lead_id
-      ? await supabase
-          .from('projects')
-          .select('id')
-          .eq('lead_id', freshOpportunity.lead_id)
-          .maybeSingle()
-      : { data: null }
-
-    let customerId = freshOpportunity.customer_id
-    if (!customerId) {
-      const lead = freshOpportunity.leads
-      const { data: customer } = await supabase
-        .from('customers')
-        .insert({
-          org_id: profile.org_id,
-          name: lead?.homeowner_name ?? null,
-          phone: lead?.phone ?? null,
-          email: lead?.email ?? null,
-          address_text: lead?.address_text ?? null,
-        })
-        .select('*')
-        .single()
-
-      customerId = customer?.id ?? null
-    }
-
-    let projectId = existingProject?.id ?? null
-    if (!projectId) {
-      const { data: createdProject } = await supabase
-        .from('projects')
-        .insert({
-          org_id: profile.org_id,
-          customer_id: customerId,
-          lead_id: freshOpportunity.lead_id,
-          owner_user_id: freshOpportunity.owner_user_id,
-          status: 'open',
-          project_type: freshOpportunity.project_type,
-          address_text: freshOpportunity.address_text,
-          lat: freshOpportunity.lat,
-          lng: freshOpportunity.lng,
-          roof_squares: freshOpportunity.roof_squares,
-          siding_squares: freshOpportunity.siding_squares,
-          vents_count: freshOpportunity.vents_count,
-          layers: freshOpportunity.layers,
-          total_windows: freshOpportunity.total_windows,
-          windows_by_type: freshOpportunity.windows_by_type,
-          notes: freshOpportunity.notes,
-        })
-        .select('id')
-        .single()
-
-      projectId = createdProject?.id ?? null
-    }
-
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
-    const storagePath = `org/${profile.org_id}/opportunities/${params.id}/contracts/${Date.now()}_${file.name}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('files')
-      .upload(storagePath, fileBuffer, {
-        contentType: file.type,
-        upsert: false,
-      })
-
-    if (uploadError) {
-      console.error('Contract upload error:', uploadError)
-      return
-    }
-
-    await supabase.from('files').insert({
-      org_id: profile.org_id,
-      opportunity_id: params.id,
-      project_id: projectId,
-      customer_id: customerId,
-      user_id: profile.id,
-      storage_path: storagePath,
-      file_name: file.name,
-      mime_type: file.type,
-      tag: 'contract',
-    })
-
-    await supabase
-      .from('opportunities')
-      .update({ status: 'won', customer_id: customerId })
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-
-    if (freshOpportunity.lead_id) {
-      await supabase
-        .from('leads')
-        .update({ status: 'won' })
-        .eq('id', freshOpportunity.lead_id)
-        .eq('org_id', profile.org_id)
-    }
-
-    await supabase.from('activities').insert({
-      org_id: profile.org_id,
-      opportunity_id: params.id,
-      user_id: profile.id,
-      type: 'status_change',
-      body: 'Signed contract uploaded. Project created.',
-    })
-
-    if (projectId) {
-      await supabase.from('activities').insert({
-        org_id: profile.org_id,
-        project_id: projectId,
-        user_id: profile.id,
-        type: 'status_change',
-        body: 'Project created from signed contract.',
-      })
-    }
-
-    revalidatePath(`/opportunities/${params.id}`)
-    if (projectId) {
-      revalidatePath(`/projects/${projectId}`)
-    }
   }
 
   const markOpportunityLost = async () => {
@@ -549,25 +410,7 @@ export default async function OpportunityDetailPage({
           )}
         </div>
 
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Signed Contract</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Upload the signed contract to convert this opportunity into a project.
-          </p>
-          <form
-            action={uploadSignedContract}
-            className="flex flex-wrap items-center gap-3"
-            encType="multipart/form-data"
-          >
-            <input type="file" name="signed_contract" required />
-            <button
-              type="submit"
-              className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
-            >
-              Upload Signed Contract
-            </button>
-          </form>
-        </div>
+        <ContractUpload opportunityId={params.id} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white shadow rounded-lg p-6">

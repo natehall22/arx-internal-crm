@@ -86,6 +86,43 @@ const integrationProviders = [
     features: ['Solar potential', 'Roof data', 'Shade analysis', 'Free tier available'],
     setupUrl: 'https://developers.google.com/maps/documentation/solar',
   },
+  // E-Signature Providers
+  {
+    id: 'docusign',
+    name: 'DocuSign',
+    description: 'Industry-leading e-signature platform',
+    logo: '✍️',
+    category: 'E-Signature',
+    features: ['E-signatures', 'Contract management', 'Templates', 'Mobile signing'],
+    setupUrl: 'https://developers.docusign.com/',
+  },
+  {
+    id: 'pandadoc',
+    name: 'PandaDoc',
+    description: 'Document automation and e-signatures',
+    logo: '🐼',
+    category: 'E-Signature',
+    features: ['E-signatures', 'Document builder', 'Templates', 'Payments'],
+    setupUrl: 'https://developers.pandadoc.com/',
+  },
+  {
+    id: 'dropbox_sign',
+    name: 'Dropbox Sign',
+    description: 'Simple and secure e-signatures',
+    logo: '📝',
+    category: 'E-Signature',
+    features: ['E-signatures', 'Templates', 'Team management', 'API access'],
+    setupUrl: 'https://developers.hellosign.com/',
+  },
+  {
+    id: 'adobe_sign',
+    name: 'Adobe Acrobat Sign',
+    description: 'Enterprise e-signature solution',
+    logo: '🔴',
+    category: 'E-Signature',
+    features: ['E-signatures', 'Workflows', 'Compliance', 'Integrations'],
+    setupUrl: 'https://developer.adobe.com/document-services/apis/acrobat-sign/',
+  },
 ]
 
 export default function AdminIntegrationsPage() {
@@ -311,6 +348,75 @@ export default function AdminIntegrationsPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Solar Tools</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {integrationProviders.filter(p => p.category === 'Solar').map((provider) => {
+              const status = getIntegrationStatus(provider.id)
+              return (
+                <div key={provider.id} className="bg-white rounded-xl shadow-sm border p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center text-2xl">
+                        {provider.logo}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{provider.name}</h3>
+                        <p className="text-sm text-gray-500">{provider.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mb-4">
+                    <div className="flex flex-wrap gap-1">
+                      {provider.features.slice(0, 3).map((feature) => (
+                        <span key={feature} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                          {feature}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <span className={`flex items-center gap-1.5 text-sm ${
+                      status === 'connected' ? 'text-green-600' : 'text-gray-400'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${
+                        status === 'connected' ? 'bg-green-500' : 'bg-gray-300'
+                      }`} />
+                      {status === 'connected' ? 'Connected' : 'Not connected'}
+                    </span>
+                    {status === 'connected' ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openConfigModal(provider.id)}
+                          className="px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                        >
+                          Settings
+                        </button>
+                        <button
+                          onClick={() => disconnectIntegration(provider.id)}
+                          className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => openConfigModal(provider.id)}
+                        className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700"
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Category: E-Signature */}
+        <div className="mb-8" id="esign">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">E-Signature & Contracts</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {integrationProviders.filter(p => p.category === 'E-Signature').map((provider) => {
               const status = getIntegrationStatus(provider.id)
               return (
                 <div key={provider.id} className="bg-white rounded-xl shadow-sm border p-6">

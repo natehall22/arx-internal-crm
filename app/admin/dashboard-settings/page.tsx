@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 
@@ -25,8 +25,11 @@ interface SettingsRecord {
 }
 
 export default function DashboardSettingsPage() {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
   const [profile, setProfile] = useState<any>(null)
   const [regions, setRegions] = useState<any[]>([])
   const [teams, setTeams] = useState<any[]>([])
@@ -39,10 +42,8 @@ export default function DashboardSettingsPage() {
   })
   const [existingSettings, setExistingSettings] = useState<SettingsRecord | null>(null)
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
-    loadData()
+    loadInitialData()
   }, [])
 
   useEffect(() => {
@@ -51,44 +52,37 @@ export default function DashboardSettingsPage() {
     }
   }, [selectedScope, selectedRegionId, selectedTeamId, profile?.org_id])
 
-  const loadData = async () => {
+  const loadInitialData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data: profileData } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-
-      if (!profileData) return
-      setProfile(profileData)
-
-      // Check permissions
-      if (!['admin', 'regional_manager'].includes(profileData.role)) {
-        window.location.href = '/dashboard'
+      const response = await fetch('/api/admin/dashboard-settings')
+      
+      if (response.status === 401) {
+        router.push('/login')
         return
       }
-
-      // Load regions and teams
-      const { data: regionsData } = await supabase
-        .from('regions')
-        .select('*')
-        .eq('org_id', profileData.org_id)
-        .order('name')
-
-      setRegions(regionsData || [])
-
-      const { data: teamsData } = await supabase
-        .from('teams')
-        .select('*, regions(name)')
-        .eq('org_id', profileData.org_id)
-        .order('name')
-
-      setTeams(teamsData || [])
-    } catch (error) {
-      console.error('Error loading data:', error)
+      
+      if (response.status === 403) {
+        router.push('/dashboard')
+        return
+      }
+      
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to load data')
+      }
+      
+      const data = await response.json()
+      setProfile(data.profile)
+      setRegions(data.regions || [])
+      setTeams(data.teams || [])
+      
+      if (data.settings) {
+        setExistingSettings(data.settings)
+        setSettings(data.settings.settings)
+      }
+    } catch (err) {
+      console.error('Error loading data:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
       setLoading(false)
     }
@@ -96,65 +90,88 @@ export default function DashboardSettingsPage() {
 
   const loadSettingsForScope = async () => {
     if (!profile?.org_id) return
+    
+    // Don't load if scope requires selection but none made
+    if (selectedScope === 'region' && !selectedRegionId) return
+    if (selectedScope === 'team' && !selectedTeamId) return
 
-    let query = supabase
-      .from('dashboard_settings')
-      .select('*')
-      .eq('org_id', profile.org_id)
+    try {
+      const params = new URLSearchParams({ scope: selectedScope })
+      if (selectedScope === 'region' && selectedRegionId) {
+        params.set('region_id', selectedRegionId)
+      }
+      if (selectedScope === 'team' && selectedTeamId) {
+        params.set('team_id', selectedTeamId)
+      }
 
-    if (selectedScope === 'org') {
-      query = query.is('region_id', null).is('team_id', null).is('user_id', null)
-    } else if (selectedScope === 'region' && selectedRegionId) {
-      query = query.eq('region_id', selectedRegionId).is('team_id', null).is('user_id', null)
-    } else if (selectedScope === 'team' && selectedTeamId) {
-      query = query.eq('team_id', selectedTeamId).is('user_id', null)
-    } else {
-      return
-    }
-
-    const { data } = await query.single()
-
-    if (data) {
-      setExistingSettings(data)
-      setSettings(data.settings)
-    } else {
-      setExistingSettings(null)
-      setSettings({
-        widgets: ['stats', 'progress', 'appointments', 'activity'],
-        goals: { doors_knocked: 100, inspections: 20, sales: 5 },
-      })
+      const response = await fetch(`/api/admin/dashboard-settings?${params}`)
+      
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to load settings')
+      }
+      
+      const data = await response.json()
+      
+      if (data.settings) {
+        setExistingSettings(data.settings)
+        setSettings(data.settings.settings)
+      } else {
+        setExistingSettings(null)
+        setSettings({
+          widgets: ['stats', 'progress', 'appointments', 'activity'],
+          goals: { doors_knocked: 100, inspections: 20, sales: 5 },
+        })
+      }
+    } catch (err) {
+      console.error('Error loading settings:', err)
     }
   }
 
   const handleSave = async () => {
     if (!profile?.org_id) return
+    
+    // Validate scope selection
+    if (selectedScope === 'region' && !selectedRegionId) {
+      setError('Please select a region')
+      return
+    }
+    if (selectedScope === 'team' && !selectedTeamId) {
+      setError('Please select a team')
+      return
+    }
+    
     setSaving(true)
+    setError(null)
+    setSuccess(false)
 
     try {
-      const settingsData: any = {
-        org_id: profile.org_id,
-        settings,
-        region_id: selectedScope === 'region' ? selectedRegionId : null,
-        team_id: selectedScope === 'team' ? selectedTeamId : null,
-        user_id: null,
+      const response = await fetch('/api/admin/dashboard-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: selectedScope,
+          region_id: selectedScope === 'region' ? selectedRegionId : null,
+          team_id: selectedScope === 'team' ? selectedTeamId : null,
+          settings,
+          existing_id: existingSettings?.id || null,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save settings')
       }
 
-      if (existingSettings) {
-        await supabase
-          .from('dashboard_settings')
-          .update({ settings, updated_at: new Date().toISOString() })
-          .eq('id', existingSettings.id)
-      } else {
-        await supabase
-          .from('dashboard_settings')
-          .insert(settingsData)
-      }
-
-      alert('Settings saved successfully!')
-      loadSettingsForScope()
-    } catch (error) {
-      console.error('Error saving settings:', error)
-      alert('Failed to save settings')
+      setSuccess(true)
+      setExistingSettings(data.settings)
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(false), 3000)
+    } catch (err) {
+      console.error('Error saving settings:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save settings')
     } finally {
       setSaving(false)
     }
@@ -211,6 +228,19 @@ export default function DashboardSettingsPage() {
           </div>
         </div>
 
+        {/* Error/Success Messages */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+        
+        {success && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-sm text-green-700">Settings saved successfully!</p>
+          </div>
+        )}
+
         {/* Scope Selection */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Settings Scope</h2>
@@ -220,7 +250,11 @@ export default function DashboardSettingsPage() {
           
           <div className="grid grid-cols-3 gap-4 mb-4">
             <button
-              onClick={() => setSelectedScope('org')}
+              onClick={() => {
+                setSelectedScope('org')
+                setSelectedRegionId('')
+                setSelectedTeamId('')
+              }}
               className={`p-4 rounded-lg border-2 text-left transition-colors ${
                 selectedScope === 'org'
                   ? 'border-indigo-500 bg-indigo-50'
@@ -231,7 +265,10 @@ export default function DashboardSettingsPage() {
               <p className="text-sm text-gray-500">Default for all users</p>
             </button>
             <button
-              onClick={() => setSelectedScope('region')}
+              onClick={() => {
+                setSelectedScope('region')
+                setSelectedTeamId('')
+              }}
               className={`p-4 rounded-lg border-2 text-left transition-colors ${
                 selectedScope === 'region'
                   ? 'border-indigo-500 bg-indigo-50'
@@ -242,7 +279,10 @@ export default function DashboardSettingsPage() {
               <p className="text-sm text-gray-500">Override for a region</p>
             </button>
             <button
-              onClick={() => setSelectedScope('team')}
+              onClick={() => {
+                setSelectedScope('team')
+                setSelectedRegionId('')
+              }}
               className={`p-4 rounded-lg border-2 text-left transition-colors ${
                 selectedScope === 'team'
                   ? 'border-indigo-500 bg-indigo-50'
@@ -255,31 +295,45 @@ export default function DashboardSettingsPage() {
           </div>
 
           {selectedScope === 'region' && (
-            <select
-              value={selectedRegionId}
-              onChange={(e) => setSelectedRegionId(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">Select a region...</option>
-              {regions.map(region => (
-                <option key={region.id} value={region.id}>{region.name}</option>
-              ))}
-            </select>
+            <div>
+              <select
+                value={selectedRegionId}
+                onChange={(e) => setSelectedRegionId(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select a region...</option>
+                {regions.map(region => (
+                  <option key={region.id} value={region.id}>{region.name}</option>
+                ))}
+              </select>
+              {regions.length === 0 && (
+                <p className="text-sm text-amber-600 mt-2">
+                  No regions found. <Link href="/admin/teams" className="underline">Create regions first</Link>.
+                </p>
+              )}
+            </div>
           )}
 
           {selectedScope === 'team' && (
-            <select
-              value={selectedTeamId}
-              onChange={(e) => setSelectedTeamId(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">Select a team...</option>
-              {teams.map(team => (
-                <option key={team.id} value={team.id}>
-                  {team.name} {team.regions?.name ? `(${team.regions.name})` : ''}
-                </option>
-              ))}
-            </select>
+            <div>
+              <select
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select a team...</option>
+                {teams.map(team => (
+                  <option key={team.id} value={team.id}>
+                    {team.name} {team.regions?.name ? `(${team.regions.name})` : ''}
+                  </option>
+                ))}
+              </select>
+              {teams.length === 0 && (
+                <p className="text-sm text-amber-600 mt-2">
+                  No teams found. <Link href="/admin/teams" className="underline">Create teams first</Link>.
+                </p>
+              )}
+            </div>
           )}
         </div>
 
@@ -369,13 +423,28 @@ export default function DashboardSettingsPage() {
         </div>
 
         {/* Save Button */}
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-4">
+          {existingSettings && (
+            <span className="text-sm text-gray-500 self-center">
+              Last updated: {new Date(existingSettings.settings ? Date.now() : 0).toLocaleDateString()}
+            </span>
+          )}
           <button
             onClick={handleSave}
             disabled={saving || (selectedScope === 'region' && !selectedRegionId) || (selectedScope === 'team' && !selectedTeamId)}
-            className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            {saving ? 'Saving...' : 'Save Settings'}
+            {saving ? (
+              <>
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Saving...
+              </>
+            ) : (
+              'Save Settings'
+            )}
           </button>
         </div>
       </div>

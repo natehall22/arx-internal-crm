@@ -17,6 +17,8 @@ function getAdminClient() {
 
 // POST - Create a new lead from external source
 export async function POST(request: NextRequest) {
+  console.log('=== Webhook Lead Request ===')
+  
   try {
     // Check for API key authentication
     const authHeader = request.headers.get('authorization')
@@ -27,14 +29,23 @@ export async function POST(request: NextRequest) {
     const providedKey = authHeader?.replace('Bearer ', '') || apiKey
     
     if (!webhookSecret) {
-      console.error('WEBHOOK_SECRET or LEADS_WEBHOOK_SECRET not configured')
-      // For initial setup, allow requests but log warning
       console.warn('WARNING: Webhook endpoint is not secured. Set WEBHOOK_SECRET in environment variables.')
-    } else if (providedKey !== webhookSecret) {
+      // For initial setup, allow requests but log warning
+    } else if (providedKey && providedKey !== webhookSecret) {
+      console.error('Invalid API key provided')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await request.json()
+    let body: any
+    try {
+      body = await request.json()
+      console.log('Received payload:', JSON.stringify(body, null, 2))
+    } catch (parseError) {
+      console.error('Failed to parse JSON body:', parseError)
+      return NextResponse.json({ 
+        error: 'Invalid JSON in request body' 
+      }, { status: 400 })
+    }
     
     // Required fields
     const {
@@ -64,23 +75,43 @@ export async function POST(request: NextRequest) {
     } = body
 
     if (!org_id) {
+      console.error('Missing org_id in payload')
       return NextResponse.json({ 
         error: 'org_id is required. Get your org_id from the admin settings.' 
+      }, { status: 400 })
+    }
+
+    // Validate org_id format (should be a UUID)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(org_id)) {
+      console.error('Invalid org_id format:', org_id)
+      return NextResponse.json({ 
+        error: 'Invalid org_id format. Must be a valid UUID.' 
       }, { status: 400 })
     }
 
     const adminClient = getAdminClient()
 
     // Verify org exists
-    const { data: org } = await adminClient
+    const { data: org, error: orgError } = await adminClient
       .from('orgs')
       .select('id, settings')
       .eq('id', org_id)
       .single()
 
-    if (!org) {
-      return NextResponse.json({ error: 'Invalid org_id' }, { status: 400 })
+    if (orgError) {
+      console.error('Org lookup error:', orgError)
+      return NextResponse.json({ 
+        error: `Failed to verify org: ${orgError.message}` 
+      }, { status: 500 })
     }
+
+    if (!org) {
+      console.error('Org not found for id:', org_id)
+      return NextResponse.json({ error: 'Invalid org_id - organization not found' }, { status: 400 })
+    }
+
+    console.log('Found org:', org.id)
 
     // Build the full name
     let fullName = homeowner_name || name
@@ -128,39 +159,75 @@ export async function POST(request: NextRequest) {
       ownerUserId = adminUser?.id || null
     }
 
-    // Create the lead
-    const { data: lead, error: leadError } = await adminClient
+    // Build lead data - only include fields that exist
+    const leadData: Record<string, any> = {
+      org_id,
+      owner_user_id: ownerUserId,
+      homeowner_name: fullName || null,
+      phone: phone || null,
+      email: email || null,
+      address_text: fullAddress || null,
+      source: source || 'web',
+      status: 'new',
+      notes: leadNotes.trim() || null,
+    }
+
+    // Try to create the lead with channel field first
+    let lead: { id: string } | null = null
+    let leadError: any = null
+
+    // First attempt: with channel field
+    const { data: leadWithChannel, error: errorWithChannel } = await adminClient
       .from('leads')
-      .insert({
-        org_id,
-        owner_user_id: ownerUserId,
-        homeowner_name: fullName || null,
-        phone: phone || null,
-        email: email || null,
-        address_text: fullAddress || null,
-        source: source || 'web',
-        channel: 'inbound',
-        status: 'new',
-        notes: leadNotes.trim() || null,
-      })
+      .insert({ ...leadData, channel: 'inbound' })
       .select('id')
       .single()
+
+    if (errorWithChannel) {
+      // If channel column doesn't exist, try without it
+      if (errorWithChannel.message?.includes('channel') || errorWithChannel.code === '42703') {
+        console.log('Channel column not found, inserting without it')
+        const { data: leadWithoutChannel, error: errorWithoutChannel } = await adminClient
+          .from('leads')
+          .insert(leadData)
+          .select('id')
+          .single()
+        
+        lead = leadWithoutChannel
+        leadError = errorWithoutChannel
+      } else {
+        leadError = errorWithChannel
+      }
+    } else {
+      lead = leadWithChannel
+    }
 
     if (leadError) {
       console.error('Lead creation error:', leadError)
       return NextResponse.json({ 
         error: `Failed to create lead: ${leadError.message}` 
-      }, { status: 400 })
+      }, { status: 500 })
     }
 
-    // Create an activity for the new lead
-    await adminClient.from('activities').insert({
-      org_id,
-      lead_id: lead.id,
-      user_id: ownerUserId,
-      type: 'lead_created',
-      body: `New web lead received: ${fullName || 'Unknown'}`,
-    })
+    if (!lead) {
+      return NextResponse.json({ 
+        error: 'Failed to create lead: Unknown error' 
+      }, { status: 500 })
+    }
+
+    // Create an activity for the new lead (use 'note' type which is valid in the enum)
+    try {
+      await adminClient.from('activities').insert({
+        org_id,
+        lead_id: lead.id,
+        user_id: ownerUserId,
+        type: 'note',
+        body: `New web lead received: ${fullName || 'Unknown'}`,
+      })
+    } catch (activityError) {
+      console.log('Could not create activity:', activityError)
+      // Non-critical, continue
+    }
 
     // Create a notification for the assigned user (if notifications table exists)
     try {
@@ -178,6 +245,8 @@ export async function POST(request: NextRequest) {
       console.log('Could not create notification (table may not exist)')
     }
 
+    console.log('Lead created successfully:', lead.id)
+    
     return NextResponse.json({ 
       success: true,
       lead_id: lead.id,
@@ -185,8 +254,10 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Webhook error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Failed to process lead'
     return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Failed to process lead' 
+      error: errorMessage,
+      details: error instanceof Error ? error.stack : undefined
     }, { status: 500 })
   }
 }
