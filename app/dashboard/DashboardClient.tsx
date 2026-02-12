@@ -113,14 +113,23 @@ export default function DashboardClient({
       
       // Load data for each report
       for (const report of data.reports || []) {
-        const dataRes = await fetch('/api/reports/custom', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ report_id: report.id }),
-        })
-        if (dataRes.ok) {
-          const result = await dataRes.json()
-          setReportData(prev => ({ ...prev, [report.id]: result.data || [] }))
+        try {
+          const dataRes = await fetch('/api/reports/custom', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ report_id: report.id }),
+          })
+          if (dataRes.ok) {
+            const result = await dataRes.json()
+            console.log(`Report "${report.name}" data:`, result.data?.length || 0, 'items', result.data)
+            setReportData(prev => ({ ...prev, [report.id]: result.data || [] }))
+          } else {
+            console.error(`Failed to load data for report "${report.name}":`, await dataRes.text())
+            setReportData(prev => ({ ...prev, [report.id]: [] }))
+          }
+        } catch (err) {
+          console.error(`Error loading report "${report.name}":`, err)
+          setReportData(prev => ({ ...prev, [report.id]: [] }))
         }
       }
     } catch (error) {
@@ -578,10 +587,15 @@ export default function DashboardClient({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {customReports.slice(0, 4).map((report) => {
                     const data = reportData[report.id] || []
-                    const maxValue = Math.max(...data.map(d => d.value), 1)
+                    const maxValue = Math.max(...data.map((d: any) => d.value || 0), 1)
+                    const isLoading = !reportData[report.id]
                     
                     return (
-                      <div key={report.id} className="border rounded-lg p-4">
+                      <Link 
+                        key={report.id} 
+                        href={`/reports?tab=custom&report=${report.id}`}
+                        className="border rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
+                      >
                         <div className="flex items-center gap-2 mb-3">
                           <span className="text-lg">
                             {report.report_type === 'bar_chart' ? '📊' : 
@@ -592,31 +606,44 @@ export default function DashboardClient({
                           <h3 className="font-medium text-gray-900 text-sm">{report.name}</h3>
                         </div>
                         
-                        {report.report_type === 'metric_card' ? (
+                        {isLoading ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600" />
+                          </div>
+                        ) : data.length === 0 ? (
+                          <div className="text-center py-4">
+                            <p className="text-sm text-gray-500">No data for this period</p>
+                          </div>
+                        ) : report.report_type === 'metric_card' ? (
                           <div className="text-center py-2">
                             <p className="text-3xl font-bold text-indigo-600">
-                              {data[0]?.value?.toLocaleString() || 0}
+                              {(data[0]?.value || 0).toLocaleString()}
                             </p>
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {data.slice(0, 3).map((item, idx) => (
+                            {data.slice(0, 3).map((item: any, idx: number) => (
                               <div key={idx}>
                                 <div className="flex justify-between text-xs mb-1">
-                                  <span className="text-gray-600 truncate">{item.label}</span>
-                                  <span className="font-medium text-gray-900">{item.value}</span>
+                                  <span className="text-gray-600 truncate">{item.label || 'Unknown'}</span>
+                                  <span className="font-medium text-gray-900">{(item.value || 0).toLocaleString()}</span>
                                 </div>
                                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-indigo-500 rounded-full"
-                                    style={{ width: `${(item.value / maxValue) * 100}%` }}
+                                    style={{ width: `${((item.value || 0) / maxValue) * 100}%` }}
                                   />
                                 </div>
                               </div>
                             ))}
+                            {data.length > 3 && (
+                              <p className="text-xs text-gray-400 text-center pt-1">
+                                +{data.length - 3} more
+                              </p>
+                            )}
                           </div>
                         )}
-                      </div>
+                      </Link>
                     )
                   })}
                 </div>
