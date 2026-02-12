@@ -375,18 +375,25 @@ export default function ProposalBuilderPage() {
   }
 
   const calculateTotals = () => {
-    const subtotal = lineItems.reduce((sum, item) => sum + item.line_total, 0)
+    const subtotal = lineItems.reduce((sum, item) => sum + (item.line_total || 0), 0)
     const discountAmount = form.discount_percent > 0 
       ? subtotal * (form.discount_percent / 100)
-      : form.discount_amount
+      : (form.discount_amount || 0)
     const afterDiscount = subtotal - discountAmount
-    const taxAmount = afterDiscount * (form.tax_rate / 100)
+    const taxAmount = afterDiscount * ((form.tax_rate || 0) / 100)
     const total = afterDiscount + taxAmount
     const monthlyPayment = form.financing_available 
-      ? calculateMonthlyPayment(total, form.financing_rate, form.financing_term_months)
+      ? calculateMonthlyPayment(total, form.financing_rate || 0, form.financing_term_months || 60)
       : 0
 
-    return { subtotal, discountAmount, afterDiscount, taxAmount, total, monthlyPayment }
+    return { 
+      subtotal: subtotal || 0, 
+      discountAmount: discountAmount || 0, 
+      afterDiscount: afterDiscount || 0, 
+      taxAmount: taxAmount || 0, 
+      total: total || 0, 
+      monthlyPayment: monthlyPayment || 0 
+    }
   }
 
   const calculateMonthlyPayment = (principal: number, annualRate: number, months: number) => {
@@ -477,7 +484,8 @@ export default function ProposalBuilderPage() {
     }
   }
 
-  const totals = calculateTotals()
+  // Calculate totals with fallback for safety
+  const totals = calculateTotals() || { subtotal: 0, discountAmount: 0, afterDiscount: 0, taxAmount: 0, total: 0, monthlyPayment: 0 }
 
   if (loading) {
     return (
