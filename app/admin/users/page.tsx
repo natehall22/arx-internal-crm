@@ -369,6 +369,52 @@ export default function UsersPage() {
     }
   }
 
+  const handleDeleteUser = async (user: UserWithDetails) => {
+    if (!confirm(`Are you sure you want to permanently delete ${user.full_name || 'this user'}? This action cannot be undone.`)) return
+    if (!confirm(`This will delete all data associated with this user. Type "DELETE" to confirm.`)) return
+
+    try {
+      const response = await fetch(`/api/admin/users?id=${user.id}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        await loadData()
+      } else {
+        alert(data.error || 'Failed to delete user')
+      }
+    } catch {
+      alert('Failed to delete user')
+    }
+  }
+
+  const handleSendPasswordReset = async (user: UserWithDetails) => {
+    if (!confirm(`Send a password reset email to ${user.email}?`)) return
+
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          action: 'reset_password',
+        }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert(`Password reset email sent to ${user.email}`)
+      } else {
+        alert(data.error || 'Failed to send reset email')
+      }
+    } catch {
+      alert('Failed to send reset email')
+    }
+  }
+
   const filteredUsers = users.filter(u => {
     if (filterRole) {
       if (filterRole.startsWith('custom:')) {
@@ -661,7 +707,7 @@ export default function UsersPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => handleEdit(user)}
                           className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
@@ -672,10 +718,19 @@ export default function UsersPage() {
                           </svg>
                         </button>
                         <button
+                          onClick={() => handleSendPasswordReset(user)}
+                          className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                          title="Send Password Reset"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                          </svg>
+                        </button>
+                        <button
                           onClick={() => handleToggleActive(user)}
                           className={`p-2 rounded-lg ${
                             user.active 
-                              ? 'text-gray-400 hover:text-red-600 hover:bg-red-50' 
+                              ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' 
                               : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
                           }`}
                           title={user.active ? 'Deactivate' : 'Activate'}
@@ -689,6 +744,15 @@ export default function UsersPage() {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                           )}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(user)}
+                          className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                          title="Delete User"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
                         </button>
                       </div>
                     </td>

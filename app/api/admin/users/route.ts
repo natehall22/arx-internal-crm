@@ -351,3 +351,166 @@ export async function PUT(request: NextRequest) {
 
   return NextResponse.json({ success: true })
 }
+
+// DELETE - Delete a user
+export async function DELETE(request: NextRequest) {
+  try {
+    const { client: authClient, accessToken } = getAuthClient(request)
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    const { data: { user } } = await authClient.auth.getUser(accessToken)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('role, org_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const userId = searchParams.get('id')
+
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
+    }
+
+    // Prevent self-deletion
+    if (userId === user.id) {
+      return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 })
+    }
+
+    // Verify target user is in same org
+    const { data: targetUser } = await adminClient
+      .from('users')
+      .select('org_id, email')
+      .eq('id', userId)
+      .single()
+
+    if (!targetUser || targetUser.org_id !== profile.org_id) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    // Delete user permissions first
+    await adminClient
+      .from('user_permissions')
+      .delete()
+      .eq('user_id', userId)
+
+    // Delete user profile
+    const { error: profileDeleteError } = await adminClient
+      .from('users')
+      .delete()
+      .eq('id', userId)
+
+    if (profileDeleteError) {
+      console.error('Profile delete error:', profileDeleteError)
+      return NextResponse.json({ error: 'Failed to delete user profile' }, { status: 500 })
+    }
+
+    // Delete auth user
+    const { error: authDeleteError } = await adminClient.auth.admin.deleteUser(userId)
+
+    if (authDeleteError) {
+      console.error('Auth delete error:', authDeleteError)
+      // Profile already deleted, so just log the error
+    }
+
+    return NextResponse.json({ success: true })
+
+  } catch (error) {
+    console.error('Delete user error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+// PATCH - Send password reset email
+export async function PATCH(request: NextRequest) {
+  try {
+    const { client: authClient, accessToken } = getAuthClient(request)
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    const { data: { user } } = await authClient.auth.getUser(accessToken)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('role, org_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
+    }
+
+    const body = await request.json()
+    const { userId, action } = body
+
+    if (!userId || action !== 'reset_password') {
+      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    }
+
+    // Verify target user is in same org
+    const { data: targetUser } = await adminClient
+      .from('users')
+      .select('org_id, email')
+      .eq('id', userId)
+      .single()
+
+    if (!targetUser || targetUser.org_id !== profile.org_id) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    // Generate password reset link using Supabase Admin API
+    const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+      type: 'recovery',
+      email: targetUser.email,
+    })
+
+    if (linkError) {
+      console.error('Generate link error:', linkError)
+      return NextResponse.json({ error: 'Failed to generate reset link' }, { status: 500 })
+    }
+
+    // The link is in linkData.properties.action_link
+    // We need to send an email with this link
+    // For now, we'll use Supabase's built-in email sending via resetPasswordForEmail
+    
+    // Use the anon client to trigger the email (this uses Supabase's email templates)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const anonClient = createClient(supabaseUrl, supabaseAnonKey)
+    
+    const { error: resetError } = await anonClient.auth.resetPasswordForEmail(targetUser.email, {
+      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'}/reset-password`,
+    })
+
+    if (resetError) {
+      console.error('Reset password error:', resetError)
+      return NextResponse.json({ error: 'Failed to send reset email' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, message: 'Password reset email sent' })
+
+  } catch (error) {
+    console.error('Password reset error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
