@@ -91,11 +91,11 @@ async function syncToGoogleCalendar(
       location: addressText || undefined,
       start: {
         dateTime: startTime.toISOString(),
-        timeZone: 'America/Chicago',
+        timeZone: 'America/New_York',
       },
       end: {
         dateTime: endTime.toISOString(),
-        timeZone: 'America/Chicago',
+        timeZone: 'America/New_York',
       },
     }
 
@@ -143,11 +143,11 @@ async function syncToSetterCalendar(
       location: addressText || undefined,
       start: {
         dateTime: startTime.toISOString(),
-        timeZone: 'America/Chicago',
+        timeZone: 'America/New_York',
       },
       end: {
         dateTime: endTime.toISOString(),
-        timeZone: 'America/Chicago',
+        timeZone: 'America/New_York',
       },
     }
 

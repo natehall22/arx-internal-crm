@@ -166,11 +166,11 @@ export async function POST(request: NextRequest) {
       location: address_text || undefined,
       start: {
         dateTime: startTime.toISOString(),
-        timeZone: 'America/Chicago', // TODO: Make configurable
+        timeZone: 'America/New_York', // TODO: Make configurable
       },
       end: {
         dateTime: endTime.toISOString(),
-        timeZone: 'America/Chicago',
+        timeZone: 'America/New_York',
       },
     }
 

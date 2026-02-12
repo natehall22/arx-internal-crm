@@ -121,11 +121,11 @@ export async function assignNextAvailableCloser(
               location: address,
               start: {
                 dateTime: scheduledFor.toISOString(),
-                timeZone: 'America/Chicago', // TODO: Make configurable
+                timeZone: 'America/New_York', // TODO: Make configurable
               },
               end: {
                 dateTime: endTime.toISOString(),
-                timeZone: 'America/Chicago',
+                timeZone: 'America/New_York',
               },
             })
             googleEventId = event.id
