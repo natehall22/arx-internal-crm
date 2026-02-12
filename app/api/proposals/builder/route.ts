@@ -138,8 +138,10 @@ export async function GET(request: NextRequest) {
       opportunity = opp
     }
 
-    // Load measurement data if provided
+    // Load measurement data
     let measurement = null
+    
+    // First try explicit measurement_id
     if (measurementId) {
       const { data: meas } = await adminClient
         .from('roof_measurements')
@@ -147,6 +149,32 @@ export async function GET(request: NextRequest) {
         .eq('id', measurementId)
         .single()
       measurement = meas
+    }
+    
+    // If no measurement yet, try to find one linked to the opportunity
+    if (!measurement && opportunityId) {
+      const { data: oppMeasurement } = await adminClient
+        .from('roof_measurements')
+        .select('*')
+        .eq('opportunity_id', opportunityId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      
+      if (oppMeasurement) {
+        measurement = oppMeasurement
+      }
+    }
+    
+    // If still no measurement but opportunity has roof_squares, create a virtual measurement object
+    if (!measurement && opportunity?.roof_squares) {
+      measurement = {
+        id: 'from-opportunity',
+        total_squares: opportunity.roof_squares,
+        total_area_sqft: opportunity.roof_squares * 100,
+        address_text: opportunity.address_text || opportunity.leads?.address_text,
+        source: 'opportunity',
+      }
     }
 
     // Load roofing types
