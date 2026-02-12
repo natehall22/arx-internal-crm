@@ -287,9 +287,14 @@ export default function ReportBuilderPage() {
       }
 
       router.push('/reports')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving report:', error)
-      alert('Failed to save report')
+      const errorMessage = error?.message || error?.error_description || 'Unknown error'
+      if (errorMessage.includes('custom_reports') || errorMessage.includes('relation')) {
+        alert('Failed to save report: The reports table has not been set up. Please ask your admin to run the database migration.')
+      } else {
+        alert(`Failed to save report: ${errorMessage}`)
+      }
     } finally {
       setSaving(false)
     }

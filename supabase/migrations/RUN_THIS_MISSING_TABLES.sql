@@ -108,7 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_adder_categories_org ON adder_categories(org_id);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS canvass_pin_visibility TEXT DEFAULT 'org';
 
 -- ============================================
--- 4b. LEAD CHANNEL ENUM AND COLUMN
+-- 5. LEAD CHANNEL ENUM AND COLUMN
 -- ============================================
 
 -- Create lead_channel enum if not exists
@@ -123,7 +123,7 @@ END $$;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS channel lead_channel DEFAULT 'outbound';
 
 -- ============================================
--- 5. DASHBOARD SETTINGS
+-- 6. DASHBOARD SETTINGS
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS dashboard_settings (
@@ -142,7 +142,7 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_settings_region ON dashboard_settings(r
 CREATE INDEX IF NOT EXISTS idx_dashboard_settings_team ON dashboard_settings(team_id);
 CREATE INDEX IF NOT EXISTS idx_dashboard_settings_user ON dashboard_settings(user_id);
 
--- Add unique constraint if not exists (ignore error if already exists)
+-- Add unique constraint if not exists
 DO $$ 
 BEGIN
   ALTER TABLE dashboard_settings ADD CONSTRAINT dashboard_settings_scope_unique 
@@ -153,67 +153,7 @@ EXCEPTION
 END $$;
 
 -- ============================================
--- 6. RLS POLICIES (safe to run multiple times)
--- ============================================
-
-ALTER TABLE regions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE adder_categories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dashboard_settings ENABLE ROW LEVEL SECURITY;
-
--- Drop and recreate policies (safe way)
-DROP POLICY IF EXISTS "Users can view regions in their org" ON regions;
-CREATE POLICY "Users can view regions in their org"
-  ON regions FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Users can view teams in their org" ON teams;
-CREATE POLICY "Users can view teams in their org"
-  ON teams FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Users can manage their settings" ON user_settings;
-CREATE POLICY "Users can manage their settings"
-  ON user_settings FOR ALL
-  USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can view adder categories" ON adder_categories;
-CREATE POLICY "Users can view adder categories"
-  ON adder_categories FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Users can view dashboard settings in their org" ON dashboard_settings;
-CREATE POLICY "Users can view dashboard settings in their org"
-  ON dashboard_settings FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Admins and managers can manage dashboard settings" ON dashboard_settings;
-CREATE POLICY "Admins and managers can manage dashboard settings"
-  ON dashboard_settings FOR ALL
-  USING (org_id = get_user_org_id(auth.uid()));
-
--- ============================================
--- 7. INSERT DEFAULT ADDER CATEGORIES
--- ============================================
-
--- Only insert if table is empty for this org
-INSERT INTO adder_categories (org_id, name, description, sort_order)
-SELECT o.id, cat.name, cat.description, cat.sort_order
-FROM orgs o
-CROSS JOIN (VALUES 
-  ('Upgrades', 'Premium upgrades and enhancements', 1),
-  ('Repairs', 'Additional repair work', 2),
-  ('Materials', 'Extra materials and supplies', 3),
-  ('Labor', 'Additional labor charges', 4),
-  ('Other', 'Miscellaneous charges', 5)
-) AS cat(name, description, sort_order)
-WHERE NOT EXISTS (
-  SELECT 1 FROM adder_categories ac WHERE ac.org_id = o.id
-);
-
--- ============================================
--- 8. SCHEDULED APPOINTMENTS
+-- 7. SCHEDULED APPOINTMENTS
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS scheduled_appointments (
@@ -234,16 +174,16 @@ CREATE TABLE IF NOT EXISTS scheduled_appointments (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Add appointment_type column if table already exists
 ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS appointment_type TEXT DEFAULT 'inspection';
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_closer ON scheduled_appointments(closer_user_id, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_lead ON scheduled_appointments(lead_id);
 CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_opportunity ON scheduled_appointments(opportunity_id);
 CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_org ON scheduled_appointments(org_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_status ON scheduled_appointments(status, scheduled_for);
 
 -- ============================================
--- 9. PENDING STATUS PROMPTS (for feedback)
+-- 8. PENDING STATUS PROMPTS (for feedback)
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS pending_status_prompts (
@@ -261,7 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_pending_prompts_closer ON pending_status_prompts(
 CREATE INDEX IF NOT EXISTS idx_pending_prompts_appointment ON pending_status_prompts(appointment_id);
 
 -- ============================================
--- 10. INSPECTION STATUS UPDATES
+-- 9. INSPECTION STATUS UPDATES
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS inspection_status_updates (
@@ -283,7 +223,7 @@ CREATE INDEX IF NOT EXISTS idx_inspection_updates_appointment ON inspection_stat
 CREATE INDEX IF NOT EXISTS idx_inspection_updates_opportunity ON inspection_status_updates(opportunity_id);
 
 -- ============================================
--- 11. APPOINTMENT TYPES (org settings)
+-- 10. APPOINTMENT TYPES
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS appointment_types (
@@ -316,144 +256,251 @@ WHERE NOT EXISTS (
 );
 
 -- ============================================
--- 12. RLS POLICIES FOR NEW TABLES
+-- 11. CUSTOM REPORTS
 -- ============================================
 
+-- Create report_type enum if not exists
+DO $$ 
+BEGIN
+  CREATE TYPE report_type AS ENUM ('metric_card', 'bar_chart', 'line_chart', 'pie_chart', 'table', 'funnel');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Create report_data_source enum if not exists
+DO $$ 
+BEGIN
+  CREATE TYPE report_data_source AS ENUM ('leads', 'opportunities', 'projects', 'appointments', 'inspection_outcomes');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS custom_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  report_type report_type NOT NULL DEFAULT 'bar_chart',
+  data_source report_data_source NOT NULL DEFAULT 'leads',
+  config JSONB NOT NULL DEFAULT '{}',
+  is_public BOOLEAN NOT NULL DEFAULT false,
+  is_dashboard_widget BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_custom_reports_org ON custom_reports(org_id);
+CREATE INDEX IF NOT EXISTS idx_custom_reports_creator ON custom_reports(created_by);
+CREATE INDEX IF NOT EXISTS idx_custom_reports_dashboard ON custom_reports(org_id) WHERE is_dashboard_widget = true;
+
+-- Report role access
+CREATE TABLE IF NOT EXISTS report_role_access (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  report_id UUID NOT NULL REFERENCES custom_reports(id) ON DELETE CASCADE,
+  role TEXT,
+  custom_role_id UUID,
+  can_view BOOLEAN NOT NULL DEFAULT true,
+  can_edit BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_role_access_report ON report_role_access(report_id);
+
+-- Report schedules
+CREATE TABLE IF NOT EXISTS report_schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  report_id UUID NOT NULL REFERENCES custom_reports(id) ON DELETE CASCADE,
+  schedule_type TEXT NOT NULL DEFAULT 'daily',
+  schedule_time TIME DEFAULT '08:00',
+  schedule_day INTEGER,
+  recipients JSONB DEFAULT '[]',
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  last_sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_schedules_report ON report_schedules(report_id);
+
+-- ============================================
+-- 12. INSERT DEFAULT ADDER CATEGORIES
+-- ============================================
+
+INSERT INTO adder_categories (org_id, name, description, sort_order)
+SELECT o.id, cat.name, cat.description, cat.sort_order
+FROM orgs o
+CROSS JOIN (VALUES 
+  ('Upgrades', 'Premium upgrades and enhancements', 1),
+  ('Repairs', 'Additional repair work', 2),
+  ('Materials', 'Extra materials and supplies', 3),
+  ('Labor', 'Additional labor charges', 4),
+  ('Other', 'Miscellaneous charges', 5)
+) AS cat(name, description, sort_order)
+WHERE NOT EXISTS (
+  SELECT 1 FROM adder_categories ac WHERE ac.org_id = o.id
+);
+
+-- ============================================
+-- 13. RLS POLICIES
+-- ============================================
+
+ALTER TABLE regions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE adder_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dashboard_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scheduled_appointments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pending_status_prompts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inspection_status_updates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE appointment_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE report_role_access ENABLE ROW LEVEL SECURITY;
+ALTER TABLE report_schedules ENABLE ROW LEVEL SECURITY;
 
+-- Regions
+DROP POLICY IF EXISTS "Users can view regions in their org" ON regions;
+CREATE POLICY "Users can view regions in their org"
+  ON regions FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Admins can manage regions" ON regions;
+CREATE POLICY "Admins can manage regions"
+  ON regions FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Teams
+DROP POLICY IF EXISTS "Users can view teams in their org" ON teams;
+CREATE POLICY "Users can view teams in their org"
+  ON teams FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Admins can manage teams" ON teams;
+CREATE POLICY "Admins can manage teams"
+  ON teams FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- User settings
+DROP POLICY IF EXISTS "Users can manage their settings" ON user_settings;
+CREATE POLICY "Users can manage their settings"
+  ON user_settings FOR ALL
+  USING (user_id = auth.uid());
+
+-- Adder categories
+DROP POLICY IF EXISTS "Users can view adder categories" ON adder_categories;
+CREATE POLICY "Users can view adder categories"
+  ON adder_categories FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Dashboard settings
+DROP POLICY IF EXISTS "Users can view dashboard settings in their org" ON dashboard_settings;
+CREATE POLICY "Users can view dashboard settings in their org"
+  ON dashboard_settings FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Admins and managers can manage dashboard settings" ON dashboard_settings;
+CREATE POLICY "Admins and managers can manage dashboard settings"
+  ON dashboard_settings FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Scheduled appointments
 DROP POLICY IF EXISTS "Users can view appointments in their org" ON scheduled_appointments;
 CREATE POLICY "Users can view appointments in their org"
   ON scheduled_appointments FOR SELECT
   USING (org_id = get_user_org_id(auth.uid()));
 
+DROP POLICY IF EXISTS "Users can manage appointments in their org" ON scheduled_appointments;
+CREATE POLICY "Users can manage appointments in their org"
+  ON scheduled_appointments FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Pending status prompts
 DROP POLICY IF EXISTS "Users can manage their prompts" ON pending_status_prompts;
 CREATE POLICY "Users can manage their prompts"
   ON pending_status_prompts FOR ALL
   USING (closer_user_id = auth.uid());
 
+-- Inspection status updates
 DROP POLICY IF EXISTS "Users can view inspection updates in their org" ON inspection_status_updates;
 CREATE POLICY "Users can view inspection updates in their org"
   ON inspection_status_updates FOR SELECT
   USING (org_id = get_user_org_id(auth.uid()));
 
+DROP POLICY IF EXISTS "Users can create inspection updates" ON inspection_status_updates;
+CREATE POLICY "Users can create inspection updates"
+  ON inspection_status_updates FOR INSERT
+  WITH CHECK (org_id = get_user_org_id(auth.uid()));
+
+-- Appointment types
 DROP POLICY IF EXISTS "Users can view appointment types in their org" ON appointment_types;
 CREATE POLICY "Users can view appointment types in their org"
   ON appointment_types FOR SELECT
   USING (org_id = get_user_org_id(auth.uid()));
 
--- ============================================
--- 8. SCHEDULED APPOINTMENTS & FEEDBACK
--- ============================================
-
--- Create scheduled_appointments table if not exists
-CREATE TABLE IF NOT EXISTS scheduled_appointments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
-  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
-  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  canvasser_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  google_event_id TEXT,
-  scheduled_for TIMESTAMPTZ NOT NULL,
-  duration_minutes INTEGER NOT NULL DEFAULT 60,
-  status TEXT NOT NULL DEFAULT 'scheduled',
-  address_text TEXT,
-  notes TEXT,
-  appointment_type TEXT DEFAULT 'inspection',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_closer ON scheduled_appointments(closer_user_id, scheduled_for);
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_lead ON scheduled_appointments(lead_id);
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_org ON scheduled_appointments(org_id);
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_status ON scheduled_appointments(status, scheduled_for);
-
--- Add appointment_type column if table already exists
-ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS appointment_type TEXT DEFAULT 'inspection';
-
--- Create pending_status_prompts table for feedback triggers
-CREATE TABLE IF NOT EXISTS pending_status_prompts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  appointment_id UUID NOT NULL REFERENCES scheduled_appointments(id) ON DELETE CASCADE,
-  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  prompt_at TIMESTAMPTZ NOT NULL,
-  completed BOOLEAN NOT NULL DEFAULT false,
-  dismissed BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_pending_prompts_closer ON pending_status_prompts(closer_user_id, completed, dismissed);
-CREATE INDEX IF NOT EXISTS idx_pending_prompts_appointment ON pending_status_prompts(appointment_id);
-
--- Create inspection_status_updates table for tracking feedback
-CREATE TABLE IF NOT EXISTS inspection_status_updates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  appointment_id UUID REFERENCES scheduled_appointments(id) ON DELETE SET NULL,
-  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
-  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
-  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  setter_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  outcome TEXT NOT NULL,
-  notes TEXT,
-  setter_feedback TEXT,
-  prompted_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_inspection_updates_appointment ON inspection_status_updates(appointment_id);
-CREATE INDEX IF NOT EXISTS idx_inspection_updates_opportunity ON inspection_status_updates(opportunity_id);
-
--- ============================================
--- 9. APPOINTMENT TYPES (ORG SETTINGS)
--- ============================================
-
--- Appointment types are stored in org_settings JSON
--- Add appointment_types to org_settings if needed
--- This is handled via the API, no table needed
-
--- ============================================
--- 10. RLS POLICIES FOR NEW TABLES
--- ============================================
-
-ALTER TABLE scheduled_appointments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pending_status_prompts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inspection_status_updates ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can view appointments in their org" ON scheduled_appointments;
-CREATE POLICY "Users can view appointments in their org"
-  ON scheduled_appointments FOR SELECT
+DROP POLICY IF EXISTS "Admins can manage appointment types" ON appointment_types;
+CREATE POLICY "Admins can manage appointment types"
+  ON appointment_types FOR ALL
   USING (org_id = get_user_org_id(auth.uid()));
 
-DROP POLICY IF EXISTS "Users can manage their appointments" ON scheduled_appointments;
-CREATE POLICY "Users can manage their appointments"
-  ON scheduled_appointments FOR ALL
+-- Custom reports
+DROP POLICY IF EXISTS "Users can view reports in their org" ON custom_reports;
+CREATE POLICY "Users can view reports in their org"
+  ON custom_reports FOR SELECT
   USING (org_id = get_user_org_id(auth.uid()));
 
-DROP POLICY IF EXISTS "Users can view their prompts" ON pending_status_prompts;
-CREATE POLICY "Users can view their prompts"
-  ON pending_status_prompts FOR SELECT
-  USING (closer_user_id = auth.uid());
+DROP POLICY IF EXISTS "Users can manage their own reports" ON custom_reports;
+CREATE POLICY "Users can manage their own reports"
+  ON custom_reports FOR ALL
+  USING (
+    org_id = get_user_org_id(auth.uid()) 
+    AND (created_by = auth.uid() OR is_public = true)
+  );
 
-DROP POLICY IF EXISTS "Users can update their prompts" ON pending_status_prompts;
-CREATE POLICY "Users can update their prompts"
-  ON pending_status_prompts FOR UPDATE
-  USING (closer_user_id = auth.uid());
+-- Report role access
+DROP POLICY IF EXISTS "Users can view report access" ON report_role_access;
+CREATE POLICY "Users can view report access"
+  ON report_role_access FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM custom_reports cr 
+      WHERE cr.id = report_role_access.report_id 
+      AND cr.org_id = get_user_org_id(auth.uid())
+    )
+  );
 
-DROP POLICY IF EXISTS "Users can view status updates in their org" ON inspection_status_updates;
-CREATE POLICY "Users can view status updates in their org"
-  ON inspection_status_updates FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
+DROP POLICY IF EXISTS "Report owners can manage access" ON report_role_access;
+CREATE POLICY "Report owners can manage access"
+  ON report_role_access FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM custom_reports cr 
+      WHERE cr.id = report_role_access.report_id 
+      AND cr.created_by = auth.uid()
+    )
+  );
 
-DROP POLICY IF EXISTS "Users can create status updates" ON inspection_status_updates;
-CREATE POLICY "Users can create status updates"
-  ON inspection_status_updates FOR INSERT
-  WITH CHECK (org_id = get_user_org_id(auth.uid()));
+-- Report schedules
+DROP POLICY IF EXISTS "Users can view report schedules" ON report_schedules;
+CREATE POLICY "Users can view report schedules"
+  ON report_schedules FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM custom_reports cr 
+      WHERE cr.id = report_schedules.report_id 
+      AND cr.org_id = get_user_org_id(auth.uid())
+    )
+  );
+
+DROP POLICY IF EXISTS "Report owners can manage schedules" ON report_schedules;
+CREATE POLICY "Report owners can manage schedules"
+  ON report_schedules FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM custom_reports cr 
+      WHERE cr.id = report_schedules.report_id 
+      AND cr.created_by = auth.uid()
+    )
+  );
 
 -- Done!
 SELECT 'Migration completed successfully!' as status;
