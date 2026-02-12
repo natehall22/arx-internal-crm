@@ -128,6 +128,9 @@ export default function ProposalBuilderPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
   const [roofingTypes, setRoofingTypes] = useState<RoofingType[]>([])
   const [selectedRoofingType, setSelectedRoofingType] = useState<RoofingType | null>(null)
+  const [isTearOff, setIsTearOff] = useState<boolean | null>(null)
+  const [tearOffOptions, setTearOffOptions] = useState<PricebookItem[]>([])
+  const [selectedTearOff, setSelectedTearOff] = useState<PricebookItem | null>(null)
 
   useEffect(() => {
     loadData()
@@ -786,6 +789,106 @@ export default function ProposalBuilderPage() {
                   </div>
                 </div>
               )}
+
+              {/* Tear-off Question - shown after roofing type is selected */}
+              {selectedRoofingType && (
+                <div className="mt-8 p-6 bg-amber-50 border border-amber-200 rounded-xl">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Is this a tear-off job?</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Does the existing roof need to be removed before installing the new roof?
+                  </p>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => {
+                        setIsTearOff(true)
+                        // Filter adders that are tear-off related
+                        const tearOffAdders = adders.filter(a => 
+                          a.name.toLowerCase().includes('tear') || 
+                          a.name.toLowerCase().includes('removal') ||
+                          a.adder_category?.toLowerCase() === 'tear-off' ||
+                          a.adder_category?.toLowerCase() === 'tearoff'
+                        )
+                        setTearOffOptions(tearOffAdders)
+                      }}
+                      className={`flex-1 py-4 px-6 rounded-xl font-semibold border-2 transition-all ${
+                        isTearOff === true
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Yes, Tear-off Required
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsTearOff(false)
+                        setSelectedTearOff(null)
+                        setTearOffOptions([])
+                      }}
+                      className={`flex-1 py-4 px-6 rounded-xl font-semibold border-2 transition-all ${
+                        isTearOff === false
+                          ? 'bg-gray-600 text-white border-gray-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        No, Overlay/New
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Tear-off Options - shown when tear-off is selected */}
+                  {isTearOff === true && tearOffOptions.length > 0 && (
+                    <div className="mt-6">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Select Tear-off Option:</h4>
+                      <div className="space-y-2">
+                        {tearOffOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            onClick={() => setSelectedTearOff(option)}
+                            className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+                              selectedTearOff?.id === option.id
+                                ? 'bg-amber-100 border-amber-500'
+                                : 'bg-white border-gray-200 hover:border-amber-300'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="font-medium text-gray-900">{option.name}</p>
+                                <p className="text-sm text-gray-500">
+                                  ${(option.unit_price || 0).toLocaleString()} / {option.unit}
+                                </p>
+                              </div>
+                              {selectedTearOff?.id === option.id && (
+                                <svg className="w-6 h-6 text-amber-600" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                </svg>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Message when no tear-off options are configured */}
+                  {isTearOff === true && tearOffOptions.length === 0 && (
+                    <div className="mt-4 p-4 bg-white rounded-lg border border-amber-200">
+                      <p className="text-sm text-amber-700">
+                        <strong>Note:</strong> No tear-off options are configured. You can add tear-off line items manually in the next step, 
+                        or ask your admin to create tear-off adders in Admin → Proposal Settings → Adders.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex justify-between">
@@ -796,7 +899,31 @@ export default function ProposalBuilderPage() {
                 Back
               </button>
               <button
-                onClick={() => setStep(3)}
+                onClick={() => {
+                  // If tear-off is selected and an option is chosen, add it to line items
+                  if (isTearOff === true && selectedTearOff) {
+                    const squares = measurementData?.total_squares || parseFloat(urlSquares || '0')
+                    const quantity = selectedTearOff.unit === 'square' ? squares : 1
+                    const newLineItem: LineItem = {
+                      id: crypto.randomUUID(),
+                      pricebook_item_id: selectedTearOff.id,
+                      category: 'Tear-off',
+                      name: selectedTearOff.name,
+                      description: 'Removal of existing roofing material',
+                      unit: selectedTearOff.unit,
+                      quantity: quantity,
+                      unit_price: selectedTearOff.unit_price,
+                      line_total: quantity * selectedTearOff.unit_price,
+                      is_adder: true,
+                    }
+                    // Check if tear-off already exists
+                    const existingTearOff = lineItems.find(item => item.category === 'Tear-off')
+                    if (!existingTearOff) {
+                      setLineItems(prev => [...prev, newLineItem])
+                    }
+                  }
+                  setStep(3)
+                }}
                 disabled={roofingTypes.length > 0 && !selectedRoofingType}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
