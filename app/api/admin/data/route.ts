@@ -339,7 +339,8 @@ export async function POST(request: NextRequest) {
         .insert({ 
           name: data.name, 
           org_id: profile.org_id,
-          region_id: data.region_id || null
+          region_id: data.region_id || null,
+          timezone: data.timezone || 'America/New_York'
         })
 
       if (error) {
@@ -488,7 +489,8 @@ export async function PATCH(request: NextRequest) {
         .from('teams')
         .update({ 
           name: data.name,
-          region_id: data.region_id || null
+          region_id: data.region_id || null,
+          timezone: data.timezone || 'America/New_York'
         })
         .eq('id', id)
         .eq('org_id', profile.org_id)

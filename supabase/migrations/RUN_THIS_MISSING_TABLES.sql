@@ -23,9 +23,13 @@ CREATE TABLE IF NOT EXISTS teams (
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
   region_id UUID REFERENCES regions(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
+  timezone TEXT DEFAULT 'America/New_York',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add timezone column if table already exists
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'America/New_York';
 
 CREATE INDEX IF NOT EXISTS idx_teams_org_id ON teams(org_id);
 CREATE INDEX IF NOT EXISTS idx_teams_region_id ON teams(region_id);

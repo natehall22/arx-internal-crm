@@ -23,8 +23,19 @@ export default function TeamsPage() {
   const [editingTeam, setEditingTeam] = useState<TeamWithDetails | null>(null)
   const [formName, setFormName] = useState('')
   const [formRegionId, setFormRegionId] = useState('')
+  const [formTimezone, setFormTimezone] = useState('America/New_York')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Common US timezones
+  const timezones = [
+    { value: 'America/New_York', label: 'Eastern Time (ET) - New York, Charlotte' },
+    { value: 'America/Chicago', label: 'Central Time (CT) - Chicago, Dallas' },
+    { value: 'America/Denver', label: 'Mountain Time (MT) - Denver, Phoenix' },
+    { value: 'America/Los_Angeles', label: 'Pacific Time (PT) - Los Angeles, Seattle' },
+    { value: 'America/Anchorage', label: 'Alaska Time (AKT)' },
+    { value: 'Pacific/Honolulu', label: 'Hawaii Time (HT)' },
+  ]
 
   useEffect(() => {
     loadData()
@@ -80,6 +91,7 @@ export default function TeamsPage() {
           resource: 'team',
           name: formName.trim(),
           region_id: formRegionId || null,
+          timezone: formTimezone,
         }),
       })
 
@@ -90,6 +102,7 @@ export default function TeamsPage() {
         setShowCreateModal(false)
         setFormName('')
         setFormRegionId('')
+        setFormTimezone('America/New_York')
         await loadData()
       }
     } catch (err) {
@@ -116,6 +129,7 @@ export default function TeamsPage() {
           id: editingTeam.id,
           name: formName.trim(),
           region_id: formRegionId || null,
+          timezone: formTimezone,
         }),
       })
 
@@ -126,6 +140,7 @@ export default function TeamsPage() {
         setEditingTeam(null)
         setFormName('')
         setFormRegionId('')
+        setFormTimezone('America/New_York')
         await loadData()
       }
     } catch (err) {
@@ -163,6 +178,7 @@ export default function TeamsPage() {
     setEditingTeam(team)
     setFormName(team.name)
     setFormRegionId(team.region_id || '')
+    setFormTimezone((team as any).timezone || 'America/New_York')
     setError(null)
   }
 
@@ -171,6 +187,7 @@ export default function TeamsPage() {
     setEditingTeam(null)
     setFormName('')
     setFormRegionId('')
+    setFormTimezone('America/New_York')
     setError(null)
   }
 
@@ -277,6 +294,9 @@ export default function TeamsPage() {
                     <p className="text-sm text-gray-500">
                       {team.members.length} member{team.members.length !== 1 ? 's' : ''}
                     </p>
+                    <p className="text-xs text-gray-400">
+                      {timezones.find(tz => tz.value === (team as any).timezone)?.label?.split(' - ')[0] || 'Eastern Time (ET)'}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Link
@@ -382,6 +402,26 @@ export default function TeamsPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Timezone
+                  </label>
+                  <select
+                    value={formTimezone}
+                    onChange={(e) => setFormTimezone(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                  >
+                    {timezones.map((tz) => (
+                      <option key={tz.value} value={tz.value}>
+                        {tz.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Used for calendar scheduling. Default is Eastern Time (Charlotte, NC).
+                  </p>
                 </div>
               </div>
 

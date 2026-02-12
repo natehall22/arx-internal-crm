@@ -34,11 +34,26 @@ export async function assignNextAvailableCloser(
   opportunityId?: string,
   address?: string,
   canvasserUserId?: string,
-  orgId?: string
+  orgId?: string,
+  timezone?: string
 ): Promise<AssignmentResult> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   try {
+    // Get team timezone if not provided
+    let teamTimezone = timezone || 'America/New_York'
+    if (!timezone) {
+      const { data: team } = await supabase
+        .from('teams')
+        .select('timezone')
+        .eq('id', teamId)
+        .single()
+      
+      if (team?.timezone) {
+        teamTimezone = team.timezone
+      }
+    }
+
     // Get active closers in priority order
     const { data: closers, error: closersError } = await supabase
       .from('team_closer_queue')
@@ -121,11 +136,11 @@ export async function assignNextAvailableCloser(
               location: address,
               start: {
                 dateTime: scheduledFor.toISOString(),
-                timeZone: 'America/New_York', // TODO: Make configurable
+                timeZone: teamTimezone,
               },
               end: {
                 dateTime: endTime.toISOString(),
-                timeZone: 'America/New_York',
+                timeZone: teamTimezone,
               },
             })
             googleEventId = event.id

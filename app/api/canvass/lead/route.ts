@@ -57,6 +57,33 @@ async function getValidAccessToken(adminClient: any, userId: string): Promise<st
   return tokenData.access_token
 }
 
+// Helper to get timezone for a user based on their team
+async function getTimezoneForUser(adminClient: any, userId: string): Promise<string> {
+  try {
+    const { data: userProfile } = await adminClient
+      .from('users')
+      .select('team_id')
+      .eq('id', userId)
+      .single()
+    
+    if (userProfile?.team_id) {
+      const { data: team } = await adminClient
+        .from('teams')
+        .select('timezone')
+        .eq('id', userProfile.team_id)
+        .single()
+      
+      if (team?.timezone) {
+        return team.timezone
+      }
+    }
+  } catch (e) {
+    console.log('Could not fetch team timezone, using default')
+  }
+  
+  return 'America/New_York' // Default to Eastern
+}
+
 // Helper to sync appointment to Google Calendar for closer
 async function syncToGoogleCalendar(
   adminClient: any,
@@ -77,6 +104,9 @@ async function syncToGoogleCalendar(
       return { synced: false, error: 'Closer does not have Google Calendar connected' }
     }
 
+    // Get timezone from closer's team
+    const timezone = await getTimezoneForUser(adminClient, closerUserId)
+
     const startTime = new Date(scheduledFor)
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
 
@@ -91,11 +121,11 @@ async function syncToGoogleCalendar(
       location: addressText || undefined,
       start: {
         dateTime: startTime.toISOString(),
-        timeZone: 'America/New_York',
+        timeZone: timezone,
       },
       end: {
         dateTime: endTime.toISOString(),
-        timeZone: 'America/New_York',
+        timeZone: timezone,
       },
     }
 
@@ -127,6 +157,9 @@ async function syncToSetterCalendar(
       return { synced: false, error: 'Setter does not have Google Calendar connected' }
     }
 
+    // Get timezone from setter's team
+    const timezone = await getTimezoneForUser(adminClient, setterUserId)
+
     const startTime = new Date(scheduledFor)
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
 
@@ -143,11 +176,11 @@ async function syncToSetterCalendar(
       location: addressText || undefined,
       start: {
         dateTime: startTime.toISOString(),
-        timeZone: 'America/New_York',
+        timeZone: timezone,
       },
       end: {
         dateTime: endTime.toISOString(),
-        timeZone: 'America/New_York',
+        timeZone: timezone,
       },
     }
 

@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
       notes,
       lead_id,
       opportunity_id,
+      timezone: providedTimezone,
     } = body
 
     if (!closer_user_id || !scheduled_for) {
@@ -151,6 +152,30 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Get timezone from closer's team, or use provided timezone, or default to Eastern
+    let timezone = providedTimezone || 'America/New_York'
+    
+    if (!providedTimezone) {
+      // Try to get timezone from closer's team
+      const { data: closerProfile } = await adminClient
+        .from('users')
+        .select('team_id')
+        .eq('id', closer_user_id)
+        .single()
+      
+      if (closerProfile?.team_id) {
+        const { data: team } = await adminClient
+          .from('teams')
+          .select('timezone')
+          .eq('id', closerProfile.team_id)
+          .single()
+        
+        if (team?.timezone) {
+          timezone = team.timezone
+        }
+      }
+    }
+
     // Create calendar event
     const startTime = new Date(scheduled_for)
     const endTime = new Date(startTime.getTime() + duration_minutes * 60 * 1000)
@@ -166,11 +191,11 @@ export async function POST(request: NextRequest) {
       location: address_text || undefined,
       start: {
         dateTime: startTime.toISOString(),
-        timeZone: 'America/New_York', // TODO: Make configurable
+        timeZone: timezone,
       },
       end: {
         dateTime: endTime.toISOString(),
-        timeZone: 'America/New_York',
+        timeZone: timezone,
       },
     }
 
