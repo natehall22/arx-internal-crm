@@ -128,8 +128,14 @@ export async function POST(request: NextRequest) {
     // Build and execute query based on data source
     let data: any[] = []
     let tableName = ''
+    let additionalFilter: { column: string; op: string; value: any } | null = null
 
     switch (dataSource) {
+      case 'canvass_activity':
+        // Canvass activity = leads with a canvass_disposition (doors knocked)
+        tableName = 'leads'
+        additionalFilter = { column: 'canvass_disposition', op: 'not.is', value: null }
+        break
       case 'leads':
         tableName = 'leads'
         break
@@ -150,15 +156,51 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch raw data
-    const { data: rawData, error: dataError } = await supabase
+    let query = supabase
       .from(tableName)
       .select('*')
       .eq('org_id', profile.org_id)
       .gte('created_at', dateFilter)
 
+    // Apply additional filter for canvass_activity
+    if (additionalFilter) {
+      query = query.not(additionalFilter.column, 'is', null)
+    }
+
+    const { data: rawData, error: dataError } = await query
+
     if (dataError) {
       console.error('Data fetch error:', dataError)
       return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 })
+    }
+
+    // Helper to format disposition labels
+    const formatDispositionLabel = (key: string): string => {
+      const labels: Record<string, string> = {
+        'not_home': 'Not Home',
+        'bad_roof': 'Bad Roof',
+        'renter': 'Renter',
+        'go_back': 'Go Back',
+        'hot_lead': 'Hot Lead',
+        'not_interested': 'Not Interested',
+        'inspection': 'Inspection Set',
+      }
+      return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    }
+
+    // Fetch user names if grouping by user
+    let userNames: Record<string, string> = {}
+    if (groupBy && (groupBy.includes('user_id') || groupBy === 'owner_user_id')) {
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, full_name')
+        .eq('org_id', profile.org_id)
+      
+      if (users) {
+        users.forEach(u => {
+          userNames[u.id] = u.full_name || 'Unknown'
+        })
+      }
     }
 
     // Process data based on groupBy and aggregation
@@ -181,8 +223,16 @@ export async function POST(request: NextRequest) {
           value = rows.length > 0 ? sum / rows.length : 0
         }
 
+        // Format label based on groupBy type
+        let label = key
+        if (groupBy === 'canvass_disposition') {
+          label = formatDispositionLabel(key)
+        } else if (groupBy.includes('user_id') || groupBy === 'owner_user_id') {
+          label = userNames[key] || 'Unknown'
+        }
+
         return {
-          label: key,
+          label,
           value,
           count: rows.length,
         }

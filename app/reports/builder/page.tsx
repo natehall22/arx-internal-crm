@@ -15,10 +15,20 @@ const reportTypes: { id: ReportType; label: string; icon: string; description: s
   { id: 'funnel', label: 'Funnel', icon: '🔻', description: 'Show conversion stages' },
 ]
 
-const dataSources: { id: ReportDataSource; label: string; columns: { id: string; label: string; type: string }[] }[] = [
+const dataSources: { id: ReportDataSource | 'canvass_activity'; label: string; columns: { id: string; label: string; type: string }[] }[] = [
+  { 
+    id: 'canvass_activity', 
+    label: 'Canvass Activity (Doors Knocked)',
+    columns: [
+      { id: 'count', label: 'Count', type: 'number' },
+      { id: 'canvass_disposition', label: 'Disposition', type: 'string' },
+      { id: 'owner_user_id', label: 'Rep', type: 'user' },
+      { id: 'created_at', label: 'Date', type: 'date' },
+    ]
+  },
   { 
     id: 'leads', 
-    label: 'Leads',
+    label: 'All Leads',
     columns: [
       { id: 'count', label: 'Count', type: 'number' },
       { id: 'status', label: 'Status', type: 'string' },
@@ -201,6 +211,11 @@ export default function ReportBuilderPage() {
   const handleSave = async () => {
     if (!name.trim()) {
       alert('Please enter a report name')
+      return
+    }
+
+    if (!currentUser?.org_id) {
+      alert('Unable to save report: User profile not loaded. Please refresh the page and try again.')
       return
     }
 
