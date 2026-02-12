@@ -203,6 +203,7 @@ export default function AdminPricingPage() {
       unit_price: '',
       material_cost: '',
       labor_cost: '',
+      profit_margin_percent: '',
       warranty_years: '25',
       color: '#4f46e5',
     })
