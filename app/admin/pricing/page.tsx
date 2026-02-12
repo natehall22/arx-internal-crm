@@ -13,6 +13,7 @@ interface RoofingType {
   unit_price: number
   material_cost: number | null
   labor_cost: number | null
+  profit_margin_percent: number | null
   default_warranty_years: number
   color: string
   is_default: boolean
@@ -60,6 +61,7 @@ export default function AdminPricingPage() {
     unit_price: '',
     material_cost: '',
     labor_cost: '',
+    profit_margin_percent: '',
     warranty_years: '25',
     color: '#4f46e5',
   })
@@ -103,8 +105,20 @@ export default function AdminPricingPage() {
   }
 
   const saveRoofingType = async () => {
-    if (!typeForm.name || !typeForm.unit_price) {
-      alert('Please enter a name and price')
+    // Calculate unit_price from costs + profit margin if costs are provided
+    const materialCost = parseFloat(typeForm.material_cost) || 0
+    const laborCost = parseFloat(typeForm.labor_cost) || 0
+    const profitMargin = parseFloat(typeForm.profit_margin_percent) || 0
+    const totalCost = materialCost + laborCost
+    
+    // If costs and profit margin are set, calculate the selling price
+    let finalUnitPrice = parseFloat(typeForm.unit_price) || 0
+    if (totalCost > 0 && profitMargin > 0) {
+      finalUnitPrice = totalCost * (1 + profitMargin / 100)
+    }
+
+    if (!typeForm.name || finalUnitPrice <= 0) {
+      alert('Please enter a name and either set costs + profit margin, or enter a price directly')
       return
     }
 
@@ -115,9 +129,10 @@ export default function AdminPricingPage() {
         ...(editingType && { id: editingType.id }),
         name: typeForm.name,
         pricing_unit: typeForm.pricing_unit,
-        unit_price: typeForm.unit_price,
+        unit_price: finalUnitPrice,
         material_cost: typeForm.material_cost || null,
         labor_cost: typeForm.labor_cost || null,
+        profit_margin_percent: typeForm.profit_margin_percent || null,
         default_warranty_years: typeForm.warranty_years || '25',
         color: typeForm.color,
         is_default: roofingTypes.length === 0, // First one is default
@@ -199,11 +214,12 @@ export default function AdminPricingPage() {
     setTypeForm({
       name: type.name,
       pricing_unit: type.pricing_unit || 'square',
-      unit_price: type.unit_price.toString(),
+      unit_price: type.unit_price?.toString() || '',
       material_cost: type.material_cost?.toString() || '',
       labor_cost: type.labor_cost?.toString() || '',
-      warranty_years: type.default_warranty_years.toString(),
-      color: type.color,
+      profit_margin_percent: type.profit_margin_percent?.toString() || '',
+      warranty_years: type.default_warranty_years?.toString() || '25',
+      color: type.color || '#4f46e5',
     })
     setShowAddType(true)
   }
@@ -213,11 +229,12 @@ export default function AdminPricingPage() {
     setEditingType(null)
   }
 
-  // Calculate profit margin
-  const calculateMargin = (price: number, material: number | null, labor: number | null) => {
+  // Calculate selling price from cost + profit margin
+  const calculateSellingPrice = (material: number | null, labor: number | null, profitPercent: number | null) => {
     const cost = (material || 0) + (labor || 0)
     if (cost === 0) return null
-    return ((price - cost) / price * 100).toFixed(0)
+    const markup = profitPercent || 0
+    return cost * (1 + markup / 100)
   }
 
   // Get placeholder based on unit
@@ -296,7 +313,7 @@ export default function AdminPricingPage() {
           ) : (
             <div className="space-y-3">
               {roofingTypes.map((type) => {
-                const margin = calculateMargin(type.unit_price, type.material_cost, type.labor_cost)
+                const cost = (type.material_cost || 0) + (type.labor_cost || 0)
                 return (
                   <div
                     key={type.id}
@@ -324,15 +341,22 @@ export default function AdminPricingPage() {
                         </div>
                         <p className="text-sm text-gray-500">
                           {type.default_warranty_years} year warranty
-                          {margin && <span className="ml-2 text-green-600">• {margin}% margin</span>}
+                          {type.profit_margin_percent != null && (
+                            <span className="ml-2 text-green-600 font-medium">• {type.profit_margin_percent}% profit</span>
+                          )}
                         </p>
+                        {cost > 0 && (
+                          <p className="text-xs text-gray-400">
+                            Cost: ${cost.toLocaleString()} → Sells at ${(type.unit_price || 0).toLocaleString()}
+                          </p>
+                        )}
                       </div>
                     </div>
                     
                     <div className="flex items-center gap-6">
                       <div className="text-right">
                         <p className="text-2xl font-bold" style={{ color: type.color }}>
-                          ${type.unit_price.toLocaleString(undefined, { minimumFractionDigits: type.pricing_unit === 'square' ? 0 : 2 })}
+                          ${(type.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: type.pricing_unit === 'square' ? 0 : 2 })}
                         </p>
                         <p className="text-xs text-gray-400">{UNIT_LABELS[type.pricing_unit] || 'per square'}</p>
                       </div>
@@ -550,31 +574,12 @@ export default function AdminPricingPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Price {UNIT_SHORT[typeForm.pricing_unit]} *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={typeForm.unit_price}
-                    onChange={(e) => setTypeForm(prev => ({ ...prev, unit_price: e.target.value }))}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-lg font-semibold"
-                    placeholder={getPricePlaceholder(typeForm.pricing_unit)}
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  This is what you charge customers {UNIT_LABELS[typeForm.pricing_unit]}.
-                </p>
-              </div>
-
+              {/* Cost inputs */}
               <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm font-medium text-gray-700 mb-3">Your Costs (optional - for margin tracking)</p>
+                <p className="text-sm font-medium text-gray-700 mb-3">Your Costs</p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Material Cost</label>
+                    <label className="block text-xs text-gray-500 mb-1">Material Cost {UNIT_SHORT[typeForm.pricing_unit]}</label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                       <input
@@ -588,7 +593,7 @@ export default function AdminPricingPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Labor Cost</label>
+                    <label className="block text-xs text-gray-500 mb-1">Labor Cost {UNIT_SHORT[typeForm.pricing_unit]}</label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                       <input
@@ -602,20 +607,91 @@ export default function AdminPricingPage() {
                     </div>
                   </div>
                 </div>
-                {typeForm.unit_price && (typeForm.material_cost || typeForm.labor_cost) && (
+                {(typeForm.material_cost || typeForm.labor_cost) && (
                   <div className="mt-3 pt-3 border-t border-gray-200">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Your margin:</span>
-                      <span className="font-semibold text-green-600">
-                        {calculateMargin(
-                          parseFloat(typeForm.unit_price) || 0,
-                          parseFloat(typeForm.material_cost) || null,
-                          parseFloat(typeForm.labor_cost) || null
-                        )}%
+                      <span className="text-gray-600">Total Cost:</span>
+                      <span className="font-semibold text-gray-900">
+                        ${((parseFloat(typeForm.material_cost) || 0) + (parseFloat(typeForm.labor_cost) || 0)).toFixed(2)}
                       </span>
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Profit Margin - Admin Only */}
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm font-medium text-green-800">
+                    Profit Markup
+                  </label>
+                  <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                    Admin Only
+                  </span>
+                </div>
+                <p className="text-xs text-green-600 mb-3">
+                  This percentage is added to your costs to calculate the selling price. (0-1000%)
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="1000"
+                    value={typeForm.profit_margin_percent}
+                    onChange={(e) => setTypeForm(prev => ({ ...prev, profit_margin_percent: e.target.value }))}
+                    className="w-24 px-3 py-2 border border-green-300 rounded-lg text-right bg-white text-lg font-semibold"
+                    placeholder="35"
+                  />
+                  <span className="text-green-700 font-medium text-lg">%</span>
+                </div>
+              </div>
+
+              {/* Calculated Selling Price */}
+              {(typeForm.material_cost || typeForm.labor_cost) && typeForm.profit_margin_percent && (
+                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-medium text-indigo-800">Calculated Selling Price</p>
+                      <p className="text-xs text-indigo-600">
+                        Cost ${((parseFloat(typeForm.material_cost) || 0) + (parseFloat(typeForm.labor_cost) || 0)).toFixed(2)} + {typeForm.profit_margin_percent}% markup
+                      </p>
+                    </div>
+                    <p className="text-2xl font-bold text-indigo-700">
+                      ${(((parseFloat(typeForm.material_cost) || 0) + (parseFloat(typeForm.labor_cost) || 0)) * (1 + (parseFloat(typeForm.profit_margin_percent) || 0) / 100)).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Or set price directly */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white text-gray-500">or set price directly</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Selling Price {UNIT_SHORT[typeForm.pricing_unit]}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={typeForm.unit_price}
+                    onChange={(e) => setTypeForm(prev => ({ ...prev, unit_price: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-lg font-semibold"
+                    placeholder={getPricePlaceholder(typeForm.pricing_unit)}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Override the calculated price or enter directly if not using cost + markup.
+                </p>
               </div>
 
               <div className="flex items-center justify-between">

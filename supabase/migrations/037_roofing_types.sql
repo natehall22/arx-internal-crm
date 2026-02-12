@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS roofing_types (
   unit_price NUMERIC(10, 2) NOT NULL DEFAULT 350.00,
   material_cost NUMERIC(10, 2),
   labor_cost NUMERIC(10, 2),
+  -- Profit margin percentage (0-1000%)
+  profit_margin_percent NUMERIC(6, 2),
   -- Labor multipliers (some roofing types take longer)
   labor_multiplier NUMERIC(4, 2) DEFAULT 1.00,
   -- Warranty info
@@ -169,6 +171,9 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Add profit_margin_percent column if it doesn't exist (for existing tables)
+ALTER TABLE roofing_types ADD COLUMN IF NOT EXISTS profit_margin_percent NUMERIC(6, 2);
 
 -- Update trigger for updated_at
 CREATE OR REPLACE FUNCTION update_roofing_types_updated_at()

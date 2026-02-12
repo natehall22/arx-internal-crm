@@ -154,6 +154,7 @@ export async function POST(request: NextRequest) {
         unit_price: parseFloat(body.unit_price) || 350,
         material_cost: body.material_cost ? parseFloat(body.material_cost) : null,
         labor_cost: body.labor_cost ? parseFloat(body.labor_cost) : null,
+        profit_margin_percent: body.profit_margin_percent ? parseFloat(body.profit_margin_percent) : null,
         labor_multiplier: parseFloat(body.labor_multiplier) || 1.0,
         default_warranty_years: parseInt(body.default_warranty_years) || 10,
         default_warranty_text: body.default_warranty_text || null,
@@ -225,6 +226,7 @@ export async function PATCH(request: NextRequest) {
     if (updates.unit_price !== undefined) updateData.unit_price = parseFloat(updates.unit_price)
     if (updates.material_cost !== undefined) updateData.material_cost = updates.material_cost ? parseFloat(updates.material_cost) : null
     if (updates.labor_cost !== undefined) updateData.labor_cost = updates.labor_cost ? parseFloat(updates.labor_cost) : null
+    if (updates.profit_margin_percent !== undefined) updateData.profit_margin_percent = updates.profit_margin_percent ? parseFloat(updates.profit_margin_percent) : null
     if (updates.labor_multiplier !== undefined) updateData.labor_multiplier = parseFloat(updates.labor_multiplier)
     if (updates.default_warranty_years !== undefined) updateData.default_warranty_years = parseInt(updates.default_warranty_years)
     if (updates.default_warranty_text !== undefined) updateData.default_warranty_text = updates.default_warranty_text
