@@ -70,9 +70,14 @@ export default function AdminProposalsPage() {
     unit_price: '',
     adder_category: 'Other',
     price_type: 'fixed' as 'fixed' | 'percentage',
-    is_commissionable: false,
-    commission_percent: '100',  // Default 100% if commissionable
-    commission_cap: '',         // No cap by default
+    // Cost & Profit fields
+    material_cost: '',
+    labor_cost: '',
+    profit_margin_percent: '',
+    // Commission fields
+    is_commissionable: true,  // Default to yes - flows through regular commission
+    commission_percent: '',   // Empty = flows through regular commission from comp plans
+    commission_cap: '',       // No cap by default
   })
   
   const [templateForm, setTemplateForm] = useState({
@@ -160,12 +165,34 @@ export default function AdminProposalsPage() {
   }
 
   const saveAdder = async () => {
+    // Calculate unit_price from costs + profit margin if costs are provided
+    const materialCost = parseFloat(adderForm.material_cost) || 0
+    const laborCost = parseFloat(adderForm.labor_cost) || 0
+    const profitMargin = parseFloat(adderForm.profit_margin_percent) || 0
+    const totalCost = materialCost + laborCost
+    
+    // If costs and profit margin are set, calculate the selling price
+    let finalUnitPrice = parseFloat(adderForm.unit_price) || 0
+    if (totalCost > 0 && profitMargin > 0 && !adderForm.unit_price) {
+      finalUnitPrice = totalCost * (1 + profitMargin / 100)
+    }
+
+    if (!adderForm.name || finalUnitPrice <= 0) {
+      alert('Please enter a name and either set costs + profit margin, or enter a price directly')
+      return
+    }
+
     setSaving(true)
     try {
+      const dataToSave = {
+        ...adderForm,
+        unit_price: finalUnitPrice.toString(),
+      }
+
       const response = await fetch('/api/admin/proposals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'adder', data: adderForm }),
+        body: JSON.stringify({ type: 'adder', data: dataToSave }),
       })
       
       if (response.ok) {
@@ -177,8 +204,11 @@ export default function AdminProposalsPage() {
           unit_price: '',
           adder_category: 'Other',
           price_type: 'fixed',
-          is_commissionable: false,
-          commission_percent: '100',
+          material_cost: '',
+          labor_cost: '',
+          profit_margin_percent: '',
+          is_commissionable: true,
+          commission_percent: '',
           commission_cap: '',
         })
         await loadData()
@@ -596,21 +626,8 @@ export default function AdminProposalsPage() {
                 </div>
 
                 {adderForm.price_type === 'fixed' ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Price ($)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={adderForm.unit_price}
-                          onChange={(e) => setAdderForm(prev => ({ ...prev, unit_price: e.target.value }))}
-                          className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg"
-                          placeholder="250.00"
-                        />
-                      </div>
-                    </div>
+                  <>
+                    {/* Unit Selection */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Unit</label>
                       <select
@@ -624,7 +641,121 @@ export default function AdminProposalsPage() {
                         <option value="job">Per Job</option>
                       </select>
                     </div>
-                  </div>
+
+                    {/* Cost Inputs */}
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <p className="text-sm font-medium text-gray-700 mb-3">Your Costs (per {adderForm.unit})</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Material Cost</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={adderForm.material_cost}
+                              onChange={(e) => setAdderForm(prev => ({ ...prev, material_cost: e.target.value }))}
+                              className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
+                              placeholder="25.00"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Labor Cost</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={adderForm.labor_cost}
+                              onChange={(e) => setAdderForm(prev => ({ ...prev, labor_cost: e.target.value }))}
+                              className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
+                              placeholder="25.00"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      {(adderForm.material_cost || adderForm.labor_cost) && (
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Total Cost:</span>
+                            <span className="font-semibold text-gray-900">
+                              ${((parseFloat(adderForm.material_cost) || 0) + (parseFloat(adderForm.labor_cost) || 0)).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Profit Margin */}
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <label className="text-sm font-medium text-green-800">Profit Markup</label>
+                        <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">Admin Only</span>
+                      </div>
+                      <p className="text-xs text-green-600 mb-3">
+                        This percentage is added to your costs to calculate the selling price. (0-1000%)
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          max="1000"
+                          value={adderForm.profit_margin_percent}
+                          onChange={(e) => setAdderForm(prev => ({ ...prev, profit_margin_percent: e.target.value }))}
+                          className="w-24 px-3 py-2 border border-green-300 rounded-lg text-right bg-white text-lg font-semibold"
+                          placeholder="50"
+                        />
+                        <span className="text-green-700 font-medium text-lg">%</span>
+                      </div>
+                    </div>
+
+                    {/* Calculated Selling Price */}
+                    {(adderForm.material_cost || adderForm.labor_cost) && adderForm.profit_margin_percent && (
+                      <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-sm font-medium text-indigo-800">Calculated Selling Price</p>
+                            <p className="text-xs text-indigo-600">
+                              Cost ${((parseFloat(adderForm.material_cost) || 0) + (parseFloat(adderForm.labor_cost) || 0)).toFixed(2)} + {adderForm.profit_margin_percent}% markup
+                            </p>
+                          </div>
+                          <p className="text-2xl font-bold text-indigo-700">
+                            ${(((parseFloat(adderForm.material_cost) || 0) + (parseFloat(adderForm.labor_cost) || 0)) * (1 + (parseFloat(adderForm.profit_margin_percent) || 0) / 100)).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Or set price directly */}
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-300"></div>
+                      </div>
+                      <div className="relative flex justify-center text-sm">
+                        <span className="px-2 bg-white text-gray-500">or set price directly</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Selling Price (per {adderForm.unit})</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={adderForm.unit_price}
+                          onChange={(e) => setAdderForm(prev => ({ ...prev, unit_price: e.target.value }))}
+                          className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg"
+                          placeholder="75.00"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Override the calculated price or enter directly if not using cost + markup.
+                      </p>
+                    </div>
+                  </>
                 ) : (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Percentage of Total (%)</label>
@@ -646,26 +777,93 @@ export default function AdminProposalsPage() {
                 )}
 
                 {/* Commissionable Toggle */}
-                <div className="pt-2 border-t">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={adderForm.is_commissionable}
-                      onChange={(e) => setAdderForm(prev => ({ ...prev, is_commissionable: e.target.checked }))}
-                      className="w-4 h-4 mt-0.5 rounded border-gray-300 text-indigo-600"
-                    />
-                    <div>
-                      <span className="text-sm font-medium text-gray-700">Commissionable</span>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Include this adder in commission calculations. Leave unchecked for cost-only items like dumpsters, permits, etc.
-                      </p>
-                    </div>
-                  </label>
+                <div className="pt-4 border-t">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Commission Settings</label>
+                  
+                  <div className="space-y-2">
+                    {/* Option 1: Commissionable - flows through regular comp plan */}
+                    <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      adderForm.is_commissionable && !adderForm.commission_percent && !adderForm.commission_cap
+                        ? 'border-green-500 bg-green-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="commission_type"
+                        checked={adderForm.is_commissionable && !adderForm.commission_percent && !adderForm.commission_cap}
+                        onChange={() => setAdderForm(prev => ({ 
+                          ...prev, 
+                          is_commissionable: true,
+                          commission_percent: '',
+                          commission_cap: ''
+                        }))}
+                        className="w-4 h-4 mt-0.5 text-green-600 border-gray-300"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">Yes - Regular Commission</span>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          This adder flows through the regular commission structure from compensation plans.
+                        </p>
+                      </div>
+                    </label>
 
-                  {/* Commission Settings - shown when commissionable */}
-                  {adderForm.is_commissionable && (
-                    <div className="mt-4 ml-7 p-4 bg-green-50 rounded-lg space-y-4">
-                      <h4 className="text-sm font-medium text-green-800">Commission Settings</h4>
+                    {/* Option 2: Commissionable with custom settings */}
+                    <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      adderForm.is_commissionable && (adderForm.commission_percent || adderForm.commission_cap)
+                        ? 'border-amber-500 bg-amber-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="commission_type"
+                        checked={adderForm.is_commissionable && (!!adderForm.commission_percent || !!adderForm.commission_cap)}
+                        onChange={() => setAdderForm(prev => ({ 
+                          ...prev, 
+                          is_commissionable: true,
+                          commission_percent: '100',
+                          commission_cap: ''
+                        }))}
+                        className="w-4 h-4 mt-0.5 text-amber-600 border-gray-300"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">Yes - Custom Commission</span>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Set a specific % or cap for this adder (does NOT flow through regular comp plan).
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Option 3: Not commissionable */}
+                    <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      !adderForm.is_commissionable
+                        ? 'border-gray-500 bg-gray-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="commission_type"
+                        checked={!adderForm.is_commissionable}
+                        onChange={() => setAdderForm(prev => ({ 
+                          ...prev, 
+                          is_commissionable: false,
+                          commission_percent: '',
+                          commission_cap: ''
+                        }))}
+                        className="w-4 h-4 mt-0.5 text-gray-600 border-gray-300"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">No - Not Commissionable</span>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          No commission paid on this adder (e.g., dumpsters, permits, pass-through costs).
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Custom Commission Settings - shown when custom is selected */}
+                  {adderForm.is_commissionable && (adderForm.commission_percent || adderForm.commission_cap) && (
+                    <div className="mt-4 ml-7 p-4 bg-amber-50 rounded-lg space-y-4">
+                      <h4 className="text-sm font-medium text-amber-800">Custom Commission Settings</h4>
                       
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -711,8 +909,8 @@ export default function AdminProposalsPage() {
                       </div>
 
                       {/* Example calculation */}
-                      {(adderForm.unit_price && (adderForm.commission_percent !== '100' || adderForm.commission_cap)) && (
-                        <div className="p-3 bg-white rounded-lg border border-green-200">
+                      {adderForm.unit_price && (
+                        <div className="p-3 bg-white rounded-lg border border-amber-200">
                           <p className="text-xs font-medium text-gray-700 mb-1">Example:</p>
                           <p className="text-xs text-gray-600">
                             {(() => {
@@ -733,7 +931,7 @@ export default function AdminProposalsPage() {
                                   ) : (
                                     <> ${price.toLocaleString()} × {percent}% = </>
                                   )}
-                                  <span className="font-medium text-green-700">
+                                  <span className="font-medium text-amber-700">
                                     ${commissionable.toLocaleString()} commissionable
                                   </span>
                                 </>
@@ -755,7 +953,7 @@ export default function AdminProposalsPage() {
                 </button>
                 <button
                   onClick={saveAdder}
-                  disabled={saving || !adderForm.name || !adderForm.unit_price}
+                  disabled={saving || !adderForm.name}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {saving ? 'Saving...' : 'Add Adder'}

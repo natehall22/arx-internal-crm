@@ -152,6 +152,23 @@ export async function POST(request: NextRequest) {
         .eq('is_default', true)
         .single()
 
+      // Determine commission settings based on the new logic:
+      // - is_commissionable=true with no percent/cap = flows through regular comp plan (commission_percent=null)
+      // - is_commissionable=true with percent/cap = custom commission (does NOT flow through comp plan)
+      // - is_commissionable=false = no commission at all
+      let commissionPercent = null
+      let commissionCap = null
+      
+      if (data.is_commissionable) {
+        // Only set commission_percent if custom values were provided
+        if (data.commission_percent) {
+          commissionPercent = parseFloat(data.commission_percent)
+        }
+        if (data.commission_cap) {
+          commissionCap = parseFloat(data.commission_cap)
+        }
+      }
+
       const { data: newAdder, error: adderError } = await adminClient
         .from('pricebook_items')
         .insert({
@@ -161,12 +178,18 @@ export async function POST(request: NextRequest) {
           category: data.category,
           unit: data.price_type === 'percentage' ? 'percent' : data.unit,
           unit_price: parseFloat(data.unit_price) || 0,
+          cost_price: data.material_cost || data.labor_cost 
+            ? (parseFloat(data.material_cost) || 0) + (parseFloat(data.labor_cost) || 0) 
+            : null,
+          material_cost: data.material_cost ? parseFloat(data.material_cost) : null,
+          labor_cost: data.labor_cost ? parseFloat(data.labor_cost) : null,
+          profit_margin_percent: data.profit_margin_percent ? parseFloat(data.profit_margin_percent) : null,
           is_adder: true,
           adder_category: data.adder_category,
           price_type: data.price_type,
           is_commissionable: data.is_commissionable,
-          commission_percent: data.is_commissionable ? (parseFloat(data.commission_percent) || 100) : null,
-          commission_cap: data.is_commissionable && data.commission_cap ? parseFloat(data.commission_cap) : null,
+          commission_percent: commissionPercent,
+          commission_cap: commissionCap,
           visibility: 'sales_reps',
           active: true,
         })
