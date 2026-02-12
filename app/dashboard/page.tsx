@@ -190,15 +190,18 @@ export default async function DashboardPage() {
         const memberLeads = leads?.filter(l => l.owner_user_id === member.id) || []
         const memberOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
         
-        const memberWeekLeads = memberLeads.filter(l => new Date(l.created_at) >= startOfWeek)
+        // Count doors knocked - only leads with canvass_disposition (from canvassing app)
+        const memberWeekLeads = memberLeads.filter(l => 
+          new Date(l.created_at) >= startOfWeek && l.canvass_disposition
+        )
         const memberWeekOpps = memberOpps.filter(o => new Date(o.created_at) >= startOfWeek)
         const memberWeekSales = memberOpps.filter(o => 
           o.inspection_outcome === 'sale' && new Date(o.created_at) >= startOfWeek
         )
         
-        const totalInspections = memberOpps.filter(o => o.inspection_outcome).length
-        const totalSales = memberOpps.filter(o => o.inspection_outcome === 'sale').length
-        const closeRate = totalInspections > 0 ? (totalSales / totalInspections * 100) : 0
+        // Close rate based on inspections run this week
+        const weekInspectionsRun = memberWeekOpps.filter(o => o.inspection_outcome).length
+        const closeRate = weekInspectionsRun > 0 ? (memberWeekSales.length / weekInspectionsRun * 100) : 0
         
         teamMemberStats.push({
           id: member.id,

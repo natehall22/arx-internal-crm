@@ -18,6 +18,8 @@ interface TeamMemberStat {
   closeRate: string
 }
 
+type TimeFrame = 'today' | 'week' | 'month' | 'quarter' | 'year' | 'all'
+
 interface DashboardClientProps {
   profile: any
   stats: {
@@ -62,10 +64,38 @@ export default function DashboardClient({
   const [dismissedPrompts, setDismissedPrompts] = useState<string[]>([])
   const [customReports, setCustomReports] = useState<any[]>([])
   const [reportData, setReportData] = useState<Record<string, any[]>>({})
+  const [timeFrame, setTimeFrame] = useState<TimeFrame>('week')
+  const [filteredTeamStats, setFilteredTeamStats] = useState<TeamMemberStat[]>(teamMemberStats)
+  const [loadingStats, setLoadingStats] = useState(false)
 
   useEffect(() => {
     loadDashboardReports()
   }, [])
+
+  useEffect(() => {
+    if (timeFrame === 'week') {
+      setFilteredTeamStats(teamMemberStats)
+    } else {
+      loadTeamStatsForTimeFrame()
+    }
+  }, [timeFrame, teamMemberStats])
+
+  const loadTeamStatsForTimeFrame = async () => {
+    if (timeFrame === 'week') return
+    
+    setLoadingStats(true)
+    try {
+      const res = await fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`)
+      if (res.ok) {
+        const data = await res.json()
+        setFilteredTeamStats(data.teamMemberStats || [])
+      }
+    } catch (error) {
+      console.error('Failed to load team stats:', error)
+    } finally {
+      setLoadingStats(false)
+    }
+  }
 
   const loadDashboardReports = async () => {
     try {
@@ -288,9 +318,23 @@ export default function DashboardClient({
         {/* Team Leaderboard - for managers/admins */}
         {teamMemberStats.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-8 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Team Stats This Week</h2>
-              <span className="text-sm text-gray-500">{teamMemberStats.length} reps</span>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
+              <h2 className="text-lg font-semibold text-gray-900">Team Stats</h2>
+              <div className="flex items-center gap-3">
+                <select
+                  value={timeFrame}
+                  onChange={(e) => setTimeFrame(e.target.value as TimeFrame)}
+                  className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="today">Today</option>
+                  <option value="week">This Week</option>
+                  <option value="month">This Month</option>
+                  <option value="quarter">This Quarter</option>
+                  <option value="year">This Year</option>
+                  <option value="all">All Time</option>
+                </select>
+                <span className="text-sm text-gray-500">{filteredTeamStats.length} reps</span>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -333,7 +377,19 @@ export default function DashboardClient({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {teamMemberStats.map((member, index) => (
+                  {loadingStats ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center">
+                        <div className="flex items-center justify-center gap-2 text-gray-500">
+                          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Loading stats...
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredTeamStats.map((member, index) => (
                     <tr key={member.id} className={index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center w-8 h-8">
@@ -386,7 +442,7 @@ export default function DashboardClient({
                 </tbody>
               </table>
             </div>
-            {teamMemberStats.length === 0 && (
+            {filteredTeamStats.length === 0 && !loadingStats && (
               <div className="p-8 text-center text-gray-500">
                 No team member stats available
               </div>
