@@ -89,11 +89,18 @@ export default function Nav() {
   }, [])
 
   const handleLogout = async () => {
-    if (!supabaseRef.current) {
-      supabaseRef.current = createClientBrowser()
+    try {
+      if (!supabaseRef.current) {
+        supabaseRef.current = createClientBrowser()
+      }
+      await supabaseRef.current.auth.signOut()
+      // Force redirect to login page
+      window.location.href = '/login'
+    } catch (error) {
+      console.error('Logout error:', error)
+      // Still redirect even if signOut fails
+      window.location.href = '/login'
     }
-    await supabaseRef.current.auth.signOut()
-    router.refresh()
   }
 
   // Define nav items with role restrictions
