@@ -142,71 +142,68 @@ export default function ReportBuilderPage() {
   }, [editId])
 
   const loadData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    try {
+      const res = await fetch('/api/reports/builder')
+      if (!res.ok) {
+        console.error('Failed to load data:', res.status)
+        return
+      }
+      
+      const data = await res.json()
+      setCurrentUser(data.profile)
+      setUsers(data.users || [])
+      setRoles(data.roles || [])
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    setCurrentUser(profile)
-
-    // Load users for filters
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, full_name, role')
-      .eq('org_id', profile?.org_id)
-
-    setUsers(usersData || [])
-
-    // Load roles
-    const { data: rolesData } = await supabase
-      .from('custom_roles')
-      .select('*')
-      .eq('org_id', profile?.org_id)
-
-    setRoles(rolesData || [])
-
-    // Initialize role access with legacy roles
-    const initialAccess: Record<string, boolean> = {
-      admin: true,
-      regional_manager: true,
-      sales_manager: true,
-      sales_rep: false,
-      canvasser: false,
-      operations: false,
+      // Initialize role access with legacy roles
+      const initialAccess: Record<string, boolean> = {
+        admin: true,
+        regional_manager: true,
+        sales_manager: true,
+        sales_rep: false,
+        canvasser: false,
+        operations: false,
+      }
+      setRoleAccess(initialAccess)
+    } catch (error) {
+      console.error('Error loading data:', error)
     }
-    setRoleAccess(initialAccess)
   }
 
   const loadReport = async (id: string) => {
     setLoading(true)
-    const { data: report } = await supabase
-      .from('custom_reports')
-      .select('*, report_role_access(*)')
-      .eq('id', id)
-      .single()
+    try {
+      const { data: report } = await supabase
+        .from('custom_reports')
+        .select('*, report_role_access(*)')
+        .eq('id', id)
+        .single()
 
-    if (report) {
-      setName(report.name)
-      setDescription(report.description || '')
-      setReportType(report.report_type)
-      setDataSource(report.data_source)
-      setGroupBy(report.config?.groupBy || '')
-      setAggregation(report.config?.aggregation || 'count')
-      setValueColumn(report.config?.valueColumn || '')
-      setDateRange(report.config?.dateRange || '30d')
-      setIsPublic(report.is_public)
-      setIsDashboardWidget(report.is_dashboard_widget)
+      if (report) {
+        setName(report.name)
+        setDescription(report.description || '')
+        setReportType(report.report_type)
+        // Check if this was a canvass_activity report
+        if (report.data_source === 'leads' && report.config?.isCanvassActivity) {
+          setDataSource('canvass_activity')
+        } else {
+          setDataSource(report.data_source)
+        }
+        setGroupBy(report.config?.groupBy || '')
+        setAggregation(report.config?.aggregation || 'count')
+        setValueColumn(report.config?.valueColumn || '')
+        setDateRange(report.config?.dateRange || '30d')
+        setIsPublic(report.is_public)
+        setIsDashboardWidget(report.is_dashboard_widget)
 
-      // Load role access
-      const access: Record<string, boolean> = {}
-      report.report_role_access?.forEach((ra: any) => {
-        access[ra.role] = ra.can_view
-      })
-      setRoleAccess(access)
+        // Load role access
+        const access: Record<string, boolean> = {}
+        report.report_role_access?.forEach((ra: any) => {
+          access[ra.role] = ra.can_view
+        })
+        setRoleAccess(access)
+      }
+    } catch (error) {
+      console.error('Error loading report:', error)
     }
     setLoading(false)
   }
@@ -214,11 +211,6 @@ export default function ReportBuilderPage() {
   const handleSave = async () => {
     if (!name.trim()) {
       alert('Please enter a report name')
-      return
-    }
-
-    if (!currentUser?.org_id) {
-      alert('Unable to save report: User profile not loaded. Please refresh the page and try again.')
       return
     }
 
@@ -232,99 +224,32 @@ export default function ReportBuilderPage() {
         dateRange,
       }
 
-      if (editId) {
-        // Update existing report
-        // Map canvass_activity to leads for storage (it's a filtered view of leads)
-        const storedDataSource = dataSource === 'canvass_activity' ? 'leads' : dataSource
-        const storedConfig = dataSource === 'canvass_activity' 
-          ? { ...config, isCanvassActivity: true }
-          : config
+      const res = await fetch('/api/reports/builder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          editId,
+          name,
+          description,
+          reportType,
+          dataSource,
+          config,
+          isPublic,
+          isDashboardWidget,
+          roleAccess,
+        }),
+      })
 
-        await supabase
-          .from('custom_reports')
-          .update({
-            name,
-            description,
-            report_type: reportType,
-            data_source: storedDataSource,
-            config: storedConfig,
-            is_public: isPublic,
-            is_dashboard_widget: isDashboardWidget,
-          })
-          .eq('id', editId)
+      const data = await res.json()
 
-        // Update role access
-        await supabase
-          .from('report_role_access')
-          .delete()
-          .eq('report_id', editId)
-
-        const accessRecords = Object.entries(roleAccess)
-          .filter(([_, canView]) => canView)
-          .map(([role]) => ({
-            report_id: editId,
-            role,
-            can_view: true,
-            can_edit: role === 'admin',
-          }))
-
-        if (accessRecords.length > 0) {
-          await supabase
-            .from('report_role_access')
-            .insert(accessRecords)
-        }
-      } else {
-        // Create new report
-        // Map canvass_activity to leads for storage (it's a filtered view of leads)
-        const storedDataSource = dataSource === 'canvass_activity' ? 'leads' : dataSource
-        const storedConfig = dataSource === 'canvass_activity' 
-          ? { ...config, isCanvassActivity: true }
-          : config
-
-        const { data: newReport, error } = await supabase
-          .from('custom_reports')
-          .insert({
-            org_id: currentUser.org_id,
-            created_by: currentUser.id,
-            name,
-            description,
-            report_type: reportType,
-            data_source: storedDataSource,
-            config: storedConfig,
-            is_public: isPublic,
-            is_dashboard_widget: isDashboardWidget,
-          })
-          .select()
-          .single()
-
-        if (error) throw error
-
-        // Add role access
-        const accessRecords = Object.entries(roleAccess)
-          .filter(([_, canView]) => canView)
-          .map(([role]) => ({
-            report_id: newReport.id,
-            role,
-            can_view: true,
-            can_edit: role === 'admin',
-          }))
-
-        if (accessRecords.length > 0) {
-          await supabase
-            .from('report_role_access')
-            .insert(accessRecords)
-        }
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to save report')
       }
 
       router.push('/reports')
     } catch (error: any) {
       console.error('Error saving report:', error)
-      const errorMessage = error?.message || error?.error_description || 'Unknown error'
-      if (errorMessage.includes('custom_reports') || errorMessage.includes('relation')) {
-        alert('Failed to save report: The reports table has not been set up. Please ask your admin to run the database migration.')
-      } else {
-        alert(`Failed to save report: ${errorMessage}`)
-      }
+      alert(`Failed to save report: ${error.message}`)
     } finally {
       setSaving(false)
     }
