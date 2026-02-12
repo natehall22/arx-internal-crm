@@ -530,7 +530,7 @@ export default function ProposalBuilderPage() {
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-500">Total</p>
-              <p className="text-2xl font-bold text-gray-900">${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p className="text-2xl font-bold text-gray-900">${(totals.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </div>
           </div>
         </div>
@@ -749,7 +749,7 @@ export default function ProposalBuilderPage() {
                       )}
                       <div className="flex items-baseline gap-1">
                         <span className="text-2xl font-bold" style={{ color: type.color }}>
-                          ${type.price_per_square.toLocaleString()}
+                          ${(type.price_per_square || 0).toLocaleString()}
                         </span>
                         <span className="text-sm text-gray-400">/square</span>
                       </div>
@@ -777,11 +777,11 @@ export default function ProposalBuilderPage() {
                     <div>
                       <p className="text-sm font-medium text-gray-700">Estimated Base Price</p>
                       <p className="text-xs text-gray-500">
-                        {measurementData?.total_squares?.toFixed(1) || urlSquares} squares × ${selectedRoofingType.price_per_square.toLocaleString()}/sq
+                        {measurementData?.total_squares?.toFixed(1) || urlSquares} squares × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
                       </p>
                     </div>
                     <p className="text-2xl font-bold text-indigo-600">
-                      ${((measurementData?.total_squares || parseFloat(urlSquares || '0')) * selectedRoofingType.price_per_square).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ${((measurementData?.total_squares || parseFloat(urlSquares || '0')) * (selectedRoofingType?.price_per_square || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </p>
                   </div>
                 </div>
@@ -856,7 +856,7 @@ export default function ProposalBuilderPage() {
                               ${item.unit_price.toFixed(2)}
                             </span>
                             <span className="text-indigo-600 font-bold w-28 text-right">
-                              ${item.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              ${(item.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </span>
                             <button
                               onClick={() => removeLineItem(item.id)}
@@ -889,7 +889,7 @@ export default function ProposalBuilderPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-3xl font-bold text-indigo-600">
-                          ${lineItems.filter(i => !i.is_adder).reduce((sum, i) => sum + i.line_total, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          ${lineItems.filter(i => !i.is_adder).reduce((sum, i) => sum + (i.line_total || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </p>
                       </div>
                     </div>
@@ -968,7 +968,7 @@ export default function ProposalBuilderPage() {
                         <span className="text-green-700">{item.name}</span>
                         <div className="flex items-center gap-3">
                           <span className="font-medium text-green-800">
-                            ${item.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            ${(item.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </span>
                           <button
                             onClick={() => removeLineItem(item.id)}
@@ -999,7 +999,7 @@ export default function ProposalBuilderPage() {
                         <p className="text-sm text-gray-500">{adder.adder_category || adder.category}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-bold text-indigo-600">${adder.unit_price.toLocaleString()}</p>
+                        <p className="font-bold text-indigo-600">${(adder.unit_price || 0).toLocaleString()}</p>
                         <p className="text-xs text-gray-400">per {adder.unit}</p>
                       </div>
                     </button>
@@ -1084,18 +1084,18 @@ export default function ProposalBuilderPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between text-gray-600">
                       <span>Project Total</span>
-                      <span>${totals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      <span>${(totals.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </div>
                     {totals.discountAmount > 0 && (
                       <div className="flex justify-between text-green-600">
                         <span>Discount</span>
-                        <span>-${totals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>-${(totals.discountAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
                     )}
                     {totals.taxAmount > 0 && (
                       <div className="flex justify-between text-gray-600">
                         <span>Tax ({form.tax_rate}%)</span>
-                        <span>${totals.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>${(totals.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
@@ -1138,7 +1138,7 @@ export default function ProposalBuilderPage() {
                 <div className="flex justify-between py-2 border-b border-amber-200">
                   <span className="text-amber-900">Base Project Price</span>
                   <span className="font-medium text-amber-900">
-                    ${lineItems.filter(i => !i.is_adder).reduce((sum, i) => sum + i.line_total, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ${lineItems.filter(i => !i.is_adder).reduce((sum, i) => sum + (i.line_total || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                 </div>
 
@@ -1149,13 +1149,13 @@ export default function ProposalBuilderPage() {
                     {lineItems.filter(i => i.is_adder).map((item) => (
                       <div key={item.id} className="flex justify-between text-sm pl-4">
                         <span className="text-amber-700">{item.name} {item.quantity > 1 && `(×${item.quantity})`}</span>
-                        <span className="text-amber-700">${item.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span className="text-amber-700">${(item.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
                     ))}
                     <div className="flex justify-between py-2 border-t border-amber-200">
                       <span className="text-amber-900">Total Add-Ons</span>
                       <span className="font-medium text-amber-900">
-                        ${lineItems.filter(i => i.is_adder).reduce((sum, i) => sum + i.line_total, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        ${lineItems.filter(i => i.is_adder).reduce((sum, i) => sum + (i.line_total || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                   </div>
@@ -1345,7 +1345,7 @@ export default function ProposalBuilderPage() {
                           <p className="text-sm text-gray-500">{item.category}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-indigo-600">${item.unit_price.toLocaleString()}</p>
+                          <p className="font-bold text-indigo-600">${(item.unit_price || 0).toLocaleString()}</p>
                           <p className="text-xs text-gray-400">per {getUnitLabel(item.unit)}</p>
                         </div>
                       </button>

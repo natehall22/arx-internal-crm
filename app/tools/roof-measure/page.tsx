@@ -867,7 +867,7 @@ export default function RoofMeasurePage() {
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
                         <span className="text-gray-500">Area:</span>
-                        <span className="text-gray-300 ml-1">{facet.area_sqft.toLocaleString()} sqft</span>
+                        <span className="text-gray-300 ml-1">{(facet.area_sqft || 0).toLocaleString()} sqft</span>
                       </div>
                       <div>
                         <span className="text-gray-500">Pitch:</span>
@@ -901,7 +901,7 @@ export default function RoofMeasurePage() {
                 </div>
                 <div className="bg-gray-700/50 rounded-lg p-3">
                   <div className="text-2xl font-bold text-white">
-                    {measurements.total_area_sqft.toLocaleString()}
+                    {(measurements.total_area_sqft || 0).toLocaleString()}
                   </div>
                   <div className="text-xs text-gray-400">Sq Ft</div>
                 </div>
@@ -1060,7 +1060,7 @@ export default function RoofMeasurePage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between py-2 border-b">
                   <span className="text-gray-500">Total Area</span>
-                  <span className="font-medium text-gray-900">{measurements.total_area_sqft.toLocaleString()} sqft</span>
+                  <span className="font-medium text-gray-900">{(measurements.total_area_sqft || 0).toLocaleString()} sqft</span>
                 </div>
                 <div className="flex justify-between py-2 border-b">
                   <span className="text-gray-500">Predominant Pitch</span>
