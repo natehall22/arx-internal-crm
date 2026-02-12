@@ -311,7 +311,7 @@ export async function POST(request: NextRequest) {
         org_id: profile.org_id,
         opportunity_id: originalAppointment.opportunity_id,
         lead_id: originalAppointment.lead_id,
-        user_id: user.id,
+        user_id: userId,
         type: 'status_change',
         body: `Appointment rescheduled to ${new Date(new_scheduled_for).toLocaleDateString()}`,
       })
