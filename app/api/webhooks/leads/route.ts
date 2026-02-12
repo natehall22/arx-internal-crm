@@ -47,32 +47,8 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
     
-    // Required fields
-    const {
-      org_id,
-      // Contact info
-      name,
-      homeowner_name,
-      first_name,
-      last_name,
-      phone,
-      email,
-      // Address
-      address,
-      address_text,
-      street,
-      city,
-      state,
-      zip,
-      // Optional
-      source,
-      notes,
-      message,
-      service_type,
-      project_type,
-      // Custom fields
-      custom_fields,
-    } = body
+    // Extract org_id first (required)
+    const org_id = body.org_id || body.orgId || body.organization_id
 
     if (!org_id) {
       console.error('Missing org_id in payload')
@@ -113,17 +89,45 @@ export async function POST(request: NextRequest) {
 
     console.log('Found org:', org.id)
 
-    // Build the full name
-    let fullName = homeowner_name || name
-    if (!fullName && (first_name || last_name)) {
-      fullName = [first_name, last_name].filter(Boolean).join(' ')
+    // Extract contact info - handle many common field name variations
+    const firstName = body.first_name || body.firstName || body.firstname || body.fname || body.given_name || ''
+    const lastName = body.last_name || body.lastName || body.lastname || body.lname || body.family_name || body.surname || ''
+    const fullNameDirect = body.name || body.full_name || body.fullName || body.homeowner_name || body.homeownerName || body.customer_name || body.customerName || ''
+    
+    // Build the full name - prefer direct full name, otherwise combine first + last
+    let fullName = fullNameDirect.trim()
+    if (!fullName && (firstName || lastName)) {
+      fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
     }
+    
+    console.log('Name fields:', { firstName, lastName, fullNameDirect, resolvedFullName: fullName })
+
+    // Extract phone - handle variations
+    const phone = body.phone || body.phone_number || body.phoneNumber || body.telephone || body.tel || body.mobile || body.cell || ''
+
+    // Extract email - handle variations  
+    const email = body.email || body.email_address || body.emailAddress || body.e_mail || ''
+
+    // Extract address - handle variations
+    const street = body.street || body.street_address || body.streetAddress || body.address1 || body.address_line_1 || ''
+    const city = body.city || ''
+    const state = body.state || body.province || body.region || ''
+    const zip = body.zip || body.zipcode || body.zip_code || body.postal_code || body.postalCode || ''
+    const addressDirect = body.address || body.address_text || body.full_address || body.fullAddress || ''
 
     // Build the full address
-    let fullAddress = address_text || address
+    let fullAddress = addressDirect.trim()
     if (!fullAddress && (street || city || state || zip)) {
-      fullAddress = [street, city, state, zip].filter(Boolean).join(', ')
+      fullAddress = [street, city, state, zip].filter(Boolean).join(', ').trim()
     }
+
+    // Extract optional fields
+    const source = body.source || body.lead_source || body.leadSource || 'web'
+    const notes = body.notes || body.note || ''
+    const message = body.message || body.comments || body.comment || body.inquiry || body.description || ''
+    const service_type = body.service_type || body.serviceType || body.service || ''
+    const project_type = body.project_type || body.projectType || body.project || ''
+    const custom_fields = body.custom_fields || body.customFields || body.custom || body.metadata || null
 
     // Build notes from message and any custom fields
     let leadNotes = notes || message || ''
@@ -269,24 +273,56 @@ export async function GET(request: NextRequest) {
     endpoint: '/api/webhooks/leads',
     method: 'POST',
     description: 'Webhook endpoint for receiving leads from external sources',
-    authentication: 'Bearer token or x-api-key header with WEBHOOK_SECRET',
+    authentication: 'Bearer token or x-api-key header with WEBHOOK_SECRET (optional)',
     required_fields: ['org_id'],
-    optional_fields: [
-      'name', 'homeowner_name', 'first_name', 'last_name',
-      'phone', 'email',
-      'address', 'address_text', 'street', 'city', 'state', 'zip',
-      'source', 'notes', 'message', 'service_type', 'project_type',
-      'custom_fields'
-    ],
-    example_payload: {
-      org_id: 'your-org-uuid',
-      name: 'John Smith',
-      phone: '555-123-4567',
-      email: 'john@example.com',
-      address: '123 Main St, City, ST 12345',
-      source: 'web',
-      message: 'I need a roof inspection',
-      service_type: 'Roofing',
+    field_mappings: {
+      org_id: ['org_id', 'orgId', 'organization_id'],
+      name: ['name', 'full_name', 'fullName', 'homeowner_name', 'customer_name', 'first_name + last_name'],
+      first_name: ['first_name', 'firstName', 'firstname', 'fname', 'given_name'],
+      last_name: ['last_name', 'lastName', 'lastname', 'lname', 'family_name', 'surname'],
+      phone: ['phone', 'phone_number', 'phoneNumber', 'telephone', 'tel', 'mobile', 'cell'],
+      email: ['email', 'email_address', 'emailAddress', 'e_mail'],
+      address: ['address', 'address_text', 'full_address', 'street + city + state + zip'],
+      street: ['street', 'street_address', 'streetAddress', 'address1', 'address_line_1'],
+      city: ['city'],
+      state: ['state', 'province', 'region'],
+      zip: ['zip', 'zipcode', 'zip_code', 'postal_code', 'postalCode'],
+      source: ['source', 'lead_source', 'leadSource'],
+      message: ['message', 'comments', 'comment', 'inquiry', 'description', 'notes'],
+    },
+    example_payloads: {
+      with_full_name: {
+        org_id: 'your-org-uuid',
+        name: 'John Smith',
+        phone: '555-123-4567',
+        email: 'john@example.com',
+        address: '123 Main St, City, ST 12345',
+        message: 'I need a roof inspection',
+      },
+      with_separate_names: {
+        org_id: 'your-org-uuid',
+        first_name: 'John',
+        last_name: 'Smith',
+        phone: '555-123-4567',
+        email: 'john@example.com',
+        street: '123 Main St',
+        city: 'Springfield',
+        state: 'IL',
+        zip: '62701',
+        message: 'I need a roof inspection',
+      },
+      camelCase_format: {
+        orgId: 'your-org-uuid',
+        firstName: 'John',
+        lastName: 'Smith',
+        phoneNumber: '555-123-4567',
+        emailAddress: 'john@example.com',
+        streetAddress: '123 Main St',
+        city: 'Springfield',
+        state: 'IL',
+        postalCode: '62701',
+        comments: 'I need a roof inspection',
+      }
     }
   })
 }
