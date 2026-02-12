@@ -101,21 +101,26 @@ export default function DashboardClient({
   const loadDashboardReports = async () => {
     try {
       const res = await fetch('/api/reports/custom?dashboard=true')
-      if (res.ok) {
-        const data = await res.json()
-        setCustomReports(data.reports || [])
-        
-        // Load data for each report
-        for (const report of data.reports || []) {
-          const dataRes = await fetch('/api/reports/custom', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ report_id: report.id }),
-          })
-          if (dataRes.ok) {
-            const result = await dataRes.json()
-            setReportData(prev => ({ ...prev, [report.id]: result.data || [] }))
-          }
+      const data = await res.json()
+      
+      if (!res.ok) {
+        console.error('Failed to load dashboard reports:', data.error, data.details)
+        return
+      }
+      
+      console.log('Dashboard reports loaded:', data.reports?.length || 0, 'reports')
+      setCustomReports(data.reports || [])
+      
+      // Load data for each report
+      for (const report of data.reports || []) {
+        const dataRes = await fetch('/api/reports/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ report_id: report.id }),
+        })
+        if (dataRes.ok) {
+          const result = await dataRes.json()
+          setReportData(prev => ({ ...prev, [report.id]: result.data || [] }))
         }
       }
     } catch (error) {

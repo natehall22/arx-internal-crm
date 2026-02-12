@@ -80,15 +80,12 @@ export async function GET(request: NextRequest) {
     }
 
     const dashboardOnly = request.nextUrl.searchParams.get('dashboard') === 'true'
+    const debug = request.nextUrl.searchParams.get('debug') === 'true'
 
-    // Get all reports the user can access
+    // Get all reports the user can access - use simple query first
     let query = adminClient
       .from('custom_reports')
-      .select(`
-        *,
-        report_role_access(*),
-        creator:users!custom_reports_created_by_fkey(full_name)
-      `)
+      .select('*')
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
 
@@ -100,11 +97,70 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Reports fetch error:', error)
-      return NextResponse.json({ error: 'Failed to fetch reports' }, { status: 500 })
+      // Check if table doesn't exist
+      if (error.message?.includes('does not exist') || error.code === '42P01') {
+        return NextResponse.json({ reports: [], message: 'Custom reports table not yet created' })
+      }
+      return NextResponse.json({ error: 'Failed to fetch reports', details: error.message }, { status: 500 })
     }
 
+    // Debug: return raw data if requested
+    if (debug) {
+      return NextResponse.json({
+        debug: true,
+        user_id: user.id,
+        org_id: profile.org_id,
+        dashboardOnly,
+        raw_reports_count: reports?.length || 0,
+        raw_reports: reports,
+      })
+    }
+
+    // Fetch creator names separately to avoid foreign key issues
+    const creatorIds = [...new Set((reports || []).map(r => r.created_by).filter(Boolean))]
+    let creatorMap: Record<string, string> = {}
+    
+    if (creatorIds.length > 0) {
+      const { data: creators } = await adminClient
+        .from('users')
+        .select('id, full_name')
+        .in('id', creatorIds)
+      
+      creatorMap = (creators || []).reduce((acc, c) => {
+        acc[c.id] = c.full_name || 'Unknown'
+        return acc
+      }, {} as Record<string, string>)
+    }
+
+    // Fetch role access separately (ignore errors if table doesn't exist)
+    const reportIds = (reports || []).map(r => r.id)
+    let roleAccessMap: Record<string, any[]> = {}
+    
+    if (reportIds.length > 0) {
+      const { data: roleAccess, error: roleAccessError } = await adminClient
+        .from('report_role_access')
+        .select('*')
+        .in('report_id', reportIds)
+      
+      // Ignore errors (table might not exist)
+      if (!roleAccessError && roleAccess) {
+        roleAccessMap = roleAccess.reduce((acc, ra) => {
+          if (!acc[ra.report_id]) acc[ra.report_id] = []
+          acc[ra.report_id].push(ra)
+          return acc
+        }, {} as Record<string, any[]>)
+      }
+    }
+
+    // Combine data
+    const reportsWithDetails = (reports || []).map(report => ({
+      ...report,
+      creator: { full_name: creatorMap[report.created_by] || 'Unknown' },
+      report_role_access: roleAccessMap[report.id] || [],
+    }))
+
     // Filter reports based on access
-    const accessibleReports = (reports || []).filter(report => {
+    const accessibleReports = reportsWithDetails.filter(report => {
       // Creator always has access
       if (report.created_by === user.id) return true
       

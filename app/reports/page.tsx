@@ -68,10 +68,15 @@ export default function ReportsPage() {
   const loadCustomReports = async () => {
     try {
       const res = await fetch('/api/reports/custom')
-      if (res.ok) {
-        const data = await res.json()
-        setCustomReports(data.reports || [])
+      const data = await res.json()
+      
+      if (!res.ok) {
+        console.error('Failed to load custom reports:', data.error, data.details)
+        return
       }
+      
+      console.log('Loaded custom reports:', data.reports?.length || 0, 'reports')
+      setCustomReports(data.reports || [])
     } catch (error) {
       console.error('Failed to load custom reports:', error)
     }
