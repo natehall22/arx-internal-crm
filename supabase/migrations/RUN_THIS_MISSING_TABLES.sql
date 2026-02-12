@@ -212,5 +212,248 @@ WHERE NOT EXISTS (
   SELECT 1 FROM adder_categories ac WHERE ac.org_id = o.id
 );
 
+-- ============================================
+-- 8. SCHEDULED APPOINTMENTS
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS scheduled_appointments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
+  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
+  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  canvasser_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  google_event_id TEXT,
+  appointment_type TEXT DEFAULT 'inspection',
+  scheduled_for TIMESTAMPTZ NOT NULL,
+  duration_minutes INTEGER NOT NULL DEFAULT 60,
+  status TEXT NOT NULL DEFAULT 'scheduled',
+  address_text TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Add appointment_type column if table already exists
+ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS appointment_type TEXT DEFAULT 'inspection';
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_closer ON scheduled_appointments(closer_user_id, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_lead ON scheduled_appointments(lead_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_opportunity ON scheduled_appointments(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_org ON scheduled_appointments(org_id);
+
+-- ============================================
+-- 9. PENDING STATUS PROMPTS (for feedback)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS pending_status_prompts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  appointment_id UUID NOT NULL REFERENCES scheduled_appointments(id) ON DELETE CASCADE,
+  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  prompt_at TIMESTAMPTZ NOT NULL,
+  completed BOOLEAN NOT NULL DEFAULT false,
+  dismissed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_prompts_closer ON pending_status_prompts(closer_user_id, completed, dismissed);
+CREATE INDEX IF NOT EXISTS idx_pending_prompts_appointment ON pending_status_prompts(appointment_id);
+
+-- ============================================
+-- 10. INSPECTION STATUS UPDATES
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS inspection_status_updates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  appointment_id UUID REFERENCES scheduled_appointments(id) ON DELETE SET NULL,
+  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
+  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
+  closer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  setter_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  outcome TEXT NOT NULL,
+  notes TEXT,
+  setter_feedback TEXT,
+  prompted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inspection_updates_appointment ON inspection_status_updates(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_inspection_updates_opportunity ON inspection_status_updates(opportunity_id);
+
+-- ============================================
+-- 11. APPOINTMENT TYPES (org settings)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS appointment_types (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  duration_minutes INTEGER NOT NULL DEFAULT 60,
+  color TEXT DEFAULT '#3b82f6',
+  description TEXT,
+  active BOOLEAN NOT NULL DEFAULT true,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_appointment_types_org ON appointment_types(org_id);
+
+-- Insert default appointment types for each org
+INSERT INTO appointment_types (org_id, name, duration_minutes, color, description, sort_order)
+SELECT o.id, apt.name, apt.duration_minutes, apt.color, apt.description, apt.sort_order
+FROM orgs o
+CROSS JOIN (VALUES 
+  ('Inspection', 60, '#3b82f6', 'Standard roof inspection', 1),
+  ('Follow Up', 30, '#22c55e', 'Follow up visit', 2),
+  ('Contract Signing', 45, '#8b5cf6', 'Contract signing appointment', 3),
+  ('Final Walkthrough', 30, '#f59e0b', 'Post-installation walkthrough', 4)
+) AS apt(name, duration_minutes, color, description, sort_order)
+WHERE NOT EXISTS (
+  SELECT 1 FROM appointment_types at WHERE at.org_id = o.id
+);
+
+-- ============================================
+-- 12. RLS POLICIES FOR NEW TABLES
+-- ============================================
+
+ALTER TABLE scheduled_appointments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pending_status_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inspection_status_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE appointment_types ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view appointments in their org" ON scheduled_appointments;
+CREATE POLICY "Users can view appointments in their org"
+  ON scheduled_appointments FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Users can manage their prompts" ON pending_status_prompts;
+CREATE POLICY "Users can manage their prompts"
+  ON pending_status_prompts FOR ALL
+  USING (closer_user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Users can view inspection updates in their org" ON inspection_status_updates;
+CREATE POLICY "Users can view inspection updates in their org"
+  ON inspection_status_updates FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Users can view appointment types in their org" ON appointment_types;
+CREATE POLICY "Users can view appointment types in their org"
+  ON appointment_types FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- ============================================
+-- 8. SCHEDULED APPOINTMENTS & FEEDBACK
+-- ============================================
+
+-- Create scheduled_appointments table if not exists
+CREATE TABLE IF NOT EXISTS scheduled_appointments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
+  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
+  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  canvasser_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  google_event_id TEXT,
+  scheduled_for TIMESTAMPTZ NOT NULL,
+  duration_minutes INTEGER NOT NULL DEFAULT 60,
+  status TEXT NOT NULL DEFAULT 'scheduled',
+  address_text TEXT,
+  notes TEXT,
+  appointment_type TEXT DEFAULT 'inspection',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_closer ON scheduled_appointments(closer_user_id, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_lead ON scheduled_appointments(lead_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_org ON scheduled_appointments(org_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_status ON scheduled_appointments(status, scheduled_for);
+
+-- Add appointment_type column if table already exists
+ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS appointment_type TEXT DEFAULT 'inspection';
+
+-- Create pending_status_prompts table for feedback triggers
+CREATE TABLE IF NOT EXISTS pending_status_prompts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  appointment_id UUID NOT NULL REFERENCES scheduled_appointments(id) ON DELETE CASCADE,
+  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  prompt_at TIMESTAMPTZ NOT NULL,
+  completed BOOLEAN NOT NULL DEFAULT false,
+  dismissed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_prompts_closer ON pending_status_prompts(closer_user_id, completed, dismissed);
+CREATE INDEX IF NOT EXISTS idx_pending_prompts_appointment ON pending_status_prompts(appointment_id);
+
+-- Create inspection_status_updates table for tracking feedback
+CREATE TABLE IF NOT EXISTS inspection_status_updates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  appointment_id UUID REFERENCES scheduled_appointments(id) ON DELETE SET NULL,
+  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
+  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
+  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  setter_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  outcome TEXT NOT NULL,
+  notes TEXT,
+  setter_feedback TEXT,
+  prompted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inspection_updates_appointment ON inspection_status_updates(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_inspection_updates_opportunity ON inspection_status_updates(opportunity_id);
+
+-- ============================================
+-- 9. APPOINTMENT TYPES (ORG SETTINGS)
+-- ============================================
+
+-- Appointment types are stored in org_settings JSON
+-- Add appointment_types to org_settings if needed
+-- This is handled via the API, no table needed
+
+-- ============================================
+-- 10. RLS POLICIES FOR NEW TABLES
+-- ============================================
+
+ALTER TABLE scheduled_appointments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pending_status_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inspection_status_updates ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view appointments in their org" ON scheduled_appointments;
+CREATE POLICY "Users can view appointments in their org"
+  ON scheduled_appointments FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Users can manage their appointments" ON scheduled_appointments;
+CREATE POLICY "Users can manage their appointments"
+  ON scheduled_appointments FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Users can view their prompts" ON pending_status_prompts;
+CREATE POLICY "Users can view their prompts"
+  ON pending_status_prompts FOR SELECT
+  USING (closer_user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Users can update their prompts" ON pending_status_prompts;
+CREATE POLICY "Users can update their prompts"
+  ON pending_status_prompts FOR UPDATE
+  USING (closer_user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Users can view status updates in their org" ON inspection_status_updates;
+CREATE POLICY "Users can view status updates in their org"
+  ON inspection_status_updates FOR SELECT
+  USING (org_id = get_user_org_id(auth.uid()));
+
+DROP POLICY IF EXISTS "Users can create status updates" ON inspection_status_updates;
+CREATE POLICY "Users can create status updates"
+  ON inspection_status_updates FOR INSERT
+  WITH CHECK (org_id = get_user_org_id(auth.uid()));
+
 -- Done!
 SELECT 'Migration completed successfully!' as status;

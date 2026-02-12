@@ -449,6 +449,24 @@ export async function POST(request: Request) {
           .eq('id', appointmentId)
       }
       
+      // Create pending status prompt for feedback after appointment
+      if (appointmentId && closerUserId) {
+        const appointmentEndTime = new Date(new Date(inspectionScheduledFor).getTime() + 60 * 60 * 1000) // +1 hour
+        try {
+          await supabase
+            .from('pending_status_prompts')
+            .insert({
+              org_id: profile.org_id,
+              appointment_id: appointmentId,
+              closer_user_id: closerUserId,
+              prompt_at: appointmentEndTime.toISOString(),
+            })
+        } catch (promptError) {
+          console.error('Failed to create pending prompt:', promptError)
+          // Non-critical, continue
+        }
+      }
+      
       // Also sync to setter's calendar (for visibility - they can be double-booked)
       // Only if setter is different from closer
       if (profile.id !== closerUserId) {

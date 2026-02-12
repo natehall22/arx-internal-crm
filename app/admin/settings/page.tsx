@@ -14,6 +14,7 @@ type SettingsSection =
   | 'work-order-workflows'
   | 'canvass-dispositions'
   | 'estimate-settings'
+  | 'appointment-settings'
   | 'budgets'
   | 'capital'
   | 'commissions'
@@ -22,6 +23,15 @@ type SettingsSection =
   | 'measurement-tools'
   | 'notifications'
   | 'general'
+
+interface AppointmentType {
+  id: string
+  name: string
+  duration_minutes: number
+  color: string
+  active: boolean
+  description?: string
+}
 
 interface DispositionType {
   id: string
@@ -107,6 +117,16 @@ export default function AdminSettingsPage() {
   ])
   const [editingDisposition, setEditingDisposition] = useState<DispositionType | null>(null)
   const [showAddDisposition, setShowAddDisposition] = useState(false)
+  
+  // Appointment types
+  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([
+    { id: 'inspection', name: 'Inspection', duration_minutes: 60, color: '#3b82f6', active: true, description: 'Standard roof inspection' },
+    { id: 'follow_up', name: 'Follow Up', duration_minutes: 30, color: '#22c55e', active: true, description: 'Follow up visit' },
+    { id: 'contract_signing', name: 'Contract Signing', duration_minutes: 45, color: '#8b5cf6', active: true, description: 'Contract signing appointment' },
+    { id: 'final_walkthrough', name: 'Final Walkthrough', duration_minutes: 30, color: '#f59e0b', active: true, description: 'Post-installation walkthrough' },
+  ])
+  const [editingAppointmentType, setEditingAppointmentType] = useState<AppointmentType | null>(null)
+  const [showAddAppointmentType, setShowAddAppointmentType] = useState(false)
   
   // Logo state
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
@@ -305,6 +325,12 @@ export default function AdminSettingsPage() {
       title: 'ESTIMATING',
       items: [
         { id: 'estimate-settings', label: 'Estimate Settings' },
+      ],
+    },
+    {
+      title: 'SCHEDULING',
+      items: [
+        { id: 'appointment-settings', label: 'Appointment Types' },
       ],
     },
     {
@@ -634,6 +660,277 @@ export default function AdminSettingsPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Appointment Settings */}
+          {activeSection === 'appointment-settings' && (
+            <div className="max-w-3xl">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Appointment Types</h1>
+                  <p className="text-gray-500 mt-1">Configure appointment types and their default durations.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingAppointmentType({
+                      id: `apt_${Date.now()}`,
+                      name: '',
+                      duration_minutes: 60,
+                      color: '#3b82f6',
+                      active: true,
+                      description: '',
+                    })
+                    setShowAddAppointmentType(true)
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+                >
+                  + Add Appointment Type
+                </button>
+              </div>
+
+              {/* Appointment Types List */}
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Color</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {appointmentTypes.map((apt) => (
+                      <tr key={apt.id} className={!apt.active ? 'bg-gray-50 opacity-60' : ''}>
+                        <td className="px-4 py-3">
+                          <div
+                            className="w-8 h-8 rounded-full border-2 border-white shadow"
+                            style={{ backgroundColor: apt.color }}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <span className="font-medium text-gray-900">{apt.name}</span>
+                            {apt.description && (
+                              <p className="text-xs text-gray-500">{apt.description}</p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-700">{apt.duration_minutes} minutes</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            apt.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {apt.active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => {
+                              setEditingAppointmentType(apt)
+                              setShowAddAppointmentType(true)
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-3"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAppointmentTypes(prev => prev.map(a => 
+                                a.id === apt.id ? { ...a, active: !a.active } : a
+                              ))
+                            }}
+                            className="text-gray-500 hover:text-gray-700 text-sm"
+                          >
+                            {apt.active ? 'Disable' : 'Enable'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Save Button */}
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      const response = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'appointment_types',
+                          appointment_types: appointmentTypes,
+                        }),
+                      })
+                      
+                      if (!response.ok) {
+                        const data = await response.json()
+                        alert(data.error || 'Failed to save appointment types')
+                        return
+                      }
+                      
+                      alert('Appointment types saved!')
+                    } catch (error) {
+                      console.error('Error saving appointment types:', error)
+                      alert('Failed to save appointment types')
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Save Appointment Types'}
+                </button>
+              </div>
+
+              {/* Default Duration Info */}
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <h4 className="font-medium text-blue-900 mb-2">How Appointment Durations Work</h4>
+                <ul className="text-sm text-blue-700 space-y-1">
+                  <li>• When scheduling an appointment, the duration will default to the type's setting</li>
+                  <li>• Reps can override the duration for individual appointments if needed</li>
+                  <li>• Calendar events will be created with the specified duration</li>
+                  <li>• Feedback prompts will trigger after the appointment end time</li>
+                </ul>
+              </div>
+
+              {/* Edit/Add Modal */}
+              {showAddAppointmentType && editingAppointmentType && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+                    <div className="p-6 border-b">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        {appointmentTypes.find(a => a.id === editingAppointmentType.id) ? 'Edit Appointment Type' : 'Add Appointment Type'}
+                      </h2>
+                    </div>
+                    <div className="p-6 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Name *</label>
+                        <input
+                          type="text"
+                          value={editingAppointmentType.name}
+                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, name: e.target.value } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="e.g., Inspection, Follow Up"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                        <input
+                          type="text"
+                          value={editingAppointmentType.description || ''}
+                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, description: e.target.value } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="Brief description"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Duration (minutes) *</label>
+                        <select
+                          value={editingAppointmentType.duration_minutes}
+                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, duration_minutes: parseInt(e.target.value) } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                        >
+                          <option value={15}>15 minutes</option>
+                          <option value={30}>30 minutes</option>
+                          <option value={45}>45 minutes</option>
+                          <option value={60}>1 hour</option>
+                          <option value={90}>1.5 hours</option>
+                          <option value={120}>2 hours</option>
+                          <option value={150}>2.5 hours</option>
+                          <option value={180}>3 hours</option>
+                          <option value={240}>4 hours</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {[
+                            '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', 
+                            '#8b5cf6', '#ec4899', '#6b7280', '#14b8a6', '#f43f5e'
+                          ].map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setEditingAppointmentType(prev => prev ? { ...prev, color } : null)}
+                              className={`w-10 h-10 rounded-full border-2 ${
+                                editingAppointmentType.color === color ? 'border-gray-900 scale-110' : 'border-transparent'
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="apt-active"
+                          checked={editingAppointmentType.active}
+                          onChange={(e) => setEditingAppointmentType(prev => prev ? { ...prev, active: e.target.checked } : null)}
+                          className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                        />
+                        <label htmlFor="apt-active" className="text-sm text-gray-700">Active</label>
+                      </div>
+                    </div>
+                    <div className="p-6 border-t flex justify-between">
+                      {appointmentTypes.find(a => a.id === editingAppointmentType.id) && (
+                        <button
+                          onClick={() => {
+                            if (confirm('Delete this appointment type?')) {
+                              setAppointmentTypes(prev => prev.filter(a => a.id !== editingAppointmentType.id))
+                              setShowAddAppointmentType(false)
+                              setEditingAppointmentType(null)
+                            }
+                          }}
+                          className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          Delete
+                        </button>
+                      )}
+                      <div className="flex gap-3 ml-auto">
+                        <button
+                          onClick={() => {
+                            setShowAddAppointmentType(false)
+                            setEditingAppointmentType(null)
+                          }}
+                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!editingAppointmentType.name) {
+                              alert('Please enter a name')
+                              return
+                            }
+                            const exists = appointmentTypes.find(a => a.id === editingAppointmentType.id)
+                            if (exists) {
+                              setAppointmentTypes(prev => prev.map(a => 
+                                a.id === editingAppointmentType.id ? editingAppointmentType : a
+                              ))
+                            } else {
+                              setAppointmentTypes(prev => [...prev, editingAppointmentType])
+                            }
+                            setShowAddAppointmentType(false)
+                            setEditingAppointmentType(null)
+                          }}
+                          className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

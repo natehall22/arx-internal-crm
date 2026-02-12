@@ -217,6 +217,22 @@ async function createAppointment(
     .update({ last_assigned_at: new Date().toISOString() })
     .eq('id', closer.id)
 
+  // Create pending status prompt for feedback after appointment ends
+  const appointmentEndTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
+  try {
+    await supabase
+      .from('pending_status_prompts')
+      .insert({
+        org_id: orgId || closer.org_id,
+        appointment_id: appointment.id,
+        closer_user_id: closer.user_id,
+        prompt_at: appointmentEndTime.toISOString(),
+      })
+  } catch (promptError) {
+    console.error('Failed to create pending prompt:', promptError)
+    // Non-critical, continue
+  }
+
   return {
     success: true,
     closerId: closer.user_id,

@@ -107,18 +107,30 @@ export async function POST(request: NextRequest) {
       .update({ completed: true })
       .eq('appointment_id', appointment_id)
 
-    // Create notification for setter if there's feedback
-    if (appointment.canvasser_user_id && (setter_feedback || outcome)) {
-      const outcomeLabels: Record<InspectionOutcome, string> = {
-        sale: 'Sale!',
-        said_no: 'Said No',
-        not_home: 'Not Home',
-        failed_credit: 'Failed Credit',
-        rescheduled: 'Rescheduled',
-      }
+    // Create notifications for setter, setter's manager, and closer's manager
+    const outcomeLabels: Record<InspectionOutcome, string> = {
+      sale: 'Sale!',
+      said_no: 'Said No',
+      not_home: 'Not Home',
+      failed_credit: 'Failed Credit',
+      rescheduled: 'Rescheduled',
+    }
 
-      const customerName = appointment.leads?.homeowner_name || 'Customer'
-      
+    const customerName = appointment.leads?.homeowner_name || 'Customer'
+    const notificationData = {
+      appointment_id,
+      opportunity_id: appointment.opportunity_id,
+      lead_id: appointment.lead_id,
+      outcome,
+      closer_name: profile.full_name,
+    }
+    
+    const notificationBody = setter_feedback 
+      ? `${customerName} - ${profile.full_name || 'Rep'} says: "${setter_feedback}"`
+      : `${customerName} - Appointment completed by ${profile.full_name || 'Rep'}`
+
+    // Notify setter
+    if (appointment.canvasser_user_id && (setter_feedback || outcome)) {
       await supabase
         .from('notifications')
         .insert({
@@ -126,17 +138,64 @@ export async function POST(request: NextRequest) {
           user_id: appointment.canvasser_user_id,
           type: 'inspection_outcome',
           title: `Inspection Result: ${outcomeLabels[outcome]}`,
-          body: setter_feedback 
-            ? `${customerName} - ${profile.full_name || 'Rep'} says: "${setter_feedback}"`
-            : `${customerName} - Appointment completed by ${profile.full_name || 'Rep'}`,
-          data: {
-            appointment_id,
-            opportunity_id: appointment.opportunity_id,
-            lead_id: appointment.lead_id,
-            outcome,
-            closer_name: profile.full_name,
-          },
+          body: notificationBody,
+          data: notificationData,
         })
+      
+      // Get setter's manager and notify them
+      const { data: setter } = await supabase
+        .from('users')
+        .select('team_id')
+        .eq('id', appointment.canvasser_user_id)
+        .single()
+      
+      if (setter?.team_id) {
+        const { data: setterManagers } = await supabase
+          .from('users')
+          .select('id')
+          .eq('team_id', setter.team_id)
+          .in('role', ['sales_manager', 'regional_manager', 'admin'])
+          .neq('id', user.id)
+        
+        for (const manager of setterManagers || []) {
+          await supabase.from('notifications').insert({
+            org_id: profile.org_id,
+            user_id: manager.id,
+            type: 'inspection_outcome',
+            title: `Team Inspection Result: ${outcomeLabels[outcome]}`,
+            body: `${customerName} - Setter: ${appointment.canvasser_user_id ? 'Team member' : 'N/A'}, Closer: ${profile.full_name || 'Rep'}`,
+            data: notificationData,
+          })
+        }
+      }
+    }
+    
+    // Get closer's manager and notify them (if different from setter's manager)
+    const { data: closer } = await supabase
+      .from('users')
+      .select('team_id')
+      .eq('id', user.id)
+      .single()
+    
+    if (closer?.team_id) {
+      const { data: closerManagers } = await supabase
+        .from('users')
+        .select('id')
+        .eq('team_id', closer.team_id)
+        .in('role', ['sales_manager', 'regional_manager', 'admin'])
+        .neq('id', user.id)
+      
+      for (const manager of closerManagers || []) {
+        // Check if we already notified this manager (as setter's manager)
+        await supabase.from('notifications').insert({
+          org_id: profile.org_id,
+          user_id: manager.id,
+          type: 'inspection_outcome',
+          title: `Team Inspection Result: ${outcomeLabels[outcome]}`,
+          body: `${customerName} - Closer: ${profile.full_name || 'Rep'}`,
+          data: notificationData,
+        })
+      }
     }
 
     // Create activity record
