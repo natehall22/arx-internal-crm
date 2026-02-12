@@ -386,3 +386,81 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+// Delete a report
+export async function DELETE(request: NextRequest) {
+  try {
+    const { client: authClient, accessToken } = getAuthClient(request)
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    // Get user profile
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
+    }
+
+    // Get report_id from query params
+    const reportId = request.nextUrl.searchParams.get('id')
+    
+    if (!reportId) {
+      return NextResponse.json({ error: 'Report ID is required' }, { status: 400 })
+    }
+
+    // Verify the report exists and belongs to user's org
+    const { data: report, error: reportError } = await adminClient
+      .from('custom_reports')
+      .select('id, created_by, org_id')
+      .eq('id', reportId)
+      .single()
+
+    if (reportError || !report) {
+      return NextResponse.json({ error: 'Report not found' }, { status: 404 })
+    }
+
+    // Check if user can delete (must be creator or admin)
+    const canDelete = report.created_by === user.id || profile.role === 'admin'
+    
+    if (!canDelete) {
+      return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
+    }
+
+    // Delete role access first
+    await adminClient
+      .from('report_role_access')
+      .delete()
+      .eq('report_id', reportId)
+
+    // Delete the report
+    const { error: deleteError } = await adminClient
+      .from('custom_reports')
+      .delete()
+      .eq('id', reportId)
+
+    if (deleteError) {
+      console.error('Delete report error:', deleteError)
+      return NextResponse.json({ error: 'Failed to delete report' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+
+  } catch (error) {
+    console.error('Delete report error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

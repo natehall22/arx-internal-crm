@@ -782,11 +782,19 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
     if (!confirm('Are you sure you want to delete this report?')) return
     setDeleting(true)
     try {
-      const supabase = createClientBrowser()
-      await supabase.from('custom_reports').delete().eq('id', report.id)
+      const res = await fetch(`/api/reports/custom?id=${report.id}`, {
+        method: 'DELETE',
+      })
+      
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to delete report')
+      }
+      
       onRefresh()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete report:', error)
+      alert(error.message || 'Failed to delete report')
     } finally {
       setDeleting(false)
     }
