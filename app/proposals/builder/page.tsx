@@ -163,11 +163,12 @@ export default function ProposalBuilderPage() {
       setTemplates(data.templates || [])
       setRoofingTypes(data.roofingTypes || [])
       
-      // Set default roofing type
+      // Set default roofing type (but don't auto-populate line items - user should select in step 3)
       if (data.roofingTypes?.length) {
         const defaultType = data.roofingTypes.find((t: RoofingType) => t.is_default) || data.roofingTypes[0]
         setSelectedRoofingType(defaultType)
         setForm(prev => ({ ...prev, roofing_type_id: defaultType.id }))
+        console.log('Default roofing type loaded:', defaultType.name, 'price_per_square:', defaultType.price_per_square)
       }
 
       // Apply template defaults
@@ -805,6 +806,7 @@ export default function ProposalBuilderPage() {
                     <button
                       key={type.id}
                       onClick={() => {
+                        console.log('Roofing type selected:', type.name, 'price_per_square:', type.price_per_square, 'totalSquaresWithWaste:', totalSquaresWithWaste)
                         setSelectedRoofingType(type)
                         setForm(prev => ({ ...prev, roofing_type_id: type.id }))
                         // Update warranty info if the type has default warranty text
@@ -813,6 +815,8 @@ export default function ProposalBuilderPage() {
                         }
                         // Auto-populate line items based on roofing type (using total with waste)
                         if (totalSquaresWithWaste > 0) {
+                          const lineTotal = totalSquaresWithWaste * (type.price_per_square || 0)
+                          console.log('Creating line item:', totalSquaresWithWaste, 'squares x $', type.price_per_square, '= $', lineTotal)
                           const newLineItem: LineItem = {
                             id: `roofing-${type.id}`,
                             pricebook_item_id: null,
@@ -821,8 +825,8 @@ export default function ProposalBuilderPage() {
                             description: `${baseSquares.toFixed(1)} sq + ${wastePercent}% waste = ${totalSquaresWithWaste.toFixed(1)} sq`,
                             unit: 'square',
                             quantity: totalSquaresWithWaste,
-                            unit_price: type.price_per_square,
-                            line_total: totalSquaresWithWaste * type.price_per_square,
+                            unit_price: type.price_per_square || 0,
+                            line_total: lineTotal,
                             is_adder: false,
                           }
                           // Replace any existing roofing line items
@@ -834,6 +838,8 @@ export default function ProposalBuilderPage() {
                             )
                             return [newLineItem, ...nonRoofingItems.filter(i => !i.is_adder)]
                           })
+                        } else {
+                          console.log('No squares available, not creating line item')
                         }
                       }}
                       className={`relative p-6 rounded-xl border-2 text-left transition-all ${
