@@ -174,7 +174,8 @@ export async function POST(request: NextRequest) {
         org_id: profile.org_id,
         pricebook_id: pricebook?.id,
         name: data.name,
-        category: data.category || 'Other',
+        category: data.category || 'addons',
+        item_type: 'addon',  // Required field for pricebook_items
         unit: data.price_type === 'percentage' ? 'percent' : (data.unit || 'each'),
         unit_price: parseFloat(data.unit_price) || 0,
         is_adder: true,
