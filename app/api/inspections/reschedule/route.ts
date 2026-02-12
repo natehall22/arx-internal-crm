@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
           }
           
           const createdEvent = await createCalendarEvent(accessToken, event)
-          googleEventId = createdEvent.id
+          googleEventId = createdEvent.id || null
           calendarSynced = true
           
           // Update appointment with Google event ID
