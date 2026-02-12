@@ -61,6 +61,7 @@ export default function AdminProposalsPage() {
   const [showAddAdder, setShowAddAdder] = useState(false)
   const [showAddTemplate, setShowAddTemplate] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<ProposalTemplate | null>(null)
+  const [editingAdder, setEditingAdder] = useState<PricebookItem | null>(null)
   
   // Form states
   const [adderForm, setAdderForm] = useState({
@@ -191,16 +192,17 @@ export default function AdminProposalsPage() {
     }
 
     setSaving(true)
-    console.log('Saving adder with finalUnitPrice:', finalUnitPrice)
+    console.log('Saving adder with finalUnitPrice:', finalUnitPrice, 'editing:', editingAdder?.id)
     try {
       const dataToSave = {
         ...adderForm,
         unit_price: finalUnitPrice.toString(),
+        id: editingAdder?.id, // Include ID if editing
       }
       console.log('Data to save:', dataToSave)
 
       const response = await fetch('/api/admin/proposals', {
-        method: 'POST',
+        method: editingAdder ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'adder', data: dataToSave }),
       })
@@ -212,6 +214,7 @@ export default function AdminProposalsPage() {
       if (response.ok) {
         console.log('Success! Closing modal and reloading data...')
         setShowAddAdder(false)
+        setEditingAdder(null)
         setAdderForm({
           name: '',
           category: 'addons',
@@ -288,6 +291,34 @@ export default function AdminProposalsPage() {
     } catch (err) {
       console.error('Error deleting adder:', err)
     }
+  }
+
+  const openEditAdder = (adder: PricebookItem) => {
+    setEditingAdder(adder)
+    
+    // Determine commission mode
+    let commissionMode = 'regular'
+    if (!adder.is_commissionable) {
+      commissionMode = 'none'
+    } else if (adder.commission_percent !== null || adder.commission_cap !== null) {
+      commissionMode = 'custom'
+    }
+    
+    setAdderForm({
+      name: adder.name,
+      category: (adder.category as 'roofing' | 'siding' | 'windows' | 'addons') || 'addons',
+      unit: adder.unit || 'each',
+      unit_price: adder.unit_price?.toString() || '',
+      adder_category: adder.adder_category || 'Other',
+      price_type: adder.price_type || 'fixed',
+      material_cost: (adder as any).material_cost?.toString() || '',
+      labor_cost: (adder as any).labor_cost?.toString() || '',
+      profit_margin_percent: (adder as any).profit_margin_percent?.toString() || '',
+      is_commissionable: adder.is_commissionable ?? true,
+      commission_percent: adder.commission_percent?.toString() || '',
+      commission_cap: adder.commission_cap?.toString() || '',
+    })
+    setShowAddAdder(true)
   }
 
   const deleteTemplate = async (id: string) => {
@@ -425,7 +456,24 @@ export default function AdminProposalsPage() {
           <div>
             <div className="flex justify-end mb-4">
               <button
-                onClick={() => setShowAddAdder(true)}
+                onClick={() => {
+                  setEditingAdder(null)
+                  setAdderForm({
+                    name: '',
+                    category: 'addons',
+                    unit: 'each',
+                    unit_price: '',
+                    adder_category: 'Other',
+                    price_type: 'fixed',
+                    material_cost: '',
+                    labor_cost: '',
+                    profit_margin_percent: '',
+                    is_commissionable: true,
+                    commission_percent: '',
+                    commission_cap: '',
+                  })
+                  setShowAddAdder(true)
+                }}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
               >
                 + Add New Adder
@@ -443,7 +491,24 @@ export default function AdminProposalsPage() {
                 <div className="p-12 text-center">
                   <p className="text-gray-500 mb-4">No adders configured yet</p>
                   <button
-                    onClick={() => setShowAddAdder(true)}
+                    onClick={() => {
+                      setEditingAdder(null)
+                      setAdderForm({
+                        name: '',
+                        category: 'addons',
+                        unit: 'each',
+                        unit_price: '',
+                        adder_category: 'Other',
+                        price_type: 'fixed',
+                        material_cost: '',
+                        labor_cost: '',
+                        profit_margin_percent: '',
+                        is_commissionable: true,
+                        commission_percent: '',
+                        commission_cap: '',
+                      })
+                      setShowAddAdder(true)
+                    }}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
                   >
                     Create First Adder
@@ -458,14 +523,26 @@ export default function AdminProposalsPage() {
                           <h3 className="font-medium text-gray-900">{item.name}</h3>
                           <p className="text-sm text-gray-500">{item.adder_category || item.category}</p>
                         </div>
-                        <button
-                          onClick={() => deleteAdder(item.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => openEditAdder(item)}
+                            className="text-indigo-500 hover:text-indigo-700 p-1"
+                            title="Edit"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => deleteAdder(item.id)}
+                            className="text-red-500 hover:text-red-700 p-1"
+                            title="Delete"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                       {item.price_type === 'percentage' ? (
                         <p className="text-lg font-bold text-indigo-600 mt-2">
@@ -473,7 +550,7 @@ export default function AdminProposalsPage() {
                         </p>
                       ) : (
                         <p className="text-lg font-bold text-indigo-600 mt-2">
-                          ${item.unit_price.toFixed(2)} <span className="text-sm font-normal text-gray-400">per {item.unit}</span>
+                          ${(item.unit_price || 0).toFixed(2)} <span className="text-sm font-normal text-gray-400">per {item.unit}</span>
                         </p>
                       )}
                       <div className="flex flex-wrap gap-1.5 mt-2">
@@ -585,12 +662,12 @@ export default function AdminProposalsPage() {
           </div>
         )}
 
-        {/* Add Adder Modal */}
+        {/* Add/Edit Adder Modal */}
         {showAddAdder && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b sticky top-0 bg-white z-10">
-                <h2 className="text-xl font-bold text-gray-900">Add New Adder</h2>
+                <h2 className="text-xl font-bold text-gray-900">{editingAdder ? 'Edit Adder' : 'Add New Adder'}</h2>
               </div>
               <div className="p-6 space-y-4">
                 <div>
@@ -966,7 +1043,10 @@ export default function AdminProposalsPage() {
               </div>
               <div className="p-6 border-t flex justify-end gap-3">
                 <button
-                  onClick={() => setShowAddAdder(false)}
+                  onClick={() => {
+                    setShowAddAdder(false)
+                    setEditingAdder(null)
+                  }}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900"
                 >
                   Cancel
@@ -976,7 +1056,7 @@ export default function AdminProposalsPage() {
                   disabled={saving || !adderForm.name}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {saving ? 'Saving...' : 'Add Adder'}
+                  {saving ? 'Saving...' : (editingAdder ? 'Save Changes' : 'Add Adder')}
                 </button>
               </div>
             </div>

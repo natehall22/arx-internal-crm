@@ -348,6 +348,63 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    if (type === 'adder') {
+      // Determine commission settings
+      let commissionPercent = null
+      let commissionCap = null
+      
+      if (data.is_commissionable) {
+        if (data.commission_percent) {
+          commissionPercent = parseFloat(data.commission_percent)
+        }
+        if (data.commission_cap) {
+          commissionCap = parseFloat(data.commission_cap)
+        }
+      }
+
+      // Build update object
+      const updateData: any = {
+        name: data.name,
+        category: data.category || 'addons',
+        unit: data.price_type === 'percentage' ? 'percent' : (data.unit || 'each'),
+        unit_price: parseFloat(data.unit_price) || 0,
+        adder_category: data.adder_category || 'Other',
+        price_type: data.price_type || 'fixed',
+        is_commissionable: data.is_commissionable ?? true,
+        commission_percent: commissionPercent,
+        commission_cap: commissionCap,
+      }
+
+      // Add optional cost fields if they have values
+      if (data.material_cost || data.labor_cost) {
+        updateData.cost_price = (parseFloat(data.material_cost) || 0) + (parseFloat(data.labor_cost) || 0)
+      }
+      if (data.material_cost) {
+        updateData.material_cost = parseFloat(data.material_cost)
+      }
+      if (data.labor_cost) {
+        updateData.labor_cost = parseFloat(data.labor_cost)
+      }
+      if (data.profit_margin_percent) {
+        updateData.profit_margin_percent = parseFloat(data.profit_margin_percent)
+      }
+
+      const { data: updatedAdder, error: updateError } = await adminClient
+        .from('pricebook_items')
+        .update(updateData)
+        .eq('id', data.id)
+        .eq('org_id', profile.org_id)
+        .select()
+        .single()
+
+      if (updateError) {
+        console.error('Error updating adder:', updateError)
+        return NextResponse.json({ error: `Failed to update adder: ${updateError.message}` }, { status: 500 })
+      }
+
+      return NextResponse.json({ adder: updatedAdder })
+    }
+
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
   } catch (err) {
     console.error('Admin proposals PATCH error:', err)
