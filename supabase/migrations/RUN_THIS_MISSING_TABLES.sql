@@ -3,10 +3,83 @@
 -- This is safe to run - it uses IF NOT EXISTS
 
 -- ============================================
--- 1. TEAMS AND REGIONS
+-- 0. PREREQUISITES - ENUMS
 -- ============================================
 
--- Create regions table
+DO $$ 
+BEGIN
+  CREATE TYPE opportunity_status AS ENUM ('open', 'in_progress', 'won', 'lost');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  CREATE TYPE project_type AS ENUM ('roofing', 'siding', 'windows', 'gutters', 'solar', 'other');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  CREATE TYPE lead_channel AS ENUM ('inbound', 'outbound');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  CREATE TYPE report_type AS ENUM ('metric_card', 'bar_chart', 'line_chart', 'pie_chart', 'table', 'funnel');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  CREATE TYPE report_data_source AS ENUM ('leads', 'opportunities', 'projects', 'appointments', 'inspection_outcomes');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ============================================
+-- 1. OPPORTUNITIES TABLE
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS opportunities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  customer_id UUID,
+  lead_id UUID,
+  owner_user_id UUID,
+  status opportunity_status NOT NULL DEFAULT 'open',
+  project_type project_type NOT NULL DEFAULT 'roofing',
+  address_text TEXT,
+  lat NUMERIC(10, 8),
+  lng NUMERIC(11, 8),
+  roof_squares NUMERIC(10, 2),
+  siding_squares NUMERIC(10, 2),
+  vents_count INTEGER NOT NULL DEFAULT 0,
+  layers INTEGER NOT NULL DEFAULT 1,
+  total_windows INTEGER NOT NULL DEFAULT 0,
+  windows_by_type JSONB,
+  notes TEXT,
+  design_pdf_path TEXT,
+  inspection_outcome TEXT,
+  estimated_value NUMERIC(12, 2),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS inspection_outcome TEXT;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS estimated_value NUMERIC(12, 2);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_org_id ON opportunities(org_id);
+CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities(status);
+
+-- ============================================
+-- 2. REGIONS TABLE
+-- ============================================
+
 CREATE TABLE IF NOT EXISTS regions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
@@ -17,78 +90,62 @@ CREATE TABLE IF NOT EXISTS regions (
 
 CREATE INDEX IF NOT EXISTS idx_regions_org_id ON regions(org_id);
 
--- Create teams table
+-- ============================================
+-- 3. TEAMS TABLE
+-- ============================================
+
 CREATE TABLE IF NOT EXISTS teams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  region_id UUID REFERENCES regions(id) ON DELETE SET NULL,
+  region_id UUID,
   name TEXT NOT NULL,
   timezone TEXT DEFAULT 'America/New_York',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Add timezone column if table already exists
 ALTER TABLE teams ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'America/New_York';
 
 CREATE INDEX IF NOT EXISTS idx_teams_org_id ON teams(org_id);
-CREATE INDEX IF NOT EXISTS idx_teams_region_id ON teams(region_id);
-
--- Add team_id and region_id to users if not exists
-ALTER TABLE users ADD COLUMN IF NOT EXISTS team_id UUID REFERENCES teams(id) ON DELETE SET NULL;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS region_id UUID REFERENCES regions(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_users_team_id ON users(team_id);
-CREATE INDEX IF NOT EXISTS idx_users_region_id ON users(region_id);
 
 -- ============================================
--- 2. USER SETTINGS
+-- 4. USER COLUMNS
+-- ============================================
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS team_id UUID;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS region_id UUID;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS canvass_pin_visibility TEXT DEFAULT 'org';
+
+-- ============================================
+-- 5. USER SETTINGS TABLE
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS user_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
-  
-  -- Notification preferences
+  user_id UUID NOT NULL UNIQUE,
   notifications_enabled BOOLEAN NOT NULL DEFAULT true,
   email_notifications BOOLEAN NOT NULL DEFAULT true,
   push_notifications BOOLEAN NOT NULL DEFAULT true,
-  notification_types JSONB DEFAULT '{"inspection_outcome": true, "appointment_reminder": true, "commission_update": true, "team_updates": true}',
-  
-  -- Calendar preferences
+  notification_types JSONB DEFAULT '{}',
   google_calendar_connected BOOLEAN NOT NULL DEFAULT false,
   default_appointment_duration INTEGER DEFAULT 60,
   appointment_buffer_minutes INTEGER DEFAULT 30,
   working_hours_start TIME DEFAULT '08:00',
   working_hours_end TIME DEFAULT '18:00',
   working_days INTEGER[] DEFAULT ARRAY[1,2,3,4,5],
-  
-  -- AI preferences
   ai_enabled BOOLEAN NOT NULL DEFAULT false,
   ai_suggestions_enabled BOOLEAN NOT NULL DEFAULT true,
   ai_auto_notes BOOLEAN NOT NULL DEFAULT false,
-  
-  -- Display preferences
   theme TEXT DEFAULT 'light',
   dashboard_layout JSONB,
-  
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_settings_user ON user_settings(user_id);
-
 -- ============================================
--- 3. ADDERS / PRICEBOOK ENHANCEMENTS
+-- 6. ADDER CATEGORIES TABLE
 -- ============================================
 
--- Add adder columns to pricebook_items if not exists
-ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS is_adder BOOLEAN DEFAULT false;
-ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS adder_category TEXT;
-ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS price_type TEXT DEFAULT 'fixed';
-ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS is_commissionable BOOLEAN DEFAULT true;
-
--- Adder categories table
 CREATE TABLE IF NOT EXISTS adder_categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
@@ -99,70 +156,38 @@ CREATE TABLE IF NOT EXISTS adder_categories (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_adder_categories_org ON adder_categories(org_id);
-
 -- ============================================
--- 4. CANVASS PIN VISIBILITY
+-- 7. LEADS COLUMN
 -- ============================================
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS canvass_pin_visibility TEXT DEFAULT 'org';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'outbound';
 
 -- ============================================
--- 5. LEAD CHANNEL ENUM AND COLUMN
--- ============================================
-
--- Create lead_channel enum if not exists
-DO $$ 
-BEGIN
-  CREATE TYPE lead_channel AS ENUM ('inbound', 'outbound');
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
-
--- Add channel column to leads if not exists
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS channel lead_channel DEFAULT 'outbound';
-
--- ============================================
--- 6. DASHBOARD SETTINGS
+-- 8. DASHBOARD SETTINGS TABLE
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS dashboard_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  region_id UUID REFERENCES regions(id) ON DELETE CASCADE,
-  team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  region_id UUID,
+  team_id UUID,
+  user_id UUID,
   settings JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_dashboard_settings_org ON dashboard_settings(org_id);
-CREATE INDEX IF NOT EXISTS idx_dashboard_settings_region ON dashboard_settings(region_id);
-CREATE INDEX IF NOT EXISTS idx_dashboard_settings_team ON dashboard_settings(team_id);
-CREATE INDEX IF NOT EXISTS idx_dashboard_settings_user ON dashboard_settings(user_id);
-
--- Add unique constraint if not exists
-DO $$ 
-BEGIN
-  ALTER TABLE dashboard_settings ADD CONSTRAINT dashboard_settings_scope_unique 
-    UNIQUE(org_id, region_id, team_id, user_id);
-EXCEPTION
-  WHEN duplicate_table THEN NULL;
-  WHEN duplicate_object THEN NULL;
-END $$;
-
 -- ============================================
--- 7. SCHEDULED APPOINTMENTS
+-- 9. SCHEDULED APPOINTMENTS TABLE
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS scheduled_appointments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
-  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
-  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  canvasser_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  lead_id UUID,
+  opportunity_id UUID,
+  closer_user_id UUID NOT NULL,
+  canvasser_user_id UUID,
   google_event_id TEXT,
   appointment_type TEXT DEFAULT 'inspection',
   scheduled_for TIMESTAMPTZ NOT NULL,
@@ -174,44 +199,37 @@ CREATE TABLE IF NOT EXISTS scheduled_appointments (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Add columns if table already exists
 ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS appointment_type TEXT DEFAULT 'inspection';
-
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_closer ON scheduled_appointments(closer_user_id, scheduled_for);
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_lead ON scheduled_appointments(lead_id);
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_opportunity ON scheduled_appointments(opportunity_id);
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_org ON scheduled_appointments(org_id);
-CREATE INDEX IF NOT EXISTS idx_scheduled_appointments_status ON scheduled_appointments(status, scheduled_for);
+ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS opportunity_id UUID;
 
 -- ============================================
--- 8. PENDING STATUS PROMPTS (for feedback)
+-- 10. PENDING STATUS PROMPTS TABLE
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS pending_status_prompts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  appointment_id UUID NOT NULL REFERENCES scheduled_appointments(id) ON DELETE CASCADE,
-  closer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  appointment_id UUID NOT NULL,
+  closer_user_id UUID NOT NULL,
   prompt_at TIMESTAMPTZ NOT NULL,
   completed BOOLEAN NOT NULL DEFAULT false,
   dismissed BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_pending_prompts_closer ON pending_status_prompts(closer_user_id, completed, dismissed);
-CREATE INDEX IF NOT EXISTS idx_pending_prompts_appointment ON pending_status_prompts(appointment_id);
-
 -- ============================================
--- 9. INSPECTION STATUS UPDATES
+-- 11. INSPECTION STATUS UPDATES TABLE
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS inspection_status_updates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  appointment_id UUID REFERENCES scheduled_appointments(id) ON DELETE SET NULL,
-  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
-  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
-  closer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  setter_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  appointment_id UUID,
+  opportunity_id UUID,
+  lead_id UUID,
+  closer_user_id UUID,
+  setter_user_id UUID,
   outcome TEXT NOT NULL,
   notes TEXT,
   setter_feedback TEXT,
@@ -219,11 +237,8 @@ CREATE TABLE IF NOT EXISTS inspection_status_updates (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_inspection_updates_appointment ON inspection_status_updates(appointment_id);
-CREATE INDEX IF NOT EXISTS idx_inspection_updates_opportunity ON inspection_status_updates(opportunity_id);
-
 -- ============================================
--- 10. APPOINTMENT TYPES
+-- 12. APPOINTMENT TYPES TABLE
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS appointment_types (
@@ -239,50 +254,18 @@ CREATE TABLE IF NOT EXISTS appointment_types (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_appointment_types_org ON appointment_types(org_id);
-
--- Insert default appointment types for each org
-INSERT INTO appointment_types (org_id, name, duration_minutes, color, description, sort_order)
-SELECT o.id, apt.name, apt.duration_minutes, apt.color, apt.description, apt.sort_order
-FROM orgs o
-CROSS JOIN (VALUES 
-  ('Inspection', 60, '#3b82f6', 'Standard roof inspection', 1),
-  ('Follow Up', 30, '#22c55e', 'Follow up visit', 2),
-  ('Contract Signing', 45, '#8b5cf6', 'Contract signing appointment', 3),
-  ('Final Walkthrough', 30, '#f59e0b', 'Post-installation walkthrough', 4)
-) AS apt(name, duration_minutes, color, description, sort_order)
-WHERE NOT EXISTS (
-  SELECT 1 FROM appointment_types at WHERE at.org_id = o.id
-);
-
 -- ============================================
--- 11. CUSTOM REPORTS
+-- 13. CUSTOM REPORTS TABLE
 -- ============================================
-
--- Create report_type enum if not exists
-DO $$ 
-BEGIN
-  CREATE TYPE report_type AS ENUM ('metric_card', 'bar_chart', 'line_chart', 'pie_chart', 'table', 'funnel');
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
-
--- Create report_data_source enum if not exists
-DO $$ 
-BEGIN
-  CREATE TYPE report_data_source AS ENUM ('leads', 'opportunities', 'projects', 'appointments', 'inspection_outcomes');
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
 
 CREATE TABLE IF NOT EXISTS custom_reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
-  report_type report_type NOT NULL DEFAULT 'bar_chart',
-  data_source report_data_source NOT NULL DEFAULT 'leads',
+  report_type TEXT NOT NULL DEFAULT 'bar_chart',
+  data_source TEXT NOT NULL DEFAULT 'leads',
   config JSONB NOT NULL DEFAULT '{}',
   is_public BOOLEAN NOT NULL DEFAULT false,
   is_dashboard_widget BOOLEAN NOT NULL DEFAULT false,
@@ -290,14 +273,13 @@ CREATE TABLE IF NOT EXISTS custom_reports (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_custom_reports_org ON custom_reports(org_id);
-CREATE INDEX IF NOT EXISTS idx_custom_reports_creator ON custom_reports(created_by);
-CREATE INDEX IF NOT EXISTS idx_custom_reports_dashboard ON custom_reports(org_id) WHERE is_dashboard_widget = true;
+-- ============================================
+-- 14. REPORT ROLE ACCESS TABLE
+-- ============================================
 
--- Report role access
 CREATE TABLE IF NOT EXISTS report_role_access (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  report_id UUID NOT NULL REFERENCES custom_reports(id) ON DELETE CASCADE,
+  report_id UUID NOT NULL,
   role TEXT,
   custom_role_id UUID,
   can_view BOOLEAN NOT NULL DEFAULT true,
@@ -305,12 +287,13 @@ CREATE TABLE IF NOT EXISTS report_role_access (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_report_role_access_report ON report_role_access(report_id);
+-- ============================================
+-- 15. REPORT SCHEDULES TABLE
+-- ============================================
 
--- Report schedules
 CREATE TABLE IF NOT EXISTS report_schedules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  report_id UUID NOT NULL REFERENCES custom_reports(id) ON DELETE CASCADE,
+  report_id UUID NOT NULL,
   schedule_type TEXT NOT NULL DEFAULT 'daily',
   schedule_time TIME DEFAULT '08:00',
   schedule_day INTEGER,
@@ -321,12 +304,122 @@ CREATE TABLE IF NOT EXISTS report_schedules (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_report_schedules_report ON report_schedules(report_id);
-
 -- ============================================
--- 12. INSERT DEFAULT ADDER CATEGORIES
+-- 16. CREATE INDEXES (only if columns exist)
 -- ============================================
 
+CREATE INDEX IF NOT EXISTS idx_regions_org_id ON regions(org_id);
+CREATE INDEX IF NOT EXISTS idx_teams_org_id ON teams(org_id);
+CREATE INDEX IF NOT EXISTS idx_adder_categories_org ON adder_categories(org_id);
+CREATE INDEX IF NOT EXISTS idx_dashboard_settings_org ON dashboard_settings(org_id);
+CREATE INDEX IF NOT EXISTS idx_appointment_types_org ON appointment_types(org_id);
+CREATE INDEX IF NOT EXISTS idx_custom_reports_org ON custom_reports(org_id);
+
+-- ============================================
+-- 17. ENABLE RLS ON ALL TABLES
+-- ============================================
+
+ALTER TABLE opportunities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE adder_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dashboard_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduled_appointments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pending_status_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inspection_status_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE appointment_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE report_role_access ENABLE ROW LEVEL SECURITY;
+ALTER TABLE report_schedules ENABLE ROW LEVEL SECURITY;
+
+-- ============================================
+-- 18. RLS POLICIES
+-- ============================================
+
+-- Opportunities
+DROP POLICY IF EXISTS "Users can view opportunities in their org" ON opportunities;
+CREATE POLICY "Users can view opportunities in their org"
+  ON opportunities FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Regions
+DROP POLICY IF EXISTS "Users can view regions in their org" ON regions;
+CREATE POLICY "Users can view regions in their org"
+  ON regions FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Teams
+DROP POLICY IF EXISTS "Users can view teams in their org" ON teams;
+CREATE POLICY "Users can view teams in their org"
+  ON teams FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- User settings
+DROP POLICY IF EXISTS "Users can manage their settings" ON user_settings;
+CREATE POLICY "Users can manage their settings"
+  ON user_settings FOR ALL
+  USING (user_id = auth.uid());
+
+-- Adder categories
+DROP POLICY IF EXISTS "Users can view adder categories" ON adder_categories;
+CREATE POLICY "Users can view adder categories"
+  ON adder_categories FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Dashboard settings
+DROP POLICY IF EXISTS "Users can view dashboard settings" ON dashboard_settings;
+CREATE POLICY "Users can view dashboard settings"
+  ON dashboard_settings FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Scheduled appointments
+DROP POLICY IF EXISTS "Users can view appointments in their org" ON scheduled_appointments;
+CREATE POLICY "Users can view appointments in their org"
+  ON scheduled_appointments FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Pending status prompts
+DROP POLICY IF EXISTS "Users can manage their prompts" ON pending_status_prompts;
+CREATE POLICY "Users can manage their prompts"
+  ON pending_status_prompts FOR ALL
+  USING (closer_user_id = auth.uid());
+
+-- Inspection status updates
+DROP POLICY IF EXISTS "Users can view inspection updates" ON inspection_status_updates;
+CREATE POLICY "Users can view inspection updates"
+  ON inspection_status_updates FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Appointment types
+DROP POLICY IF EXISTS "Users can view appointment types" ON appointment_types;
+CREATE POLICY "Users can view appointment types"
+  ON appointment_types FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Custom reports
+DROP POLICY IF EXISTS "Users can view reports" ON custom_reports;
+CREATE POLICY "Users can view reports"
+  ON custom_reports FOR ALL
+  USING (org_id = get_user_org_id(auth.uid()));
+
+-- Report role access
+DROP POLICY IF EXISTS "Users can view report access" ON report_role_access;
+CREATE POLICY "Users can view report access"
+  ON report_role_access FOR ALL
+  USING (true);
+
+-- Report schedules
+DROP POLICY IF EXISTS "Users can view report schedules" ON report_schedules;
+CREATE POLICY "Users can view report schedules"
+  ON report_schedules FOR ALL
+  USING (true);
+
+-- ============================================
+-- 19. INSERT DEFAULT DATA
+-- ============================================
+
+-- Insert default adder categories
 INSERT INTO adder_categories (org_id, name, description, sort_order)
 SELECT o.id, cat.name, cat.description, cat.sort_order
 FROM orgs o
@@ -341,166 +434,19 @@ WHERE NOT EXISTS (
   SELECT 1 FROM adder_categories ac WHERE ac.org_id = o.id
 );
 
--- ============================================
--- 13. RLS POLICIES
--- ============================================
-
-ALTER TABLE regions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE adder_categories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dashboard_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE scheduled_appointments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pending_status_prompts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inspection_status_updates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE appointment_types ENABLE ROW LEVEL SECURITY;
-ALTER TABLE custom_reports ENABLE ROW LEVEL SECURITY;
-ALTER TABLE report_role_access ENABLE ROW LEVEL SECURITY;
-ALTER TABLE report_schedules ENABLE ROW LEVEL SECURITY;
-
--- Regions
-DROP POLICY IF EXISTS "Users can view regions in their org" ON regions;
-CREATE POLICY "Users can view regions in their org"
-  ON regions FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Admins can manage regions" ON regions;
-CREATE POLICY "Admins can manage regions"
-  ON regions FOR ALL
-  USING (org_id = get_user_org_id(auth.uid()));
-
--- Teams
-DROP POLICY IF EXISTS "Users can view teams in their org" ON teams;
-CREATE POLICY "Users can view teams in their org"
-  ON teams FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Admins can manage teams" ON teams;
-CREATE POLICY "Admins can manage teams"
-  ON teams FOR ALL
-  USING (org_id = get_user_org_id(auth.uid()));
-
--- User settings
-DROP POLICY IF EXISTS "Users can manage their settings" ON user_settings;
-CREATE POLICY "Users can manage their settings"
-  ON user_settings FOR ALL
-  USING (user_id = auth.uid());
-
--- Adder categories
-DROP POLICY IF EXISTS "Users can view adder categories" ON adder_categories;
-CREATE POLICY "Users can view adder categories"
-  ON adder_categories FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
--- Dashboard settings
-DROP POLICY IF EXISTS "Users can view dashboard settings in their org" ON dashboard_settings;
-CREATE POLICY "Users can view dashboard settings in their org"
-  ON dashboard_settings FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Admins and managers can manage dashboard settings" ON dashboard_settings;
-CREATE POLICY "Admins and managers can manage dashboard settings"
-  ON dashboard_settings FOR ALL
-  USING (org_id = get_user_org_id(auth.uid()));
-
--- Scheduled appointments
-DROP POLICY IF EXISTS "Users can view appointments in their org" ON scheduled_appointments;
-CREATE POLICY "Users can view appointments in their org"
-  ON scheduled_appointments FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Users can manage appointments in their org" ON scheduled_appointments;
-CREATE POLICY "Users can manage appointments in their org"
-  ON scheduled_appointments FOR ALL
-  USING (org_id = get_user_org_id(auth.uid()));
-
--- Pending status prompts
-DROP POLICY IF EXISTS "Users can manage their prompts" ON pending_status_prompts;
-CREATE POLICY "Users can manage their prompts"
-  ON pending_status_prompts FOR ALL
-  USING (closer_user_id = auth.uid());
-
--- Inspection status updates
-DROP POLICY IF EXISTS "Users can view inspection updates in their org" ON inspection_status_updates;
-CREATE POLICY "Users can view inspection updates in their org"
-  ON inspection_status_updates FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Users can create inspection updates" ON inspection_status_updates;
-CREATE POLICY "Users can create inspection updates"
-  ON inspection_status_updates FOR INSERT
-  WITH CHECK (org_id = get_user_org_id(auth.uid()));
-
--- Appointment types
-DROP POLICY IF EXISTS "Users can view appointment types in their org" ON appointment_types;
-CREATE POLICY "Users can view appointment types in their org"
-  ON appointment_types FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Admins can manage appointment types" ON appointment_types;
-CREATE POLICY "Admins can manage appointment types"
-  ON appointment_types FOR ALL
-  USING (org_id = get_user_org_id(auth.uid()));
-
--- Custom reports
-DROP POLICY IF EXISTS "Users can view reports in their org" ON custom_reports;
-CREATE POLICY "Users can view reports in their org"
-  ON custom_reports FOR SELECT
-  USING (org_id = get_user_org_id(auth.uid()));
-
-DROP POLICY IF EXISTS "Users can manage their own reports" ON custom_reports;
-CREATE POLICY "Users can manage their own reports"
-  ON custom_reports FOR ALL
-  USING (
-    org_id = get_user_org_id(auth.uid()) 
-    AND (created_by = auth.uid() OR is_public = true)
-  );
-
--- Report role access
-DROP POLICY IF EXISTS "Users can view report access" ON report_role_access;
-CREATE POLICY "Users can view report access"
-  ON report_role_access FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM custom_reports cr 
-      WHERE cr.id = report_role_access.report_id 
-      AND cr.org_id = get_user_org_id(auth.uid())
-    )
-  );
-
-DROP POLICY IF EXISTS "Report owners can manage access" ON report_role_access;
-CREATE POLICY "Report owners can manage access"
-  ON report_role_access FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM custom_reports cr 
-      WHERE cr.id = report_role_access.report_id 
-      AND cr.created_by = auth.uid()
-    )
-  );
-
--- Report schedules
-DROP POLICY IF EXISTS "Users can view report schedules" ON report_schedules;
-CREATE POLICY "Users can view report schedules"
-  ON report_schedules FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM custom_reports cr 
-      WHERE cr.id = report_schedules.report_id 
-      AND cr.org_id = get_user_org_id(auth.uid())
-    )
-  );
-
-DROP POLICY IF EXISTS "Report owners can manage schedules" ON report_schedules;
-CREATE POLICY "Report owners can manage schedules"
-  ON report_schedules FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM custom_reports cr 
-      WHERE cr.id = report_schedules.report_id 
-      AND cr.created_by = auth.uid()
-    )
-  );
+-- Insert default appointment types
+INSERT INTO appointment_types (org_id, name, duration_minutes, color, description, sort_order)
+SELECT o.id, apt.name, apt.duration_minutes, apt.color, apt.description, apt.sort_order
+FROM orgs o
+CROSS JOIN (VALUES 
+  ('Inspection', 60, '#3b82f6', 'Standard roof inspection', 1),
+  ('Follow Up', 30, '#22c55e', 'Follow up visit', 2),
+  ('Contract Signing', 45, '#8b5cf6', 'Contract signing appointment', 3),
+  ('Final Walkthrough', 30, '#f59e0b', 'Post-installation walkthrough', 4)
+) AS apt(name, duration_minutes, color, description, sort_order)
+WHERE NOT EXISTS (
+  SELECT 1 FROM appointment_types at WHERE at.org_id = o.id
+);
 
 -- Done!
 SELECT 'Migration completed successfully!' as status;

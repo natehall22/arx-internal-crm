@@ -154,6 +154,10 @@ export default function CanvassMapPage() {
   const [searchAddress, setSearchAddress] = useState('')
   const [checkingAvailability, setCheckingAvailability] = useState(false)
   const [availabilityStatus, setAvailabilityStatus] = useState<{ available: boolean; hasCalendar: boolean; message?: string } | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string>('')
+  const [timeSlots, setTimeSlots] = useState<{ time: string; available: boolean; display: string }[]>([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [closerTimezone, setCloserTimezone] = useState<string>('America/New_York')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchAutocompleteRef = useRef<any>(null)
@@ -643,6 +647,45 @@ export default function CanvassMapPage() {
       setAvailabilityStatus(null)
     }
   }, [formState.closer_user_id, formState.inspection_scheduled_for, formState.schedule_inspection])
+
+  // Load available time slots when date or closer changes
+  const loadTimeSlots = async (closerId: string, date: string) => {
+    if (!closerId || !date || !isOnline) {
+      setTimeSlots([])
+      return
+    }
+
+    setLoadingSlots(true)
+    try {
+      const res = await fetch(`/api/canvass/availability?closer_id=${closerId}&date=${date}&duration=60`)
+      if (res.ok) {
+        const data = await res.json()
+        setTimeSlots(data.slots || [])
+        setCloserTimezone(data.timezone || 'America/New_York')
+      }
+    } catch (error) {
+      console.error('Failed to load time slots:', error)
+      setTimeSlots([])
+    } finally {
+      setLoadingSlots(false)
+    }
+  }
+
+  // Load slots when date or closer changes
+  useEffect(() => {
+    if (formState.schedule_inspection && formState.closer_user_id && selectedDate) {
+      loadTimeSlots(formState.closer_user_id, selectedDate)
+    } else {
+      setTimeSlots([])
+    }
+  }, [formState.closer_user_id, selectedDate, formState.schedule_inspection])
+
+  // Reset date selection when closer changes
+  useEffect(() => {
+    setSelectedDate('')
+    setTimeSlots([])
+    setFormState(prev => ({ ...prev, inspection_scheduled_for: '' }))
+  }, [formState.closer_user_id])
 
   const syncPendingPins = async () => {
     if (syncing || !isOnline) return
@@ -1307,7 +1350,13 @@ export default function CanvassMapPage() {
                         type="checkbox"
                         className="w-5 h-5 rounded border-gray-300 text-indigo-600"
                         checked={formState.schedule_inspection}
-                        onChange={(e) => setFormState((prev) => ({ ...prev, schedule_inspection: e.target.checked }))}
+                        onChange={(e) => {
+                          setFormState((prev) => ({ ...prev, schedule_inspection: e.target.checked }))
+                          if (!e.target.checked) {
+                            setSelectedDate('')
+                            setTimeSlots([])
+                          }
+                        }}
                       />
                       <span className="font-medium text-gray-900">Schedule Inspection</span>
                     </label>
@@ -1317,61 +1366,94 @@ export default function CanvassMapPage() {
                         <p className="text-xs text-gray-500">
                           This will create an Opportunity assigned to the selected closer.
                         </p>
+                        
+                        {/* Step 1: Select Closer */}
                         <select
                           className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white"
                           value={formState.closer_user_id}
                           onChange={(e) => setFormState((prev) => ({ ...prev, closer_user_id: e.target.value }))}
                         >
-                          <option value="">Select closer / sales rep</option>
+                          <option value="">1. Select closer / sales rep</option>
                           {closers.map((closer) => (
                             <option key={closer.id} value={closer.id}>
                               {closer.full_name || 'Unknown'} ({closer.role})
                             </option>
                           ))}
                         </select>
-                        <input
-                          type="datetime-local"
-                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white text-gray-900 appearance-none"
-                          value={formState.inspection_scheduled_for}
-                          onChange={(e) => setFormState((prev) => ({ ...prev, inspection_scheduled_for: e.target.value }))}
-                          min={new Date().toISOString().slice(0, 16)}
-                        />
-                        
-                        {/* Availability indicator */}
-                        {(checkingAvailability || availabilityStatus) && (
-                          <div className={`flex items-center gap-2 text-sm p-2 rounded-lg ${
-                            checkingAvailability ? 'bg-gray-100 text-gray-600' :
-                            availabilityStatus?.available ? 'bg-green-50 text-green-700' :
-                            availabilityStatus?.hasCalendar ? 'bg-amber-50 text-amber-700' :
-                            'bg-gray-50 text-gray-600'
-                          }`}>
-                            {checkingAvailability ? (
-                              <>
-                                <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                                <span>Checking availability...</span>
-                              </>
-                            ) : availabilityStatus?.available ? (
-                              <>
-                                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span>{availabilityStatus.message}</span>
-                              </>
-                            ) : availabilityStatus?.hasCalendar ? (
-                              <>
-                                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                </svg>
-                                <span>{availabilityStatus.message}</span>
-                              </>
+
+                        {/* Step 2: Select Date */}
+                        {formState.closer_user_id && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">2. Select Date</label>
+                            <input
+                              type="date"
+                              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white text-gray-900"
+                              value={selectedDate}
+                              onChange={(e) => setSelectedDate(e.target.value)}
+                              min={new Date().toISOString().split('T')[0]}
+                            />
+                          </div>
+                        )}
+
+                        {/* Step 3: Select Time Slot */}
+                        {formState.closer_user_id && selectedDate && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              3. Select Time
+                              <span className="text-xs text-gray-500 ml-1">({closerTimezone.replace('America/', '').replace('_', ' ')})</span>
+                            </label>
+                            
+                            {loadingSlots ? (
+                              <div className="flex items-center justify-center py-8">
+                                <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                                <span className="ml-2 text-gray-600">Loading available times...</span>
+                              </div>
+                            ) : timeSlots.length > 0 ? (
+                              <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                                {timeSlots.map((slot) => (
+                                  <button
+                                    key={slot.time}
+                                    type="button"
+                                    disabled={!slot.available}
+                                    onClick={() => {
+                                      setFormState((prev) => ({ ...prev, inspection_scheduled_for: slot.time }))
+                                    }}
+                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
+                                      formState.inspection_scheduled_for === slot.time
+                                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                                        : slot.available
+                                        ? 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 text-gray-700'
+                                        : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed line-through'
+                                    }`}
+                                  >
+                                    {slot.display}
+                                  </button>
+                                ))}
+                              </div>
                             ) : (
-                              <>
-                                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <span>{availabilityStatus?.message}</span>
-                              </>
+                              <div className="text-center py-4 text-gray-500 text-sm">
+                                No available time slots for this date
+                              </div>
                             )}
+                          </div>
+                        )}
+
+                        {/* Selected time confirmation */}
+                        {formState.inspection_scheduled_for && (
+                          <div className="flex items-center gap-2 text-sm p-3 rounded-lg bg-green-50 text-green-700">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span>
+                              Scheduled for {new Date(formState.inspection_scheduled_for).toLocaleDateString('en-US', { 
+                                weekday: 'short', 
+                                month: 'short', 
+                                day: 'numeric' 
+                              })} at {new Date(formState.inspection_scheduled_for).toLocaleTimeString('en-US', { 
+                                hour: 'numeric', 
+                                minute: '2-digit' 
+                              })}
+                            </span>
                           </div>
                         )}
                       </>
@@ -1525,7 +1607,13 @@ export default function CanvassMapPage() {
                           type="checkbox"
                           className="w-5 h-5 rounded border-gray-300 text-indigo-600"
                           checked={formState.schedule_inspection}
-                          onChange={(e) => setFormState((prev) => ({ ...prev, schedule_inspection: e.target.checked }))}
+                          onChange={(e) => {
+                            setFormState((prev) => ({ ...prev, schedule_inspection: e.target.checked }))
+                            if (!e.target.checked) {
+                              setSelectedDate('')
+                              setTimeSlots([])
+                            }
+                          }}
                         />
                         <span className="font-medium text-gray-900">Schedule Inspection</span>
                       </label>
@@ -1535,61 +1623,94 @@ export default function CanvassMapPage() {
                           <p className="text-xs text-gray-500">
                             This will create an Opportunity assigned to the selected closer.
                           </p>
+                          
+                          {/* Step 1: Select Closer */}
                           <select
                             className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white"
                             value={formState.closer_user_id}
                             onChange={(e) => setFormState((prev) => ({ ...prev, closer_user_id: e.target.value }))}
                           >
-                            <option value="">Select closer / sales rep</option>
+                            <option value="">1. Select closer / sales rep</option>
                             {closers.map((closer) => (
                               <option key={closer.id} value={closer.id}>
                                 {closer.full_name || 'Unknown'} ({closer.role})
                               </option>
                             ))}
                           </select>
-                          <input
-                            type="datetime-local"
-                            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white text-gray-900 appearance-none"
-                            value={formState.inspection_scheduled_for}
-                            onChange={(e) => setFormState((prev) => ({ ...prev, inspection_scheduled_for: e.target.value }))}
-                            min={new Date().toISOString().slice(0, 16)}
-                          />
-                          
-                          {/* Availability indicator - mobile */}
-                          {(checkingAvailability || availabilityStatus) && (
-                            <div className={`flex items-center gap-2 text-sm p-2 rounded-lg ${
-                              checkingAvailability ? 'bg-gray-100 text-gray-600' :
-                              availabilityStatus?.available ? 'bg-green-50 text-green-700' :
-                              availabilityStatus?.hasCalendar ? 'bg-amber-50 text-amber-700' :
-                              'bg-gray-50 text-gray-600'
-                            }`}>
-                              {checkingAvailability ? (
-                                <>
-                                  <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                                  <span>Checking availability...</span>
-                                </>
-                              ) : availabilityStatus?.available ? (
-                                <>
-                                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  <span>{availabilityStatus.message}</span>
-                                </>
-                              ) : availabilityStatus?.hasCalendar ? (
-                                <>
-                                  <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                  </svg>
-                                  <span>{availabilityStatus.message}</span>
-                                </>
+
+                          {/* Step 2: Select Date */}
+                          {formState.closer_user_id && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">2. Select Date</label>
+                              <input
+                                type="date"
+                                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white text-gray-900"
+                                value={selectedDate}
+                                onChange={(e) => setSelectedDate(e.target.value)}
+                                min={new Date().toISOString().split('T')[0]}
+                              />
+                            </div>
+                          )}
+
+                          {/* Step 3: Select Time Slot */}
+                          {formState.closer_user_id && selectedDate && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                3. Select Time
+                                <span className="text-xs text-gray-500 ml-1">({closerTimezone.replace('America/', '').replace('_', ' ')})</span>
+                              </label>
+                              
+                              {loadingSlots ? (
+                                <div className="flex items-center justify-center py-6">
+                                  <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                                  <span className="ml-2 text-gray-600 text-sm">Loading times...</span>
+                                </div>
+                              ) : timeSlots.length > 0 ? (
+                                <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                                  {timeSlots.map((slot) => (
+                                    <button
+                                      key={slot.time}
+                                      type="button"
+                                      disabled={!slot.available}
+                                      onClick={() => {
+                                        setFormState((prev) => ({ ...prev, inspection_scheduled_for: slot.time }))
+                                      }}
+                                      className={`px-2 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
+                                        formState.inspection_scheduled_for === slot.time
+                                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                                          : slot.available
+                                          ? 'border-gray-200 active:border-indigo-300 active:bg-indigo-50 text-gray-700'
+                                          : 'border-gray-100 bg-gray-50 text-gray-400 line-through'
+                                      }`}
+                                    >
+                                      {slot.display}
+                                    </button>
+                                  ))}
+                                </div>
                               ) : (
-                                <>
-                                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                  </svg>
-                                  <span>{availabilityStatus?.message}</span>
-                                </>
+                                <div className="text-center py-3 text-gray-500 text-sm">
+                                  No available times
+                                </div>
                               )}
+                            </div>
+                          )}
+
+                          {/* Selected time confirmation */}
+                          {formState.inspection_scheduled_for && (
+                            <div className="flex items-center gap-2 text-sm p-2 rounded-lg bg-green-50 text-green-700">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              <span className="text-xs">
+                                {new Date(formState.inspection_scheduled_for).toLocaleDateString('en-US', { 
+                                  weekday: 'short', 
+                                  month: 'short', 
+                                  day: 'numeric' 
+                                })} at {new Date(formState.inspection_scheduled_for).toLocaleTimeString('en-US', { 
+                                  hour: 'numeric', 
+                                  minute: '2-digit' 
+                                })}
+                              </span>
                             </div>
                           )}
                         </>

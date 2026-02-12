@@ -1,0 +1,198 @@
+import { requireAuth } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
+
+export const dynamic = 'force-dynamic'
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createServiceClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
+// Helper to get valid access token (refresh if needed)
+async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
+  const { data: tokenData } = await adminClient
+    .from('user_google_tokens')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
+  if (!tokenData) return null
+
+  const expiresAt = new Date(tokenData.expires_at)
+  const now = new Date()
+
+  // If token expires in less than 5 minutes, refresh it
+  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+    try {
+      const refreshed = await refreshAccessToken(tokenData.refresh_token)
+      
+      await adminClient
+        .from('user_google_tokens')
+        .update({
+          access_token: refreshed.access_token,
+          expires_at: refreshed.expires_at.toISOString(),
+        })
+        .eq('user_id', userId)
+
+      return refreshed.access_token
+    } catch (error) {
+      console.error('Failed to refresh token:', error)
+      return null
+    }
+  }
+
+  return tokenData.access_token
+}
+
+// Helper to get timezone for a user based on their team
+async function getTimezoneForUser(adminClient: any, userId: string): Promise<string> {
+  try {
+    const { data: userProfile } = await adminClient
+      .from('users')
+      .select('team_id')
+      .eq('id', userId)
+      .single()
+    
+    if (userProfile?.team_id) {
+      const { data: team } = await adminClient
+        .from('teams')
+        .select('timezone')
+        .eq('id', userProfile.team_id)
+        .single()
+      
+      if (team?.timezone) {
+        return team.timezone
+      }
+    }
+  } catch (e) {
+    console.log('Could not fetch team timezone, using default')
+  }
+  
+  return 'America/New_York'
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    await requireAuth()
+    const adminClient = getAdminClient()
+
+    const closerId = request.nextUrl.searchParams.get('closer_id')
+    const dateStr = request.nextUrl.searchParams.get('date')
+    const durationStr = request.nextUrl.searchParams.get('duration')
+
+    if (!closerId || !dateStr) {
+      return NextResponse.json({ error: 'closer_id and date are required' }, { status: 400 })
+    }
+
+    const durationMinutes = parseInt(durationStr || '60', 10)
+
+    // Get closer's timezone
+    const timezone = await getTimezoneForUser(adminClient, closerId)
+
+    // Get closer's working hours from settings
+    const { data: settings } = await adminClient
+      .from('user_settings')
+      .select('working_hours_start, working_hours_end, appointment_buffer_minutes')
+      .eq('user_id', closerId)
+      .single()
+
+    // Default working hours: 8 AM - 6 PM
+    const workingHoursStart = settings?.working_hours_start || '08:00'
+    const workingHoursEnd = settings?.working_hours_end || '18:00'
+    const bufferMinutes = settings?.appointment_buffer_minutes || 30
+
+    // Parse the date in the closer's timezone
+    const selectedDate = new Date(dateStr + 'T00:00:00')
+    
+    // Create day start and end times
+    const [startHour, startMin] = workingHoursStart.split(':').map(Number)
+    const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
+    
+    const dayStart = new Date(selectedDate)
+    dayStart.setHours(startHour, startMin, 0, 0)
+    
+    const dayEnd = new Date(selectedDate)
+    dayEnd.setHours(endHour, endMin, 0, 0)
+
+    // Get access token for closer
+    const accessToken = await getValidAccessToken(adminClient, closerId)
+    
+    let busySlots: { start: string; end: string }[] = []
+    let hasCalendar = false
+
+    if (accessToken) {
+      hasCalendar = true
+      try {
+        busySlots = await getFreeBusy(accessToken, dayStart, dayEnd)
+      } catch (error) {
+        console.error('Failed to get free/busy:', error)
+      }
+    }
+
+    // Generate 15-minute time slots
+    const slots: { time: string; available: boolean; display: string }[] = []
+    const slotInterval = 15 * 60 * 1000 // 15 minutes
+    
+    let currentSlot = new Date(dayStart)
+    const now = new Date()
+    
+    while (currentSlot.getTime() + durationMinutes * 60 * 1000 <= dayEnd.getTime()) {
+      const slotEnd = new Date(currentSlot.getTime() + durationMinutes * 60 * 1000)
+      
+      // Skip slots in the past
+      if (currentSlot <= now) {
+        currentSlot = new Date(currentSlot.getTime() + slotInterval)
+        continue
+      }
+      
+      // Check if slot conflicts with any busy period (including buffer)
+      const bufferedStart = new Date(currentSlot.getTime() - bufferMinutes * 60 * 1000)
+      const bufferedEnd = new Date(slotEnd.getTime() + bufferMinutes * 60 * 1000)
+      
+      const hasConflict = busySlots.some(busy => {
+        const busyStart = new Date(busy.start)
+        const busyEnd = new Date(busy.end)
+        return bufferedStart < busyEnd && bufferedEnd > busyStart
+      })
+      
+      // Format time for display (e.g., "9:00 AM")
+      const hours = currentSlot.getHours()
+      const minutes = currentSlot.getMinutes()
+      const ampm = hours >= 12 ? 'PM' : 'AM'
+      const displayHours = hours % 12 || 12
+      const displayMinutes = minutes.toString().padStart(2, '0')
+      const display = `${displayHours}:${displayMinutes} ${ampm}`
+      
+      // Format for datetime-local input
+      const timeValue = currentSlot.toISOString().slice(0, 16)
+      
+      slots.push({
+        time: timeValue,
+        available: !hasConflict,
+        display,
+      })
+      
+      currentSlot = new Date(currentSlot.getTime() + slotInterval)
+    }
+
+    return NextResponse.json({
+      slots,
+      hasCalendar,
+      timezone,
+      workingHours: {
+        start: workingHoursStart,
+        end: workingHoursEnd,
+      },
+    })
+
+  } catch (error) {
+    console.error('Availability check error:', error)
+    return NextResponse.json({ error: 'Failed to check availability' }, { status: 500 })
+  }
+}

@@ -113,11 +113,12 @@ async function syncToGoogleCalendar(
     const event: CalendarEvent = {
       summary: `Inspection: ${homeownerName || 'Customer'}`,
       description: [
-        notes || '',
+        `Customer: ${homeownerName || 'N/A'}`,
         phone ? `Phone: ${phone}` : '',
-        `Lead ID: ${leadId}`,
-        opportunityId ? `Opportunity ID: ${opportunityId}` : '',
-      ].filter(Boolean).join('\n'),
+        addressText ? `Address: ${addressText}` : '',
+        '',
+        notes ? `Notes from setter:\n${notes}` : '',
+      ].filter(line => line !== undefined).join('\n').trim(),
       location: addressText || undefined,
       start: {
         dateTime: startTime.toISOString(),
@@ -169,9 +170,9 @@ async function syncToSetterCalendar(
       description: [
         'Appointment you scheduled',
         closerName ? `Closer: ${closerName}` : '',
+        `Customer: ${homeownerName || 'N/A'}`,
         phone ? `Phone: ${phone}` : '',
-        `Lead ID: ${leadId}`,
-        opportunityId ? `Opportunity ID: ${opportunityId}` : '',
+        addressText ? `Address: ${addressText}` : '',
       ].filter(Boolean).join('\n'),
       location: addressText || undefined,
       start: {
