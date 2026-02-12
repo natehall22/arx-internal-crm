@@ -448,5 +448,23 @@ WHERE NOT EXISTS (
   SELECT 1 FROM appointment_types at WHERE at.org_id = o.id
 );
 
+-- ============================================
+-- 15. PRICEBOOK_ITEMS COLUMNS
+-- ============================================
+
+-- Add missing columns to pricebook_items for adder functionality
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2);
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS price_type TEXT DEFAULT 'fixed';
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS is_commissionable BOOLEAN DEFAULT true;
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS commission_percent NUMERIC(5, 2);
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS commission_cap NUMERIC(10, 2);
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS material_cost NUMERIC(10, 2);
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS labor_cost NUMERIC(10, 2);
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS profit_margin_percent NUMERIC(6, 2);
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS visibility TEXT DEFAULT 'sales_reps';
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS show_to_customer BOOLEAN DEFAULT false;
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS is_adder BOOLEAN DEFAULT false;
+ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS adder_category TEXT;
+
 -- Done!
 SELECT 'Migration completed successfully!' as status;

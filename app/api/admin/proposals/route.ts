@@ -169,36 +169,51 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Build insert object - only include optional fields if they have values
+      const insertData: any = {
+        org_id: profile.org_id,
+        pricebook_id: pricebook?.id,
+        name: data.name,
+        category: data.category || 'Other',
+        unit: data.price_type === 'percentage' ? 'percent' : (data.unit || 'each'),
+        unit_price: parseFloat(data.unit_price) || 0,
+        is_adder: true,
+        adder_category: data.adder_category || 'Other',
+        price_type: data.price_type || 'fixed',
+        is_commissionable: data.is_commissionable ?? true,
+        visibility: 'sales_reps',
+        active: true,
+      }
+
+      // Add optional cost fields if they have values
+      if (data.material_cost || data.labor_cost) {
+        insertData.cost_price = (parseFloat(data.material_cost) || 0) + (parseFloat(data.labor_cost) || 0)
+      }
+      if (data.material_cost) {
+        insertData.material_cost = parseFloat(data.material_cost)
+      }
+      if (data.labor_cost) {
+        insertData.labor_cost = parseFloat(data.labor_cost)
+      }
+      if (data.profit_margin_percent) {
+        insertData.profit_margin_percent = parseFloat(data.profit_margin_percent)
+      }
+      if (commissionPercent !== null) {
+        insertData.commission_percent = commissionPercent
+      }
+      if (commissionCap !== null) {
+        insertData.commission_cap = commissionCap
+      }
+
       const { data: newAdder, error: adderError } = await adminClient
         .from('pricebook_items')
-        .insert({
-          org_id: profile.org_id,
-          pricebook_id: pricebook?.id,
-          name: data.name,
-          category: data.category,
-          unit: data.price_type === 'percentage' ? 'percent' : data.unit,
-          unit_price: parseFloat(data.unit_price) || 0,
-          cost_price: data.material_cost || data.labor_cost 
-            ? (parseFloat(data.material_cost) || 0) + (parseFloat(data.labor_cost) || 0) 
-            : null,
-          material_cost: data.material_cost ? parseFloat(data.material_cost) : null,
-          labor_cost: data.labor_cost ? parseFloat(data.labor_cost) : null,
-          profit_margin_percent: data.profit_margin_percent ? parseFloat(data.profit_margin_percent) : null,
-          is_adder: true,
-          adder_category: data.adder_category,
-          price_type: data.price_type,
-          is_commissionable: data.is_commissionable,
-          commission_percent: commissionPercent,
-          commission_cap: commissionCap,
-          visibility: 'sales_reps',
-          active: true,
-        })
+        .insert(insertData)
         .select()
         .single()
 
       if (adderError) {
         console.error('Error creating adder:', adderError)
-        return NextResponse.json({ error: 'Failed to create adder' }, { status: 500 })
+        return NextResponse.json({ error: `Failed to create adder: ${adderError.message}` }, { status: 500 })
       }
 
       return NextResponse.json({ adder: newAdder })

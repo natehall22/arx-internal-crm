@@ -173,21 +173,31 @@ export default function AdminProposalsPage() {
     
     // If costs and profit margin are set, calculate the selling price
     let finalUnitPrice = parseFloat(adderForm.unit_price) || 0
-    if (totalCost > 0 && profitMargin > 0 && !adderForm.unit_price) {
-      finalUnitPrice = totalCost * (1 + profitMargin / 100)
+    if (totalCost > 0 && !adderForm.unit_price) {
+      // Calculate with profit margin if provided, otherwise just use cost
+      finalUnitPrice = profitMargin > 0 ? totalCost * (1 + profitMargin / 100) : totalCost
     }
 
-    if (!adderForm.name || finalUnitPrice <= 0) {
-      alert('Please enter a name and either set costs + profit margin, or enter a price directly')
+    console.log('Validation check:', { name: adderForm.name, finalUnitPrice, materialCost, laborCost, profitMargin, totalCost, unit_price: adderForm.unit_price })
+
+    if (!adderForm.name) {
+      alert('Please enter a name for the adder')
+      return
+    }
+    
+    if (finalUnitPrice <= 0) {
+      alert('Please enter a price directly, or set material/labor costs')
       return
     }
 
     setSaving(true)
+    console.log('Saving adder with finalUnitPrice:', finalUnitPrice)
     try {
       const dataToSave = {
         ...adderForm,
         unit_price: finalUnitPrice.toString(),
       }
+      console.log('Data to save:', dataToSave)
 
       const response = await fetch('/api/admin/proposals', {
         method: 'POST',
@@ -195,7 +205,12 @@ export default function AdminProposalsPage() {
         body: JSON.stringify({ type: 'adder', data: dataToSave }),
       })
       
+      console.log('Response status:', response.status)
+      const result = await response.json()
+      console.log('Response result:', result)
+      
       if (response.ok) {
+        console.log('Success! Closing modal and reloading data...')
         setShowAddAdder(false)
         setAdderForm({
           name: '',
@@ -212,9 +227,14 @@ export default function AdminProposalsPage() {
           commission_cap: '',
         })
         await loadData()
+        console.log('Data reloaded')
+      } else {
+        console.error('API error:', result)
+        alert(`Failed to save adder: ${result.error || 'Unknown error'}`)
       }
     } catch (err) {
       console.error('Error saving adder:', err)
+      alert('Failed to save adder. Please try again.')
     }
     setSaving(false)
   }
