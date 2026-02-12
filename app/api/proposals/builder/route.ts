@@ -150,12 +150,20 @@ export async function GET(request: NextRequest) {
     }
 
     // Load roofing types
-    const { data: roofingTypes } = await adminClient
+    const { data: roofingTypesRaw } = await adminClient
       .from('roofing_types')
       .select('*')
       .eq('org_id', profile.org_id)
       .eq('active', true)
       .order('sort_order')
+    
+    // Map database fields to frontend expected fields
+    const roofingTypes = (roofingTypesRaw || []).map((rt: any) => ({
+      ...rt,
+      price_per_square: rt.unit_price || 0,
+      material_cost_per_square: rt.material_cost || null,
+      labor_cost_per_square: rt.labor_cost || null,
+    }))
 
     // If no pricebook items exist, create default items from org pricing settings
     let pricebookItems = visibleItems.filter((i: any) => !i.is_adder)
