@@ -65,7 +65,7 @@ export default function AdminProposalsPage() {
   // Form states
   const [adderForm, setAdderForm] = useState({
     name: '',
-    category: 'Other',
+    category: 'addons' as 'roofing' | 'siding' | 'windows' | 'addons',
     unit: 'each',
     unit_price: '',
     adder_category: 'Other',
@@ -214,7 +214,7 @@ export default function AdminProposalsPage() {
         setShowAddAdder(false)
         setAdderForm({
           name: '',
-          category: 'Other',
+          category: 'addons',
           unit: 'each',
           unit_price: '',
           adder_category: 'Other',
