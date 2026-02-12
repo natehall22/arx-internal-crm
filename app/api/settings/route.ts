@@ -134,29 +134,34 @@ export async function POST(request: NextRequest) {
     const adminClient = getAdminClient()
     const settings = await request.json()
 
+    // Build the settings object, only including defined values
+    const settingsData: Record<string, any> = {
+      user_id: user.id,
+    }
+
+    // Only add fields that are defined
+    if (settings.notifications_enabled !== undefined) settingsData.notifications_enabled = settings.notifications_enabled
+    if (settings.email_notifications !== undefined) settingsData.email_notifications = settings.email_notifications
+    if (settings.push_notifications !== undefined) settingsData.push_notifications = settings.push_notifications
+    if (settings.notification_types !== undefined) settingsData.notification_types = settings.notification_types
+    if (settings.google_calendar_connected !== undefined) settingsData.google_calendar_connected = settings.google_calendar_connected
+    if (settings.default_appointment_duration !== undefined) settingsData.default_appointment_duration = settings.default_appointment_duration
+    if (settings.appointment_buffer_minutes !== undefined) settingsData.appointment_buffer_minutes = settings.appointment_buffer_minutes
+    if (settings.working_hours_start !== undefined) settingsData.working_hours_start = settings.working_hours_start
+    if (settings.working_hours_end !== undefined) settingsData.working_hours_end = settings.working_hours_end
+    if (settings.working_days !== undefined) settingsData.working_days = settings.working_days
+    if (settings.ai_enabled !== undefined) settingsData.ai_enabled = settings.ai_enabled
+    if (settings.ai_suggestions_enabled !== undefined) settingsData.ai_suggestions_enabled = settings.ai_suggestions_enabled
+    if (settings.ai_auto_notes !== undefined) settingsData.ai_auto_notes = settings.ai_auto_notes
+    if (settings.theme !== undefined) settingsData.theme = settings.theme
+
     const { error } = await adminClient
       .from('user_settings')
-      .upsert({
-        user_id: user.id,
-        notifications_enabled: settings.notifications_enabled,
-        email_notifications: settings.email_notifications,
-        push_notifications: settings.push_notifications,
-        notification_types: settings.notification_types,
-        google_calendar_connected: settings.google_calendar_connected,
-        default_appointment_duration: settings.default_appointment_duration,
-        appointment_buffer_minutes: settings.appointment_buffer_minutes,
-        working_hours_start: settings.working_hours_start,
-        working_hours_end: settings.working_hours_end,
-        working_days: settings.working_days,
-        ai_enabled: settings.ai_enabled,
-        ai_suggestions_enabled: settings.ai_suggestions_enabled,
-        ai_auto_notes: settings.ai_auto_notes,
-        theme: settings.theme,
-      }, { onConflict: 'user_id' })
+      .upsert(settingsData, { onConflict: 'user_id' })
 
     if (error) {
-      console.error('Failed to save settings:', error)
-      return NextResponse.json({ error: 'Failed to save settings' }, { status: 500 })
+      console.error('Failed to save settings:', error.message, error.details, error.hint)
+      return NextResponse.json({ error: `Failed to save settings: ${error.message}` }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
