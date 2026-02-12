@@ -1331,9 +1331,10 @@ export default function CanvassMapPage() {
                         </select>
                         <input
                           type="datetime-local"
-                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base"
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white text-gray-900 appearance-none"
                           value={formState.inspection_scheduled_for}
                           onChange={(e) => setFormState((prev) => ({ ...prev, inspection_scheduled_for: e.target.value }))}
+                          min={new Date().toISOString().slice(0, 16)}
                         />
                         
                         {/* Availability indicator */}
@@ -1548,9 +1549,10 @@ export default function CanvassMapPage() {
                           </select>
                           <input
                             type="datetime-local"
-                            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base"
+                            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base bg-white text-gray-900 appearance-none"
                             value={formState.inspection_scheduled_for}
                             onChange={(e) => setFormState((prev) => ({ ...prev, inspection_scheduled_for: e.target.value }))}
+                            min={new Date().toISOString().slice(0, 16)}
                           />
                           
                           {/* Availability indicator - mobile */}
