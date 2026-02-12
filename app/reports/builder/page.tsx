@@ -15,7 +15,10 @@ const reportTypes: { id: ReportType; label: string; icon: string; description: s
   { id: 'funnel', label: 'Funnel', icon: '🔻', description: 'Show conversion stages' },
 ]
 
-const dataSources: { id: ReportDataSource | 'canvass_activity'; label: string; columns: { id: string; label: string; type: string }[] }[] = [
+// Extended data source type to include canvass_activity
+type ExtendedDataSource = ReportDataSource | 'canvass_activity'
+
+const dataSources: { id: ExtendedDataSource; label: string; columns: { id: string; label: string; type: string }[] }[] = [
   { 
     id: 'canvass_activity', 
     label: 'Canvass Activity (Doors Knocked)',
@@ -117,7 +120,7 @@ export default function ReportBuilderPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [reportType, setReportType] = useState<ReportType>('bar_chart')
-  const [dataSource, setDataSource] = useState<ReportDataSource>('leads')
+  const [dataSource, setDataSource] = useState<ExtendedDataSource>('leads')
   const [groupBy, setGroupBy] = useState('')
   const [aggregation, setAggregation] = useState('count')
   const [valueColumn, setValueColumn] = useState('')
@@ -231,14 +234,20 @@ export default function ReportBuilderPage() {
 
       if (editId) {
         // Update existing report
+        // Map canvass_activity to leads for storage (it's a filtered view of leads)
+        const storedDataSource = dataSource === 'canvass_activity' ? 'leads' : dataSource
+        const storedConfig = dataSource === 'canvass_activity' 
+          ? { ...config, isCanvassActivity: true }
+          : config
+
         await supabase
           .from('custom_reports')
           .update({
             name,
             description,
             report_type: reportType,
-            data_source: dataSource,
-            config,
+            data_source: storedDataSource,
+            config: storedConfig,
             is_public: isPublic,
             is_dashboard_widget: isDashboardWidget,
           })
@@ -266,6 +275,12 @@ export default function ReportBuilderPage() {
         }
       } else {
         // Create new report
+        // Map canvass_activity to leads for storage (it's a filtered view of leads)
+        const storedDataSource = dataSource === 'canvass_activity' ? 'leads' : dataSource
+        const storedConfig = dataSource === 'canvass_activity' 
+          ? { ...config, isCanvassActivity: true }
+          : config
+
         const { data: newReport, error } = await supabase
           .from('custom_reports')
           .insert({
@@ -274,8 +289,8 @@ export default function ReportBuilderPage() {
             name,
             description,
             report_type: reportType,
-            data_source: dataSource,
-            config,
+            data_source: storedDataSource,
+            config: storedConfig,
             is_public: isPublic,
             is_dashboard_widget: isDashboardWidget,
           })

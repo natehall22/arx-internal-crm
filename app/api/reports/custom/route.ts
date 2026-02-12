@@ -130,6 +130,9 @@ export async function POST(request: NextRequest) {
     let tableName = ''
     let additionalFilter: { column: string; op: string; value: any } | null = null
 
+    // Check if this is a canvass activity report (stored as leads with isCanvassActivity flag)
+    const isCanvassActivity = report.config?.isCanvassActivity === true
+
     switch (dataSource) {
       case 'canvass_activity':
         // Canvass activity = leads with a canvass_disposition (doors knocked)
@@ -138,6 +141,10 @@ export async function POST(request: NextRequest) {
         break
       case 'leads':
         tableName = 'leads'
+        // If this was saved as a canvass activity report, filter to only canvassed leads
+        if (isCanvassActivity) {
+          additionalFilter = { column: 'canvass_disposition', op: 'not.is', value: null }
+        }
         break
       case 'opportunities':
         tableName = 'opportunities'
