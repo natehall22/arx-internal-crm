@@ -296,6 +296,12 @@ export async function POST(request: NextRequest) {
       query = query.not(additionalFilter.column, 'is', null)
     }
 
+    // Apply disposition filter if specified
+    const selectedDispositions = report.config?.selectedDispositions
+    if (selectedDispositions && Array.isArray(selectedDispositions) && selectedDispositions.length > 0) {
+      query = query.in('canvass_disposition', selectedDispositions)
+    }
+
     const { data: rawData, error: dataError } = await query
 
     if (dataError) {

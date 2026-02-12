@@ -96,6 +96,16 @@ const dateRangeOptions = [
   { id: 'custom', label: 'Custom range' },
 ]
 
+const dispositionOptions = [
+  { id: 'not_home', label: 'Not Home' },
+  { id: 'go_back', label: 'Go Back' },
+  { id: 'not_interested', label: 'Not Interested' },
+  { id: 'hot_lead', label: 'Hot Lead' },
+  { id: 'renter', label: 'Renter' },
+  { id: 'inspection_set', label: 'Inspection Set' },
+  { id: 'other', label: 'Other' },
+]
+
 const aggregationOptions = [
   { id: 'count', label: 'Count' },
   { id: 'sum', label: 'Sum' },
@@ -125,6 +135,7 @@ export default function ReportBuilderPage() {
   const [aggregation, setAggregation] = useState('count')
   const [valueColumn, setValueColumn] = useState('')
   const [dateRange, setDateRange] = useState('30d')
+  const [selectedDispositions, setSelectedDispositions] = useState<string[]>([])
   const [isPublic, setIsPublic] = useState(false)
   const [isDashboardWidget, setIsDashboardWidget] = useState(false)
   const [roleAccess, setRoleAccess] = useState<Record<string, boolean>>({})
@@ -192,6 +203,7 @@ export default function ReportBuilderPage() {
         setAggregation(report.config?.aggregation || 'count')
         setValueColumn(report.config?.valueColumn || '')
         setDateRange(report.config?.dateRange || '30d')
+        setSelectedDispositions(report.config?.selectedDispositions || [])
         setIsPublic(report.is_public)
         setIsDashboardWidget(report.is_dashboard_widget)
 
@@ -222,6 +234,7 @@ export default function ReportBuilderPage() {
         aggregation,
         valueColumn,
         dateRange,
+        selectedDispositions: selectedDispositions.length > 0 ? selectedDispositions : undefined,
       }
 
       const res = await fetch('/api/reports/builder', {
@@ -457,6 +470,52 @@ export default function ReportBuilderPage() {
               </select>
             </div>
 
+            {/* Disposition Filter - show for canvass_activity or leads data source */}
+            {(dataSource === 'canvass_activity' || dataSource === 'leads') && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Filter by Disposition (optional)
+                </label>
+                <p className="text-sm text-gray-500 mb-3">
+                  Select specific dispositions to include, or leave empty to include all
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {dispositionOptions.map((disp) => (
+                    <label
+                      key={disp.id}
+                      className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedDispositions.includes(disp.id)
+                          ? 'border-indigo-500 bg-indigo-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDispositions.includes(disp.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedDispositions([...selectedDispositions, disp.id])
+                          } else {
+                            setSelectedDispositions(selectedDispositions.filter(d => d !== disp.id))
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                      />
+                      <span className="text-sm font-medium text-gray-700">{disp.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {selectedDispositions.length > 0 && (
+                  <button
+                    onClick={() => setSelectedDispositions([])}
+                    className="mt-2 text-sm text-indigo-600 hover:text-indigo-700"
+                  >
+                    Clear selection
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-between">
               <button
                 onClick={() => setStep(1)}
@@ -595,6 +654,14 @@ export default function ReportBuilderPage() {
                   {dateRangeOptions.find(d => d.id === dateRange)?.label}
                 </span>
               </div>
+              {selectedDispositions.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Dispositions</span>
+                  <span className="font-medium text-gray-900">
+                    {selectedDispositions.map(d => dispositionOptions.find(o => o.id === d)?.label).join(', ')}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-500">Visibility</span>
                 <span className="font-medium text-gray-900">
