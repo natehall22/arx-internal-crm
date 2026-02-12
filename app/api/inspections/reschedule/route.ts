@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
         appointment_id: original_appointment_id,
         opportunity_id: originalAppointment.opportunity_id,
         lead_id: originalAppointment.lead_id,
-        closer_user_id: user.id,
+        closer_user_id: userId,
         setter_user_id: originalAppointment.canvasser_user_id,
         outcome: 'rescheduled',
         notes: `Rescheduled to ${new Date(new_scheduled_for).toLocaleDateString()}`,
