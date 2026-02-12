@@ -1,16 +1,75 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+
+export const dynamic = 'force-dynamic'
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createServiceClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
+function getAuthClient(request: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  
+  const authHeader = request.headers.get('authorization')
+  const cookieHeader = request.headers.get('cookie')
+  
+  let accessToken: string | null = null
+  
+  if (authHeader?.startsWith('Bearer ')) {
+    accessToken = authHeader.substring(7)
+  } else if (cookieHeader) {
+    const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+      const [key, value] = cookie.trim().split('=')
+      acc[key] = value
+      return acc
+    }, {} as Record<string, string>)
+    
+    const tokenCookie = Object.keys(cookies).find(key => 
+      key.includes('auth-token') || key.includes('sb-') && key.includes('-auth-token')
+    )
+    if (tokenCookie) {
+      try {
+        const tokenData = JSON.parse(decodeURIComponent(cookies[tokenCookie]))
+        accessToken = tokenData.access_token || tokenData
+      } catch {
+        accessToken = cookies[tokenCookie]
+      }
+    }
+  }
+  
+  const client = createServiceClient(supabaseUrl, supabaseAnonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    },
+  })
+  
+  return { client, accessToken }
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
       .from('users')
       .select('org_id, role, custom_role_id')
       .eq('id', user.id)
@@ -23,7 +82,7 @@ export async function GET(request: NextRequest) {
     const dashboardOnly = request.nextUrl.searchParams.get('dashboard') === 'true'
 
     // Get all reports the user can access
-    let query = supabase
+    let query = adminClient
       .from('custom_reports')
       .select(`
         *,
@@ -73,12 +132,19 @@ export async function GET(request: NextRequest) {
 // Execute a report and get data
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const { client: authClient, accessToken } = getAuthClient(request)
     
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const supabase = getAdminClient()
 
     const { data: profile } = await supabase
       .from('users')
