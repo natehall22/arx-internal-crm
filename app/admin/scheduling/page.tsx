@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { createClientBrowser } from '@/lib/supabase/client'
 import type { User, Team, UserGoogleToken } from '@/lib/types/database'
 
 type UserWithCalendar = User & {
@@ -42,58 +41,43 @@ export default function SchedulingPage() {
   }, [])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-    
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    try {
+      const res = await fetch('/api/admin/scheduling')
+      const data = await res.json()
+      
+      if (!res.ok) {
+        console.error('Failed to load scheduling data:', data.error)
+        setLoading(false)
+        return
+      }
+
+      setCurrentUser(data.profile)
+      setTeams(data.teams || [])
+    } catch (error) {
+      console.error('Failed to load scheduling data:', error)
+    } finally {
       setLoading(false)
-      return
     }
-
-    // Get current user with calendar token
-    const { data: profile } = await supabase
-      .from('users')
-      .select('*, teams(*)')
-      .eq('id', user.id)
-      .single()
-
-    if (profile) {
-      // Check for Google token
-      const { data: token } = await supabase
-        .from('user_google_tokens')
-        .select('*')
-        .eq('user_id', user.id)
-        .single()
-
-      setCurrentUser({
-        ...profile,
-        google_token: token,
-        team: profile.teams,
-      })
-    }
-
-    // Load teams
-    const { data: teamsData } = await supabase
-      .from('teams')
-      .select('*')
-      .order('name')
-
-    setTeams(teamsData || [])
-    setLoading(false)
   }
 
   const handleDisconnectCalendar = async () => {
     if (!currentUser) return
     if (!confirm('Disconnect your Google Calendar? You will need to reconnect to use scheduling features.')) return
 
-    const supabase = createClientBrowser()
-    await supabase
-      .from('user_google_tokens')
-      .delete()
-      .eq('user_id', currentUser.id)
+    try {
+      const res = await fetch('/api/admin/scheduling', { method: 'DELETE' })
+      
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to disconnect')
+      }
 
-    await loadData()
-    setMessage({ type: 'success', text: 'Calendar disconnected' })
+      await loadData()
+      setMessage({ type: 'success', text: 'Calendar disconnected' })
+    } catch (error: any) {
+      console.error('Failed to disconnect calendar:', error)
+      setMessage({ type: 'error', text: error.message || 'Failed to disconnect calendar' })
+    }
   }
 
   const isCalendarConnected = currentUser?.google_token != null
