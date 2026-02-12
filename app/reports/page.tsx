@@ -53,17 +53,15 @@ export default function ReportsPage() {
   }, [currentUser, dateRange, viewLevel, selectedRegionId, selectedTeamId])
 
   const loadCurrentUser = async () => {
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    setCurrentUser(profile)
+    try {
+      const res = await fetch('/api/reports/builder')
+      if (res.ok) {
+        const data = await res.json()
+        setCurrentUser(data.profile)
+      }
+    } catch (error) {
+      console.error('Failed to load user:', error)
+    }
     setLoading(false)
   }
 
