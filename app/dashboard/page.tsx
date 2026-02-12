@@ -159,6 +159,67 @@ export default async function DashboardPage() {
   }
   const { data: recentActivities } = await activityQuery
 
+  // Fetch team member stats for managers/admins
+  let teamMemberStats: any[] = []
+  if (isAdmin || isSalesManager || isRegionalManager) {
+    // Get all team members with their info
+    let membersQuery = supabase
+      .from('users')
+      .select('id, full_name, role')
+      .eq('org_id', profile.org_id)
+      .in('role', ['sales_rep', 'canvasser', 'closer', 'rep'])
+    
+    if (isSalesManager && profile.team_id) {
+      membersQuery = membersQuery.eq('team_id', profile.team_id)
+    } else if (isRegionalManager && profile.region_id) {
+      const { data: regionTeams } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('region_id', profile.region_id)
+      const teamIds = regionTeams?.map(t => t.id) || []
+      if (teamIds.length > 0) {
+        membersQuery = membersQuery.in('team_id', teamIds)
+      }
+    }
+    
+    const { data: members } = await membersQuery
+    
+    if (members && members.length > 0) {
+      // Calculate stats for each member
+      for (const member of members) {
+        const memberLeads = leads?.filter(l => l.owner_user_id === member.id) || []
+        const memberOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
+        
+        const memberWeekLeads = memberLeads.filter(l => new Date(l.created_at) >= startOfWeek)
+        const memberWeekOpps = memberOpps.filter(o => new Date(o.created_at) >= startOfWeek)
+        const memberWeekSales = memberOpps.filter(o => 
+          o.inspection_outcome === 'sale' && new Date(o.created_at) >= startOfWeek
+        )
+        
+        const totalInspections = memberOpps.filter(o => o.inspection_outcome).length
+        const totalSales = memberOpps.filter(o => o.inspection_outcome === 'sale').length
+        const closeRate = totalInspections > 0 ? (totalSales / totalInspections * 100) : 0
+        
+        teamMemberStats.push({
+          id: member.id,
+          name: member.full_name || 'Unknown',
+          role: member.role,
+          doorsKnocked: memberWeekLeads.length,
+          inspectionsSet: memberWeekOpps.length,
+          sales: memberWeekSales.length,
+          closeRate: closeRate.toFixed(0),
+        })
+      }
+      
+      // Sort by sales, then inspections, then doors
+      teamMemberStats.sort((a, b) => {
+        if (b.sales !== a.sales) return b.sales - a.sales
+        if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
+        return b.doorsKnocked - a.doorsKnocked
+      })
+    }
+  }
+
   const now = new Date()
   const startOfWeek = new Date(now)
   startOfWeek.setDate(now.getDate() - now.getDay())
@@ -211,6 +272,7 @@ export default async function DashboardPage() {
         upcomingAppointments={upcomingAppointments || []}
         recentActivities={recentActivities || []}
         settings={settings}
+        teamMemberStats={teamMemberStats}
       />
     </div>
   )

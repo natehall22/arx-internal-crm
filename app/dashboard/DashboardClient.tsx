@@ -8,6 +8,16 @@ import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import type { InspectionOutcome } from '@/lib/types/database'
 
+interface TeamMemberStat {
+  id: string
+  name: string
+  role: string
+  doorsKnocked: number
+  inspectionsSet: number
+  sales: number
+  closeRate: string
+}
+
 interface DashboardClientProps {
   profile: any
   stats: {
@@ -33,6 +43,7 @@ interface DashboardClientProps {
   upcomingAppointments: any[]
   recentActivities: any[]
   settings: any
+  teamMemberStats?: TeamMemberStat[]
 }
 
 export default function DashboardClient({
@@ -43,6 +54,7 @@ export default function DashboardClient({
   upcomingAppointments,
   recentActivities,
   settings,
+  teamMemberStats = [],
 }: DashboardClientProps) {
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
@@ -272,6 +284,115 @@ export default function DashboardClient({
             <p className="text-xs text-gray-400 mt-2">All time</p>
           </div>
         </div>
+
+        {/* Team Leaderboard - for managers/admins */}
+        {teamMemberStats.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-8 overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Team Stats This Week</h2>
+              <span className="text-sm text-gray-500">{teamMemberStats.length} reps</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-center gap-1">
+                        <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                        Doors
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-center gap-1">
+                        <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Inspections
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-center gap-1">
+                        <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Sales
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-center gap-1">
+                        <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                        </svg>
+                        Close %
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {teamMemberStats.map((member, index) => (
+                    <tr key={member.id} className={index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center w-8 h-8">
+                          {index === 0 ? (
+                            <span className="text-xl">🥇</span>
+                          ) : index === 1 ? (
+                            <span className="text-xl">🥈</span>
+                          ) : index === 2 ? (
+                            <span className="text-xl">🥉</span>
+                          ) : (
+                            <span className="text-sm font-medium text-gray-500">{index + 1}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                            <span className="text-sm font-medium text-indigo-600">
+                              {member.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{member.name}</p>
+                            <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                          {member.doorsKnocked}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                          {member.inspectionsSet}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                          {member.sales}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                          {member.closeRate}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {teamMemberStats.length === 0 && (
+              <div className="p-8 text-center text-gray-500">
+                No team member stats available
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Progress Section */}
