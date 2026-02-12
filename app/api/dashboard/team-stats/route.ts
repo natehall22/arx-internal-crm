@@ -208,11 +208,19 @@ export async function GET(request: NextRequest) {
 
     const { data: opportunities } = await oppsQuery
 
+    // Contact dispositions - where rep actually talked to someone
+    const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
+
     // Calculate stats for each member
     const teamMemberStats = members.map(member => {
       // Count doors knocked - leads with any canvass_disposition
       const memberLeads = leads?.filter(l => l.owner_user_id === member.id) || []
       const doorsKnocked = memberLeads.length
+
+      // Count contacts - only dispositions where they talked to someone
+      const contacts = memberLeads.filter(l => 
+        contactDispositions.includes(l.canvass_disposition)
+      ).length
 
       // Count inspections set
       const memberOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
@@ -230,6 +238,7 @@ export async function GET(request: NextRequest) {
         name: member.full_name || 'Unknown',
         role: member.role,
         doorsKnocked,
+        contacts,
         inspectionsSet,
         sales,
         closeRate: closeRate.toFixed(0),

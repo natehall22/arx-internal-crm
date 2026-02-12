@@ -13,6 +13,7 @@ interface TeamMemberStat {
   name: string
   role: string
   doorsKnocked: number
+  contacts: number
   inspectionsSet: number
   sales: number
   closeRate: string
@@ -352,6 +353,14 @@ export default function DashboardClient({
                     </th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <span className="flex items-center justify-center gap-1">
+                        <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                        </svg>
+                        Contacts
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-center gap-1">
                         <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
@@ -379,7 +388,7 @@ export default function DashboardClient({
                 <tbody className="divide-y divide-gray-100">
                   {loadingStats ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center">
+                      <td colSpan={7} className="px-4 py-8 text-center">
                         <div className="flex items-center justify-center gap-2 text-gray-500">
                           <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -420,6 +429,11 @@ export default function DashboardClient({
                       <td className="px-4 py-3 text-center">
                         <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                           {member.doorsKnocked}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                          {member.contacts || 0}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">

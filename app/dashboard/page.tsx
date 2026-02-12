@@ -184,6 +184,9 @@ export default async function DashboardPage() {
     
     const { data: members } = await membersQuery
     
+    // Contact dispositions - where rep actually talked to someone
+    const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
+
     if (members && members.length > 0) {
       // Calculate stats for each member
       for (const member of members) {
@@ -194,6 +197,12 @@ export default async function DashboardPage() {
         const memberWeekLeads = memberLeads.filter(l => 
           new Date(l.created_at) >= startOfWeek && l.canvass_disposition
         )
+        
+        // Count contacts - only dispositions where they talked to someone
+        const memberWeekContacts = memberWeekLeads.filter(l => 
+          contactDispositions.includes(l.canvass_disposition || '')
+        ).length
+        
         const memberWeekOpps = memberOpps.filter(o => new Date(o.created_at) >= startOfWeek)
         const memberWeekSales = memberOpps.filter(o => 
           o.inspection_outcome === 'sale' && new Date(o.created_at) >= startOfWeek
@@ -208,6 +217,7 @@ export default async function DashboardPage() {
           name: member.full_name || 'Unknown',
           role: member.role,
           doorsKnocked: memberWeekLeads.length,
+          contacts: memberWeekContacts,
           inspectionsSet: memberWeekOpps.length,
           sales: memberWeekSales.length,
           closeRate: closeRate.toFixed(0),
