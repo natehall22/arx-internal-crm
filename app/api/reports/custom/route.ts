@@ -212,6 +212,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
+    // Get org settings to check if admins should be included in reports
+    const { data: org } = await supabase
+      .from('orgs')
+      .select('settings')
+      .eq('id', profile.org_id)
+      .single()
+    
+    const includeAdminsInReports = org?.settings?.reports?.include_admins_in_reports !== false // Default true
+
     const { report_id } = await request.json()
 
     // Get the report
@@ -323,17 +332,21 @@ export async function POST(request: NextRequest) {
       return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
     }
 
-    // Fetch user names if grouping by user
+    // Fetch user names and roles if grouping by user
     let userNames: Record<string, string> = {}
+    let adminUserIds: Set<string> = new Set()
     if (groupBy && (groupBy.includes('user_id') || groupBy === 'owner_user_id')) {
       const { data: users } = await supabase
         .from('users')
-        .select('id, full_name')
+        .select('id, full_name, role')
         .eq('org_id', profile.org_id)
       
       if (users) {
         users.forEach(u => {
           userNames[u.id] = u.full_name || 'Unknown'
+          if (u.role === 'admin') {
+            adminUserIds.add(u.id)
+          }
         })
       }
     }
@@ -344,6 +357,14 @@ export async function POST(request: NextRequest) {
       
       rawData.forEach((row: any) => {
         const key = row[groupBy] || 'Unknown'
+        
+        // Skip admin users if setting is disabled and we're grouping by user
+        if (!includeAdminsInReports && 
+            (groupBy.includes('user_id') || groupBy === 'owner_user_id') && 
+            adminUserIds.has(key)) {
+          return
+        }
+        
         if (!grouped[key]) grouped[key] = []
         grouped[key].push(row)
       })

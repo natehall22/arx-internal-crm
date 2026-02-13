@@ -22,6 +22,7 @@ type SettingsSection =
   | 'integrations'
   | 'measurement-tools'
   | 'notifications'
+  | 'reports'
   | 'general'
 
 interface AppointmentType {
@@ -106,6 +107,9 @@ export default function AdminSettingsPage() {
     roofr_enabled: false,
     solo_enabled: false,
     aurora_enabled: false,
+  })
+  const [reportSettings, setReportSettings] = useState({
+    include_admins_in_reports: true, // Default: admins show in reports
   })
   const [dispositions, setDispositions] = useState<DispositionType[]>([
     { id: 'not_home', label: 'Not Home', category: 'No Contact', color: '#ef4444', active: true, sort_order: 0 },
@@ -201,6 +205,14 @@ export default function AdminSettingsPage() {
         }))
       }
       
+      // Load report settings
+      if (data.settings?.reports) {
+        setReportSettings(prev => ({
+          ...prev,
+          ...data.settings.reports,
+        }))
+      }
+      
       setLoading(false)
     } catch (error) {
       console.error('Error loading settings:', error)
@@ -230,6 +242,33 @@ export default function AdminSettingsPage() {
     } catch (error) {
       console.error('Error saving settings:', error)
       alert('Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveReportSettings = async () => {
+    setSaving(true)
+    try {
+      const response = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'reports',
+          reports: reportSettings,
+        }),
+      })
+      
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to save report settings')
+        return
+      }
+      
+      alert('Report settings saved!')
+    } catch (error) {
+      console.error('Error saving report settings:', error)
+      alert('Failed to save report settings')
     } finally {
       setSaving(false)
     }
@@ -353,6 +392,7 @@ export default function AdminSettingsPage() {
       title: 'SYSTEM',
       items: [
         { id: 'general', label: 'General Settings' },
+        { id: 'reports', label: 'Report Settings' },
         { id: 'notifications', label: 'Notification Templates' },
       ],
     },
@@ -570,6 +610,51 @@ export default function AdminSettingsPage() {
                 <div className="pt-4 border-t">
                   <button
                     onClick={saveSettings}
+                    disabled={saving}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Report Settings */}
+          {activeSection === 'reports' && (
+            <div className="max-w-2xl">
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Report Settings</h1>
+              <p className="text-gray-500 mb-6">Configure how reports display team member data.</p>
+              
+              <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Role Inclusion</h2>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Choose which roles are included in performance reports and leaderboards.
+                  </p>
+                  
+                  <div className="space-y-4">
+                    <label className="flex items-start gap-3 p-4 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.include_admins_in_reports}
+                        onChange={(e) => setReportSettings(prev => ({ ...prev, include_admins_in_reports: e.target.checked }))}
+                        className="mt-1 h-5 w-5 text-indigo-600 rounded border-gray-300"
+                      />
+                      <div>
+                        <span className="font-medium text-gray-900">Include Admins in Reports</span>
+                        <p className="text-sm text-gray-500 mt-1">
+                          When enabled, admin users will appear in performance reports, leaderboards, and sales statistics. 
+                          Disable this to exclude owners/admins from team performance metrics as your company grows.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t">
+                  <button
+                    onClick={saveReportSettings}
                     disabled={saving}
                     className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                   >
