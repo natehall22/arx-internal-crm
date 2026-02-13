@@ -79,6 +79,8 @@ export default function AdminProposalsPage() {
     is_commissionable: true,  // Default to yes - flows through regular commission
     commission_percent: '',   // Empty = flows through regular commission from comp plans
     commission_cap: '',       // No cap by default
+    // Customer visibility
+    show_to_customer: false,  // Default: adders hidden from customer proposal
   })
   
   const [templateForm, setTemplateForm] = useState({
@@ -228,6 +230,7 @@ export default function AdminProposalsPage() {
           is_commissionable: true,
           commission_percent: '',
           commission_cap: '',
+          show_to_customer: false,
         })
         await loadData()
         console.log('Data reloaded')
@@ -317,6 +320,7 @@ export default function AdminProposalsPage() {
       is_commissionable: adder.is_commissionable ?? true,
       commission_percent: adder.commission_percent?.toString() || '',
       commission_cap: adder.commission_cap?.toString() || '',
+      show_to_customer: (adder as any).show_to_customer ?? false,
     })
     setShowAddAdder(true)
   }
@@ -471,6 +475,7 @@ export default function AdminProposalsPage() {
                     is_commissionable: true,
                     commission_percent: '',
                     commission_cap: '',
+                    show_to_customer: false,
                   })
                   setShowAddAdder(true)
                 }}
@@ -506,6 +511,7 @@ export default function AdminProposalsPage() {
                         is_commissionable: true,
                         commission_percent: '',
                         commission_cap: '',
+                        show_to_customer: false,
                       })
                       setShowAddAdder(true)
                     }}
@@ -872,6 +878,25 @@ export default function AdminProposalsPage() {
                     </p>
                   </div>
                 )}
+
+                {/* Customer Visibility Toggle */}
+                <div className="pt-4 border-t">
+                  <label className="flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all hover:border-indigo-200">
+                    <input
+                      type="checkbox"
+                      checked={adderForm.show_to_customer}
+                      onChange={(e) => setAdderForm(prev => ({ ...prev, show_to_customer: e.target.checked }))}
+                      className="w-5 h-5 mt-0.5 rounded border-gray-300 text-indigo-600"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">Show to Customer on Proposal</span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        When enabled, this adder will be itemized on the customer-facing proposal. 
+                        When disabled, it will only be included in the total price.
+                      </p>
+                    </div>
+                  </label>
+                </div>
 
                 {/* Commissionable Toggle */}
                 <div className="pt-4 border-t">

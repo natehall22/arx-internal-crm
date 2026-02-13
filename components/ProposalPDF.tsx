@@ -46,6 +46,7 @@ interface ProposalData {
     unit_price: number
     line_total: number
     is_adder: boolean
+    show_to_customer?: boolean  // Whether this item should be shown on customer-facing proposal
   }>
   measurement?: {
     total_squares: number
@@ -558,6 +559,32 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Scope of Work</Text>
               <Text style={styles.scopeText}>{proposal.scope_of_work}</Text>
+            </View>
+          )}
+
+          {/* Customer-Visible Line Items */}
+          {lineItems.filter(item => item.show_to_customer).length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Project Details</Text>
+              <View style={styles.table}>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.tableHeaderCell, styles.col1]}>Description</Text>
+                  <Text style={[styles.tableHeaderCell, styles.col2]}>Qty</Text>
+                  <Text style={[styles.tableHeaderCell, styles.col3]}>Unit Price</Text>
+                  <Text style={[styles.tableHeaderCell, styles.col4]}>Total</Text>
+                </View>
+                {lineItems.filter(item => item.show_to_customer).map((item, index) => (
+                  <View key={item.id} style={[styles.tableRow, index % 2 === 1 ? styles.tableRowAlt : {}]}>
+                    <View style={styles.col1}>
+                      <Text style={styles.tableCellBold}>{item.name}</Text>
+                      <Text style={[styles.tableCell, { fontSize: 8, color: '#94a3b8' }]}>{item.category}</Text>
+                    </View>
+                    <Text style={[styles.tableCell, styles.col2]}>{item.quantity} {item.unit}</Text>
+                    <Text style={[styles.tableCell, styles.col3]}>{formatCurrency(item.unit_price)}</Text>
+                    <Text style={[styles.tableCellBold, styles.col4]}>{formatCurrency(item.line_total)}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
           )}
 

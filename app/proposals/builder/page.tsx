@@ -13,6 +13,7 @@ interface PricebookItem {
   is_adder: boolean
   adder_category: string | null
   visibility: string
+  show_to_customer?: boolean
 }
 
 interface RoofingType {
@@ -54,6 +55,7 @@ interface LineItem {
   unit_price: number
   line_total: number
   is_adder: boolean
+  show_to_customer?: boolean  // Whether this item should be shown on customer-facing proposal
 }
 
 interface ProposalForm {
@@ -366,6 +368,7 @@ export default function ProposalBuilderPage() {
       unit_price: item.unit_price,
       line_total: item.unit_price * calculatedQuantity,
       is_adder: item.is_adder,
+      show_to_customer: item.show_to_customer ?? false,  // Pass through customer visibility setting
     }
     setLineItems(prev => [...prev, newItem])
     setShowAddItem(false)
@@ -467,6 +470,7 @@ export default function ProposalBuilderPage() {
         unit_price: item.unit_price,
         line_total: item.line_total,
         is_adder: item.is_adder,
+        show_to_customer: item.show_to_customer ?? false,  // Include customer visibility
       }))
 
       const response = await fetch('/api/proposals/builder', {

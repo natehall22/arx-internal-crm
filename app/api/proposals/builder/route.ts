@@ -351,6 +351,7 @@ export async function POST(request: NextRequest) {
         unit_price: item.unit_price,
         line_total: item.line_total,
         is_adder: item.is_adder || false,
+        show_to_customer: item.show_to_customer ?? false,  // Customer visibility setting
         sort_order: index,
       }))
 

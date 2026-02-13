@@ -18,7 +18,7 @@ BEGIN
   CREATE TYPE project_type AS ENUM ('roofing', 'siding', 'windows', 'gutters', 'solar', 'other');
 EXCEPTION
   WHEN duplicate_object THEN NULL;
-END $$;
+END $$;tyhi
 
 DO $$ 
 BEGIN
@@ -465,6 +465,13 @@ ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS visibility TEXT DEFAULT 'sa
 ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS show_to_customer BOOLEAN DEFAULT false;
 ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS is_adder BOOLEAN DEFAULT false;
 ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS adder_category TEXT;
+
+-- ============================================
+-- 20. PROPOSAL_LINE_ITEMS COLUMNS
+-- ============================================
+
+-- Add show_to_customer column to proposal_line_items for customer visibility
+ALTER TABLE proposal_line_items ADD COLUMN IF NOT EXISTS show_to_customer BOOLEAN DEFAULT false;
 
 -- Done!
 SELECT 'Migration completed successfully!' as status;

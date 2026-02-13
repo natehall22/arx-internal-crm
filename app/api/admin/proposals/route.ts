@@ -182,6 +182,7 @@ export async function POST(request: NextRequest) {
         adder_category: data.adder_category || 'Other',
         price_type: data.price_type || 'fixed',
         is_commissionable: data.is_commissionable ?? true,
+        show_to_customer: data.show_to_customer ?? false,  // Customer visibility setting
         visibility: 'sales_reps',
         active: true,
       }
@@ -371,6 +372,7 @@ export async function PATCH(request: NextRequest) {
         adder_category: data.adder_category || 'Other',
         price_type: data.price_type || 'fixed',
         is_commissionable: data.is_commissionable ?? true,
+        show_to_customer: data.show_to_customer ?? false,  // Customer visibility setting
         commission_percent: commissionPercent,
         commission_cap: commissionCap,
       }
