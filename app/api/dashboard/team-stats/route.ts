@@ -73,6 +73,11 @@ function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date }
       start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
       end.setTime(start.getTime() + 24 * 60 * 60 * 1000) // End of today
       break
+    case 'yesterday':
+      // Start of yesterday
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0)
+      end.setTime(start.getTime() + 24 * 60 * 60 * 1000) // End of yesterday
+      break
     case 'week':
       start.setDate(now.getDate() - now.getDay())
       start.setHours(0, 0, 0, 0)
