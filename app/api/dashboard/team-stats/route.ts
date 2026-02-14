@@ -162,13 +162,12 @@ export async function GET(request: NextRequest) {
       teamMemberIds = []
     }
 
-    // Get all active team members with their info (only those marked to show in reports)
+    // Get all active team members with their info
     let membersQuery = supabase
       .from('users')
-      .select('id, full_name, role, show_in_reports')
+      .select('id, full_name, role')
       .eq('org_id', profile.org_id)
       .eq('active', true)
-      .neq('show_in_reports', false) // Include users where show_in_reports is true or null (default)
     
     if (!isAdmin && teamMemberIds.length > 0) {
       membersQuery = membersQuery.in('id', teamMemberIds)

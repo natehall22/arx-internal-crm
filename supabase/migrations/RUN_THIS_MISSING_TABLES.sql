@@ -18,7 +18,7 @@ BEGIN
   CREATE TYPE project_type AS ENUM ('roofing', 'siding', 'windows', 'gutters', 'solar', 'other');
 EXCEPTION
   WHEN duplicate_object THEN NULL;
-END $$;tyhi
+END $$;
 
 DO $$ 
 BEGIN
