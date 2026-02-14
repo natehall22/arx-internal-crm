@@ -162,12 +162,16 @@ export async function GET(request: NextRequest) {
       teamMemberIds = []
     }
 
-    // Get all team members with their info
+    // Sales-related roles that should appear in the leaderboard
+    const salesRoles = ['sales_rep', 'canvasser', 'closer', 'rep', 'sales_manager', 'regional_manager']
+    
+    // Get active sales team members only
     let membersQuery = supabase
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', profile.org_id)
-      .in('role', ['sales_rep', 'canvasser', 'closer', 'rep'])
+      .eq('active', true)
+      .in('role', salesRoles)
     
     if (!isAdmin && teamMemberIds.length > 0) {
       membersQuery = membersQuery.in('id', teamMemberIds)
@@ -245,14 +249,14 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Sort by sales, then inspections, then doors
+    // Sort by sales, then inspections, then doors - and limit to top 10
     teamMemberStats.sort((a, b) => {
       if (b.sales !== a.sales) return b.sales - a.sales
       if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
       return b.doorsKnocked - a.doorsKnocked
     })
 
-    return NextResponse.json({ teamMemberStats })
+    return NextResponse.json({ teamMemberStats: teamMemberStats.slice(0, 10) })
   } catch (error) {
     console.error('Team stats error:', error)
     return NextResponse.json({ error: 'Failed to fetch team stats' }, { status: 500 })

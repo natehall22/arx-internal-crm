@@ -165,16 +165,19 @@ export default async function DashboardPage() {
   startOfWeek.setDate(now.getDate() - now.getDay())
   startOfWeek.setHours(0, 0, 0, 0)
 
-  // Fetch team member stats for managers/admins
+  // Fetch team member stats for managers/admins - only for sales roles
   let teamMemberStats: any[] = []
+  // Sales-related roles that should appear in the leaderboard
+  const salesRoles = ['sales_rep', 'canvasser', 'closer', 'rep', 'sales_manager', 'regional_manager']
+  
   if (isAdmin || isSalesManager || isRegionalManager) {
-    // Get all active team members with their info (exclude admin role from leaderboard)
+    // Get active sales team members only (exclude admin and operations roles)
     let membersQuery = supabase
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', profile.org_id)
       .eq('active', true)
-      .not('role', 'eq', 'admin')
+      .in('role', salesRoles)
     
     if (isSalesManager && profile.team_id) {
       membersQuery = membersQuery.eq('team_id', profile.team_id)
@@ -231,12 +234,13 @@ export default async function DashboardPage() {
         })
       }
       
-      // Sort by sales, then inspections, then doors
+      // Sort by sales, then inspections, then doors - and limit to top 10
       teamMemberStats.sort((a, b) => {
         if (b.sales !== a.sales) return b.sales - a.sales
         if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
         return b.doorsKnocked - a.doorsKnocked
       })
+      teamMemberStats = teamMemberStats.slice(0, 10)
     }
   }
 

@@ -334,7 +334,7 @@ export default function DashboardClient({
         {teamMemberStats.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-8 overflow-hidden">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-              <h2 className="text-lg font-semibold text-gray-900">Team Stats</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Top 10 Sales Reps</h2>
               <div className="flex items-center gap-3">
                 <select
                   value={timeFrame}
