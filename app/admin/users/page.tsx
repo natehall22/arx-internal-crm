@@ -76,6 +76,7 @@ export default function UsersPage() {
   const [formRegionId, setFormRegionId] = useState('')
   const [formManagerId, setFormManagerId] = useState('')
   const [formCanvassVisibility, setFormCanvassVisibility] = useState<'own' | 'team' | 'region' | 'org'>('org')
+  const [formShowInReports, setFormShowInReports] = useState(true)
   // Create user form fields
   const [createEmail, setCreateEmail] = useState('')
   const [createFullName, setCreateFullName] = useState('')
@@ -302,6 +303,7 @@ export default function UsersPage() {
     setFormRegionId(user.region_id || '')
     setFormManagerId(user.manager_user_id || '')
     setFormCanvassVisibility((user as any).canvass_pin_visibility || 'org')
+    setFormShowInReports((user as any).show_in_reports !== false) // Default true if not set
     setError(null)
     await loadUserPermissions(user.id)
   }
@@ -324,6 +326,7 @@ export default function UsersPage() {
           region_id: formRegionId || null,
           manager_user_id: formManagerId || null,
           canvass_pin_visibility: formCanvassVisibility,
+          show_in_reports: formShowInReports,
         }),
       })
 
@@ -1275,6 +1278,29 @@ export default function UsersPage() {
                       This user&apos;s role grants them access to all pins regardless of this setting.
                     </p>
                   )}
+                </div>
+
+                {/* Show in Reports Toggle */}
+                <div className="border-t pt-4 mt-4">
+                  <label className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                    <div>
+                      <span className="text-sm font-medium text-gray-700">Show in Reports & Leaderboards</span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        When enabled, this user appears in team stats, leaderboards, and reports
+                      </p>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        checked={formShowInReports}
+                        onChange={(e) => setFormShowInReports(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div className={`w-11 h-6 rounded-full transition-colors ${formShowInReports ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                        <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formShowInReports ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </div>
+                    </div>
+                  </label>
                 </div>
 
                 {/* Additional Permissions */}

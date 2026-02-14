@@ -473,5 +473,13 @@ ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS adder_category TEXT;
 -- Add show_to_customer column to proposal_line_items for customer visibility
 ALTER TABLE proposal_line_items ADD COLUMN IF NOT EXISTS show_to_customer BOOLEAN DEFAULT false;
 
+-- ============================================
+-- 21. USERS - SHOW IN REPORTS TOGGLE
+-- ============================================
+
+-- Add show_in_reports column to users for controlling visibility in reports/leaderboards
+-- Defaults to true so existing users appear in reports
+ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_reports BOOLEAN DEFAULT true;
+
 -- Done!
 SELECT 'Migration completed successfully!' as status;
