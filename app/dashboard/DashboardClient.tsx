@@ -68,9 +68,12 @@ export default function DashboardClient({
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('week')
   const [filteredTeamStats, setFilteredTeamStats] = useState<TeamMemberStat[]>(teamMemberStats)
   const [loadingStats, setLoadingStats] = useState(false)
+  const [weeklyPay, setWeeklyPay] = useState<number>(0)
+  const [hasCompPlan, setHasCompPlan] = useState<boolean | null>(null)
 
   useEffect(() => {
     loadDashboardReports()
+    loadWeeklyPay()
   }, [])
 
   useEffect(() => {
@@ -95,6 +98,21 @@ export default function DashboardClient({
       console.error('Failed to load team stats:', error)
     } finally {
       setLoadingStats(false)
+    }
+  }
+
+  const loadWeeklyPay = async () => {
+    try {
+      const res = await fetch('/api/commissions/weekly')
+      if (res.ok) {
+        const data = await res.json()
+        setWeeklyPay(data.weeklyTotal || 0)
+        setHasCompPlan(data.hasCompPlan ?? true)
+      }
+    } catch (error) {
+      console.error('Failed to load weekly pay:', error)
+      setWeeklyPay(0)
+      setHasCompPlan(false)
     }
   }
 
@@ -327,6 +345,26 @@ export default function DashboardClient({
               </div>
             </div>
             <p className="text-xs text-gray-400 mt-2">All time</p>
+          </div>
+        </div>
+
+        {/* This Week's Pay - Prominent Display for all users */}
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-6 mb-8 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-indigo-100 text-sm font-medium mb-1">This Week's Estimated Pay</p>
+              <p className="text-4xl font-bold">${weeklyPay.toLocaleString()}</p>
+              {hasCompPlan === false ? (
+                <p className="text-indigo-200 text-xs mt-2">No comp plan assigned - contact your manager</p>
+              ) : (
+                <p className="text-indigo-200 text-xs mt-2">Based on closed sales this week</p>
+              )}
+            </div>
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
           </div>
         </div>
 
