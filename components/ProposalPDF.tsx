@@ -1,16 +1,8 @@
 'use client'
 
-import { Document, Page, Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer'
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
 
-// Register fonts (using system fonts for now)
-Font.register({
-  family: 'Inter',
-  fonts: [
-    { src: 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2', fontWeight: 400 },
-    { src: 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuGKYAZ9hiJ-Ek-_EeA.woff2', fontWeight: 600 },
-    { src: 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuFuYAZ9hiJ-Ek-_EeA.woff2', fontWeight: 700 },
-  ],
-})
+// Using built-in Helvetica font for reliability (no external font loading required)
 
 interface ProposalData {
   proposal: {
@@ -75,7 +67,7 @@ interface ProposalData {
 
 const styles = StyleSheet.create({
   page: {
-    fontFamily: 'Inter',
+    fontFamily: 'Helvetica',
     fontSize: 10,
     paddingTop: 0,
     paddingBottom: 40,
@@ -92,7 +84,7 @@ const styles = StyleSheet.create({
   },
   coverTitle: {
     fontSize: 42,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#ffffff',
     marginBottom: 20,
     textAlign: 'center',
@@ -105,7 +97,7 @@ const styles = StyleSheet.create({
   },
   coverCustomer: {
     fontSize: 24,
-    fontWeight: 600,
+    fontFamily: 'Helvetica-Bold',
     color: '#ffffff',
     marginBottom: 8,
     textAlign: 'center',
@@ -131,7 +123,7 @@ const styles = StyleSheet.create({
   },
   coverPriceValue: {
     fontSize: 48,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#22c55e',
   },
   // Header
@@ -149,7 +141,7 @@ const styles = StyleSheet.create({
   },
   companyName: {
     fontSize: 18,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e293b',
     marginBottom: 4,
   },
@@ -163,7 +155,7 @@ const styles = StyleSheet.create({
   },
   proposalNumber: {
     fontSize: 12,
-    fontWeight: 600,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e293b',
     marginBottom: 4,
   },
@@ -180,7 +172,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 14,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e293b',
     marginBottom: 12,
     paddingBottom: 8,
@@ -216,7 +208,7 @@ const styles = StyleSheet.create({
   },
   measurementTitle: {
     fontSize: 12,
-    fontWeight: 600,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e293b',
     marginBottom: 16,
   },
@@ -234,7 +226,7 @@ const styles = StyleSheet.create({
   },
   measurementValue: {
     fontSize: 20,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#3b82f6',
     marginBottom: 4,
   },
@@ -262,7 +254,7 @@ const styles = StyleSheet.create({
   },
   tableHeaderCell: {
     fontSize: 8,
-    fontWeight: 600,
+    fontFamily: 'Helvetica-Bold',
     color: '#ffffff',
     textTransform: 'uppercase',
   },
@@ -281,7 +273,7 @@ const styles = StyleSheet.create({
   },
   tableCellBold: {
     fontSize: 9,
-    fontWeight: 600,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e293b',
   },
   col1: { width: '45%' },
@@ -320,12 +312,12 @@ const styles = StyleSheet.create({
   },
   grandTotalLabel: {
     fontSize: 14,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e293b',
   },
   grandTotalValue: {
     fontSize: 14,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#22c55e',
   },
   // Financing
@@ -339,13 +331,13 @@ const styles = StyleSheet.create({
   },
   financingTitle: {
     fontSize: 12,
-    fontWeight: 600,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e40af',
     marginBottom: 8,
   },
   financingAmount: {
     fontSize: 24,
-    fontWeight: 700,
+    fontFamily: 'Helvetica-Bold',
     color: '#1e40af',
   },
   financingTerms: {
@@ -363,7 +355,7 @@ const styles = StyleSheet.create({
   },
   warrantyTitle: {
     fontSize: 11,
-    fontWeight: 600,
+    fontFamily: 'Helvetica-Bold',
     color: '#166534',
     marginBottom: 8,
   },
