@@ -66,7 +66,6 @@ export default function ProposalDetailPage() {
   const [measurement, setMeasurement] = useState<any>(null)
   const [company, setCompany] = useState<any>(null)
   const [rep, setRep] = useState<any>(null)
-  const [savingVisibility, setSavingVisibility] = useState<string | null>(null)
 
   useEffect(() => {
     loadProposal()
@@ -199,28 +198,6 @@ export default function ProposalDetailPage() {
     }
 
     setGenerating(false)
-  }
-
-  const toggleItemVisibility = async (itemId: string, showToCustomer: boolean) => {
-    setSavingVisibility(itemId)
-    try {
-      const response = await fetch(`/api/proposals/${proposalId}/line-items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_to_customer: showToCustomer })
-      })
-
-      if (response.ok) {
-        setLineItems(prev => prev.map(item => 
-          item.id === itemId ? { ...item, show_to_customer: showToCustomer } : item
-        ))
-      } else {
-        console.error('Failed to update item visibility')
-      }
-    } catch (err) {
-      console.error('Error updating visibility:', err)
-    }
-    setSavingVisibility(null)
   }
 
   const getStatusColor = (status: string) => {
@@ -417,16 +394,7 @@ export default function ProposalDetailPage() {
             {/* Line Items (Admin Only) */}
             {userRole === 'admin' && lineItems.length > 0 && (
               <div className="mb-8">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-semibold text-gray-900">Line Items (Admin View)</h3>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    <span>Toggle visibility for customer proposal</span>
-                  </div>
-                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Line Items (Admin View)</h3>
                 <div className="border rounded-xl overflow-hidden">
                   <table className="w-full">
                     <thead className="bg-gray-50">
@@ -435,7 +403,6 @@ export default function ProposalDetailPage() {
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Qty</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Unit Price</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Total</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase">Show to Customer</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -448,29 +415,13 @@ export default function ProposalDetailPage() {
                           <td className="px-4 py-3 text-right text-gray-900">{item.quantity} {item.unit}</td>
                           <td className="px-4 py-3 text-right text-gray-900">${item.unit_price.toFixed(2)}</td>
                           <td className="px-4 py-3 text-right font-medium text-gray-900">${item.line_total.toFixed(2)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => toggleItemVisibility(item.id, !item.show_to_customer)}
-                              disabled={savingVisibility === item.id}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                item.show_to_customer ? 'bg-indigo-600' : 'bg-gray-300'
-                              } ${savingVisibility === item.id ? 'opacity-50' : ''}`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  item.show_to_customer ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                              />
-                            </button>
-                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  Items with "Show to Customer" enabled will be itemized on the customer-facing proposal. 
-                  Hidden items are still included in the total price.
+                  Line item visibility on customer proposals is controlled in the Pricebook settings.
                 </p>
               </div>
             )}
