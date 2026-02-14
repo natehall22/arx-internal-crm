@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS opportunities (
 
 ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS inspection_outcome TEXT;
 ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS estimated_value NUMERIC(12, 2);
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS setter_user_id UUID;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS inspection_outcome_at TIMESTAMPTZ;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS inspection_notes TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_opportunities_org_id ON opportunities(org_id);
 CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities(status);

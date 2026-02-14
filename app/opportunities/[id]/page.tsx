@@ -33,6 +33,35 @@ export default async function OpportunityDetailPage({
     notFound()
   }
 
+  // Fetch setter info if setter_user_id exists
+  let setter = null
+  if (opportunity.setter_user_id) {
+    const { data: setterData } = await supabase
+      .from('users')
+      .select('id, full_name, email')
+      .eq('id', opportunity.setter_user_id)
+      .single()
+    setter = setterData
+  }
+
+  // Fetch closer info if owner_user_id exists
+  let closer = null
+  if (opportunity.owner_user_id) {
+    const { data: closerData } = await supabase
+      .from('users')
+      .select('id, full_name, email')
+      .eq('id', opportunity.owner_user_id)
+      .single()
+    closer = closerData
+  }
+
+  // Fetch inspection status updates (feedback history)
+  const { data: inspectionUpdates } = await supabase
+    .from('inspection_status_updates')
+    .select('*')
+    .eq('opportunity_id', params.id)
+    .order('created_at', { ascending: false })
+
   const { data: activities } = await supabase
     .from('activities')
     .select('*, users(full_name)')
@@ -207,8 +236,87 @@ export default async function OpportunityDetailPage({
               <h3 className="text-sm font-medium text-gray-500">Address</h3>
               <p className="mt-1 text-sm text-gray-900">{opportunity.address_text || 'N/A'}</p>
             </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-500">Setter</h3>
+              <p className="mt-1 text-sm text-gray-900">{setter?.full_name || 'N/A'}</p>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-500">Closer</h3>
+              <p className="mt-1 text-sm text-gray-900">{closer?.full_name || 'N/A'}</p>
+            </div>
           </div>
         </div>
+
+        {/* Inspection Feedback Section */}
+        {(opportunity.inspection_outcome || (inspectionUpdates && inspectionUpdates.length > 0)) && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Inspection Feedback</h2>
+            
+            {opportunity.inspection_outcome && (
+              <div className="mb-4 p-4 rounded-lg bg-gray-50 border">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    opportunity.inspection_outcome === 'sale' ? 'bg-green-100 text-green-700' :
+                    opportunity.inspection_outcome === 'said_no' ? 'bg-red-100 text-red-700' :
+                    opportunity.inspection_outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
+                    opportunity.inspection_outcome === 'failed_credit' ? 'bg-orange-100 text-orange-700' :
+                    opportunity.inspection_outcome === 'rescheduled' ? 'bg-blue-100 text-blue-700' :
+                    'bg-gray-100 text-gray-700'
+                  }`}>
+                    {opportunity.inspection_outcome === 'sale' ? '✓ Sale' :
+                     opportunity.inspection_outcome === 'said_no' ? 'Said No' :
+                     opportunity.inspection_outcome === 'not_home' ? 'Not Home' :
+                     opportunity.inspection_outcome === 'failed_credit' ? 'Failed Credit' :
+                     opportunity.inspection_outcome === 'rescheduled' ? 'Rescheduled' :
+                     opportunity.inspection_outcome}
+                  </span>
+                  {opportunity.inspection_outcome_at && (
+                    <span className="text-xs text-gray-500">
+                      {new Date(opportunity.inspection_outcome_at).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+                {opportunity.inspection_notes && (
+                  <p className="text-sm text-gray-700 mt-2">{opportunity.inspection_notes}</p>
+                )}
+              </div>
+            )}
+
+            {inspectionUpdates && inspectionUpdates.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-gray-500">Feedback History</h3>
+                {inspectionUpdates.map((update: any) => (
+                  <div key={update.id} className="p-3 border rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        update.outcome === 'sale' ? 'bg-green-100 text-green-700' :
+                        update.outcome === 'said_no' ? 'bg-red-100 text-red-700' :
+                        update.outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
+                        update.outcome === 'failed_credit' ? 'bg-orange-100 text-orange-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {update.outcome}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(update.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    {update.notes && (
+                      <p className="text-sm text-gray-700 mb-2">
+                        <span className="font-medium">Notes:</span> {update.notes}
+                      </p>
+                    )}
+                    {update.setter_feedback && (
+                      <p className="text-sm text-indigo-700 bg-indigo-50 p-2 rounded">
+                        <span className="font-medium">Setter Feedback:</span> {update.setter_feedback}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Roof Measurements Section */}
         <div className="bg-white shadow rounded-lg p-6 mb-6">

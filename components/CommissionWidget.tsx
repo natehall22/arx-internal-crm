@@ -22,6 +22,7 @@ interface CommissionSummary {
   lastPeriod: number
   pending: number
   ytd: number
+  thisWeek: number
 }
 
 interface CommissionSettings {
@@ -39,7 +40,9 @@ export default function CommissionWidget() {
     lastPeriod: 0,
     pending: 0,
     ytd: 0,
+    thisWeek: 0,
   })
+  const [hasCompPlan, setHasCompPlan] = useState(false)
   const [commissionSettings, setCommissionSettings] = useState<CommissionSettings>({
     commission_period: 'monthly',
     week_start_day: 0,
@@ -118,10 +121,30 @@ export default function CommissionWidget() {
 
     setCommissionSettings(settings)
 
+    // Check if user has a comp plan assigned
+    const { data: userCompPlan } = await supabase
+      .from('user_comp_plans')
+      .select('id')
+      .eq('user_id', user.id)
+      .is('effective_to', null)
+      .limit(1)
+      .maybeSingle()
+    
+    setHasCompPlan(!!userCompPlan)
+
     const now = new Date()
     const yearStart = new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0]
     const thisPeriod = getPeriodBoundaries(settings, 0)
     const lastPeriod = getPeriodBoundaries(settings, -1)
+    
+    // Calculate this week's boundaries (always Sunday to Saturday)
+    const dayOfWeek = now.getDay()
+    const weekStart = new Date(now)
+    weekStart.setDate(now.getDate() - dayOfWeek)
+    weekStart.setHours(0, 0, 0, 0)
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 6)
+    weekEnd.setHours(23, 59, 59, 999)
 
     // Get recent commissions
     const { data: recentCommissions } = await supabase
@@ -156,7 +179,14 @@ export default function CommissionWidget() {
       const ytd = allCommissions
         .reduce((sum, c) => sum + (c.total_amount || 0), 0)
 
-      setSummary({ thisPeriod: thisPeriodTotal, lastPeriod: lastPeriodTotal, pending, ytd })
+      // Calculate this week's total
+      const weekStartStr = weekStart.toISOString().split('T')[0]
+      const weekEndStr = weekEnd.toISOString().split('T')[0]
+      const thisWeekTotal = allCommissions
+        .filter(c => c.commission_period >= weekStartStr && c.commission_period <= weekEndStr)
+        .reduce((sum, c) => sum + (c.total_amount || 0), 0)
+
+      setSummary({ thisPeriod: thisPeriodTotal, lastPeriod: lastPeriodTotal, pending, ytd, thisWeek: thisWeekTotal })
     }
 
     setLoading(false)
@@ -197,6 +227,24 @@ export default function CommissionWidget() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">My Commissions</h2>
         <span className="text-2xl">💰</span>
+      </div>
+
+      {/* Weekly Pay Estimate - Prominent Display */}
+      <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 mb-4 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-indigo-100 text-sm font-medium">This Week's Pay</p>
+            <p className="text-3xl font-bold mt-1">{formatCurrency(summary.thisWeek)}</p>
+          </div>
+          <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+        {!hasCompPlan && (
+          <p className="text-indigo-200 text-xs mt-2">No comp plan assigned - contact your manager</p>
+        )}
       </div>
 
       {/* Summary Cards */}

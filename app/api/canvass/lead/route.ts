@@ -375,12 +375,15 @@ export async function POST(request: Request) {
       if (existingOpportunity?.id) {
         opportunityId = existingOpportunity.id
       } else {
+        // The setter is the original lead owner (canvasser who set the appointment)
+        const setterId = leadRow.owner_user_id || profile.id
         const { data: createdOpportunity, error: oppError } = await supabase
           .from('opportunities')
           .insert({
             org_id: profile.org_id,
             lead_id: leadRow.id,
             owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
+            setter_user_id: setterId, // Track the setter for comp plans
             status: 'open',
             project_type: 'roofing',
             address_text: leadRow.address_text,

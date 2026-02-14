@@ -208,6 +208,8 @@ export default async function LeadDetailPage({
 
       let opportunityId = existingOpportunity?.id ?? null
       const assignedOwnerId = closerUserId || freshLead.owner_user_id
+      // The setter is the original lead owner (the person who set the appointment)
+      const setterId = freshLead.owner_user_id
 
       if (!existingOpportunity) {
         const { data: createdOpportunity } = await supabase
@@ -216,6 +218,7 @@ export default async function LeadDetailPage({
             org_id: profile.org_id,
             lead_id: params.id,
             owner_user_id: assignedOwnerId,
+            setter_user_id: setterId, // Track the setter for comp plans
             status: 'open',
             project_type: 'roofing',
             address_text: freshLead.address_text,
