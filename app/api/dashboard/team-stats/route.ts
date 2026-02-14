@@ -162,12 +162,12 @@ export async function GET(request: NextRequest) {
       teamMemberIds = []
     }
 
-    // Get all team members with their info
+    // Get all active team members with their info
     let membersQuery = supabase
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', profile.org_id)
-      .in('role', ['sales_rep', 'canvasser', 'closer', 'rep'])
+      .eq('active', true)
     
     if (!isAdmin && teamMemberIds.length > 0) {
       membersQuery = membersQuery.in('id', teamMemberIds)

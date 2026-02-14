@@ -88,12 +88,12 @@ const dataSources: { id: ExtendedDataSource; label: string; columns: { id: strin
 ]
 
 const dateRangeOptions = [
+  { id: 'week', label: 'This week' },
   { id: '7d', label: 'Last 7 days' },
   { id: '30d', label: 'Last 30 days' },
   { id: '90d', label: 'Last 90 days' },
   { id: 'ytd', label: 'Year to date' },
   { id: 'all', label: 'All time' },
-  { id: 'custom', label: 'Custom range' },
 ]
 
 const dispositionOptions = [

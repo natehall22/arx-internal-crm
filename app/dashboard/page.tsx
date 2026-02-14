@@ -168,13 +168,12 @@ export default async function DashboardPage() {
   // Fetch team member stats for managers/admins
   let teamMemberStats: any[] = []
   if (isAdmin || isSalesManager || isRegionalManager) {
-    // Get all active team members with their info (exclude admin role from leaderboard)
+    // Get all active team members with their info
     let membersQuery = supabase
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', profile.org_id)
       .eq('active', true)
-      .not('role', 'eq', 'admin')
     
     if (isSalesManager && profile.team_id) {
       membersQuery = membersQuery.eq('team_id', profile.team_id)

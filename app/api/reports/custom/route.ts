@@ -240,6 +240,13 @@ export async function POST(request: NextRequest) {
       switch (range) {
         case '7d':
           return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        case 'week': {
+          // Start of current week (Sunday)
+          const startOfWeek = new Date(now)
+          startOfWeek.setDate(now.getDate() - now.getDay())
+          startOfWeek.setHours(0, 0, 0, 0)
+          return startOfWeek.toISOString()
+        }
         case '30d':
           return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
         case '90d':
