@@ -159,15 +159,22 @@ export default async function DashboardPage() {
   }
   const { data: recentActivities } = await activityQuery
 
+  // Calculate week start date first (used for filtering)
+  const now = new Date()
+  const startOfWeek = new Date(now)
+  startOfWeek.setDate(now.getDate() - now.getDay())
+  startOfWeek.setHours(0, 0, 0, 0)
+
   // Fetch team member stats for managers/admins
   let teamMemberStats: any[] = []
   if (isAdmin || isSalesManager || isRegionalManager) {
-    // Get all team members with their info
+    // Get all active team members with their info (exclude admin role from leaderboard)
     let membersQuery = supabase
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', profile.org_id)
-      .in('role', ['sales_rep', 'canvasser', 'closer', 'rep'])
+      .eq('active', true)
+      .not('role', 'eq', 'admin')
     
     if (isSalesManager && profile.team_id) {
       membersQuery = membersQuery.eq('team_id', profile.team_id)
@@ -232,11 +239,6 @@ export default async function DashboardPage() {
       })
     }
   }
-
-  const now = new Date()
-  const startOfWeek = new Date(now)
-  startOfWeek.setDate(now.getDate() - now.getDay())
-  startOfWeek.setHours(0, 0, 0, 0)
 
   const thisWeekLeads = leads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
   const doorsKnocked = thisWeekLeads.length
