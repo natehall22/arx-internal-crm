@@ -64,12 +64,14 @@ function getAdminClient() {
 
 function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date } {
   const now = new Date()
-  const end = new Date(now)
+  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000) // Tomorrow to include all of today
   let start = new Date(now)
 
   switch (timeframe) {
     case 'today':
-      start.setHours(0, 0, 0, 0)
+      // Start of today in local time
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+      end.setTime(start.getTime() + 24 * 60 * 60 * 1000) // End of today
       break
     case 'week':
       start.setDate(now.getDate() - now.getDay())
@@ -186,7 +188,7 @@ export async function GET(request: NextRequest) {
       .eq('org_id', profile.org_id)
       .not('canvass_disposition', 'is', null)
       .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
+      .lt('created_at', end.toISOString())
 
     if (!isAdmin && teamMemberIds.length > 0) {
       leadsQuery = leadsQuery.in('owner_user_id', teamMemberIds)
@@ -200,7 +202,7 @@ export async function GET(request: NextRequest) {
       .select('owner_user_id, inspection_outcome, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
+      .lt('created_at', end.toISOString())
 
     if (!isAdmin && teamMemberIds.length > 0) {
       oppsQuery = oppsQuery.in('owner_user_id', teamMemberIds)
