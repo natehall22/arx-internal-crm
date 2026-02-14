@@ -231,8 +231,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Get user profile to check role
+    const { data: profile } = await supabase
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
+    }
+
+    const isAdmin = profile.role === 'admin'
+
     // Get pending prompts that are due
-    const { data: prompts, error } = await supabase
+    // Admins see all prompts in their org, others see only their own
+    let query = supabase
       .from('pending_status_prompts')
       .select(`
         *,
@@ -242,11 +256,18 @@ export async function GET(request: NextRequest) {
           opportunities(id)
         )
       `)
-      .eq('closer_user_id', user.id)
       .eq('completed', false)
       .eq('dismissed', false)
       .lte('prompt_at', new Date().toISOString())
       .order('prompt_at', { ascending: true })
+
+    if (!isAdmin) {
+      query = query.eq('closer_user_id', user.id)
+    } else {
+      query = query.eq('org_id', profile.org_id)
+    }
+
+    const { data: prompts, error } = await query
 
     if (error) {
       console.error('Prompts fetch error:', error)

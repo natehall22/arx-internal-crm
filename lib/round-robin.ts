@@ -79,7 +79,50 @@ export async function assignNextAvailableCloser(
         .single()
 
       if (!token) {
-        // No calendar connected - assume available
+        // Closer has no calendar connected - still create event for setter if they have calendar
+        if (canvasserUserId) {
+          try {
+            const { data: setterToken } = await supabase
+              .from('user_google_tokens')
+              .select('*')
+              .eq('user_id', canvasserUserId)
+              .single()
+
+            if (setterToken) {
+              let setterAccessToken = setterToken.access_token
+              if (new Date(setterToken.expires_at) < new Date()) {
+                const refreshed = await refreshAccessToken(setterToken.refresh_token)
+                setterAccessToken = refreshed.access_token
+                await supabase
+                  .from('user_google_tokens')
+                  .update({
+                    access_token: refreshed.access_token,
+                    expires_at: refreshed.expires_at.toISOString(),
+                  })
+                  .eq('id', setterToken.id)
+              }
+
+              const endTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
+              await createCalendarEvent(setterAccessToken, {
+                summary: `Inspection - ${address || 'TBD'}`,
+                description: `Scheduled inspection${leadId ? ` for lead ${leadId}` : ''}\nCloser: ${closer.user?.full_name || 'Assigned closer'}`,
+                location: address,
+                start: {
+                  dateTime: scheduledFor.toISOString(),
+                  timeZone: teamTimezone,
+                },
+                end: {
+                  dateTime: endTime.toISOString(),
+                  timeZone: teamTimezone,
+                },
+                attendees: closer.user?.email ? [{ email: closer.user.email }] : undefined,
+              })
+            }
+          } catch (setterCalendarError) {
+            console.error('Failed to create setter calendar event:', setterCalendarError)
+          }
+        }
+
         const result = await createAppointment(
           supabase,
           closer,
@@ -127,9 +170,21 @@ export async function assignNextAvailableCloser(
         )
 
         if (available) {
-          // Create calendar event
+          // Get setter's email if they exist
+          let setterEmail: string | undefined
+          if (canvasserUserId) {
+            const { data: setter } = await supabase
+              .from('users')
+              .select('email')
+              .eq('id', canvasserUserId)
+              .single()
+            setterEmail = setter?.email || undefined
+          }
+
+          // Create calendar event for closer (with setter as attendee)
           let googleEventId: string | undefined
           try {
+            const attendees = setterEmail ? [{ email: setterEmail }] : undefined
             const event = await createCalendarEvent(accessToken, {
               summary: `Inspection - ${address || 'TBD'}`,
               description: `Scheduled inspection${leadId ? ` for lead ${leadId}` : ''}`,
@@ -142,11 +197,58 @@ export async function assignNextAvailableCloser(
                 dateTime: endTime.toISOString(),
                 timeZone: teamTimezone,
               },
+              attendees,
             })
             googleEventId = event.id
           } catch (calendarError) {
             console.error('Failed to create calendar event:', calendarError)
             // Continue anyway - appointment can still be created
+          }
+
+          // Also create calendar event for setter if they have Google Calendar connected
+          if (canvasserUserId) {
+            try {
+              const { data: setterToken } = await supabase
+                .from('user_google_tokens')
+                .select('*')
+                .eq('user_id', canvasserUserId)
+                .single()
+
+              if (setterToken) {
+                let setterAccessToken = setterToken.access_token
+                // Refresh token if expired
+                if (new Date(setterToken.expires_at) < new Date()) {
+                  const refreshed = await refreshAccessToken(setterToken.refresh_token)
+                  setterAccessToken = refreshed.access_token
+                  await supabase
+                    .from('user_google_tokens')
+                    .update({
+                      access_token: refreshed.access_token,
+                      expires_at: refreshed.expires_at.toISOString(),
+                    })
+                    .eq('id', setterToken.id)
+                }
+
+                // Create event on setter's calendar (with closer as attendee)
+                await createCalendarEvent(setterAccessToken, {
+                  summary: `Inspection - ${address || 'TBD'}`,
+                  description: `Scheduled inspection${leadId ? ` for lead ${leadId}` : ''}\nCloser: ${closer.user?.full_name || 'Assigned closer'}`,
+                  location: address,
+                  start: {
+                    dateTime: scheduledFor.toISOString(),
+                    timeZone: teamTimezone,
+                  },
+                  end: {
+                    dateTime: endTime.toISOString(),
+                    timeZone: teamTimezone,
+                  },
+                  attendees: closer.user?.email ? [{ email: closer.user.email }] : undefined,
+                })
+              }
+            } catch (setterCalendarError) {
+              console.error('Failed to create setter calendar event:', setterCalendarError)
+              // Non-critical, continue
+            }
           }
 
           const result = await createAppointment(

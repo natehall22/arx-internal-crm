@@ -210,13 +210,29 @@ ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS opportunity_id UUID;
 CREATE TABLE IF NOT EXISTS pending_status_prompts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  appointment_id UUID NOT NULL,
+  appointment_id UUID NOT NULL REFERENCES scheduled_appointments(id) ON DELETE CASCADE,
   closer_user_id UUID NOT NULL,
   prompt_at TIMESTAMPTZ NOT NULL,
   completed BOOLEAN NOT NULL DEFAULT false,
   dismissed BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add foreign key if table already exists without it
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'pending_status_prompts_appointment_id_fkey'
+    AND table_name = 'pending_status_prompts'
+  ) THEN
+    ALTER TABLE pending_status_prompts 
+    ADD CONSTRAINT pending_status_prompts_appointment_id_fkey 
+    FOREIGN KEY (appointment_id) REFERENCES scheduled_appointments(id) ON DELETE CASCADE;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
 
 -- ============================================
 -- 11. INSPECTION STATUS UPDATES TABLE
@@ -314,6 +330,8 @@ CREATE INDEX IF NOT EXISTS idx_adder_categories_org ON adder_categories(org_id);
 CREATE INDEX IF NOT EXISTS idx_dashboard_settings_org ON dashboard_settings(org_id);
 CREATE INDEX IF NOT EXISTS idx_appointment_types_org ON appointment_types(org_id);
 CREATE INDEX IF NOT EXISTS idx_custom_reports_org ON custom_reports(org_id);
+CREATE INDEX IF NOT EXISTS idx_pending_prompts_closer ON pending_status_prompts(closer_user_id, completed, dismissed);
+CREATE INDEX IF NOT EXISTS idx_pending_prompts_prompt_at ON pending_status_prompts(prompt_at);
 
 -- ============================================
 -- 17. ENABLE RLS ON ALL TABLES
@@ -379,11 +397,21 @@ CREATE POLICY "Users can view appointments in their org"
   ON scheduled_appointments FOR ALL
   USING (org_id = get_user_org_id(auth.uid()));
 
--- Pending status prompts
+-- Pending status prompts (closers see their own, admins see all in org)
 DROP POLICY IF EXISTS "Users can manage their prompts" ON pending_status_prompts;
 CREATE POLICY "Users can manage their prompts"
   ON pending_status_prompts FOR ALL
-  USING (closer_user_id = auth.uid());
+  USING (
+    closer_user_id = auth.uid() 
+    OR (
+      org_id = get_user_org_id(auth.uid())
+      AND EXISTS (
+        SELECT 1 FROM users 
+        WHERE users.id = auth.uid() 
+        AND users.role = 'admin'
+      )
+    )
+  );
 
 -- Inspection status updates
 DROP POLICY IF EXISTS "Users can view inspection updates" ON inspection_status_updates;
