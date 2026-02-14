@@ -254,9 +254,16 @@ export default function ProposalBuilderPage() {
     if (unitLower === 'square' || unitLower === 'sq' || unitLower === 'squares') {
       return squares
     }
-    // For other units (each, lf, job, etc.), default to 1 or the squares value
-    // depending on context - for now, use squares as a reasonable default
-    return squares
+    // For "each", "job", "per job" - these are fixed quantity items, default to 1
+    if (unitLower === 'each' || unitLower === 'job' || unitLower === 'per job') {
+      return 1
+    }
+    // For linear foot, we don't have that measurement, default to 1
+    if (unitLower === 'lf' || unitLower === 'linear foot' || unitLower === 'linear feet') {
+      return 1
+    }
+    // For other unknown units, default to 1 (safer than using squares)
+    return 1
   }
 
   const getUnitLabel = (unit: string): string => {
