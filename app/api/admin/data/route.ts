@@ -609,11 +609,12 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    // Update User Hierarchy (manager, region)
+    // Update User Hierarchy (manager, region, team)
     if (resource === 'user_hierarchy') {
       const updateData: any = {}
       if ('manager_user_id' in data) updateData.manager_user_id = data.manager_user_id
       if ('region_id' in data) updateData.region_id = data.region_id
+      if ('team_id' in data) updateData.team_id = data.team_id
       
       const { error } = await adminClient
         .from('users')

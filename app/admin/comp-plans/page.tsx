@@ -65,6 +65,7 @@ export default function CompPlansPage() {
   const [userAssignments, setUserAssignments] = useState<UserCompPlan[]>([])
   const [users, setUsers] = useState<any[]>([])
   const [regions, setRegions] = useState<any[]>([])
+  const [teams, setTeams] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'plans' | 'assignments' | 'hierarchy'>('plans')
   
   // Modal states
@@ -133,14 +134,21 @@ export default function CompPlansPage() {
         const regionsData = await regionsResponse.json()
         setRegions(regionsData.regions || [])
       }
+      
+      // Load teams for hierarchy
+      const teamsResponse = await fetch('/api/admin/data?resource=teams')
+      if (teamsResponse.ok) {
+        const teamsData = await teamsResponse.json()
+        setTeams(teamsData.teams || [])
+      }
     } catch (error) {
       console.error('Error loading comp plans:', error)
     }
     setLoading(false)
   }
   
-  // Update user hierarchy (manager, region)
-  const updateUserHierarchy = async (userId: string, updates: { manager_user_id?: string | null, region_id?: string | null }) => {
+  // Update user hierarchy (manager, region, team)
+  const updateUserHierarchy = async (userId: string, updates: { manager_user_id?: string | null, region_id?: string | null, team_id?: string | null }) => {
     try {
       const response = await fetch('/api/admin/data', {
         method: 'PUT',
@@ -709,15 +717,16 @@ export default function CompPlansPage() {
               </p>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-              <table className="w-full">
+            <div className="bg-white rounded-xl shadow-sm border overflow-hidden overflow-x-auto">
+              <table className="w-full min-w-[900px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team Members</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Direct Reports</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -781,24 +790,32 @@ export default function CompPlansPage() {
                       }
                     }
                     
+                    // Get user's current team
+                    const userTeam = teams.find(t => t.id === user.team_id)
+                    
+                    // Filter teams by region if user has a region
+                    const availableTeams = user.region_id 
+                      ? teams.filter(t => t.region_id === user.region_id || !t.region_id)
+                      : teams
+                    
                     return (
                       <tr key={user.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3">
                           <div className="font-medium text-gray-900">{user.full_name}</div>
                           <div className="text-xs text-gray-500">{user.email}</div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3">
                           <span className={`px-2 py-1 text-xs rounded-full capitalize ${getRoleColor(user.role)}`}>
                             {user.role?.replace(/_/g, ' ')}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3">
                           <select
                             value={user.manager_user_id || ''}
                             onChange={(e) => updateUserHierarchy(user.id, { 
                               manager_user_id: e.target.value || null 
                             })}
-                            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
                           >
                             <option value="">-- Select Manager --</option>
                             <optgroup label="Leadership">
@@ -822,13 +839,29 @@ export default function CompPlansPage() {
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3">
+                          <select
+                            value={user.team_id || ''}
+                            onChange={(e) => updateUserHierarchy(user.id, { 
+                              team_id: e.target.value || null 
+                            })}
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
+                          >
+                            <option value="">No team</option>
+                            {availableTeams.map(t => (
+                              <option key={t.id} value={t.id}>
+                                {t.name} {t.regions?.name ? `(${t.regions.name})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-4 py-3">
                           <select
                             value={user.region_id || ''}
                             onChange={(e) => updateUserHierarchy(user.id, { 
                               region_id: e.target.value || null 
                             })}
-                            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
                           >
                             <option value="">No region</option>
                             {regions.map(r => (
@@ -836,17 +869,17 @@ export default function CompPlansPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3">
                           {teamMembers.length > 0 ? (
                             <div>
-                              <span className="text-sm font-medium text-gray-900">{teamMembers.length} direct report{teamMembers.length !== 1 ? 's' : ''}</span>
+                              <span className="text-sm font-medium text-gray-900">{teamMembers.length}</span>
                               <div className="text-xs text-gray-500 mt-1">
-                                {teamMembers.slice(0, 3).map(m => m.full_name).join(', ')}
-                                {teamMembers.length > 3 && ` +${teamMembers.length - 3} more`}
+                                {teamMembers.slice(0, 2).map(m => m.full_name).join(', ')}
+                                {teamMembers.length > 2 && ` +${teamMembers.length - 2}`}
                               </div>
                             </div>
                           ) : (
-                            <span className="text-gray-400 text-sm">No direct reports</span>
+                            <span className="text-gray-400 text-sm">-</span>
                           )}
                         </td>
                       </tr>
