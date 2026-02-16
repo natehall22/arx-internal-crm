@@ -767,12 +767,28 @@ export default function RoofMeasurePage() {
     const validationNotes: string[] = []
     
     // Calculate area totals
-    const flatArea = currentFacets.reduce((sum, f) => sum + (f.flat_area_sqft || 0), 0)
-    const totalArea = currentFacets.reduce((sum, f) => sum + f.area_sqft, 0)
+    // Fall back to area_sqft / pitch_multiplier if flat_area_sqft not set (legacy data)
+    const flatArea = currentFacets.reduce((sum, f) => {
+      if (f.flat_area_sqft && f.flat_area_sqft > 0) {
+        return sum + f.flat_area_sqft
+      }
+      // Estimate flat area from actual area if not set
+      const multiplier = f.pitch_multiplier || 1.118
+      return sum + (f.area_sqft / multiplier)
+    }, 0)
+    const totalArea = currentFacets.reduce((sum, f) => sum + (f.area_sqft || 0), 0)
     const facetCount = currentFacets.length
     
-    // Calculate total perimeter from stored facet perimeters (more accurate)
-    const totalPerimeter = currentFacets.reduce((sum, f) => sum + (f.perimeter_ft || 0), 0)
+    // Calculate total perimeter from stored facet perimeters, or estimate from area
+    let totalPerimeter = currentFacets.reduce((sum, f) => sum + (f.perimeter_ft || 0), 0)
+    
+    // If no perimeter data, estimate from area (perimeter ≈ 4 * √area for square-ish shapes)
+    if (totalPerimeter === 0 && flatArea > 0) {
+      totalPerimeter = currentFacets.reduce((sum, f) => {
+        const facetFlatArea = f.flat_area_sqft || (f.area_sqft / (f.pitch_multiplier || 1.118))
+        return sum + (4 * Math.sqrt(facetFlatArea))
+      }, 0)
+    }
     
     // ============================================================
     // LINEAR FOOTAGE CALCULATIONS - Geometry-Based Algorithm
@@ -790,8 +806,10 @@ export default function RoofMeasurePage() {
     
     // Estimate building dimensions from total flat area
     // Assume roughly rectangular footprint for estimation
-    const estimatedBuildingLength = Math.sqrt(flatArea * 1.5) // Length typically 1.5x width
-    const estimatedBuildingWidth = flatArea / estimatedBuildingLength
+    // Guard against 0 or very small areas
+    const safeArea = Math.max(flatArea, 100) // Minimum 100 sqft to avoid division issues
+    const estimatedBuildingLength = Math.sqrt(safeArea * 1.5) // Length typically 1.5x width
+    const estimatedBuildingWidth = safeArea / Math.max(estimatedBuildingLength, 1)
     
     // ---- RIDGE CALCULATION ----
     // Ridge runs along the peak. For gable: ~= building length
@@ -948,27 +966,30 @@ export default function RoofMeasurePage() {
       confidence = 'medium'
     }
     
+    // Helper to ensure no NaN values
+    const safeNum = (n: number, fallback = 0) => isNaN(n) || !isFinite(n) ? fallback : n
+    
     setMeasurements({
       address: searchedAddress,
       lat: mapCenter.lat,
       lng: mapCenter.lng,
-      flat_area_sqft: flatArea,
-      total_area_sqft: totalArea,
-      total_squares: Math.round(totalArea / 100 * 100) / 100,
+      flat_area_sqft: safeNum(flatArea),
+      total_area_sqft: safeNum(totalArea),
+      total_squares: safeNum(Math.round(totalArea / 100 * 100) / 100),
       facets: currentFacets,
       facet_count: facetCount,
-      total_perimeter_lf: Math.round(totalPerimeter),
-      ridges_lf: ridges,
-      hips_lf: hips,
-      valleys_lf: valleys,
-      eaves_lf: eaves,
-      rakes_lf: rakes,
-      drip_edge_lf: dripEdge,
-      step_flashing_lf: stepFlashing,
-      wall_flashing_lf: wallFlashing,
+      total_perimeter_lf: safeNum(Math.round(totalPerimeter)),
+      ridges_lf: safeNum(ridges),
+      hips_lf: safeNum(hips),
+      valleys_lf: safeNum(valleys),
+      eaves_lf: safeNum(eaves),
+      rakes_lf: safeNum(rakes),
+      drip_edge_lf: safeNum(dripEdge),
+      step_flashing_lf: safeNum(stepFlashing),
+      wall_flashing_lf: safeNum(wallFlashing),
       predominant_pitch: predominantPitch,
-      avg_pitch_multiplier: Math.round(avgPitchMultiplier * 1000) / 1000,
-      suggested_waste: wastePercent,
+      avg_pitch_multiplier: safeNum(Math.round(avgPitchMultiplier * 1000) / 1000, 1.118),
+      suggested_waste: safeNum(wastePercent, 10),
       waste_category: category,
       linear_features: features,
       measurement_confidence: confidence,
@@ -1633,7 +1654,8 @@ export default function RoofMeasurePage() {
 
       {/* Save Modal - Professional Measurement Report */}
       {showSaveModal && measurements && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/70 z-50 overflow-y-auto">
+          <div className="min-h-full flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full my-4">
             <div className="p-6 border-b bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-t-2xl">
               <div className="flex items-center justify-between">
@@ -1723,7 +1745,7 @@ export default function RoofMeasurePage() {
                       </tr>
                       <tr>
                         <td className="px-4 py-2">Rakes</td>
-                        <td className="px-4 py-2 text-right font-medium">{measurements.rakes_lf}</td>
+                        <td className="px-4 py-2 text-right font-medium">{isNaN(measurements.rakes_lf) ? 0 : measurements.rakes_lf}</td>
                       </tr>
                       {measurements.hips_lf > 0 && (
                         <tr>
@@ -1739,7 +1761,7 @@ export default function RoofMeasurePage() {
                       )}
                       <tr className="bg-gray-100 font-medium">
                         <td className="px-4 py-2">Drip Edge (Total)</td>
-                        <td className="px-4 py-2 text-right">{measurements.drip_edge_lf}</td>
+                        <td className="px-4 py-2 text-right">{isNaN(measurements.drip_edge_lf) ? 0 : measurements.drip_edge_lf}</td>
                       </tr>
                       {measurements.step_flashing_lf > 0 && (
                         <tr className="bg-amber-50">
@@ -1791,6 +1813,7 @@ export default function RoofMeasurePage() {
                 {saving ? 'Saving...' : 'Save & Create Proposal →'}
               </button>
             </div>
+          </div>
           </div>
         </div>
       )}
