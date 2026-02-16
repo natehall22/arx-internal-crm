@@ -6,6 +6,14 @@
 -- 0. PREREQUISITES - ENUMS
 -- ============================================
 
+-- Add 'percent' to unit enum if it doesn't exist
+DO $$
+BEGIN
+  ALTER TYPE unit ADD VALUE IF NOT EXISTS 'percent';
+EXCEPTION
+  WHEN others THEN NULL;
+END $$;
+
 DO $$ 
 BEGIN
   CREATE TYPE opportunity_status AS ENUM ('open', 'in_progress', 'won', 'lost');
