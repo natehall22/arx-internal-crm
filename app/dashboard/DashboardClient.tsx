@@ -257,24 +257,24 @@ export default function DashboardClient({
         />
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Unpaid Referrals Alert */}
         <UnpaidReferralsAlert />
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 sm:mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
               Welcome back, {profile.full_name?.split(' ')[0] || 'there'}!
             </h1>
-            <p className="text-gray-500 mt-1">
+            <p className="text-gray-500 text-sm sm:text-base mt-1">
               Here's your performance overview for this week
             </p>
           </div>
           {(profile.role === 'admin' || profile.role === 'regional_manager') && (
             <Link
               href="/admin/dashboard-settings"
-              className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1 self-start sm:self-auto"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -286,82 +286,82 @@ export default function DashboardClient({
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Doors Knocked</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.doorsKnockedThisWeek}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.doorsKnockedThisWeek}</p>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                 </svg>
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-2">This week</p>
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Inspections Set</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.inspectionsSetThisWeek}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Set</p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.inspectionsSetThisWeek}</p>
               </div>
-              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-2">This week</p>
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Sales</p>
-                <p className="text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
+                <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
               </div>
-              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-2">This week</p>
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Close Rate</p>
-                <p className="text-2xl font-bold text-indigo-600">{stats.closeRate}%</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm text-gray-500 truncate">Close Rate</p>
+                <p className="text-xl sm:text-2xl font-bold text-indigo-600">{stats.closeRate}%</p>
               </div>
-              <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-2">All time</p>
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">All time</p>
           </div>
         </div>
 
         {/* This Week's Pay - Prominent Display for all users */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-6 mb-8 text-white">
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 text-white">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-indigo-100 text-sm font-medium mb-1">This Week's Estimated Pay</p>
-              <p className="text-4xl font-bold">${weeklyPay.toLocaleString()}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-indigo-100 text-xs sm:text-sm font-medium mb-1">This Week's Estimated Pay</p>
+              <p className="text-2xl sm:text-4xl font-bold">${weeklyPay.toLocaleString()}</p>
               {hasCompPlan === false ? (
-                <p className="text-indigo-200 text-xs mt-2">No comp plan assigned - contact your manager</p>
+                <p className="text-indigo-200 text-xs mt-1 sm:mt-2">No comp plan assigned - contact your manager</p>
               ) : (
-                <p className="text-indigo-200 text-xs mt-2">Based on closed sales this week</p>
+                <p className="text-indigo-200 text-xs mt-1 sm:mt-2">Based on closed sales this week</p>
               )}
             </div>
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 ml-3">
+              <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -370,14 +370,14 @@ export default function DashboardClient({
 
         {/* Team Leaderboard - for managers/admins */}
         {teamMemberStats.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-8 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-              <h2 className="text-lg font-semibold text-gray-900">Team Stats</h2>
-              <div className="flex items-center gap-3">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 sm:mb-8 overflow-hidden">
+            <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team Stats</h2>
+              <div className="flex items-center gap-2 sm:gap-3">
                 <select
                   value={timeFrame}
                   onChange={(e) => setTimeFrame(e.target.value as TimeFrame)}
-                  className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                  className="text-sm border border-gray-300 rounded-lg px-2 sm:px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 flex-1 sm:flex-none"
                 >
                   <option value="today">Today</option>
                   <option value="yesterday">Yesterday</option>
@@ -387,10 +387,91 @@ export default function DashboardClient({
                   <option value="year">This Year</option>
                   <option value="all">All Time</option>
                 </select>
-                <span className="text-sm text-gray-500">{filteredTeamStats.length} reps</span>
+                <span className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">{filteredTeamStats.length} reps</span>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            
+            {/* Mobile Card View */}
+            <div className="block sm:hidden">
+              {loadingStats ? (
+                <div className="p-8 text-center">
+                  <div className="flex items-center justify-center gap-2 text-gray-500">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Loading stats...
+                  </div>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {filteredTeamStats.map((member, index) => (
+                    <div 
+                      key={member.id} 
+                      className={`p-3 ${index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}`}
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="flex items-center justify-center w-8 h-8 flex-shrink-0">
+                          {index === 0 ? (
+                            <span className="text-xl">🥇</span>
+                          ) : index === 1 ? (
+                            <span className="text-xl">🥈</span>
+                          ) : index === 2 ? (
+                            <span className="text-xl">🥉</span>
+                          ) : (
+                            <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
+                          )}
+                        </div>
+                        <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-medium text-indigo-600">
+                            {member.name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-gray-900 truncate">{member.name}</p>
+                          <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-5 gap-2 text-center">
+                        <div>
+                          <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                            {member.doorsKnocked}
+                          </p>
+                          <p className="text-xs text-gray-500">Doors</p>
+                        </div>
+                        <div>
+                          <p className={`text-base font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                            {member.contacts || 0}
+                          </p>
+                          <p className="text-xs text-gray-500">Contacts</p>
+                        </div>
+                        <div>
+                          <p className={`text-base font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                            {member.inspectionsSet}
+                          </p>
+                          <p className="text-xs text-gray-500">Insp.</p>
+                        </div>
+                        <div>
+                          <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                            {member.sales}
+                          </p>
+                          <p className="text-xs text-gray-500">Sales</p>
+                        </div>
+                        <div>
+                          <p className={`text-base font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                            {member.closeRate}%
+                          </p>
+                          <p className="text-xs text-gray-500">Close</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* Desktop Table View */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
@@ -517,12 +598,12 @@ export default function DashboardClient({
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Progress Section */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-4 sm:space-y-6">
             {/* Weekly Progress */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Weekly Progress</h2>
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Weekly Progress</h2>
               <ProgressBar
                 label="Doors Knocked"
                 current={progress.doors_knocked.current}
@@ -550,9 +631,9 @@ export default function DashboardClient({
             </div>
 
             {/* Upcoming Appointments */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Upcoming Appointments</h2>
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Upcoming Appointments</h2>
                 <Link href="/schedule" className="text-sm text-indigo-600 hover:text-indigo-700">
                   View all
                 </Link>
@@ -560,27 +641,27 @@ export default function DashboardClient({
               {upcomingAppointments.length === 0 ? (
                 <p className="text-gray-500 text-sm py-4">No upcoming appointments</p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                   {upcomingAppointments.map((apt) => (
                     <div
                       key={apt.id}
-                      className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                      className="flex items-center gap-3 sm:gap-4 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                     >
-                      <div className="w-14 text-center">
+                      <div className="w-12 sm:w-14 text-center flex-shrink-0">
                         <p className="text-xs text-gray-500">{formatDate(apt.scheduled_for)}</p>
-                        <p className="text-lg font-bold text-gray-900">{formatTime(apt.scheduled_for)}</p>
+                        <p className="text-base sm:text-lg font-bold text-gray-900">{formatTime(apt.scheduled_for)}</p>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">
+                        <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
                           {apt.leads?.homeowner_name || 'Unknown'}
                         </p>
-                        <p className="text-sm text-gray-500 truncate">
+                        <p className="text-xs sm:text-sm text-gray-500 truncate">
                           {apt.leads?.address_text || apt.address_text || 'No address'}
                         </p>
                       </div>
                       <Link
                         href={`/opportunities/${apt.opportunity_id}`}
-                        className="text-indigo-600 hover:text-indigo-700"
+                        className="text-indigo-600 hover:text-indigo-700 flex-shrink-0"
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -593,37 +674,37 @@ export default function DashboardClient({
             </div>
 
             {/* Account Overview */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Account Overview</h2>
-              <div className="grid grid-cols-3 gap-4">
-                <Link href="/leads" className="p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
-                  <p className="text-3xl font-bold text-blue-600">{stats.totalLeads}</p>
-                  <p className="text-sm text-gray-600">Total Leads</p>
-                  <p className="text-xs text-blue-600 mt-1">{stats.newLeads} new</p>
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Account Overview</h2>
+              <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                <Link href="/leads" className="p-2 sm:p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-center sm:text-left">
+                  <p className="text-xl sm:text-3xl font-bold text-blue-600">{stats.totalLeads}</p>
+                  <p className="text-xs sm:text-sm text-gray-600">Total Leads</p>
+                  <p className="text-xs text-blue-600 mt-1 hidden sm:block">{stats.newLeads} new</p>
                 </Link>
-                <Link href="/opportunities" className="p-4 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors">
-                  <p className="text-3xl font-bold text-amber-600">{stats.totalOpportunities}</p>
-                  <p className="text-sm text-gray-600">Opportunities</p>
-                  <p className="text-xs text-amber-600 mt-1">{stats.openOpportunities} open</p>
+                <Link href="/opportunities" className="p-2 sm:p-4 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors text-center sm:text-left">
+                  <p className="text-xl sm:text-3xl font-bold text-amber-600">{stats.totalOpportunities}</p>
+                  <p className="text-xs sm:text-sm text-gray-600">Opps</p>
+                  <p className="text-xs text-amber-600 mt-1 hidden sm:block">{stats.openOpportunities} open</p>
                 </Link>
-                <Link href="/projects" className="p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors">
-                  <p className="text-3xl font-bold text-green-600">{stats.totalProjects}</p>
-                  <p className="text-sm text-gray-600">Projects</p>
-                  <p className="text-xs text-green-600 mt-1">{stats.activeProjects} active</p>
+                <Link href="/projects" className="p-2 sm:p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors text-center sm:text-left">
+                  <p className="text-xl sm:text-3xl font-bold text-green-600">{stats.totalProjects}</p>
+                  <p className="text-xs sm:text-sm text-gray-600">Projects</p>
+                  <p className="text-xs text-green-600 mt-1 hidden sm:block">{stats.activeProjects} active</p>
                 </Link>
               </div>
             </div>
 
             {/* Custom Reports Widgets */}
             {customReports.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-gray-900">Custom Reports</h2>
+              <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
+                <div className="flex items-center justify-between mb-3 sm:mb-4">
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">Custom Reports</h2>
                   <Link href="/reports?tab=custom" className="text-sm text-indigo-600 hover:text-indigo-700">
                     View all
                   </Link>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {customReports.slice(0, 4).map((report) => {
                     const data = reportData[report.id] || []
                     const maxValue = Math.max(...data.map((d: any) => d.value || 0), 1)
@@ -691,10 +772,10 @@ export default function DashboardClient({
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {/* Pending Status Updates */}
             {pendingPrompts.length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -719,8 +800,8 @@ export default function DashboardClient({
             )}
 
             {/* Recent Activity */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h2>
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Recent Activity</h2>
               {recentActivities.length === 0 ? (
                 <p className="text-gray-500 text-sm">No recent activity</p>
               ) : (
@@ -750,42 +831,42 @@ export default function DashboardClient({
             </div>
 
             {/* Quick Actions */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Quick Actions</h2>
               <div className="space-y-2">
                 <Link
                   href="/canvass/map"
-                  className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                 >
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                   </div>
-                  <span className="font-medium text-gray-900">Start Canvassing</span>
+                  <span className="font-medium text-gray-900 text-sm sm:text-base">Start Canvassing</span>
                 </Link>
                 <Link
                   href="/leads/new"
-                  className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                 >
-                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
                   </div>
-                  <span className="font-medium text-gray-900">Add New Lead</span>
+                  <span className="font-medium text-gray-900 text-sm sm:text-base">Add New Lead</span>
                 </Link>
                 <Link
                   href="/reports"
-                  className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                 >
-                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
                   </div>
-                  <span className="font-medium text-gray-900">View Reports</span>
+                  <span className="font-medium text-gray-900 text-sm sm:text-base">View Reports</span>
                 </Link>
               </div>
             </div>

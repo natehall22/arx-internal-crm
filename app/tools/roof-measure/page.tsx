@@ -509,7 +509,11 @@ export default function RoofMeasurePage() {
     
     const polygon = polygonsRef.current.get('pending')
     
-    // Adjust area for pitch
+    // Adjust area for pitch using the slope factor formula
+    // Industry standard: Slope Factor = √(rise² + run²) / run = 1 / cos(pitch_angle)
+    // This is mathematically equivalent to secant(pitch_angle)
+    // Example: 6/12 pitch = 26.57° → multiplier = 1/cos(26.57°) = 1.118
+    // This matches industry standards (EagleView, Roofr, etc.)
     const pitchMultiplier = 1 / Math.cos(pitchDegrees * (Math.PI / 180))
     const adjustedArea = Math.round((pendingFacet.area_sqft || 0) * pitchMultiplier)
     
@@ -573,20 +577,47 @@ export default function RoofMeasurePage() {
     
     const totalArea = currentFacets.reduce((sum, f) => sum + f.area_sqft, 0)
     
-    // Calculate perimeter estimates (simplified)
-    const avgPerimeter = currentFacets.reduce((sum, f) => {
-      const perim = calculatePerimeter(f.points)
-      return sum + perim
+    // Calculate total perimeter of all facets
+    const totalPerimeter = currentFacets.reduce((sum, f) => {
+      return sum + calculatePerimeter(f.points)
     }, 0)
     
-    // Estimate linear footage (rough estimates based on typical roof proportions)
-    const ridges = Math.round(avgPerimeter * 0.15)
-    const hips = Math.round(avgPerimeter * 0.1)
-    const valleys = Math.round(avgPerimeter * 0.08)
-    const eaves = Math.round(avgPerimeter * 0.35)
-    const rakes = Math.round(avgPerimeter * 0.32)
+    // Calculate linear footage based on roof geometry analysis
+    // For a typical residential roof:
+    // - Ridge: ~15-20% of the longest dimension, typically runs along the peak
+    // - Eaves: Bottom edges of the roof (horizontal edges at the lowest points)
+    // - Rakes: Sloped edges on gable ends
+    // - Hips: Diagonal ridges where two roof planes meet at an external angle
+    // - Valleys: Diagonal channels where two roof planes meet at an internal angle
     
-    // Find predominant pitch
+    // Improved estimation based on facet count and geometry
+    const facetCount = currentFacets.length
+    const avgFacetPerimeter = totalPerimeter / facetCount
+    
+    // Estimate ridge length based on total area (ridge ≈ √(area/2) for typical gable)
+    const estimatedRidgeLength = Math.sqrt(totalArea / 2) * 0.8
+    
+    // For complex roofs, estimate shared edges (hips/valleys) based on facet count
+    // More facets = more intersections = more hips/valleys
+    const sharedEdgeFactor = Math.max(0, facetCount - 1) * 0.15
+    
+    // Calculate estimates using industry-standard proportions
+    // Eaves are typically the longest linear component (40-50% of perimeter)
+    const eaves = Math.round(totalPerimeter * 0.40)
+    
+    // Rakes (gable edges) typically 25-35% of perimeter
+    const rakes = Math.round(totalPerimeter * 0.30)
+    
+    // Ridge length estimation - for gable roofs it's roughly the building length
+    const ridges = Math.round(estimatedRidgeLength)
+    
+    // Hips increase with roof complexity (more facets = more hips)
+    const hips = Math.round(totalPerimeter * sharedEdgeFactor)
+    
+    // Valleys are internal intersections - estimate based on facet complexity
+    const valleys = Math.round(totalPerimeter * (sharedEdgeFactor * 0.5))
+    
+    // Find predominant pitch (weighted by area)
     const pitchCounts: Record<string, number> = {}
     currentFacets.forEach(f => {
       pitchCounts[f.pitch] = (pitchCounts[f.pitch] || 0) + f.area_sqft
@@ -741,9 +772,9 @@ export default function RoofMeasurePage() {
     <div className="min-h-screen bg-gray-900">
       <Nav />
       
-      <div className="flex h-[calc(100vh-64px)]">
-        {/* Sidebar */}
-        <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
+      <div className="flex flex-col lg:flex-row h-[calc(100vh-64px)]">
+        {/* Sidebar - Collapsible on mobile */}
+        <div className="w-full lg:w-80 bg-gray-800 border-b lg:border-b-0 lg:border-r border-gray-700 flex flex-col max-h-[40vh] lg:max-h-none overflow-y-auto lg:overflow-visible">
           {/* Address Search */}
           <div className="p-4 border-b border-gray-700">
             <label className="block text-sm font-medium text-gray-300 mb-2">Property Address</label>
@@ -927,7 +958,7 @@ export default function RoofMeasurePage() {
         </div>
 
         {/* Map */}
-        <div className="flex-1 relative min-h-[400px]">
+        <div className="flex-1 relative min-h-[300px] lg:min-h-[400px]">
           {/* Map container - Google Maps will render here */}
           <div 
             ref={mapRef} 

@@ -180,43 +180,44 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
   const unassignedCount = leads.filter(l => !l.owner_user_id).length
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex justify-between items-center mb-6">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Leads</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Leads</h1>
+          <p className="text-gray-500 text-sm sm:text-base mt-1">
             {filteredLeads.length} leads
-            {canViewInbound && ` • ${inboundCount} inbound • ${outboundCount} outbound`}
-            {unassignedCount > 0 && ` • ${unassignedCount} unassigned`}
+            {canViewInbound && ` • ${inboundCount} in • ${outboundCount} out`}
+            {unassignedCount > 0 && <span className="hidden sm:inline"> • {unassignedCount} unassigned</span>}
           </p>
         </div>
         <Link
           href="/leads/new"
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-2"
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 font-medium flex items-center justify-center gap-2 text-sm sm:text-base self-start sm:self-auto"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          New Lead
+          <span className="hidden sm:inline">New Lead</span>
+          <span className="sm:hidden">Add</span>
         </Link>
       </div>
 
       {/* View Mode Tabs (if can view inbound) */}
       {canViewInbound && (
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-1 sm:gap-2 mb-3 sm:mb-4 overflow-x-auto pb-1">
           <button
             onClick={() => setViewMode('all')}
-            className={`px-4 py-2 rounded-lg font-medium text-sm ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm whitespace-nowrap ${
               viewMode === 'all'
                 ? 'bg-indigo-600 text-white'
                 : 'bg-white text-gray-700 border hover:bg-gray-50'
             }`}
           >
-            All Leads
+            All
           </button>
           <button
             onClick={() => setViewMode('inbound')}
-            className={`px-4 py-2 rounded-lg font-medium text-sm ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm whitespace-nowrap ${
               viewMode === 'inbound'
                 ? 'bg-green-600 text-white'
                 : 'bg-white text-gray-700 border hover:bg-gray-50'
@@ -226,7 +227,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
           </button>
           <button
             onClick={() => setViewMode('outbound')}
-            className={`px-4 py-2 rounded-lg font-medium text-sm ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm whitespace-nowrap ${
               viewMode === 'outbound'
                 ? 'bg-blue-600 text-white'
                 : 'bg-white text-gray-700 border hover:bg-gray-50'
@@ -238,9 +239,9 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-          <div>
+      <div className="bg-white rounded-lg shadow-sm border p-3 sm:p-4 mb-4 sm:mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
+          <div className="col-span-2 sm:col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
             <input
               type="text"
@@ -258,7 +259,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
               onChange={(e) => setFilterStatus(e.target.value)}
               className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
             >
-              <option value="">All statuses</option>
+              <option value="">All</option>
               <option value="new">New</option>
               <option value="contacted">Contacted</option>
               <option value="appointment">Appointment</option>
@@ -270,7 +271,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
           </div>
 
           {canViewInbound && campaigns.length > 0 && (
-            <div>
+            <div className="hidden sm:block">
               <label className="block text-xs font-medium text-gray-500 mb-1">Campaign</label>
               <select
                 value={filterCampaign}
@@ -286,7 +287,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
           )}
 
           {canViewInbound && leadSources.length > 0 && (
-            <div>
+            <div className="hidden lg:block">
               <label className="block text-xs font-medium text-gray-500 mb-1">Source</label>
               <select
                 value={filterSource}
@@ -302,7 +303,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
           )}
 
           {users.length > 0 && (
-            <div>
+            <div className="hidden lg:block">
               <label className="block text-xs font-medium text-gray-500 mb-1">Owner</label>
               <select
                 value={filterOwner}
@@ -329,16 +330,77 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                 setSearchQuery('')
                 setViewMode('all')
               }}
-              className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+              className="px-3 py-2 text-xs sm:text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
             >
-              Clear filters
+              Clear
             </button>
           </div>
         </div>
       </div>
 
-      {/* Leads Table */}
-      <div className="bg-white shadow rounded-lg overflow-x-auto">
+      {/* Leads - Mobile Card View */}
+      <div className="sm:hidden space-y-3">
+        {loading ? (
+          <div className="p-8 text-center text-gray-500 bg-white rounded-lg">Loading leads...</div>
+        ) : filteredLeads.length === 0 ? (
+          <div className="p-8 text-center text-gray-500 bg-white rounded-lg">
+            No leads found
+            {(filterStatus || filterCampaign || filterSource || filterOwner || searchQuery) && (
+              <button
+                onClick={() => {
+                  setFilterChannel('')
+                  setFilterStatus('')
+                  setFilterCampaign('')
+                  setFilterSource('')
+                  setFilterOwner('')
+                  setSearchQuery('')
+                }}
+                className="block mx-auto mt-2 text-indigo-600 hover:text-indigo-700"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          filteredLeads.map((lead) => (
+            <Link
+              key={lead.id}
+              href={`/leads/${lead.id}`}
+              className="block bg-white rounded-lg shadow-sm border p-3 hover:border-indigo-300"
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-gray-900 truncate">
+                    {lead.homeowner_name || 'N/A'}
+                  </p>
+                  <p className="text-sm text-gray-500 truncate">
+                    {lead.phone || lead.email || 'No contact'}
+                  </p>
+                </div>
+                <span className={`ml-2 px-2 py-1 text-xs font-semibold rounded-full capitalize flex-shrink-0 ${
+                  statusColors[lead.status] || 'bg-gray-100 text-gray-800'
+                }`}>
+                  {lead.status.replace('_', ' ')}
+                </span>
+              </div>
+              <p className="text-sm text-gray-600 truncate mb-2">
+                {lead.address_text || 'No address'}
+              </p>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{lead.users?.full_name || <span className="text-orange-600">Unassigned</span>}</span>
+                {canViewInbound && lead.channel && (
+                  <span className={`px-2 py-0.5 rounded ${channelColors[lead.channel] || 'bg-gray-100'}`}>
+                    {lead.channel}
+                  </span>
+                )}
+              </div>
+            </Link>
+          ))
+        )}
+      </div>
+
+      {/* Leads Table - Desktop */}
+      <div className="hidden sm:block bg-white shadow rounded-lg overflow-x-auto">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading leads...</div>
         ) : filteredLeads.length === 0 ? (
