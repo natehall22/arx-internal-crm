@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check admin access - allow admin, regional_manager, sales_manager, and operations
-    if (!['admin', 'regional_manager', 'sales_manager', 'manager', 'operations'].includes(profile.role)) {
+    if (!['admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
@@ -137,7 +137,7 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile?.org_id || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
+    if (!profile?.org_id || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 

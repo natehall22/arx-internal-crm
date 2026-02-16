@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
     // Filter based on visibility
     const visibleItems = (items || []).filter((item: any) => {
       if (!item.visibility || item.visibility === 'all' || item.visibility === 'sales_reps') return true
-      if (item.visibility === 'managers' && ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)) return true
+      if (item.visibility === 'managers' && ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) return true
       if (item.visibility === 'admin_only' && profile.role === 'admin') return true
       return false
     })

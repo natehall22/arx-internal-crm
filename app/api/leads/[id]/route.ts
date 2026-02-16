@@ -106,7 +106,7 @@ export async function DELETE(
     }
 
     // Check permissions: admin roles can delete any, others only their own
-    const isAdminRole = ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)
+    const isAdminRole = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
     const isLeadOwner = lead.owner_user_id === user.id
 
     if (!isAdminRole && !isLeadOwner) {

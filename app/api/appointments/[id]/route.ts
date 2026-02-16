@@ -174,7 +174,7 @@ export async function PATCH(
     }
 
     // Check if user is manager or above for reassignment
-    const isManager = ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)
+    const isManager = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
 
     const body = await request.json()
     const { new_closer_id, status, notes } = body

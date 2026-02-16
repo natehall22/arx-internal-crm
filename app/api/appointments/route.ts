@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const filter = searchParams.get('filter') || 'upcoming'
-    const isManager = ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)
+    const isManager = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
 
     // Build query
     let query = adminClient

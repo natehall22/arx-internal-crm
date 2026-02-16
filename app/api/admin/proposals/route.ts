@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager', 'manager', 'operations'].includes(profile.role)) {
+    if (!profile || !['admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
+    if (!profile || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
@@ -312,7 +312,7 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
+    if (!profile || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
@@ -435,7 +435,7 @@ export async function DELETE(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager', 'manager'].includes(profile.role)) {
+    if (!profile || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 

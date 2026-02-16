@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
 
     // Non-admin users only see their own proposals
-    if (!['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)) {
+    if (!['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       query = query.eq('created_by', user.id)
     }
 

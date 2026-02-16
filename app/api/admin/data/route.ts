@@ -86,7 +86,7 @@ async function getAuthenticatedUser(req: NextRequest) {
   }
 
   // Check admin access for most operations
-  const isAdmin = ['admin', 'regional_manager', 'manager', 'sales_manager'].includes(profile.role)
+  const isAdmin = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
 
   return { user, profile, adminClient, isAdmin }
 }

@@ -160,7 +160,7 @@ export async function DELETE(
   }
 
   // Only admin/manager can delete
-  if (!['admin', 'manager', 'regional_manager'].includes(profile.role)) {
+  if (!['admin', 'sales_manager', 'regional_manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
   }
 
