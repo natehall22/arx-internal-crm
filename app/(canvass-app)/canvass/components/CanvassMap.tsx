@@ -79,7 +79,7 @@ export default function CanvassMap({ pins, currentPosition, onMapClick, onPinCli
     })
 
     // Add click listener
-    mapInstanceRef.current.addListener('click', (e) => {
+    mapInstanceRef.current.addListener('click', (e: any) => {
       if (e?.latLng) {
         onMapClick(e.latLng.lat(), e.latLng.lng())
       }
