@@ -97,22 +97,33 @@ export type Permission = PermissionName
 // Role hierarchy - higher index = more permissions (legacy roles)
 const roleHierarchy: UserRole[] = [
   'canvasser',
+  'setter',
+  'rep',
   'sales_rep',
   'operations',
+  'setter_manager',
   'sales_manager',
+  'regional_setter_manager',
   'regional_manager',
-  'admin'
+  'admin',
+  'owner',
+  'custom'
 ]
 
 // Hierarchy levels for legacy roles
 export const legacyRoleHierarchyLevels: Record<UserRole, number> = {
-  canvasser: 20,
-  rep: 40,
-  sales_rep: 40,
-  operations: 50,
+  canvasser: 10,
+  setter: 20,
+  rep: 30,
+  sales_rep: 30,
+  operations: 40,
+  setter_manager: 50,
   sales_manager: 60,
+  regional_setter_manager: 70,
   regional_manager: 80,
-  admin: 100,
+  admin: 90,
+  owner: 100,
+  custom: 30, // Default to rep level for custom roles
 }
 
 // Permission matrix by role (legacy - for backward compatibility)
@@ -213,14 +224,74 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'pricebook:view',
     'scheduling:view',
   ],
+  
+  // New roles
+  owner: [
+    'admin:full',
+    'canvass:view', 'canvass:create', 'canvass:edit',
+    'leads:view', 'leads:create', 'leads:edit',
+    'opportunities:view', 'opportunities:edit',
+    'proposals:view', 'proposals:edit',
+    'contracts:view', 'contracts:send',
+    'projects:view', 'projects:edit',
+    'reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all', 'reports:export',
+    'teams:view', 'teams:manage',
+    'regions:view', 'regions:manage',
+    'users:view', 'users:manage_team', 'users:manage_region', 'users:manage_all',
+    'pricebook:view', 'pricebook:edit',
+    'scheduling:view', 'scheduling:manage_team', 'scheduling:manage_region',
+  ],
+  
+  regional_setter_manager: [
+    'canvass:view', 'canvass:create', 'canvass:edit',
+    'leads:view', 'leads:create', 'leads:edit',
+    'opportunities:view',
+    'reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:export',
+    'teams:view', 'teams:manage',
+    'regions:view',
+    'users:view', 'users:manage_team', 'users:manage_region',
+    'scheduling:view', 'scheduling:manage_team', 'scheduling:manage_region',
+  ],
+  
+  setter_manager: [
+    'canvass:view', 'canvass:create', 'canvass:edit',
+    'leads:view', 'leads:create', 'leads:edit',
+    'opportunities:view',
+    'reports:view_own', 'reports:view_team', 'reports:export',
+    'teams:view', 'teams:manage',
+    'users:view', 'users:manage_team',
+    'scheduling:view', 'scheduling:manage_team',
+  ],
+  
+  setter: [
+    'canvass:view', 'canvass:create', 'canvass:edit',
+    'leads:view', 'leads:create', 'leads:edit',
+    'opportunities:view',
+    'reports:view_own',
+    'teams:view',
+    'users:view',
+    'scheduling:view',
+  ],
+  
+  custom: [
+    // Custom roles get minimal permissions by default
+    // Actual permissions should be defined via custom_roles table
+    'canvass:view',
+    'leads:view',
+    'opportunities:view',
+    'reports:view_own',
+    'teams:view',
+    'users:view',
+    'scheduling:view',
+  ],
 }
 
 /**
  * Check if a role has a specific permission
  */
 export function hasPermission(role: UserRole, permission: Permission): boolean {
-  // Admin has all permissions
-  if (role === 'admin') return true
+  // Owner and Admin have all permissions
+  if (role === 'admin' || role === 'owner') return true
   
   return rolePermissions[role]?.includes(permission) ?? false
 }
