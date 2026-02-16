@@ -80,7 +80,7 @@ export default async function DashboardPage() {
 
   let leadsQuery = supabase
     .from('leads')
-    .select('status, canvass_disposition, created_at, owner_user_id')
+    .select('id, status, source, canvass_disposition, created_at, owner_user_id')
     .eq('org_id', profile.org_id)
   
   if (!isAdmin) {
@@ -90,11 +90,11 @@ export default async function DashboardPage() {
       leadsQuery = leadsQuery.eq('owner_user_id', profile.id)
     }
   }
-  const { data: leads } = await leadsQuery
+  const { data: allLeads } = await leadsQuery
 
   let oppsQuery = supabase
     .from('opportunities')
-    .select('status, inspection_outcome, created_at, owner_user_id')
+    .select('lead_id, status, inspection_outcome, created_at, owner_user_id')
     .eq('org_id', profile.org_id)
   
   if (!isAdmin) {
@@ -196,7 +196,7 @@ export default async function DashboardPage() {
     if (members && members.length > 0) {
       // Calculate stats for each member
       for (const member of members) {
-        const memberLeads = leads?.filter(l => l.owner_user_id === member.id) || []
+        const memberLeads = allLeads?.filter(l => l.owner_user_id === member.id) || []
         const memberOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
         
         // Count doors knocked - only leads with canvass_disposition (from canvassing app)
@@ -239,7 +239,7 @@ export default async function DashboardPage() {
     }
   }
 
-  const thisWeekLeads = leads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
+  const thisWeekLeads = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
   const doorsKnocked = thisWeekLeads.length
   const contacts = thisWeekLeads.filter(l => 
     ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
@@ -261,9 +261,25 @@ export default async function DashboardPage() {
     sales: { current: salesThisWeek, goal: goals.sales },
   }
 
+  // Filter leads for "Total Leads" count:
+  // - Include all non-door_to_door leads (web, referral, call_in, etc.)
+  // - Include door_to_door leads ONLY if they have an opportunity (converted)
+  const leadIdsWithOpportunities = new Set(
+    opportunities?.map(o => o.lead_id).filter(Boolean) || []
+  )
+  
+  const legitimateLeads = (allLeads || []).filter(lead => {
+    // If not door_to_door, always include
+    if (lead.source !== 'door_to_door') {
+      return true
+    }
+    // For door_to_door leads, only include if they have an opportunity
+    return leadIdsWithOpportunities.has(lead.id)
+  })
+
   const stats = {
-    totalLeads: leads?.length || 0,
-    newLeads: leads?.filter(l => l.status === 'new').length || 0,
+    totalLeads: legitimateLeads.length,
+    newLeads: legitimateLeads.filter(l => l.status === 'new').length,
     totalOpportunities: opportunities?.length || 0,
     openOpportunities: opportunities?.filter(o => o.status === 'open').length || 0,
     totalProjects: projects?.length || 0,

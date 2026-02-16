@@ -125,6 +125,9 @@ export async function POST(request: NextRequest) {
 }
 
 // GET - Get leads for the current user's org
+// Only shows legitimate leads:
+// - Web leads (ad_campaign, call_in, referral, web, other)
+// - Door-to-door leads that have converted to opportunities (scheduled inspections)
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -151,8 +154,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    // Get leads with related data
-    const { data: leads, error: leadsError } = await adminClient
+    // Get all leads first
+    const { data: allLeads, error: leadsError } = await adminClient
       .from('leads')
       .select(`
         *,
@@ -168,7 +171,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 })
     }
 
-    return NextResponse.json({ leads: leads || [] })
+    // Get all lead IDs that have opportunities (converted door knocks)
+    const { data: opportunities } = await adminClient
+      .from('opportunities')
+      .select('lead_id')
+      .eq('org_id', profile.org_id)
+      .not('lead_id', 'is', null)
+
+    const leadIdsWithOpportunities = new Set(
+      opportunities?.map(o => o.lead_id).filter(Boolean) || []
+    )
+
+    // Filter leads:
+    // - Include all non-door_to_door leads (web, referral, call_in, etc.)
+    // - Include door_to_door leads ONLY if they have an opportunity (converted)
+    const filteredLeads = (allLeads || []).filter(lead => {
+      // If not door_to_door, always include
+      if (lead.source !== 'door_to_door') {
+        return true
+      }
+      
+      // For door_to_door leads, only include if they have an opportunity
+      // This means they were converted (hot lead with scheduled inspection)
+      return leadIdsWithOpportunities.has(lead.id)
+    })
+
+    return NextResponse.json({ leads: filteredLeads })
   } catch (error) {
     console.error('Leads API error:', error)
     return NextResponse.json({ 
