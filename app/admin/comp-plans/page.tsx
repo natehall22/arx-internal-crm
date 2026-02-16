@@ -898,7 +898,6 @@ export default function CompPlansPage() {
               <p className="text-xs text-gray-500">
                 <strong>Fallback Chain:</strong> If no direct manager is assigned, the system looks for a Regional Manager in the same region, then falls back to Owner/Admin.
               </p>
-              </div>
             </div>
           </div>
         )}
