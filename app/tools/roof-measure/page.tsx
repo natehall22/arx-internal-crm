@@ -22,6 +22,15 @@ interface RoofFacet {
   color: string
 }
 
+// Linear features that can be manually drawn (step flashing, custom valleys, etc.)
+interface LinearFeature {
+  id: string
+  type: 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'
+  points: Point[]
+  length_ft: number
+  label?: string
+}
+
 interface MeasurementData {
   address: string
   lat: number
@@ -34,8 +43,26 @@ interface MeasurementData {
   valleys_lf: number
   eaves_lf: number
   rakes_lf: number
+  step_flashing_lf: number
+  wall_flashing_lf: number
   predominant_pitch: string
   suggested_waste: number
+  linear_features?: LinearFeature[]
+}
+
+// Colors for different linear feature types
+const LINEAR_FEATURE_COLORS: Record<string, string> = {
+  step_flashing: '#F59E0B', // amber
+  wall_flashing: '#8B5CF6', // purple
+  valley: '#EF4444',        // red
+  custom: '#6B7280',        // gray
+}
+
+const LINEAR_FEATURE_LABELS: Record<string, string> = {
+  step_flashing: 'Step Flashing',
+  wall_flashing: 'Wall Flashing',
+  valley: 'Valley',
+  custom: 'Custom Line',
 }
 
 const PITCH_OPTIONS = [
@@ -89,6 +116,13 @@ export default function RoofMeasurePage() {
   const [mapsLoaded, setMapsLoaded] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [googleLoaded, setGoogleLoaded] = useState(false)
+  
+  // Linear features state
+  const [linearFeatures, setLinearFeatures] = useState<LinearFeature[]>([])
+  const [isDrawingLine, setIsDrawingLine] = useState(false)
+  const [lineDrawingType, setLineDrawingType] = useState<'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
+  const [showLineTypeModal, setShowLineTypeModal] = useState(false)
+  const polylinesRef = useRef<Map<string, any>>(new Map())
 
   useEffect(() => {
     const oppId = searchParams.get('opportunity_id') || searchParams.get('opportunity')
@@ -317,6 +351,11 @@ export default function RoofMeasurePage() {
         handlePolygonComplete(polygon)
       })
 
+      // Listen for polyline complete (for linear features)
+      google.maps.event.addListener(drawingManager, 'polylinecomplete', (polyline: any) => {
+        handlePolylineComplete(polyline)
+      })
+
       // Initialize Places Autocomplete
       initializeAutocomplete()
     } catch (error) {
@@ -442,6 +481,83 @@ export default function RoofMeasurePage() {
     if (!drawingManagerRef.current) return
     drawingManagerRef.current.setDrawingMode(null)
     setIsDrawing(false)
+    setIsDrawingLine(false)
+  }
+
+  // Start drawing a linear feature (step flashing, valley, etc.)
+  const startDrawingLine = (type: 'step_flashing' | 'wall_flashing' | 'valley' | 'custom') => {
+    if (!drawingManagerRef.current) return
+    
+    setLineDrawingType(type)
+    const color = LINEAR_FEATURE_COLORS[type]
+    
+    drawingManagerRef.current.setOptions({
+      drawingMode: google.maps.drawing.OverlayType.POLYLINE,
+      polylineOptions: {
+        strokeColor: color,
+        strokeWeight: 4,
+        strokeOpacity: 0.9,
+        editable: true,
+      },
+    })
+    
+    setIsDrawingLine(true)
+    setShowLineTypeModal(false)
+  }
+
+  // Handle completed polyline (linear feature)
+  const handlePolylineComplete = (polyline: any) => {
+    stopDrawing()
+    
+    const path = polyline.getPath()
+    const points: Point[] = []
+    
+    for (let i = 0; i < path.getLength(); i++) {
+      const point = path.getAt(i)
+      points.push({ lat: point.lat(), lng: point.lng() })
+    }
+    
+    // Calculate length
+    let lengthMeters = 0
+    for (let i = 0; i < points.length - 1; i++) {
+      lengthMeters += google.maps.geometry.spherical.computeDistanceBetween(
+        new google.maps.LatLng(points[i].lat, points[i].lng),
+        new google.maps.LatLng(points[i + 1].lat, points[i + 1].lng)
+      )
+    }
+    const lengthFt = Math.round(lengthMeters * 3.28084)
+    
+    const newFeature: LinearFeature = {
+      id: `line-${Date.now()}`,
+      type: lineDrawingType,
+      points,
+      length_ft: lengthFt,
+      label: LINEAR_FEATURE_LABELS[lineDrawingType],
+    }
+    
+    // Store polyline reference
+    polylinesRef.current.set(newFeature.id, polyline)
+    
+    // Add click listener to select
+    polyline.addListener('click', () => {
+      // Could add selection logic here
+    })
+    
+    setLinearFeatures(prev => [...prev, newFeature])
+    updateMeasurements(facets, [...linearFeatures, newFeature])
+  }
+
+  // Delete a linear feature
+  const deleteLinearFeature = (featureId: string) => {
+    const polyline = polylinesRef.current.get(featureId)
+    if (polyline) {
+      polyline.setMap(null)
+      polylinesRef.current.delete(featureId)
+    }
+    
+    const newFeatures = linearFeatures.filter(f => f.id !== featureId)
+    setLinearFeatures(newFeatures)
+    updateMeasurements(facets, newFeatures)
   }
 
   const handlePolygonComplete = (polygon: any) => {
@@ -543,7 +659,7 @@ export default function RoofMeasurePage() {
     setShowPitchModal(false)
     
     // Update measurements
-    updateMeasurements([...facets, newFacet])
+    updateMeasurements([...facets, newFacet], linearFeatures)
   }
 
   const cancelFacet = () => {
@@ -566,11 +682,13 @@ export default function RoofMeasurePage() {
     const newFacets = facets.filter(f => f.id !== facetId)
     setFacets(newFacets)
     setSelectedFacet(null)
-    updateMeasurements(newFacets)
+    updateMeasurements(newFacets, linearFeatures)
   }
 
-  const updateMeasurements = (currentFacets: RoofFacet[]) => {
-    if (currentFacets.length === 0) {
+  const updateMeasurements = (currentFacets: RoofFacet[], currentLinearFeatures?: LinearFeature[]) => {
+    const features = currentLinearFeatures ?? linearFeatures
+    
+    if (currentFacets.length === 0 && features.length === 0) {
       setMeasurements(null)
       return
     }
@@ -591,11 +709,10 @@ export default function RoofMeasurePage() {
     // - Valleys: Diagonal channels where two roof planes meet at an internal angle
     
     // Improved estimation based on facet count and geometry
-    const facetCount = currentFacets.length
-    const avgFacetPerimeter = totalPerimeter / facetCount
+    const facetCount = currentFacets.length || 1
     
     // Estimate ridge length based on total area (ridge ≈ √(area/2) for typical gable)
-    const estimatedRidgeLength = Math.sqrt(totalArea / 2) * 0.8
+    const estimatedRidgeLength = totalArea > 0 ? Math.sqrt(totalArea / 2) * 0.8 : 0
     
     // For complex roofs, estimate shared edges (hips/valleys) based on facet count
     // More facets = more intersections = more hips/valleys
@@ -614,8 +731,21 @@ export default function RoofMeasurePage() {
     // Hips increase with roof complexity (more facets = more hips)
     const hips = Math.round(totalPerimeter * sharedEdgeFactor)
     
-    // Valleys are internal intersections - estimate based on facet complexity
-    const valleys = Math.round(totalPerimeter * (sharedEdgeFactor * 0.5))
+    // Valleys - combine auto-estimated with manually drawn
+    const autoValleys = Math.round(totalPerimeter * (sharedEdgeFactor * 0.5))
+    const manualValleys = features
+      .filter(f => f.type === 'valley')
+      .reduce((sum, f) => sum + f.length_ft, 0)
+    const valleys = autoValleys + manualValleys
+    
+    // Calculate step flashing and wall flashing from manual drawings
+    const stepFlashing = features
+      .filter(f => f.type === 'step_flashing')
+      .reduce((sum, f) => sum + f.length_ft, 0)
+    
+    const wallFlashing = features
+      .filter(f => f.type === 'wall_flashing')
+      .reduce((sum, f) => sum + f.length_ft, 0)
     
     // Find predominant pitch (weighted by area)
     const pitchCounts: Record<string, number> = {}
@@ -639,8 +769,11 @@ export default function RoofMeasurePage() {
       valleys_lf: valleys,
       eaves_lf: eaves,
       rakes_lf: rakes,
+      step_flashing_lf: stepFlashing,
+      wall_flashing_lf: wallFlashing,
       predominant_pitch: predominantPitch,
       suggested_waste: wastePercent,
+      linear_features: features,
     })
   }
 
@@ -722,9 +855,16 @@ export default function RoofMeasurePage() {
   const clearAll = () => {
     if (!confirm('Clear all measurements?')) return
     
+    // Clear polygons (facets)
     polygonsRef.current.forEach(polygon => polygon.setMap(null))
     polygonsRef.current.clear()
+    
+    // Clear polylines (linear features)
+    polylinesRef.current.forEach(polyline => polyline.setMap(null))
+    polylinesRef.current.clear()
+    
     setFacets([])
+    setLinearFeatures([])
     setMeasurements(null)
     setSelectedFacet(null)
   }
@@ -806,45 +946,102 @@ export default function RoofMeasurePage() {
           {/* Drawing Tools */}
           <div className="p-4 border-b border-gray-700">
             <h3 className="text-sm font-medium text-gray-300 mb-3">Drawing Tools</h3>
-            <div className="flex gap-2">
+            
+            {/* Roof Facet Drawing */}
+            <div className="flex gap-2 mb-3">
               <button
                 onClick={isDrawing ? stopDrawing : startDrawing}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition ${
+                disabled={isDrawingLine}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition ${
                   isDrawing 
                     ? 'bg-red-600 text-white hover:bg-red-700' 
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
                 }`}
               >
                 {isDrawing ? (
                   <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                     Cancel
                   </>
                 ) : (
                   <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z" />
                     </svg>
                     Draw Facet
                   </>
                 )}
               </button>
-              {facets.length > 0 && (
+              {(facets.length > 0 || linearFeatures.length > 0) && (
                 <button
                   onClick={clearAll}
                   className="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600"
                   title="Clear all"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
                 </button>
               )}
             </div>
-            <p className="mt-2 text-xs text-gray-500">
-              Click to add points, close the shape to complete
+            
+            {/* Linear Feature Drawing */}
+            <div className="mb-2">
+              <p className="text-xs text-gray-400 mb-2">Draw linear features (flashing, valleys):</p>
+              {isDrawingLine ? (
+                <button
+                  onClick={stopDrawing}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg font-medium text-sm hover:bg-red-700"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Cancel Line
+                </button>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => startDrawingLine('step_flashing')}
+                    disabled={isDrawing}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2 bg-amber-600/20 text-amber-400 border border-amber-600/50 rounded-lg text-xs font-medium hover:bg-amber-600/30 disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                    Step Flash
+                  </button>
+                  <button
+                    onClick={() => startDrawingLine('wall_flashing')}
+                    disabled={isDrawing}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2 bg-purple-600/20 text-purple-400 border border-purple-600/50 rounded-lg text-xs font-medium hover:bg-purple-600/30 disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                    Wall Flash
+                  </button>
+                  <button
+                    onClick={() => startDrawingLine('valley')}
+                    disabled={isDrawing}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2 bg-red-600/20 text-red-400 border border-red-600/50 rounded-lg text-xs font-medium hover:bg-red-600/30 disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                    Valley
+                  </button>
+                  <button
+                    onClick={() => startDrawingLine('custom')}
+                    disabled={isDrawing}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2 bg-gray-600/20 text-gray-400 border border-gray-600/50 rounded-lg text-xs font-medium hover:bg-gray-600/30 disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 bg-gray-500 rounded-full"></span>
+                    Custom
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            <p className="text-xs text-gray-500">
+              {isDrawing ? 'Click to add points, close shape to complete' : 
+               isDrawingLine ? 'Click to add points, double-click to finish' :
+               'Draw roof sections first, then add flashing lines'}
             </p>
           </div>
 
@@ -917,6 +1114,44 @@ export default function RoofMeasurePage() {
                 ))}
               </div>
             )}
+            
+            {/* Linear Features List */}
+            {linearFeatures.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <h3 className="text-sm font-medium text-gray-300 mb-3">
+                  Linear Features ({linearFeatures.length})
+                </h3>
+                <div className="space-y-2">
+                  {linearFeatures.map((feature) => (
+                    <div
+                      key={feature.id}
+                      className="p-2 rounded-lg bg-gray-700/50 border border-transparent"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: LINEAR_FEATURE_COLORS[feature.type] }}
+                          />
+                          <span className="text-white text-sm">{feature.label}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400 text-xs">{feature.length_ft} LF</span>
+                          <button
+                            onClick={() => deleteLinearFeature(feature.id)}
+                            className="text-gray-500 hover:text-red-400"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Totals */}
@@ -946,6 +1181,29 @@ export default function RoofMeasurePage() {
                   <span>Suggested Waste:</span>
                   <span className="text-gray-300">{measurements.suggested_waste}%</span>
                 </div>
+                {(measurements.step_flashing_lf > 0 || measurements.wall_flashing_lf > 0) && (
+                  <>
+                    <div className="border-t border-gray-600 my-2"></div>
+                    {measurements.step_flashing_lf > 0 && (
+                      <div className="flex justify-between">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                          Step Flashing:
+                        </span>
+                        <span className="text-gray-300">{measurements.step_flashing_lf} LF</span>
+                      </div>
+                    )}
+                    {measurements.wall_flashing_lf > 0 && (
+                      <div className="flex justify-between">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                          Wall Flashing:
+                        </span>
+                        <span className="text-gray-300">{measurements.wall_flashing_lf} LF</span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               <button
                 onClick={() => setShowSaveModal(true)}
