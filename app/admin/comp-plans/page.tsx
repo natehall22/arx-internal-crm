@@ -131,7 +131,7 @@ export default function CompPlansPage() {
       const regionsResponse = await fetch('/api/admin/data?resource=regions')
       if (regionsResponse.ok) {
         const regionsData = await regionsResponse.json()
-        setRegions(regionsData || [])
+        setRegions(regionsData.regions || [])
       }
     } catch (error) {
       console.error('Error loading comp plans:', error)
