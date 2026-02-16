@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CanvassPin } from '../page'
 
+// Declare google as a global variable for TypeScript
+declare const google: any
+
 interface Props {
   pins: CanvassPin[]
   currentPosition: { lat: number; lng: number } | null
@@ -24,11 +27,11 @@ const pinColors: Record<string, string> = {
 
 export default function CanvassMap({ pins, currentPosition, onMapClick, onPinClick, onAddressSelect }: Props) {
   const mapRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<google.maps.Map | null>(null)
-  const markersRef = useRef<google.maps.Marker[]>([])
-  const userMarkerRef = useRef<google.maps.Marker | null>(null)
+  const mapInstanceRef = useRef<any>(null)
+  const markersRef = useRef<any[]>([])
+  const userMarkerRef = useRef<any>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null)
+  const autocompleteRef = useRef<any>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [searchExpanded, setSearchExpanded] = useState(false)
   const [searchValue, setSearchValue] = useState('')
