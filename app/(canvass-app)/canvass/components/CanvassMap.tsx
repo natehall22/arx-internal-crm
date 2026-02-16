@@ -8,6 +8,7 @@ interface Props {
   currentPosition: { lat: number; lng: number } | null
   onMapClick: (lat: number, lng: number) => void
   onPinClick: (pin: CanvassPin) => void
+  onAddressSelect?: (lat: number, lng: number, address: string) => void
 }
 
 // Pin colors based on disposition
@@ -21,12 +22,16 @@ const pinColors: Record<string, string> = {
   default: '#4F46E5',       // indigo
 }
 
-export default function CanvassMap({ pins, currentPosition, onMapClick, onPinClick }: Props) {
+export default function CanvassMap({ pins, currentPosition, onMapClick, onPinClick, onAddressSelect }: Props) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
   const userMarkerRef = useRef<google.maps.Marker | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [searchExpanded, setSearchExpanded] = useState(false)
+  const [searchValue, setSearchValue] = useState('')
 
   // Load Google Maps script
   useEffect(() => {
@@ -148,6 +153,51 @@ export default function CanvassMap({ pins, currentPosition, onMapClick, onPinCli
     }
   }
 
+  // Initialize Places Autocomplete when search expands
+  useEffect(() => {
+    if (!mapLoaded || !searchExpanded || !searchInputRef.current || autocompleteRef.current) return
+
+    autocompleteRef.current = new google.maps.places.Autocomplete(searchInputRef.current, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+    })
+
+    autocompleteRef.current.addListener('place_changed', () => {
+      const place = autocompleteRef.current?.getPlace()
+      if (place?.geometry?.location) {
+        const lat = place.geometry.location.lat()
+        const lng = place.geometry.location.lng()
+        const address = place.formatted_address || ''
+
+        // Pan map to selected location
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.panTo({ lat, lng })
+          mapInstanceRef.current.setZoom(18)
+        }
+
+        // Notify parent component
+        if (onAddressSelect) {
+          onAddressSelect(lat, lng, address)
+        }
+
+        // Close search and clear input
+        setSearchValue('')
+        setSearchExpanded(false)
+      }
+    })
+  }, [mapLoaded, searchExpanded, onAddressSelect])
+
+  // Focus input when search expands
+  useEffect(() => {
+    if (searchExpanded && searchInputRef.current) {
+      setTimeout(() => searchInputRef.current?.focus(), 100)
+    }
+    // Reset autocomplete ref when closing
+    if (!searchExpanded) {
+      autocompleteRef.current = null
+    }
+  }, [searchExpanded])
+
   return (
     <div className="relative h-full w-full">
       <div ref={mapRef} className="h-full w-full" />
@@ -164,6 +214,40 @@ export default function CanvassMap({ pins, currentPosition, onMapClick, onPinCli
           </svg>
         </button>
       )}
+
+      {/* Address Search */}
+      <div className="absolute top-4 left-4 z-10">
+        <div 
+          className={`bg-white rounded-full shadow-lg flex items-center transition-all duration-300 ease-in-out overflow-hidden ${
+            searchExpanded ? 'w-72 rounded-lg' : 'w-11 h-11'
+          }`}
+        >
+          <button
+            onClick={() => setSearchExpanded(!searchExpanded)}
+            className="flex-shrink-0 w-11 h-11 flex items-center justify-center text-gray-600 hover:text-indigo-600"
+          >
+            {searchExpanded ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            )}
+          </button>
+          {searchExpanded && (
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              placeholder="Search address..."
+              className="flex-1 pr-3 py-2 text-sm outline-none bg-transparent"
+            />
+          )}
+        </div>
+      </div>
 
       {/* Legend */}
       <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-3 text-xs">

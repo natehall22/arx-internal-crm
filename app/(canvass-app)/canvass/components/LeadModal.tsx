@@ -6,6 +6,7 @@ import type { CanvassPin } from '../page'
 interface Props {
   pin: CanvassPin | null
   location: { lat: number; lng: number } | null
+  prefillAddress?: string
   onSave: (data: Partial<CanvassPin>) => void
   onClose: () => void
 }
@@ -19,7 +20,7 @@ const dispositions = [
   { value: 'renter', label: 'Renter', color: 'bg-zinc-400', icon: '🔑' },
 ]
 
-export default function LeadModal({ pin, location, onSave, onClose }: Props) {
+export default function LeadModal({ pin, location, prefillAddress, onSave, onClose }: Props) {
   const [formData, setFormData] = useState({
     homeowner_name: '',
     phone: '',
@@ -46,9 +47,18 @@ export default function LeadModal({ pin, location, onSave, onClose }: Props) {
     }
   }, [pin])
 
-  // Reverse geocode location to get address
+  // Use prefill address if provided, otherwise reverse geocode
   useEffect(() => {
-    if (location && !pin && typeof google !== 'undefined') {
+    if (pin) return // Don't override existing pin data
+    
+    if (prefillAddress) {
+      // Use the address from search
+      setFormData(prev => ({
+        ...prev,
+        address_text: prefillAddress,
+      }))
+    } else if (location && typeof google !== 'undefined') {
+      // Reverse geocode location to get address
       const geocoder = new google.maps.Geocoder()
       geocoder.geocode({ location }, (results, status) => {
         if (status === 'OK' && results?.[0]) {
@@ -59,7 +69,7 @@ export default function LeadModal({ pin, location, onSave, onClose }: Props) {
         }
       })
     }
-  }, [location, pin])
+  }, [location, pin, prefillAddress])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

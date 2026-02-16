@@ -30,6 +30,7 @@ export default function CanvassPage() {
   const [selectedPin, setSelectedPin] = useState<CanvassPin | null>(null)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [newPinLocation, setNewPinLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [prefillAddress, setPrefillAddress] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<any>(null)
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map')
@@ -111,6 +112,14 @@ export default function CanvassPage() {
   const handleMapClick = (lat: number, lng: number) => {
     setNewPinLocation({ lat, lng })
     setSelectedPin(null)
+    setPrefillAddress('')
+    setShowLeadModal(true)
+  }
+
+  const handleAddressSelect = (lat: number, lng: number, address: string) => {
+    setNewPinLocation({ lat, lng })
+    setSelectedPin(null)
+    setPrefillAddress(address)
     setShowLeadModal(true)
   }
 
@@ -244,6 +253,7 @@ export default function CanvassPage() {
             currentPosition={position}
             onMapClick={handleMapClick}
             onPinClick={handlePinClick}
+            onAddressSelect={handleAddressSelect}
           />
         ) : (
           <div className="h-full overflow-y-auto p-4 pb-24">
@@ -326,11 +336,13 @@ export default function CanvassPage() {
         <LeadModal
           pin={selectedPin}
           location={newPinLocation}
+          prefillAddress={prefillAddress}
           onSave={handleSaveLead}
           onClose={() => {
             setShowLeadModal(false)
             setSelectedPin(null)
             setNewPinLocation(null)
+            setPrefillAddress('')
           }}
         />
       )}
