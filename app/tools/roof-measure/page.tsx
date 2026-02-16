@@ -142,6 +142,7 @@ export default function RoofMeasurePage() {
   const googleMapRef = useRef<any>(null)
   const drawingManagerRef = useRef<any>(null)
   const polygonsRef = useRef<Map<string, any>>(new Map())
+  const labelsRef = useRef<Map<string, any>>(new Map())
   
   const [loading, setLoading] = useState(true)
   const [address, setAddress] = useState('')
@@ -373,15 +374,15 @@ export default function RoofMeasurePage() {
         console.log('Map is idle and ready')
       })
 
-      // Initialize drawing manager
+      // Initialize drawing manager with high-visibility polygon options
       const drawingManager = new google.maps.drawing.DrawingManager({
         drawingMode: null,
         drawingControl: false,
         polygonOptions: {
           fillColor: '#3B82F6',
-          fillOpacity: 0.35,
-          strokeColor: '#3B82F6',
-          strokeWeight: 2,
+          fillOpacity: 0.4,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 3,
           editable: true,
           draggable: false,
         },
@@ -508,13 +509,14 @@ export default function RoofMeasurePage() {
     const colorIndex = facets.length % FACET_COLORS.length
     const color = FACET_COLORS[colorIndex]
     
+    // High visibility polygon options - white stroke for contrast on satellite imagery
     drawingManagerRef.current.setOptions({
       drawingMode: google.maps.drawing.OverlayType.POLYGON,
       polygonOptions: {
         fillColor: color,
-        fillOpacity: 0.35,
-        strokeColor: color,
-        strokeWeight: 2,
+        fillOpacity: 0.45,
+        strokeColor: '#FFFFFF',
+        strokeWeight: 3,
         editable: true,
       },
     })
@@ -714,15 +716,53 @@ export default function RoofMeasurePage() {
       color: pendingFacet.color!,
     }
     
-    // Move polygon to permanent storage
+    // Move polygon to permanent storage and apply high-visibility styling
     if (polygon) {
       polygonsRef.current.delete('pending')
       polygonsRef.current.set(newFacet.id, polygon)
+      
+      // Apply high-visibility styling - white stroke for contrast on satellite
+      polygon.setOptions({
+        fillColor: newFacet.color,
+        fillOpacity: 0.45,
+        strokeColor: '#FFFFFF',
+        strokeWeight: 3,
+      })
       
       // Add click listener
       polygon.addListener('click', () => {
         setSelectedFacet(newFacet.id)
       })
+      
+      // Add label marker at the center of the facet
+      const facetIndex = facets.length + 1
+      const centroid = newFacet.points.reduce(
+        (acc, p) => ({ lat: acc.lat + p.lat / newFacet.points.length, lng: acc.lng + p.lng / newFacet.points.length }),
+        { lat: 0, lng: 0 }
+      )
+      
+      // Create a custom label using a marker with a label
+      const labelMarker = new google.maps.Marker({
+        position: centroid,
+        map: googleMapRef.current,
+        label: {
+          text: `${facetIndex}`,
+          color: '#FFFFFF',
+          fontSize: '14px',
+          fontWeight: 'bold',
+        },
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 16,
+          fillColor: newFacet.color,
+          fillOpacity: 0.9,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+        },
+        clickable: false,
+      })
+      
+      labelsRef.current.set(newFacet.id, labelMarker)
     }
     
     setFacets(prev => [...prev, newFacet])
@@ -750,10 +790,30 @@ export default function RoofMeasurePage() {
       polygonsRef.current.delete(facetId)
     }
     
+    // Also remove the label marker
+    const label = labelsRef.current.get(facetId)
+    if (label) {
+      label.setMap(null)
+      labelsRef.current.delete(facetId)
+    }
+    
     const newFacets = facets.filter(f => f.id !== facetId)
     setFacets(newFacets)
     setSelectedFacet(null)
     updateMeasurements(newFacets, linearFeatures)
+    
+    // Update remaining labels to reflect new numbering
+    newFacets.forEach((facet, idx) => {
+      const existingLabel = labelsRef.current.get(facet.id)
+      if (existingLabel) {
+        existingLabel.setLabel({
+          text: `${idx + 1}`,
+          color: '#FFFFFF',
+          fontSize: '14px',
+          fontWeight: 'bold',
+        })
+      }
+    })
   }
 
   const updateMeasurements = (currentFacets: RoofFacet[], currentLinearFeatures?: LinearFeature[]) => {
@@ -1132,6 +1192,10 @@ export default function RoofMeasurePage() {
     polygonsRef.current.forEach(polygon => polygon.setMap(null))
     polygonsRef.current.clear()
     
+    // Clear labels
+    labelsRef.current.forEach(label => label.setMap(null))
+    labelsRef.current.clear()
+    
     // Clear polylines (linear features)
     polylinesRef.current.forEach(polyline => polyline.setMap(null))
     polylinesRef.current.clear()
@@ -1186,8 +1250,8 @@ export default function RoofMeasurePage() {
       <Nav />
       
       <div className="flex flex-col lg:flex-row h-[calc(100vh-64px)]">
-        {/* Sidebar - Collapsible on mobile */}
-        <div className="w-full lg:w-80 bg-gray-800 border-b lg:border-b-0 lg:border-r border-gray-700 flex flex-col max-h-[40vh] lg:max-h-none overflow-y-auto lg:overflow-visible">
+        {/* Sidebar - Scrollable independently from map */}
+        <div className="w-full lg:w-96 lg:flex-shrink-0 bg-gray-800 border-b lg:border-b-0 lg:border-r border-gray-700 flex flex-col max-h-[50vh] lg:max-h-[calc(100vh-64px)] overflow-y-auto">
           {/* Address Search */}
           <div className="p-4 border-b border-gray-700">
             <label className="block text-sm font-medium text-gray-300 mb-2">Property Address</label>
@@ -1319,7 +1383,7 @@ export default function RoofMeasurePage() {
           </div>
 
           {/* Facets List */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="p-4">
             <h3 className="text-sm font-medium text-gray-300 mb-3">
               Roof Sections ({facets.length})
             </h3>
