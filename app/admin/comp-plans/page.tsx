@@ -511,7 +511,7 @@ export default function CompPlansPage() {
                       <div className="mt-1 space-y-1">
                         {plan.volume_bonuses.map((vb, i) => (
                           <div key={i} className="text-xs bg-blue-50 px-2 py-1 rounded">
-                            ${vb.min_volume.toLocaleString()} - {vb.max_volume ? `$${vb.max_volume.toLocaleString()}` : '∞'}: 
+                            {vb.min_volume.toLocaleString()} - {vb.max_volume ? vb.max_volume.toLocaleString() : '∞'} accounts: 
                             <span className="font-medium text-blue-600 ml-1">
                               {vb.bonus_type === 'percentage' ? `+${vb.bonus_value}%` : `+$${vb.bonus_value}`}
                             </span>
@@ -542,7 +542,7 @@ export default function CompPlansPage() {
                           <div className="mt-1 space-y-1">
                             {plan.team_overrides.map((to, i) => (
                               <div key={i} className="text-xs bg-purple-50 px-2 py-1 rounded">
-                                Team ${to.min_team_volume.toLocaleString()} - {to.max_team_volume ? `$${to.max_team_volume.toLocaleString()}` : '∞'}: 
+                                Team {to.min_team_volume.toLocaleString()} - {to.max_team_volume ? to.max_team_volume.toLocaleString() : '∞'} accounts: 
                                 <span className="font-medium text-purple-600 ml-1">
                                   {to.override_type === 'percentage' ? `${to.override_value}%` : `$${to.override_value}`}
                                 </span>
@@ -858,7 +858,7 @@ export default function CompPlansPage() {
                             {planForm.team_overrides.map((to, index) => (
                               <div key={index} className="flex items-end gap-2 p-3 bg-white rounded-lg border border-purple-200">
                                 <div className="flex-1">
-                                  <label className="text-xs text-gray-600">Min Team Volume ($)</label>
+                                  <label className="text-xs text-gray-600">Min Team Volume (accounts)</label>
                                   <input
                                     type="number"
                                     value={to.min_team_volume}
@@ -867,7 +867,7 @@ export default function CompPlansPage() {
                                   />
                                 </div>
                                 <div className="flex-1">
-                                  <label className="text-xs text-gray-600">Max Team Volume ($)</label>
+                                  <label className="text-xs text-gray-600">Max Team Volume (accounts)</label>
                                   <input
                                     type="number"
                                     value={to.max_team_volume || ''}
@@ -964,7 +964,7 @@ export default function CompPlansPage() {
                       {planForm.volume_bonuses.map((vb, index) => (
                         <div key={index} className="flex items-end gap-2 p-3 bg-blue-50 rounded-lg">
                           <div className="flex-1">
-                            <label className="text-xs text-gray-600">Min Volume ($)</label>
+                            <label className="text-xs text-gray-600">Min Volume (accounts)</label>
                             <input
                               type="number"
                               value={vb.min_volume}
@@ -973,7 +973,7 @@ export default function CompPlansPage() {
                             />
                           </div>
                           <div className="flex-1">
-                            <label className="text-xs text-gray-600">Max Volume ($)</label>
+                            <label className="text-xs text-gray-600">Max Volume (accounts)</label>
                             <input
                               type="number"
                               value={vb.max_volume || ''}
@@ -1038,7 +1038,7 @@ export default function CompPlansPage() {
                           <>
                             Base: {planForm.base_percentage}% + Volume Bonus = Total Rate
                             <br />
-                            If rep sells ${planForm.volume_bonuses[0]?.min_volume?.toLocaleString() || '0'}+ in a period:
+                            If rep closes {planForm.volume_bonuses[0]?.min_volume?.toLocaleString() || '0'}+ accounts in a period:
                             <br />
                             {planForm.base_percentage}% + {planForm.volume_bonuses[0]?.bonus_type === 'percentage' 
                               ? `${planForm.volume_bonuses[0]?.bonus_value}%` 
@@ -1050,7 +1050,7 @@ export default function CompPlansPage() {
                             </span>
                           </>
                         ) : (
-                          <>Volume bonuses add to your base commission rate or provide flat dollar bonuses based on total sales volume.</>
+                          <>Volume bonuses add to your base commission rate or provide flat dollar bonuses based on accounts closed.</>
                         )}
                       </p>
                     </div>

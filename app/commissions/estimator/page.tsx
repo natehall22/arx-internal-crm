@@ -491,7 +491,7 @@ export default function CommissionEstimatorPage() {
                       <div className="space-y-1">
                         {compPlan.team_overrides.map((to, i) => (
                           <p key={i} className="text-xs text-gray-600">
-                            ${to.min_team_volume.toLocaleString()} - {to.max_team_volume ? `$${to.max_team_volume.toLocaleString()}` : '∞'}:{' '}
+                            {to.min_team_volume.toLocaleString()} - {to.max_team_volume ? to.max_team_volume.toLocaleString() : '∞'} accounts:{' '}
                             <span className="font-medium text-purple-600">
                               {to.override_type === 'percentage' ? `${to.override_value}%` : `$${to.override_value}/deal`}
                             </span>

@@ -1747,40 +1747,40 @@ export default function RoofMeasurePage() {
                     {measurements.total_squares.toFixed(2)}
                   </div>
                   <div className="text-sm text-indigo-600 font-medium">SQUARES</div>
-                  <div className="text-xs text-gray-500 mt-1">(Actual Roof Area)</div>
+                  <div className="text-xs text-indigo-500 mt-1">(Actual Roof Area)</div>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-gray-700">
+                  <div className="text-2xl font-bold text-gray-800">
                     {(measurements.total_area_sqft || 0).toLocaleString()}
                   </div>
-                  <div className="text-sm text-gray-500">Sq Ft (Actual)</div>
-                  <div className="text-xs text-gray-400 mt-1">
+                  <div className="text-sm text-gray-700">Sq Ft (Actual)</div>
+                  <div className="text-xs text-gray-600 mt-1">
                     Flat: {(measurements.flat_area_sqft || 0).toLocaleString()}
                   </div>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-gray-700">
+                  <div className="text-2xl font-bold text-gray-800">
                     {measurements.facet_count}
                   </div>
-                  <div className="text-sm text-gray-500">Sections</div>
-                  <div className="text-xs text-gray-400 mt-1">{measurements.waste_category}</div>
+                  <div className="text-sm text-gray-700">Sections</div>
+                  <div className="text-xs text-gray-600 mt-1">{measurements.waste_category}</div>
                 </div>
               </div>
               
               {/* Pitch & Waste */}
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">Pitch Information</h4>
+                  <h4 className="text-xs font-medium text-gray-600 uppercase mb-2">Pitch Information</h4>
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-bold text-gray-800">{measurements.predominant_pitch}</span>
-                    <span className="text-sm text-gray-600">×{measurements.avg_pitch_multiplier} multiplier</span>
+                    <span className="text-sm text-gray-700">×{measurements.avg_pitch_multiplier} multiplier</span>
                   </div>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">Suggested Waste</h4>
+                  <h4 className="text-xs font-medium text-gray-600 uppercase mb-2">Suggested Waste</h4>
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-bold text-gray-800">{measurements.suggested_waste}%</span>
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-gray-700">
                       +{Math.round(measurements.total_squares * measurements.suggested_waste / 100 * 10) / 10} sq
                     </span>
                   </div>
@@ -1789,54 +1789,54 @@ export default function RoofMeasurePage() {
               
               {/* Linear Footage Table */}
               <div className="mb-6">
-                <h4 className="text-xs font-medium text-gray-500 uppercase mb-3">Linear Footage Summary</h4>
-                <div className="bg-gray-50 rounded-lg overflow-hidden">
+                <h4 className="text-xs font-medium text-gray-700 uppercase mb-3">Linear Footage Summary</h4>
+                <div className="bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
+                    <thead className="bg-gray-200">
                       <tr>
-                        <th className="text-left px-4 py-2 text-gray-600">Component</th>
-                        <th className="text-right px-4 py-2 text-gray-600">Length (LF)</th>
+                        <th className="text-left px-4 py-2 text-gray-900 font-semibold">Component</th>
+                        <th className="text-right px-4 py-2 text-gray-900 font-semibold">Length (LF)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      <tr>
-                        <td className="px-4 py-2">Ridge</td>
-                        <td className="px-4 py-2 text-right font-medium">{measurements.ridges_lf}</td>
+                      <tr className="bg-white">
+                        <td className="px-4 py-2 text-gray-900">Ridge</td>
+                        <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.ridges_lf}</td>
                       </tr>
-                      <tr>
-                        <td className="px-4 py-2">Eaves</td>
-                        <td className="px-4 py-2 text-right font-medium">{measurements.eaves_lf}</td>
+                      <tr className="bg-white">
+                        <td className="px-4 py-2 text-gray-900">Eaves</td>
+                        <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.eaves_lf}</td>
                       </tr>
-                      <tr>
-                        <td className="px-4 py-2">Rakes</td>
-                        <td className="px-4 py-2 text-right font-medium">{isNaN(measurements.rakes_lf) ? 0 : measurements.rakes_lf}</td>
+                      <tr className="bg-white">
+                        <td className="px-4 py-2 text-gray-900">Rakes</td>
+                        <td className="px-4 py-2 text-right font-medium text-gray-900">{isNaN(measurements.rakes_lf) ? 0 : measurements.rakes_lf}</td>
                       </tr>
                       {measurements.hips_lf > 0 && (
-                        <tr>
-                          <td className="px-4 py-2">Hips</td>
-                          <td className="px-4 py-2 text-right font-medium">{measurements.hips_lf}</td>
+                        <tr className="bg-white">
+                          <td className="px-4 py-2 text-gray-900">Hips</td>
+                          <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.hips_lf}</td>
                         </tr>
                       )}
                       {measurements.valleys_lf > 0 && (
-                        <tr>
-                          <td className="px-4 py-2">Valleys</td>
-                          <td className="px-4 py-2 text-right font-medium">{measurements.valleys_lf}</td>
+                        <tr className="bg-white">
+                          <td className="px-4 py-2 text-gray-900">Valleys</td>
+                          <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.valleys_lf}</td>
                         </tr>
                       )}
                       <tr className="bg-gray-100 font-medium">
-                        <td className="px-4 py-2">Drip Edge (Total)</td>
-                        <td className="px-4 py-2 text-right">{isNaN(measurements.drip_edge_lf) ? 0 : measurements.drip_edge_lf}</td>
+                        <td className="px-4 py-2 text-gray-900">Drip Edge (Total)</td>
+                        <td className="px-4 py-2 text-right text-gray-900">{isNaN(measurements.drip_edge_lf) ? 0 : measurements.drip_edge_lf}</td>
                       </tr>
                       {measurements.step_flashing_lf > 0 && (
                         <tr className="bg-amber-50">
-                          <td className="px-4 py-2 text-amber-700">Step Flashing</td>
-                          <td className="px-4 py-2 text-right font-medium text-amber-700">{measurements.step_flashing_lf}</td>
+                          <td className="px-4 py-2 text-amber-900 font-medium">Step Flashing</td>
+                          <td className="px-4 py-2 text-right font-medium text-amber-900">{measurements.step_flashing_lf}</td>
                         </tr>
                       )}
                       {measurements.wall_flashing_lf > 0 && (
                         <tr className="bg-purple-50">
-                          <td className="px-4 py-2 text-purple-700">Wall Flashing</td>
-                          <td className="px-4 py-2 text-right font-medium text-purple-700">{measurements.wall_flashing_lf}</td>
+                          <td className="px-4 py-2 text-purple-900 font-medium">Wall Flashing</td>
+                          <td className="px-4 py-2 text-right font-medium text-purple-900">{measurements.wall_flashing_lf}</td>
                         </tr>
                       )}
                     </tbody>
@@ -1857,7 +1857,7 @@ export default function RoofMeasurePage() {
               )}
               
               {/* Formula verification note */}
-              <div className="text-xs text-gray-400 text-center">
+              <div className="text-xs text-gray-700 text-center">
                 Calculations use industry-standard formulas matching EagleView & GAF QuickMeasure
               </div>
             </div>
@@ -1865,7 +1865,7 @@ export default function RoofMeasurePage() {
             <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-between items-center">
               <button
                 onClick={() => setShowSaveModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-white"
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-white"
               >
                 Back to Edit
               </button>

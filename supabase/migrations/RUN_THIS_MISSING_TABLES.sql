@@ -520,5 +520,152 @@ ALTER TABLE proposal_line_items ADD COLUMN IF NOT EXISTS show_to_customer BOOLEA
 -- Defaults to true so existing users appear in reports
 ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_reports BOOLEAN DEFAULT true;
 
+-- ============================================
+-- 22. COMP PLANS (COMMISSION PLANS)
+-- ============================================
+
+-- Create comp_plan_type enum
+DO $$ 
+BEGIN
+  CREATE TYPE comp_plan_type AS ENUM ('flat_rate', 'percentage', 'tiered', 'hybrid');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Create commission_status enum
+DO $$ 
+BEGIN
+  CREATE TYPE commission_status AS ENUM ('pending', 'approved', 'paid', 'disputed');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Comp Plans table - defines commission structures
+CREATE TABLE IF NOT EXISTS comp_plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  plan_type comp_plan_type NOT NULL DEFAULT 'percentage',
+  is_active BOOLEAN DEFAULT true,
+  is_default BOOLEAN DEFAULT false,
+  flat_amount DECIMAL(10,2),
+  base_percentage DECIMAL(5,2),
+  tiers JSONB, -- Array of {min, max, rate} objects for tiered plans
+  bonuses JSONB, -- Array of {type, target, bonus} objects
+  volume_bonuses JSONB, -- Array of {min_volume, max_volume, bonus_type, bonus_value} for sliding scale
+  applicable_roles TEXT[] DEFAULT '{}',
+  is_manager_plan BOOLEAN DEFAULT false, -- Whether this is a manager compensation plan
+  personal_sales_enabled BOOLEAN DEFAULT true, -- Manager can earn from their own sales
+  team_override_enabled BOOLEAN DEFAULT false, -- Manager earns override from team sales
+  team_overrides JSONB, -- Array of {min_team_volume, max_team_volume, override_type, override_value}
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add missing columns if table already exists
+ALTER TABLE comp_plans ADD COLUMN IF NOT EXISTS volume_bonuses JSONB;
+ALTER TABLE comp_plans ADD COLUMN IF NOT EXISTS is_manager_plan BOOLEAN DEFAULT false;
+ALTER TABLE comp_plans ADD COLUMN IF NOT EXISTS personal_sales_enabled BOOLEAN DEFAULT true;
+ALTER TABLE comp_plans ADD COLUMN IF NOT EXISTS team_override_enabled BOOLEAN DEFAULT false;
+ALTER TABLE comp_plans ADD COLUMN IF NOT EXISTS team_overrides JSONB;
+
+-- User Comp Plans - assigns plans to users with effective dates
+CREATE TABLE IF NOT EXISTS user_comp_plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  comp_plan_id UUID NOT NULL REFERENCES comp_plans(id) ON DELETE CASCADE,
+  effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
+  effective_to DATE,
+  override_percentage DECIMAL(5,2), -- Optional override of base percentage
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, comp_plan_id, effective_from)
+);
+
+-- Commissions table - tracks actual commission records
+CREATE TABLE IF NOT EXISTS commissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+  opportunity_id UUID REFERENCES opportunities(id) ON DELETE SET NULL,
+  comp_plan_id UUID REFERENCES comp_plans(id) ON DELETE SET NULL,
+  sale_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  commission_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+  commission_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  bonus_amount DECIMAL(12,2) DEFAULT 0,
+  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status commission_status DEFAULT 'pending',
+  approved_by UUID REFERENCES users(id),
+  approved_at TIMESTAMPTZ,
+  paid_at TIMESTAMPTZ,
+  commission_period TEXT, -- e.g., '2024-01' for January 2024
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for comp_plans
+CREATE INDEX IF NOT EXISTS idx_comp_plans_org ON comp_plans(org_id);
+CREATE INDEX IF NOT EXISTS idx_comp_plans_active ON comp_plans(org_id, is_active);
+
+-- Indexes for user_comp_plans
+CREATE INDEX IF NOT EXISTS idx_user_comp_plans_org ON user_comp_plans(org_id);
+CREATE INDEX IF NOT EXISTS idx_user_comp_plans_user ON user_comp_plans(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_comp_plans_effective ON user_comp_plans(user_id, effective_from, effective_to);
+
+-- Indexes for commissions
+CREATE INDEX IF NOT EXISTS idx_commissions_org ON commissions(org_id);
+CREATE INDEX IF NOT EXISTS idx_commissions_user ON commissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_commissions_status ON commissions(org_id, status);
+CREATE INDEX IF NOT EXISTS idx_commissions_period ON commissions(org_id, commission_period);
+
+-- RLS Policies for comp_plans
+ALTER TABLE comp_plans ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view comp plans in their org" ON comp_plans;
+CREATE POLICY "Users can view comp plans in their org" ON comp_plans
+  FOR SELECT USING (org_id IN (SELECT org_id FROM users WHERE id = auth.uid()));
+
+DROP POLICY IF EXISTS "Admins can manage comp plans" ON comp_plans;
+CREATE POLICY "Admins can manage comp plans" ON comp_plans
+  FOR ALL USING (
+    org_id IN (SELECT org_id FROM users WHERE id = auth.uid() AND role = 'admin')
+  );
+
+-- RLS Policies for user_comp_plans
+ALTER TABLE user_comp_plans ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their own comp plan assignments" ON user_comp_plans;
+CREATE POLICY "Users can view their own comp plan assignments" ON user_comp_plans
+  FOR SELECT USING (
+    user_id = auth.uid() OR 
+    org_id IN (SELECT org_id FROM users WHERE id = auth.uid() AND role IN ('admin', 'regional_manager', 'sales_manager'))
+  );
+
+DROP POLICY IF EXISTS "Admins can manage user comp plans" ON user_comp_plans;
+CREATE POLICY "Admins can manage user comp plans" ON user_comp_plans
+  FOR ALL USING (
+    org_id IN (SELECT org_id FROM users WHERE id = auth.uid() AND role = 'admin')
+  );
+
+-- RLS Policies for commissions
+ALTER TABLE commissions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their own commissions" ON commissions;
+CREATE POLICY "Users can view their own commissions" ON commissions
+  FOR SELECT USING (
+    user_id = auth.uid() OR 
+    org_id IN (SELECT org_id FROM users WHERE id = auth.uid() AND role IN ('admin', 'regional_manager', 'sales_manager'))
+  );
+
+DROP POLICY IF EXISTS "Admins can manage commissions" ON commissions;
+CREATE POLICY "Admins can manage commissions" ON commissions
+  FOR ALL USING (
+    org_id IN (SELECT org_id FROM users WHERE id = auth.uid() AND role = 'admin')
+  );
+
 -- Done!
 SELECT 'Migration completed successfully!' as status;
