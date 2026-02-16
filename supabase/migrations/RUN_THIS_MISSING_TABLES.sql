@@ -521,6 +521,20 @@ ALTER TABLE proposal_line_items ADD COLUMN IF NOT EXISTS show_to_customer BOOLEA
 ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_reports BOOLEAN DEFAULT true;
 
 -- ============================================
+-- 21b. USERS - HIERARCHY COLUMNS
+-- ============================================
+
+-- Add manager_user_id for direct manager assignment
+ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+
+-- Add region_id if not exists (for regional assignment)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS region_id UUID REFERENCES regions(id) ON DELETE SET NULL;
+
+-- Create index for manager lookups
+CREATE INDEX IF NOT EXISTS idx_users_manager ON users(manager_user_id);
+CREATE INDEX IF NOT EXISTS idx_users_region ON users(region_id);
+
+-- ============================================
 -- 22. COMP PLANS (COMMISSION PLANS)
 -- ============================================
 
