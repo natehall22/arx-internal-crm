@@ -14,6 +14,37 @@ EXCEPTION
   WHEN others THEN NULL;
 END $$;
 
+-- Add new user roles if they don't exist
+DO $$
+BEGIN
+  ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'owner';
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'regional_setter_manager';
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'setter_manager';
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'setter';
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'custom';
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
 DO $$ 
 BEGIN
   CREATE TYPE opportunity_status AS ENUM ('open', 'in_progress', 'won', 'lost');

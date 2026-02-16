@@ -715,38 +715,71 @@ export default function CompPlansPage() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Direct Manager</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team Members</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {users.map((user) => {
                     // Determine who this user reports to
                     const directManager = users.find(u => u.id === user.manager_user_id)
-                    const region = regions.find(r => r.id === user.region_id)
-                    const regionalManager = users.find(u => u.region_id === user.region_id && u.role === 'regional_manager')
-                    const admin = users.find(u => u.role === 'admin')
                     
-                    // Reporting chain: Direct Manager > Regional Manager > Admin
-                    let reportsTo = 'None'
+                    // Find regional-level managers in same region as fallback
+                    const regionalManagers = users.filter(u => 
+                      u.region_id === user.region_id && 
+                      u.id !== user.id &&
+                      ['regional_manager', 'regional_setter_manager'].includes(u.role)
+                    )
+                    
+                    // Find owner/admin as final fallback
+                    const ownerOrAdmin = users.find(u => ['owner', 'admin'].includes(u.role) && u.id !== user.id)
+                    
+                    // Reporting chain: Direct Manager > Regional Manager > Owner/Admin
+                    let reportsTo = 'None (Top Level)'
                     let reportsToColor = 'text-gray-400'
                     if (directManager) {
                       reportsTo = directManager.full_name
                       reportsToColor = 'text-green-600'
-                    } else if (regionalManager && regionalManager.id !== user.id) {
-                      reportsTo = `${regionalManager.full_name} (Regional)`
+                    } else if (regionalManagers.length > 0) {
+                      reportsTo = `${regionalManagers[0].full_name} (Regional)`
                       reportsToColor = 'text-blue-600'
-                    } else if (admin && admin.id !== user.id) {
-                      reportsTo = `${admin.full_name} (Admin)`
+                    } else if (ownerOrAdmin) {
+                      reportsTo = `${ownerOrAdmin.full_name} (${ownerOrAdmin.role === 'owner' ? 'Owner' : 'Admin'})`
                       reportsToColor = 'text-purple-600'
                     }
                     
-                    // Get potential managers (admins, regional managers, sales managers)
-                    const potentialManagers = users.filter(u => 
-                      u.id !== user.id && 
-                      ['admin', 'regional_manager', 'sales_manager'].includes(u.role)
-                    )
+                    // Get potential managers - anyone can be a manager except the user themselves
+                    // Filter to show leadership roles first, but allow any user
+                    const leadershipRoles = ['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager']
+                    const potentialManagers = users
+                      .filter(u => u.id !== user.id)
+                      .sort((a, b) => {
+                        const aIsLeader = leadershipRoles.includes(a.role) ? 0 : 1
+                        const bIsLeader = leadershipRoles.includes(b.role) ? 0 : 1
+                        if (aIsLeader !== bIsLeader) return aIsLeader - bIsLeader
+                        return (a.full_name || '').localeCompare(b.full_name || '')
+                      })
+                    
+                    // Count team members (people who report to this user)
+                    const teamMembers = users.filter(u => u.manager_user_id === user.id)
+                    
+                    // Role color mapping
+                    const getRoleColor = (role: string) => {
+                      switch(role) {
+                        case 'owner': return 'bg-yellow-100 text-yellow-800'
+                        case 'admin': return 'bg-purple-100 text-purple-700'
+                        case 'regional_manager': return 'bg-blue-100 text-blue-700'
+                        case 'regional_setter_manager': return 'bg-blue-100 text-blue-700'
+                        case 'sales_manager': return 'bg-green-100 text-green-700'
+                        case 'setter_manager': return 'bg-green-100 text-green-700'
+                        case 'sales_rep': return 'bg-gray-100 text-gray-700'
+                        case 'setter': return 'bg-orange-100 text-orange-700'
+                        case 'canvasser': return 'bg-teal-100 text-teal-700'
+                        case 'operations': return 'bg-pink-100 text-pink-700'
+                        default: return 'bg-gray-100 text-gray-700'
+                      }
+                    }
                     
                     return (
                       <tr key={user.id} className="hover:bg-gray-50">
@@ -755,12 +788,7 @@ export default function CompPlansPage() {
                           <div className="text-xs text-gray-500">{user.email}</div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            user.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                            user.role === 'regional_manager' ? 'bg-blue-100 text-blue-700' :
-                            user.role === 'sales_manager' ? 'bg-green-100 text-green-700' :
-                            'bg-gray-100 text-gray-700'
-                          }`}>
+                          <span className={`px-2 py-1 text-xs rounded-full capitalize ${getRoleColor(user.role)}`}>
                             {user.role?.replace(/_/g, ' ')}
                           </span>
                         </td>
@@ -772,13 +800,27 @@ export default function CompPlansPage() {
                             })}
                             className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
                           >
-                            <option value="">No direct manager</option>
-                            {potentialManagers.map(m => (
-                              <option key={m.id} value={m.id}>
-                                {m.full_name} ({m.role?.replace(/_/g, ' ')})
-                              </option>
-                            ))}
+                            <option value="">-- Select Manager --</option>
+                            <optgroup label="Leadership">
+                              {potentialManagers.filter(m => leadershipRoles.includes(m.role)).map(m => (
+                                <option key={m.id} value={m.id}>
+                                  {m.full_name} ({m.role?.replace(/_/g, ' ')})
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="Other Users">
+                              {potentialManagers.filter(m => !leadershipRoles.includes(m.role)).map(m => (
+                                <option key={m.id} value={m.id}>
+                                  {m.full_name} ({m.role?.replace(/_/g, ' ')})
+                                </option>
+                              ))}
+                            </optgroup>
                           </select>
+                          {!user.manager_user_id && (
+                            <div className={`text-xs mt-1 ${reportsToColor}`}>
+                              Fallback: {reportsTo}
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <select
@@ -795,9 +837,17 @@ export default function CompPlansPage() {
                           </select>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`font-medium text-sm ${reportsToColor}`}>
-                            {reportsTo}
-                          </span>
+                          {teamMembers.length > 0 ? (
+                            <div>
+                              <span className="text-sm font-medium text-gray-900">{teamMembers.length} direct report{teamMembers.length !== 1 ? 's' : ''}</span>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {teamMembers.slice(0, 3).map(m => m.full_name).join(', ')}
+                                {teamMembers.length > 3 && ` +${teamMembers.length - 3} more`}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-sm">No direct reports</span>
+                          )}
                         </td>
                       </tr>
                     )
@@ -813,20 +863,41 @@ export default function CompPlansPage() {
 
             {/* Hierarchy Legend */}
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Reporting Chain Priority</h3>
-              <div className="flex flex-wrap gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-green-500"></span>
-                  <span className="text-gray-600">Direct Manager (highest priority)</span>
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Role Hierarchy & Fallback Chain</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+                <div>
+                  <p className="font-medium text-gray-700 mb-1">Top Level</p>
+                  <div className="space-y-1">
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-800">Owner</span>
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 ml-1">Admin</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-blue-500"></span>
-                  <span className="text-gray-600">Regional Manager (if no direct manager)</span>
+                <div>
+                  <p className="font-medium text-gray-700 mb-1">Regional</p>
+                  <div className="space-y-1">
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">Regional Manager</span>
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 ml-1">Regional Setter Mgr</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-purple-500"></span>
-                  <span className="text-gray-600">Admin (fallback)</span>
+                <div>
+                  <p className="font-medium text-gray-700 mb-1">Manager</p>
+                  <div className="space-y-1">
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">Sales Manager</span>
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700 ml-1">Setter Manager</span>
+                  </div>
                 </div>
+                <div>
+                  <p className="font-medium text-gray-700 mb-1">Rep Level</p>
+                  <div className="space-y-1">
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700">Sales Rep</span>
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 ml-1">Setter</span>
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-teal-100 text-teal-700 ml-1">Canvasser</span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                <strong>Fallback Chain:</strong> If no direct manager is assigned, the system looks for a Regional Manager in the same region, then falls back to Owner/Admin.
+              </p>
               </div>
             </div>
           </div>

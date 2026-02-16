@@ -1,4 +1,21 @@
-export type UserRole = 'admin' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'rep' | 'canvasser' | 'operations'
+export type UserRole = 
+  | 'admin' 
+  | 'owner'
+  // Regional level
+  | 'regional_manager' 
+  | 'regional_setter_manager'
+  // Manager level
+  | 'sales_manager' 
+  | 'setter_manager'
+  // Rep level
+  | 'sales_rep' 
+  | 'setter'
+  | 'rep' 
+  | 'canvasser' 
+  // Operations
+  | 'operations'
+  // Custom (for flexibility)
+  | 'custom'
 
 export type LeadStatus = 'new' | 'contacted' | 'appointment' | 'inspection' | 'estimate_sent' | 'won' | 'lost'
 
