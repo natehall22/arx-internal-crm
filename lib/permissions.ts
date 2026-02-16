@@ -374,13 +374,18 @@ export function getReportScope(role: UserRole): 'own' | 'team' | 'region' | 'all
  * Role display names
  */
 export const roleDisplayNames: Record<UserRole, string> = {
+  owner: 'Owner',
   admin: 'Admin',
   regional_manager: 'Regional Manager',
+  regional_setter_manager: 'Regional Setter Manager',
   sales_manager: 'Sales Manager',
+  setter_manager: 'Setter Manager',
   sales_rep: 'Sales Rep',
+  setter: 'Setter',
   rep: 'Rep',
   canvasser: 'Canvasser',
   operations: 'Operations',
+  custom: 'Custom',
 }
 
 /**
