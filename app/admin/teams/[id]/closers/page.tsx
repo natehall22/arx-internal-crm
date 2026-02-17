@@ -65,12 +65,16 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
   }
   
   const loadQueueData = async (supabase: any, teamIdToLoad: string) => {
+    console.log('Closer queue - Loading queue data for team:', teamIdToLoad)
+    
     // Load closer queue for this team
-    const { data: queueData } = await supabase
+    const { data: queueData, error: queueError } = await supabase
       .from('team_closer_queue')
       .select('*, users(*)')
       .eq('team_id', teamIdToLoad)
       .order('priority')
+    
+    console.log('Closer queue - Queue query result:', { queueData: queueData?.length, queueError })
 
     const closersWithQueue: CloserWithQueue[] = (queueData || []).map((q: any) => ({
       ...q.users,
