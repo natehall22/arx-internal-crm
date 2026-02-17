@@ -146,11 +146,31 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Add user info to appointments
+    // Get feedback/status updates for appointments
+    const appointmentIds = appointments?.map(a => a.id) || []
+    let feedbackMap: Record<string, any> = {}
+    
+    if (appointmentIds.length > 0) {
+      const { data: statusUpdates } = await adminClient
+        .from('inspection_status_updates')
+        .select('appointment_id, outcome, notes, setter_feedback, completed_at')
+        .in('appointment_id', appointmentIds)
+        .order('completed_at', { ascending: false })
+      
+      // Get the most recent feedback for each appointment
+      statusUpdates?.forEach(update => {
+        if (!feedbackMap[update.appointment_id]) {
+          feedbackMap[update.appointment_id] = update
+        }
+      })
+    }
+
+    // Add user info and feedback to appointments
     const enrichedAppointments = appointments?.map(apt => ({
       ...apt,
       closer: apt.closer_user_id ? usersMap[apt.closer_user_id] : null,
       setter: apt.canvasser_user_id ? usersMap[apt.canvasser_user_id] : null,
+      feedback: feedbackMap[apt.id] || null,
     }))
 
     // Get all users for reassignment dropdown (managers only)

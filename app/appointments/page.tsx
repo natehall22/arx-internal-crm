@@ -26,6 +26,12 @@ interface Appointment {
     id: string
     full_name: string | null
   }
+  feedback?: {
+    outcome: string
+    notes: string | null
+    setter_feedback: string | null
+    completed_at: string
+  } | null
 }
 
 interface User {
@@ -230,6 +236,40 @@ export default function AppointmentsPage() {
                         <p className="text-sm text-gray-500 mt-2">
                           <span className="font-medium">Address:</span> {appointment.address_text}
                         </p>
+                      )}
+                      
+                      {/* Show feedback if available */}
+                      {appointment.feedback && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                              appointment.feedback.outcome === 'sale' ? 'bg-green-100 text-green-700' :
+                              appointment.feedback.outcome === 'not_home' ? 'bg-red-100 text-red-700' :
+                              appointment.feedback.outcome === 'said_no' ? 'bg-gray-100 text-gray-700' :
+                              appointment.feedback.outcome === 'rescheduled' ? 'bg-amber-100 text-amber-700' :
+                              'bg-blue-100 text-blue-700'
+                            }`}>
+                              {appointment.feedback.outcome === 'sale' ? 'Moving Forward' :
+                               appointment.feedback.outcome === 'not_home' ? 'No Show' :
+                               appointment.feedback.outcome === 'said_no' ? 'Said No' :
+                               appointment.feedback.outcome === 'rescheduled' ? 'Rescheduled' :
+                               appointment.feedback.outcome}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {new Date(appointment.feedback.completed_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          {appointment.feedback.setter_feedback && (
+                            <p className="text-sm text-gray-700">
+                              <span className="font-medium">Feedback:</span> {appointment.feedback.setter_feedback}
+                            </p>
+                          )}
+                          {appointment.feedback.notes && !appointment.feedback.setter_feedback && (
+                            <p className="text-sm text-gray-700">
+                              <span className="font-medium">Notes:</span> {appointment.feedback.notes}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
 
