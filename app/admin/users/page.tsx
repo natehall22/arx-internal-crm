@@ -443,19 +443,19 @@ export default function UsersPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+            <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
               <Link href="/admin" className="hover:text-indigo-600">Admin</Link>
               <span>/</span>
               <span>Users</span>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">Users</h1>
-            <p className="mt-1 text-gray-600">Manage user accounts and role assignments</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Users</h1>
+            <p className="mt-1 text-sm text-gray-600 hidden sm:block">Manage user accounts and role assignments</p>
           </div>
           <button
             onClick={openCreateModal}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-2"
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center justify-center gap-2 w-full sm:w-auto"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -466,50 +466,52 @@ export default function UsersPage() {
 
         {/* Filters */}
         <div className="bg-white rounded-xl shadow-sm border p-4 mb-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
-              <select
-                value={filterRole}
-                onChange={(e) => setFilterRole(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
-              >
-                <option value="">All roles</option>
-                <optgroup label="Legacy Roles">
-                  {legacyRoleOptions.map((role) => (
-                    <option key={role} value={role}>
-                      {getRoleDisplayName(role)}
-                    </option>
-                  ))}
-                </optgroup>
-                {customRoles.length > 0 && (
-                  <optgroup label="Custom Roles">
-                    {customRoles.map((role) => (
-                      <option key={`custom-${role.id}`} value={`custom:${role.id}`}>
-                        {role.display_name}
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 sm:flex gap-3 sm:gap-4 flex-1">
+              <div className="flex-1 sm:flex-initial">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
+                <select
+                  value={filterRole}
+                  onChange={(e) => setFilterRole(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                >
+                  <option value="">All roles</option>
+                  <optgroup label="Legacy Roles">
+                    {legacyRoleOptions.map((role) => (
+                      <option key={role} value={role}>
+                        {getRoleDisplayName(role)}
                       </option>
                     ))}
                   </optgroup>
-                )}
-              </select>
+                  {customRoles.length > 0 && (
+                    <optgroup label="Custom Roles">
+                      {customRoles.map((role) => (
+                        <option key={`custom-${role.id}`} value={`custom:${role.id}`}>
+                          {role.display_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              <div className="flex-1 sm:flex-initial">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Team</label>
+                <select
+                  value={filterTeam}
+                  onChange={(e) => setFilterTeam(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                >
+                  <option value="">All teams</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Team</label>
-              <select
-                value={filterTeam}
-                onChange={(e) => setFilterTeam(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
-              >
-                <option value="">All teams</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="ml-auto flex items-center gap-4">
-              <span className="text-sm text-gray-500">
+            <div className="flex items-end justify-between sm:justify-end gap-3 sm:gap-4">
+              <span className="text-sm text-gray-500 whitespace-nowrap">
                 {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}
               </span>
               <div className="flex border border-gray-300 rounded-lg overflow-hidden">
@@ -523,7 +525,7 @@ export default function UsersPage() {
                   onClick={() => setViewMode('hierarchy')}
                   className={`px-3 py-1.5 text-sm ${viewMode === 'hierarchy' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                 >
-                  Org Chart
+                  Org
                 </button>
               </div>
             </div>
@@ -658,120 +660,224 @@ export default function UsersPage() {
             </div>
           </div>
         ) : (
-          /* List View */
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {filteredUsers.map((user) => (
-                  <tr key={user.id} className={!user.active ? 'bg-gray-50 opacity-60' : ''}>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-medium">
-                          {user.full_name?.charAt(0) || '?'}
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{user.full_name || 'Unknown'}</p>
-                          <p className="text-sm text-gray-500">{user.email}</p>
-                        </div>
+          /* List View - Cards on mobile, table on desktop */
+          <>
+            {/* Mobile Card View */}
+            <div className="md:hidden space-y-3">
+              {filteredUsers.map((user) => (
+                <div 
+                  key={user.id} 
+                  className={`bg-white rounded-xl shadow-sm border p-4 ${!user.active ? 'opacity-60' : ''}`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-medium text-lg">
+                        {user.full_name?.charAt(0) || '?'}
                       </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-sm ${
+                      <div>
+                        <p className="font-medium text-gray-900">{user.full_name || 'Unknown'}</p>
+                        <p className="text-sm text-gray-500">{user.email}</p>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      user.active 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {user.active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                    <div>
+                      <span className="text-gray-500">Role:</span>
+                      <span className={`ml-1 px-2 py-0.5 rounded text-xs ${
                         user.custom_role 
                           ? 'bg-indigo-100 text-indigo-700' 
                           : 'bg-gray-100 text-gray-700'
                       }`}>
                         {getUserRoleDisplay(user)}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {user.manager ? (
-                        <span className="text-sm">{user.manager.full_name || user.manager.email}</span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {user.team?.name || '-'}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {user.region?.name || '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        user.active 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-gray-100 text-gray-500'
-                      }`}>
-                        {user.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleEdit(user)}
-                          className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-                          title="Edit"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => handleSendPasswordReset(user)}
-                          className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
-                          title="Send Password Reset"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => handleToggleActive(user)}
-                          className={`p-2 rounded-lg ${
-                            user.active 
-                              ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' 
-                              : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
-                          }`}
-                          title={user.active ? 'Deactivate' : 'Activate'}
-                        >
-                          {user.active ? (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                            </svg>
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(user)}
-                          className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
-                          title="Delete User"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Team:</span>
+                      <span className="ml-1 text-gray-700">{user.team?.name || '-'}</span>
+                    </div>
+                    {user.manager && (
+                      <div className="col-span-2">
+                        <span className="text-gray-500">Reports to:</span>
+                        <span className="ml-1 text-gray-700">{user.manager.full_name || user.manager.email}</span>
                       </div>
-                    </td>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center justify-end gap-1 pt-2 border-t">
+                    <button
+                      onClick={() => handleEdit(user)}
+                      className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      title="Edit"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleSendPasswordReset(user)}
+                      className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                      title="Send Password Reset"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleToggleActive(user)}
+                      className={`p-2 rounded-lg ${
+                        user.active 
+                          ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' 
+                          : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                      }`}
+                      title={user.active ? 'Deactivate' : 'Activate'}
+                    >
+                      {user.active ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(user)}
+                      className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                      title="Delete User"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block bg-white rounded-xl shadow-sm border overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredUsers.map((user) => (
+                    <tr key={user.id} className={!user.active ? 'bg-gray-50 opacity-60' : ''}>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-medium">
+                            {user.full_name?.charAt(0) || '?'}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{user.full_name || 'Unknown'}</p>
+                            <p className="text-sm text-gray-500">{user.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded text-sm ${
+                          user.custom_role 
+                            ? 'bg-indigo-100 text-indigo-700' 
+                            : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {getUserRoleDisplay(user)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {user.manager ? (
+                          <span className="text-sm">{user.manager.full_name || user.manager.email}</span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {user.team?.name || '-'}
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {user.region?.name || '-'}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          user.active 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {user.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleEdit(user)}
+                            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                            title="Edit"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleSendPasswordReset(user)}
+                            className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                            title="Send Password Reset"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleToggleActive(user)}
+                            className={`p-2 rounded-lg ${
+                              user.active 
+                                ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' 
+                                : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                            }`}
+                            title={user.active ? 'Deactivate' : 'Activate'}
+                          >
+                            {user.active ? (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(user)}
+                            className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                            title="Delete User"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         {/* Create User Modal */}
