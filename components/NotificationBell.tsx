@@ -139,35 +139,47 @@ export default function NotificationBell() {
                 <p>No notifications yet</p>
               </div>
             ) : (
-              notifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  onClick={() => !notification.read_at && markAsRead([notification.id])}
-                  className={`px-4 py-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    !notification.read_at ? 'bg-indigo-50/50' : ''
-                  }`}
-                >
-                  <div className="flex gap-3">
-                    {getNotificationIcon(notification.type)}
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm ${!notification.read_at ? 'font-semibold' : 'font-medium'} text-gray-900`}>
-                        {notification.title}
-                      </p>
-                      {notification.body && (
-                        <p className="text-sm text-gray-600 mt-0.5 line-clamp-2">
-                          {notification.body}
+              notifications.map((notification) => {
+                // Check if this is an inspection outcome with notes
+                const hasNotes = notification.type === 'inspection_outcome' && notification.body?.includes('Notes:')
+                
+                return (
+                  <div
+                    key={notification.id}
+                    onClick={() => !notification.read_at && markAsRead([notification.id])}
+                    className={`px-4 py-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${
+                      !notification.read_at ? 'bg-indigo-50/50' : ''
+                    }`}
+                  >
+                    <div className="flex gap-3">
+                      {getNotificationIcon(notification.type)}
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm ${!notification.read_at ? 'font-semibold' : 'font-medium'} text-gray-900`}>
+                          {notification.title}
                         </p>
+                        {notification.body && (
+                          <div className="text-sm text-gray-600 mt-1">
+                            {hasNotes ? (
+                              // Show full notes for inspection outcomes
+                              <div className="whitespace-pre-line text-xs bg-gray-50 p-2 rounded-lg mt-1">
+                                {notification.body}
+                              </div>
+                            ) : (
+                              <p className="line-clamp-2">{notification.body}</p>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                          {formatTime(notification.created_at)}
+                        </p>
+                      </div>
+                      {!notification.read_at && (
+                        <div className="w-2 h-2 bg-indigo-500 rounded-full mt-2 flex-shrink-0" />
                       )}
-                      <p className="text-xs text-gray-400 mt-1">
-                        {formatTime(notification.created_at)}
-                      </p>
                     </div>
-                    {!notification.read_at && (
-                      <div className="w-2 h-2 bg-indigo-500 rounded-full mt-2" />
-                    )}
                   </div>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         </div>

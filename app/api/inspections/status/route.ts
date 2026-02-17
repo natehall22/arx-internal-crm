@@ -117,27 +117,46 @@ export async function POST(request: NextRequest) {
     }
 
     const customerName = appointment.leads?.homeowner_name || 'Customer'
+    const customerAddress = appointment.leads?.address_text || appointment.address_text || ''
+    
+    // Build comprehensive notification body with all notes for setter
+    const notificationParts: string[] = []
+    notificationParts.push(`Customer: ${customerName}`)
+    if (customerAddress) {
+      notificationParts.push(`Address: ${customerAddress}`)
+    }
+    notificationParts.push(`Outcome: ${outcomeLabels[outcome]}`)
+    notificationParts.push(`Closer: ${profile.full_name || 'Rep'}`)
+    
+    // Include all notes from the closer
+    if (setter_feedback) {
+      notificationParts.push(`\nCloser's Notes: "${setter_feedback}"`)
+    }
+    if (notes && notes !== setter_feedback) {
+      notificationParts.push(`\nAdditional Notes: "${notes}"`)
+    }
+    
+    const notificationBody = notificationParts.join('\n')
+    
     const notificationData = {
       appointment_id,
       opportunity_id: appointment.opportunity_id,
       lead_id: appointment.lead_id,
       outcome,
       closer_name: profile.full_name,
+      notes: notes || null,
+      setter_feedback: setter_feedback || null,
     }
-    
-    const notificationBody = setter_feedback 
-      ? `${customerName} - ${profile.full_name || 'Rep'} says: "${setter_feedback}"`
-      : `${customerName} - Appointment completed by ${profile.full_name || 'Rep'}`
 
-    // Notify setter
-    if (appointment.canvasser_user_id && (setter_feedback || outcome)) {
+    // Notify setter - always notify when feedback is submitted (unless closer is the setter)
+    if (appointment.canvasser_user_id && appointment.canvasser_user_id !== user.id) {
       await supabase
         .from('notifications')
         .insert({
           org_id: profile.org_id,
           user_id: appointment.canvasser_user_id,
           type: 'inspection_outcome',
-          title: `Inspection Result: ${outcomeLabels[outcome]}`,
+          title: `Inspection Result: ${outcomeLabels[outcome]} - ${customerName}`,
           body: notificationBody,
           data: notificationData,
         })
