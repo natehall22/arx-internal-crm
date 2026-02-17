@@ -653,15 +653,24 @@ export default function CanvassMapPage() {
   }, [formState.closer_user_id, formState.inspection_scheduled_for, formState.schedule_inspection])
 
   // Load available time slots when date or closer changes
-  const loadTimeSlots = async (closerId: string, date: string) => {
-    if (!closerId || !date || !isOnline) {
+  const loadTimeSlots = async (closerOrTeamId: string, date: string) => {
+    if (!closerOrTeamId || !date || !isOnline) {
       setTimeSlots([])
       return
     }
 
     setLoadingSlots(true)
     try {
-      const res = await fetch(`/api/canvass/availability?closer_id=${closerId}&date=${date}&duration=60`)
+      let res: Response
+      
+      // Check if this is a team selection (format: "team:uuid")
+      if (closerOrTeamId.startsWith('team:')) {
+        const teamId = closerOrTeamId.replace('team:', '')
+        res = await fetch(`/api/canvass/team-availability?team_id=${teamId}&date=${date}&duration=60`)
+      } else {
+        res = await fetch(`/api/canvass/availability?closer_id=${closerOrTeamId}&date=${date}&duration=60`)
+      }
+      
       if (res.ok) {
         const data = await res.json()
         setTimeSlots(data.slots || [])
