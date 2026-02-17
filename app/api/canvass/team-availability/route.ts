@@ -177,31 +177,47 @@ export async function GET(request: NextRequest) {
     const slots: { time: string; available: boolean; display: string; availableClosers?: number }[] = []
     const slotInterval = 15 * 60 * 1000 // 15 minutes
     
+    // For "now" comparison, we need current time in Eastern
+    // Server is UTC, so we subtract 5 hours to get Eastern time
+    const nowUTC = new Date()
+    const nowEastern = new Date(nowUTC.getTime() - tzOffsetHours * 60 * 60 * 1000)
+    
+    console.log(`Team availability: Now UTC=${nowUTC.toISOString()}, Now Eastern=${nowEastern.toISOString()}`)
+    console.log(`Team availability: Day start=${dayStart.toISOString()}, Day end=${dayEnd.toISOString()}`)
+    
+    // dayStart/dayEnd are in "fake local" time (8:00 means 8:00 AM Eastern, stored as if UTC)
+    // We iterate through these for display purposes
     let currentSlot = new Date(dayStart)
-    const now = new Date()
     
     while (currentSlot.getTime() + durationMinutes * 60 * 1000 <= dayEnd.getTime()) {
       const slotEnd = new Date(currentSlot.getTime() + durationMinutes * 60 * 1000)
       
-      // Skip slots in the past
-      if (currentSlot <= now) {
+      // Skip slots in the past (compare Eastern times)
+      // currentSlot is "fake UTC" representing Eastern time, so compare with nowEastern
+      if (currentSlot <= nowEastern) {
         currentSlot = new Date(currentSlot.getTime() + slotInterval)
         continue
       }
       
+      // For conflict detection with Google Calendar, convert slot times to real UTC
+      // Add tzOffsetHours to convert Eastern to UTC
+      const slotStartUTC = new Date(currentSlot.getTime() + tzOffsetHours * 60 * 60 * 1000)
+      const slotEndUTC = new Date(slotEnd.getTime() + tzOffsetHours * 60 * 60 * 1000)
+      
       // Check how many closers are available at this slot
-      const bufferedStart = new Date(currentSlot.getTime() - bufferMinutes * 60 * 1000)
-      const bufferedEnd = new Date(slotEnd.getTime() + bufferMinutes * 60 * 1000)
+      const bufferedStartUTC = new Date(slotStartUTC.getTime() - bufferMinutes * 60 * 1000)
+      const bufferedEndUTC = new Date(slotEndUTC.getTime() + bufferMinutes * 60 * 1000)
       
       let availableCloserCount = 0
       
       for (const closer of closersWithCalendars) {
         const busySlots = allCloserBusySlots.get(closer.user_id) || []
         
+        // Compare UTC times (busy slots from Google are in UTC)
         const hasConflict = busySlots.some(busy => {
           const busyStart = new Date(busy.start)
           const busyEnd = new Date(busy.end)
-          return bufferedStart < busyEnd && bufferedEnd > busyStart
+          return bufferedStartUTC < busyEnd && bufferedEndUTC > busyStart
         })
         
         if (!hasConflict) {

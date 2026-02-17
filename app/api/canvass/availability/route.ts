@@ -207,11 +207,16 @@ export async function GET(request: NextRequest) {
     const slots: { time: string; available: boolean; display: string }[] = []
     const slotInterval = 15 * 60 * 1000 // 15 minutes
     
+    // For "now" comparison, we need current time in Eastern
+    // Server is UTC, so we subtract 5 hours to get Eastern time
+    const nowUTC = new Date()
+    const nowEastern = new Date(nowUTC.getTime() - tzOffsetHours * 60 * 60 * 1000)
+    
+    // dayStart/dayEnd are in "fake local" time (8:00 means 8:00 AM Eastern, stored as if UTC)
     let currentSlot = new Date(dayStart)
-    const now = new Date()
     
     console.log(`Availability: Generating slots from ${dayStart.toISOString()} to ${dayEnd.toISOString()}`)
-    console.log(`Availability: Current time (now): ${now.toISOString()}`)
+    console.log(`Availability: Now UTC=${nowUTC.toISOString()}, Now Eastern=${nowEastern.toISOString()}`)
     console.log(`Availability: Duration: ${durationMinutes} minutes`)
     
     let skippedPast = 0
@@ -221,21 +226,26 @@ export async function GET(request: NextRequest) {
       const slotEnd = new Date(currentSlot.getTime() + durationMinutes * 60 * 1000)
       totalSlots++
       
-      // Skip slots in the past
-      if (currentSlot <= now) {
+      // Skip slots in the past (compare Eastern times)
+      if (currentSlot <= nowEastern) {
         skippedPast++
         currentSlot = new Date(currentSlot.getTime() + slotInterval)
         continue
       }
       
-      // Check if slot conflicts with any busy period (including buffer)
-      const bufferedStart = new Date(currentSlot.getTime() - bufferMinutes * 60 * 1000)
-      const bufferedEnd = new Date(slotEnd.getTime() + bufferMinutes * 60 * 1000)
+      // For conflict detection with Google Calendar, convert slot times to real UTC
+      const slotStartUTC = new Date(currentSlot.getTime() + tzOffsetHours * 60 * 60 * 1000)
+      const slotEndUTC = new Date(slotEnd.getTime() + tzOffsetHours * 60 * 60 * 1000)
       
+      // Check if slot conflicts with any busy period (including buffer)
+      const bufferedStartUTC = new Date(slotStartUTC.getTime() - bufferMinutes * 60 * 1000)
+      const bufferedEndUTC = new Date(slotEndUTC.getTime() + bufferMinutes * 60 * 1000)
+      
+      // Compare UTC times (busy slots from Google are in UTC)
       const hasConflict = busySlots.some(busy => {
         const busyStart = new Date(busy.start)
         const busyEnd = new Date(busy.end)
-        return bufferedStart < busyEnd && bufferedEnd > busyStart
+        return bufferedStartUTC < busyEnd && bufferedEndUTC > busyStart
       })
       
       // Format time for display (e.g., "9:00 AM")
