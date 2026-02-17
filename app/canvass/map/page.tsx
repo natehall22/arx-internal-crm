@@ -146,6 +146,7 @@ export default function CanvassMapPage() {
   const [allowManualKey, setAllowManualKey] = useState(false)
   const [mapStatus, setMapStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('loading')
   const [mapType, setMapType] = useState<MapType>('hybrid')
+  const [mapHeading, setMapHeading] = useState(0)
   const [isOnline, setIsOnline] = useState(true)
   const [pendingCount, setPendingCount] = useState(0)
   const [syncing, setSyncing] = useState(false)
@@ -411,6 +412,7 @@ export default function CanvassMapPage() {
       mapTypeControl: false,
       fullscreenControl: false,
       zoomControl: true,
+      rotateControl: false, // We'll add our own compass button
       gestureHandling: 'greedy',
       // Performance optimizations
       maxZoom: 20,
@@ -420,6 +422,12 @@ export default function CanvassMapPage() {
     })
     setMapStatus('loaded')
     infoWindowRef.current = new window.google.maps.InfoWindow()
+
+    // Listen for heading changes (rotation)
+    mapRef.current.addListener('heading_changed', () => {
+      const heading = mapRef.current?.getHeading() || 0
+      setMapHeading(heading)
+    })
 
     // Click on map to drop a new pin
     mapRef.current.addListener('click', async (event: any) => {
@@ -1263,6 +1271,43 @@ export default function CanvassMapPage() {
                       </div>
                     )}
                   </div>
+                  
+                  {/* Compass button - resets map to north */}
+                  <button
+                    onClick={() => {
+                      if (mapRef.current) {
+                        mapRef.current.setHeading(0)
+                        mapRef.current.setTilt(0)
+                      }
+                    }}
+                    className="w-12 h-12 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
+                    title="Reset to North"
+                  >
+                    <svg 
+                      className="w-6 h-6 transition-transform duration-200" 
+                      style={{ transform: `rotate(${-mapHeading}deg)` }}
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke="currentColor"
+                    >
+                      {/* Compass needle - red for north */}
+                      <path 
+                        d="M12 2L12 12" 
+                        strokeWidth={2.5} 
+                        strokeLinecap="round"
+                        stroke="#ef4444"
+                      />
+                      {/* South part of needle */}
+                      <path 
+                        d="M12 12L12 22" 
+                        strokeWidth={2.5} 
+                        strokeLinecap="round"
+                        stroke="currentColor"
+                      />
+                      {/* N indicator */}
+                      <text x="12" y="6" textAnchor="middle" fontSize="6" fill="#ef4444" fontWeight="bold">N</text>
+                    </svg>
+                  </button>
                 </div>
               )}
               
