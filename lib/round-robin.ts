@@ -35,7 +35,13 @@ export async function assignNextAvailableCloser(
   address?: string,
   canvasserUserId?: string,
   orgId?: string,
-  timezone?: string
+  timezone?: string,
+  // Additional details for calendar event
+  customerDetails?: {
+    homeownerName?: string | null
+    phone?: string | null
+    notes?: string | null
+  }
 ): Promise<AssignmentResult> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
@@ -124,13 +130,21 @@ export async function assignNextAvailableCloser(
         console.log(`Round-robin: ${closer.user?.full_name} availability: ${available ? 'AVAILABLE' : 'BUSY'}`)
 
         if (available) {
+          // Build rich description for calendar event
+          const customerName = customerDetails?.homeownerName || 'Customer'
+          const descriptionLines = [
+            `Customer: ${customerName}`,
+            customerDetails?.phone ? `Phone: ${customerDetails.phone}` : '',
+            address ? `Address: ${address}` : '',
+            customerDetails?.notes ? `\nNotes:\n${customerDetails.notes}` : '',
+          ].filter(Boolean).join('\n')
+
           // Create calendar event for closer (NO attendees to avoid duplicate invites)
-          // Setter gets their own separate event on their calendar
           let googleEventId: string | undefined
           try {
             const event = await createCalendarEvent(accessToken, {
-              summary: `Inspection - ${address || 'TBD'}`,
-              description: `Scheduled inspection${leadId ? ` for lead ${leadId}` : ''}`,
+              summary: `Inspection: ${customerName}`,
+              description: descriptionLines,
               location: address,
               start: {
                 dateTime: scheduledFor.toISOString(),
@@ -140,7 +154,6 @@ export async function assignNextAvailableCloser(
                 dateTime: endTime.toISOString(),
                 timeZone: teamTimezone,
               },
-              // No attendees - each person gets their own event to avoid duplicate invites
             })
             googleEventId = event.id
           } catch (calendarError) {
@@ -148,8 +161,11 @@ export async function assignNextAvailableCloser(
             // Continue anyway - appointment can still be created
           }
 
-          // Also create calendar event for setter if they have Google Calendar connected
-          if (canvasserUserId) {
+          // Create calendar event for setter ONLY if they are different from the closer
+          // Skip if closer is self-setting (they already have the event on their calendar)
+          const isSelfSet = canvasserUserId === closer.user_id
+          
+          if (canvasserUserId && !isSelfSet) {
             try {
               const { data: setterToken } = await supabase
                 .from('user_google_tokens')
@@ -172,11 +188,18 @@ export async function assignNextAvailableCloser(
                     .eq('id', setterToken.id)
                 }
 
-                // Create event on setter's calendar (NO attendees - just for their visibility)
-                // Don't add closer as attendee to avoid sending them duplicate invites
+                // Create event on setter's calendar (for their visibility)
+                const setterDescription = [
+                  'Appointment you scheduled',
+                  `Closer: ${closer.user?.full_name || 'Assigned closer'}`,
+                  `Customer: ${customerName}`,
+                  customerDetails?.phone ? `Phone: ${customerDetails.phone}` : '',
+                  address ? `Address: ${address}` : '',
+                ].filter(Boolean).join('\n')
+
                 await createCalendarEvent(setterAccessToken, {
-                  summary: `[Set] ${address || 'Inspection'} → ${closer.user?.full_name || 'Closer'}`,
-                  description: `Appointment you scheduled\nCloser: ${closer.user?.full_name || 'Assigned closer'}${leadId ? `\nLead: ${leadId}` : ''}`,
+                  summary: `[Set] ${customerName} → ${closer.user?.full_name || 'Closer'}`,
+                  description: setterDescription,
                   location: address,
                   start: {
                     dateTime: scheduledFor.toISOString(),
@@ -186,7 +209,6 @@ export async function assignNextAvailableCloser(
                     dateTime: endTime.toISOString(),
                     timeZone: teamTimezone,
                   },
-                  // No attendees - this is just for setter's visibility
                 })
               }
             } catch (setterCalendarError) {

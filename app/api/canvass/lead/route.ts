@@ -439,7 +439,13 @@ export async function POST(request: Request) {
             undefined, // opportunity_id - will be created below
             leadRow.address_text,
             profile.id, // canvasser
-            profile.org_id
+            profile.org_id,
+            undefined, // timezone - will use team default
+            {
+              homeownerName: leadRow.homeowner_name,
+              phone: leadRow.phone,
+              notes: leadRow.canvass_notes || leadRow.notes,
+            }
           )
 
           console.log('Round-robin assignment result:', assignment)
