@@ -16,27 +16,35 @@ function getAdminClient() {
 // Add closer to queue
 export async function POST(request: NextRequest) {
   try {
+    console.log('Team closer queue POST - starting')
     const { profile } = await requireAuth()
+    console.log('Team closer queue POST - authenticated, org_id:', profile.org_id)
+    
     const adminClient = getAdminClient()
     
     const body = await request.json()
     const { team_id, user_id, buffer_minutes = 60 } = body
+    console.log('Team closer queue POST - body:', { team_id, user_id, buffer_minutes })
     
     if (!team_id || !user_id) {
       return NextResponse.json({ error: 'team_id and user_id are required' }, { status: 400 })
     }
     
     // Get current max priority
-    const { data: existingQueue } = await adminClient
+    const { data: existingQueue, error: queueError } = await adminClient
       .from('team_closer_queue')
       .select('priority')
       .eq('team_id', team_id)
       .order('priority', { ascending: false })
       .limit(1)
     
+    console.log('Team closer queue POST - existing queue:', { existingQueue, queueError })
+    
     const nextPriority = existingQueue && existingQueue.length > 0 
       ? (existingQueue[0].priority || 0) + 1 
       : 0
+    
+    console.log('Team closer queue POST - inserting with priority:', nextPriority)
     
     const { data, error } = await adminClient
       .from('team_closer_queue')
@@ -53,13 +61,14 @@ export async function POST(request: NextRequest) {
     
     if (error) {
       console.error('Failed to add closer to queue:', error)
-      return NextResponse.json({ error: 'Failed to add closer' }, { status: 500 })
+      return NextResponse.json({ error: `Failed to add closer: ${error.message}` }, { status: 500 })
     }
     
+    console.log('Team closer queue POST - success:', data)
     return NextResponse.json({ success: true, data })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Team closer queue POST error:', error)
-    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: `Server error: ${error.message || 'Unknown'}` }, { status: 500 })
   }
 }
 
