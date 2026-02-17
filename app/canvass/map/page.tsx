@@ -997,8 +997,48 @@ export default function CanvassMapPage() {
           
           // Pan and zoom to the selected location
           if (mapRef.current) {
+            // First set zoom, then pan for smoother transition
+            mapRef.current.setZoom(18)
             mapRef.current.panTo({ lat, lng })
-            mapRef.current.setZoom(19)
+            
+            // Trigger resize to ensure tiles load properly
+            setTimeout(() => {
+              if (window.google?.maps?.event) {
+                window.google.maps.event.trigger(mapRef.current, 'resize')
+              }
+            }, 100)
+            
+            // Drop a temporary marker at the searched location
+            // Remove any existing search marker first
+            if ((window as any).__searchMarker) {
+              (window as any).__searchMarker.setMap(null)
+            }
+            
+            const searchMarker = new google.maps.Marker({
+              position: { lat, lng },
+              map: mapRef.current,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 12,
+                fillColor: '#4F46E5',
+                fillOpacity: 1,
+                strokeColor: '#ffffff',
+                strokeWeight: 3,
+              },
+              title: place.formatted_address || 'Searched location',
+              animation: google.maps.Animation.DROP,
+            })
+            
+            // Store reference to remove later
+            ;(window as any).__searchMarker = searchMarker
+            
+            // Remove the search marker after 10 seconds
+            setTimeout(() => {
+              if ((window as any).__searchMarker === searchMarker) {
+                searchMarker.setMap(null)
+                ;(window as any).__searchMarker = null
+              }
+            }, 10000)
           }
           
           setSearchAddress(place.formatted_address || '')
