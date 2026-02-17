@@ -107,8 +107,26 @@ async function syncToGoogleCalendar(
     // Get timezone from closer's team
     const timezone = await getTimezoneForUser(adminClient, closerUserId)
 
-    const startTime = new Date(scheduledFor)
-    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
+    // scheduledFor is in format "YYYY-MM-DDTHH:MM" (local time in closer's timezone)
+    // We need to send it to Google Calendar with the timezone, NOT as UTC
+    // Google Calendar API accepts dateTime in format "YYYY-MM-DDTHH:MM:SS" with a separate timeZone field
+    const startDateTime = scheduledFor.includes(':') && scheduledFor.length === 16 
+      ? `${scheduledFor}:00`  // Add seconds if not present
+      : scheduledFor
+    
+    // Calculate end time by parsing the local time and adding duration
+    const [datePart, timePart] = scheduledFor.split('T')
+    const [hourStr, minStr] = timePart.split(':')
+    let endHour = parseInt(hourStr, 10)
+    let endMin = parseInt(minStr, 10) + durationMinutes
+    
+    // Handle minute overflow
+    while (endMin >= 60) {
+      endMin -= 60
+      endHour += 1
+    }
+    
+    const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
 
     const event: CalendarEvent = {
       summary: `Inspection: ${homeownerName || 'Customer'}`,
@@ -121,11 +139,11 @@ async function syncToGoogleCalendar(
       ].filter(line => line !== undefined).join('\n').trim(),
       location: addressText || undefined,
       start: {
-        dateTime: startTime.toISOString(),
+        dateTime: startDateTime,
         timeZone: timezone,
       },
       end: {
-        dateTime: endTime.toISOString(),
+        dateTime: endDateTime,
         timeZone: timezone,
       },
     }
@@ -161,8 +179,25 @@ async function syncToSetterCalendar(
     // Get timezone from setter's team
     const timezone = await getTimezoneForUser(adminClient, setterUserId)
 
-    const startTime = new Date(scheduledFor)
-    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
+    // scheduledFor is in format "YYYY-MM-DDTHH:MM" (local time)
+    // We need to send it to Google Calendar with the timezone, NOT as UTC
+    const startDateTime = scheduledFor.includes(':') && scheduledFor.length === 16 
+      ? `${scheduledFor}:00`  // Add seconds if not present
+      : scheduledFor
+    
+    // Calculate end time by parsing the local time and adding duration
+    const [datePart, timePart] = scheduledFor.split('T')
+    const [hourStr, minStr] = timePart.split(':')
+    let endHour = parseInt(hourStr, 10)
+    let endMin = parseInt(minStr, 10) + durationMinutes
+    
+    // Handle minute overflow
+    while (endMin >= 60) {
+      endMin -= 60
+      endHour += 1
+    }
+    
+    const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
 
     // Different title for setter - shows it's their set appointment
     const event: CalendarEvent = {
@@ -176,11 +211,11 @@ async function syncToSetterCalendar(
       ].filter(Boolean).join('\n'),
       location: addressText || undefined,
       start: {
-        dateTime: startTime.toISOString(),
+        dateTime: startDateTime,
         timeZone: timezone,
       },
       end: {
-        dateTime: endTime.toISOString(),
+        dateTime: endDateTime,
         timeZone: timezone,
       },
     }
@@ -272,8 +307,12 @@ export async function POST(request: Request) {
     if (scheduleInspection) {
       leadPayload.status = 'inspection'
       leadPayload.inspection_scheduled_at = new Date().toISOString()
+      // NOTE: We no longer change lead.owner_user_id to the closer
+      // The lead owner stays as the setter (who knocked the door)
+      // The closer is tracked in lead.closer_user_id and opportunity.owner_user_id
+      // This ensures the setter gets credit for door knocks in stats
       if (closerUserId) {
-        leadPayload.owner_user_id = closerUserId
+        leadPayload.closer_user_id = closerUserId
       }
     }
 
@@ -294,11 +333,13 @@ export async function POST(request: Request) {
       }
       leadRow = updatedLead
     } else {
+      // Lead owner is always the setter (person who knocked the door)
+      // Closer is tracked separately in closer_user_id
       const { data: createdLead, error: createError } = await supabase
         .from('leads')
         .insert({
           org_id: profile.org_id,
-          owner_user_id: scheduleInspection && closerUserId ? closerUserId : profile.id,
+          owner_user_id: profile.id, // Setter is always the owner
           status: scheduleInspection ? 'inspection' : 'new',
           source: body.source || 'door_to_door',
           ...leadPayload,
@@ -352,12 +393,12 @@ export async function POST(request: Request) {
             assignedCloserName = assignment.closerName || null
             appointmentId = assignment.appointmentId || null
 
-            // Update lead with assigned closer
+            // Update lead with assigned closer (but keep owner_user_id as setter)
             await supabase
               .from('leads')
               .update({ 
-                closer_user_id: closerUserId,
-                owner_user_id: closerUserId 
+                closer_user_id: closerUserId
+                // NOTE: Don't change owner_user_id - setter keeps credit for door knock
               })
               .eq('id', leadRow.id)
           }
@@ -418,6 +459,8 @@ export async function POST(request: Request) {
     let calendarSynced = false
     let setterCalendarSynced = false
     let googleEventId: string | null = null
+    let calendarError: string | null = null
+    let setterCalendarError: string | null = null
     
     if (scheduleInspection && closerUserId && inspectionScheduledFor) {
       // Get closer's name for setter calendar event
@@ -444,6 +487,11 @@ export async function POST(request: Request) {
       
       calendarSynced = calendarResult.synced
       googleEventId = calendarResult.eventId || null
+      calendarError = calendarResult.error || null
+      
+      if (!calendarSynced) {
+        console.log('Closer calendar sync failed:', calendarError)
+      }
       
       // Store Google event ID in the appointment if we have one
       if (appointmentId && googleEventId) {
@@ -487,6 +535,11 @@ export async function POST(request: Request) {
           opportunityId
         )
         setterCalendarSynced = setterResult.synced
+        setterCalendarError = setterResult.error || null
+        
+        if (!setterCalendarSynced) {
+          console.log('Setter calendar sync failed:', setterCalendarError)
+        }
       }
     }
 
@@ -510,6 +563,36 @@ export async function POST(request: Request) {
         type: 'status_change',
         body: activityBody,
       })
+      
+      // Notify the closer about the new appointment
+      if (closerUserId && closerUserId !== profile.id) {
+        const { data: setterProfile } = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', profile.id)
+          .single()
+        
+        const setterName = setterProfile?.full_name || 'A setter'
+        const scheduledTime = inspectionScheduledFor 
+          ? new Date(inspectionScheduledFor).toLocaleString('en-US', {
+              weekday: 'short',
+              month: 'short', 
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit'
+            })
+          : 'TBD'
+        
+        await supabase.from('notifications').insert({
+          org_id: profile.org_id,
+          recipient_user_id: closerUserId,
+          actor_user_id: profile.id,
+          type: 'appointment_assigned',
+          title: 'New Inspection Assigned',
+          body: `${setterName} scheduled an inspection for you at ${leadRow.address_text || 'address TBD'} on ${scheduledTime}${!calendarSynced ? ' (Calendar not synced - please add manually)' : ''}`,
+          link_url: opportunityId ? `/opportunities/${opportunityId}` : `/leads/${leadRow.id}`,
+        })
+      }
     }
 
     if (opportunityId) {
@@ -528,7 +611,9 @@ export async function POST(request: Request) {
       assigned_closer: assignedCloserName,
       appointment_id: appointmentId,
       calendar_synced: calendarSynced,
+      calendar_error: calendarError,
       setter_calendar_synced: setterCalendarSynced,
+      setter_calendar_error: setterCalendarError,
       google_event_id: googleEventId,
     })
   } catch (error) {

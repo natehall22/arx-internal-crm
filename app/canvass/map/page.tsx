@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Nav from '@/components/Nav'
 import type { CanvassDisposition, Lead } from '@/lib/types/database'
 
-type UserOption = { id: string; full_name: string | null; role: string }
+type UserOption = { id: string; full_name: string | null; role: string; has_calendar?: boolean }
 
 type LeadFormState = {
   lead_id?: string | null
@@ -793,6 +793,14 @@ export default function CanvassMapPage() {
       message += ' Added to closer calendar.'
     } else if (data?.setter_calendar_synced) {
       message += ' Added to your calendar.'
+    } else if (formState.schedule_inspection) {
+      // Calendar sync failed - show why
+      if (data?.calendar_error) {
+        message += ` (Closer calendar: ${data.calendar_error})`
+      }
+      if (data?.setter_calendar_error) {
+        message += ` (Your calendar: ${data.setter_calendar_error})`
+      }
     }
     setStatusMessage(message)
     setFormState(defaultForm)
@@ -1376,10 +1384,28 @@ export default function CanvassMapPage() {
                           <option value="">1. Select closer / sales rep</option>
                           {closers.map((closer) => (
                             <option key={closer.id} value={closer.id}>
-                              {closer.full_name || 'Unknown'} ({closer.role})
+                              {closer.full_name || 'Unknown'} ({closer.role}){!closer.has_calendar ? ' ⚠️' : ''}
                             </option>
                           ))}
                         </select>
+                        
+                        {/* Calendar warning */}
+                        {formState.closer_user_id && (() => {
+                          const selectedCloser = closers.find(c => c.id === formState.closer_user_id)
+                          if (selectedCloser && !selectedCloser.has_calendar) {
+                            return (
+                              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                                <p className="text-amber-800 font-medium">⚠️ Calendar Not Connected</p>
+                                <p className="text-amber-700 text-xs mt-1">
+                                  {selectedCloser.full_name || 'This closer'} hasn&apos;t connected their Google Calendar. 
+                                  The appointment will be created but won&apos;t sync to their calendar automatically.
+                                  They will receive a notification.
+                                </p>
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
 
                         {/* Step 2: Select Date */}
                         {formState.closer_user_id && (
@@ -1633,10 +1659,28 @@ export default function CanvassMapPage() {
                             <option value="">1. Select closer / sales rep</option>
                             {closers.map((closer) => (
                               <option key={closer.id} value={closer.id}>
-                                {closer.full_name || 'Unknown'} ({closer.role})
+                                {closer.full_name || 'Unknown'} ({closer.role}){!closer.has_calendar ? ' ⚠️' : ''}
                               </option>
                             ))}
                           </select>
+                          
+                          {/* Calendar warning */}
+                          {formState.closer_user_id && (() => {
+                            const selectedCloser = closers.find(c => c.id === formState.closer_user_id)
+                            if (selectedCloser && !selectedCloser.has_calendar) {
+                              return (
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                                  <p className="text-amber-800 font-medium">⚠️ Calendar Not Connected</p>
+                                  <p className="text-amber-700 text-xs mt-1">
+                                    {selectedCloser.full_name || 'This closer'} hasn&apos;t connected their Google Calendar. 
+                                    The appointment will be created but won&apos;t sync to their calendar automatically.
+                                    They will receive a notification.
+                                  </p>
+                                </div>
+                              )
+                            }
+                            return null
+                          })()}
 
                           {/* Step 2: Select Date */}
                           {formState.closer_user_id && (

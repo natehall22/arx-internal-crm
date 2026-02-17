@@ -196,9 +196,19 @@ export async function GET(request: NextRequest) {
       .eq('org_id', profile.org_id)
       .order('full_name', { ascending: true })
 
+    // Check which users have Google Calendar connected
+    const { data: calendarTokens } = await adminClient
+      .from('user_google_tokens')
+      .select('user_id')
+    
+    const usersWithCalendarStatus = (users || []).map(user => ({
+      ...user,
+      has_calendar: calendarTokens?.some(t => t.user_id === user.id) || false,
+    }))
+
     return NextResponse.json({
       leads: leads || [],
-      users: users || [],
+      users: usersWithCalendarStatus,
       currentUserRole: profile.role,
       orgSettings: org?.settings || {},
       pinVisibility: visibility,

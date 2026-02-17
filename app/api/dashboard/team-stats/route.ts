@@ -202,16 +202,16 @@ export async function GET(request: NextRequest) {
     const { data: leads } = await leadsQuery
 
     // Fetch opportunities for the time period
-    let oppsQuery = supabase
+    // Include setter_user_id to properly attribute inspections set vs sales
+    const oppsQuery = supabase
       .from('opportunities')
-      .select('owner_user_id, inspection_outcome, created_at')
+      .select('owner_user_id, setter_user_id, inspection_outcome, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
 
-    if (!isAdmin && teamMemberIds.length > 0) {
-      oppsQuery = oppsQuery.in('owner_user_id', teamMemberIds)
-    }
+    // Don't filter by owner_user_id - we need all opps to properly attribute
+    // inspections_set to setter and sales to owner (closer)
 
     const { data: opportunities } = await oppsQuery
 
@@ -229,15 +229,16 @@ export async function GET(request: NextRequest) {
         contactDispositions.includes(l.canvass_disposition)
       ).length
 
-      // Count inspections set
-      const memberOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
-      const inspectionsSet = memberOpps.length
+      // Count inspections SET by this member (setter gets credit)
+      const memberSetOpps = opportunities?.filter(o => o.setter_user_id === member.id) || []
+      const inspectionsSet = memberSetOpps.length
 
-      // Count sales
-      const sales = memberOpps.filter(o => o.inspection_outcome === 'sale').length
+      // Count sales - CLOSER (owner) gets credit
+      const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
+      const sales = memberOwnedOpps.filter(o => o.inspection_outcome === 'sale').length
 
-      // Calculate close rate
-      const totalInspections = memberOpps.filter(o => o.inspection_outcome).length
+      // Calculate close rate based on inspections run by this closer
+      const totalInspections = memberOwnedOpps.filter(o => o.inspection_outcome).length
       const closeRate = totalInspections > 0 ? (sales / totalInspections * 100) : 0
 
       return {
@@ -246,8 +247,8 @@ export async function GET(request: NextRequest) {
         role: member.role,
         doorsKnocked,
         contacts,
-        inspectionsSet,
-        sales,
+        inspectionsSet, // Credit to setter
+        sales, // Credit to closer
         closeRate: closeRate.toFixed(0),
       }
     })

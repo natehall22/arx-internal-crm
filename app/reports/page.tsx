@@ -110,11 +110,11 @@ export default function ReportsPage() {
     const [leadsRes, oppsRes, projectsRes, statusUpdatesRes] = await Promise.all([
       supabase
         .from('leads')
-        .select('id, status, canvass_disposition, created_at')
+        .select('id, status, canvass_disposition, created_at, owner_user_id')
         .gte('created_at', dateFilter),
       supabase
         .from('opportunities')
-        .select('id, status, inspection_outcome, inspection_outcome_at, created_at')
+        .select('id, status, inspection_outcome, inspection_outcome_at, created_at, owner_user_id, setter_user_id')
         .gte('created_at', dateFilter),
       supabase
         .from('projects')
@@ -141,7 +141,7 @@ export default function ReportsPage() {
       contacts: leads.filter(l => 
         ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
       ).length,
-      inspectionsSet: leads.filter(l => l.status === 'inspection').length,
+      inspectionsSet: opps.length, // Count opportunities created (inspections set)
       opportunitiesCreated: opps.length,
       contractsSigned: opps.filter(o => o.status === 'won').length,
       projectsCompleted: projects.filter(p => p.status === 'complete').length,
@@ -204,21 +204,29 @@ export default function ReportsPage() {
 
         const userIds = (regionUsers || []).map(u => u.id)
 
-        // Get leads for those users
+        // Get leads for those users (doors knocked by setter)
         const { data: regionLeads } = await supabase
           .from('leads')
           .select('id, status, canvass_disposition')
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        const { data: regionOpps } = await supabase
+        // Get opportunities SET by users in this region (setter gets credit for inspections set)
+        const { data: regionSetOpps } = await supabase
+          .from('opportunities')
+          .select('id, status, inspection_outcome, setter_user_id')
+          .in('setter_user_id', userIds.length > 0 ? userIds : ['none'])
+          .gte('created_at', dateFilter)
+
+        // Get opportunities OWNED by users in this region (closer gets credit for sales)
+        const { data: regionOwnedOpps } = await supabase
           .from('opportunities')
           .select('id, status, inspection_outcome')
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        const regionInspectionsRun = (regionOpps || []).filter((o: any) => o.inspection_outcome).length
-        const regionSales = (regionOpps || []).filter((o: any) => o.inspection_outcome === 'sale').length
+        const regionInspectionsRun = (regionOwnedOpps || []).filter((o: any) => o.inspection_outcome).length
+        const regionSales = (regionOwnedOpps || []).filter((o: any) => o.inspection_outcome === 'sale').length
         
         regionsWithMetrics.push({
           ...region,
@@ -226,9 +234,9 @@ export default function ReportsPage() {
           contacts: (regionLeads || []).filter(l => 
             ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
           ).length,
-          inspectionsSet: (regionLeads || []).filter(l => l.status === 'inspection').length,
-          opportunitiesCreated: (regionOpps || []).length,
-          contractsSigned: (regionOpps || []).filter(o => o.status === 'won').length,
+          inspectionsSet: (regionSetOpps || []).length, // Credit to setters
+          opportunitiesCreated: (regionOwnedOpps || []).length,
+          contractsSigned: (regionOwnedOpps || []).filter(o => o.status === 'won').length,
           projectsCompleted: 0,
           inspectionsRun: regionInspectionsRun,
           closeRate: regionInspectionsRun > 0 ? (regionSales / regionInspectionsRun * 100) : 0,
@@ -266,14 +274,22 @@ export default function ReportsPage() {
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        const { data: teamOpps } = await supabase
+        // Get opportunities SET by users in this team (setter gets credit)
+        const { data: teamSetOpps } = await supabase
+          .from('opportunities')
+          .select('id, status, inspection_outcome')
+          .in('setter_user_id', userIds.length > 0 ? userIds : ['none'])
+          .gte('created_at', dateFilter)
+
+        // Get opportunities OWNED by users in this team (closer gets credit for sales)
+        const { data: teamOwnedOpps } = await supabase
           .from('opportunities')
           .select('id, status, inspection_outcome')
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        const teamInspectionsRun = (teamOpps || []).filter(o => o.inspection_outcome).length
-        const teamSales = (teamOpps || []).filter(o => o.inspection_outcome === 'sale').length
+        const teamInspectionsRun = (teamOwnedOpps || []).filter(o => o.inspection_outcome).length
+        const teamSales = (teamOwnedOpps || []).filter(o => o.inspection_outcome === 'sale').length
 
         teamsWithMetrics.push({
           ...team,
@@ -281,9 +297,9 @@ export default function ReportsPage() {
           contacts: (teamLeads || []).filter(l => 
             ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
           ).length,
-          inspectionsSet: (teamLeads || []).filter(l => l.status === 'inspection').length,
-          opportunitiesCreated: (teamOpps || []).length,
-          contractsSigned: (teamOpps || []).filter(o => o.status === 'won').length,
+          inspectionsSet: (teamSetOpps || []).length, // Credit to setters
+          opportunitiesCreated: (teamOwnedOpps || []).length,
+          contractsSigned: (teamOwnedOpps || []).filter(o => o.status === 'won').length,
           projectsCompleted: 0,
           inspectionsRun: teamInspectionsRun,
           closeRate: teamInspectionsRun > 0 ? (teamSales / teamInspectionsRun * 100) : 0,
@@ -314,14 +330,22 @@ export default function ReportsPage() {
           .eq('owner_user_id', user.id)
           .gte('created_at', dateFilter)
 
-        const { data: userOpps } = await supabase
+        // Get opportunities SET by this user (setter gets credit for inspections set)
+        const { data: userSetOpps } = await supabase
+          .from('opportunities')
+          .select('id, status, inspection_outcome')
+          .eq('setter_user_id', user.id)
+          .gte('created_at', dateFilter)
+
+        // Get opportunities OWNED by this user (closer gets credit for sales)
+        const { data: userOwnedOpps } = await supabase
           .from('opportunities')
           .select('id, status, inspection_outcome')
           .eq('owner_user_id', user.id)
           .gte('created_at', dateFilter)
 
-        const userInspectionsRun = (userOpps || []).filter(o => o.inspection_outcome).length
-        const userSales = (userOpps || []).filter(o => o.inspection_outcome === 'sale').length
+        const userInspectionsRun = (userOwnedOpps || []).filter(o => o.inspection_outcome).length
+        const userSales = (userOwnedOpps || []).filter(o => o.inspection_outcome === 'sale').length
 
         usersWithMetrics.push({
           ...user,
@@ -329,9 +353,9 @@ export default function ReportsPage() {
           contacts: (userLeads || []).filter(l => 
             ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
           ).length,
-          inspectionsSet: (userLeads || []).filter(l => l.status === 'inspection').length,
-          opportunitiesCreated: (userOpps || []).length,
-          contractsSigned: (userOpps || []).filter(o => o.status === 'won').length,
+          inspectionsSet: (userSetOpps || []).length, // Credit to setter
+          opportunitiesCreated: (userOwnedOpps || []).length,
+          contractsSigned: (userOwnedOpps || []).filter(o => o.status === 'won').length,
           projectsCompleted: 0,
           inspectionsRun: userInspectionsRun,
           closeRate: userInspectionsRun > 0 ? (userSales / userInspectionsRun * 100) : 0,

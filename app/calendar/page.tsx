@@ -39,14 +39,17 @@ export default function CalendarPage() {
 
   useEffect(() => {
     loadData()
-  }, [currentDate, selectedUserId])
+  }, [currentDate, selectedUserId, viewMode])
 
   const loadData = async () => {
     setLoading(true)
     
     // Get current user
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) {
+      setLoading(false)
+      return
+    }
 
     const { data: profile } = await supabase
       .from('users')
@@ -87,16 +90,10 @@ export default function CalendarPage() {
       endDate.setDate(endDate.getDate() + 30)
     }
 
-    // Fetch appointments
+    // Fetch appointments - simple query first, then enrich
     let query = supabase
       .from('scheduled_appointments')
-      .select(`
-        *,
-        leads(homeowner_name, address_text),
-        opportunities(id, name),
-        closer:users!scheduled_appointments_closer_user_id_fkey(full_name),
-        canvasser:users!scheduled_appointments_canvasser_user_id_fkey(full_name)
-      `)
+      .select('*')
       .gte('scheduled_for', startDate.toISOString())
       .lte('scheduled_for', endDate.toISOString())
       .order('scheduled_for', { ascending: true })
@@ -105,8 +102,46 @@ export default function CalendarPage() {
       query = query.eq('closer_user_id', selectedUserId)
     }
 
-    const { data: appointmentsData } = await query
-    setAppointments(appointmentsData || [])
+    const { data: appointmentsData, error: appointmentsError } = await query
+    
+    if (appointmentsError) {
+      console.error('Error loading appointments:', appointmentsError)
+      setLoading(false)
+      return
+    }
+
+    // Get lead IDs to fetch lead info
+    const leadIds = (appointmentsData || [])
+      .map(apt => apt.lead_id)
+      .filter(Boolean)
+    
+    let leadsMap: Record<string, any> = {}
+    if (leadIds.length > 0) {
+      const { data: leadsData } = await supabase
+        .from('leads')
+        .select('id, homeowner_name, address_text')
+        .in('id', leadIds)
+      
+      leadsMap = (leadsData || []).reduce((acc, lead) => {
+        acc[lead.id] = lead
+        return acc
+      }, {} as Record<string, any>)
+    }
+    
+    // Enrich appointments with closer/canvasser names and lead info
+    const enrichedAppointments = (appointmentsData || []).map(apt => {
+      const closer = usersData?.find(u => u.id === apt.closer_user_id)
+      const canvasser = usersData?.find(u => u.id === apt.canvasser_user_id)
+      const lead = apt.lead_id ? leadsMap[apt.lead_id] : null
+      return {
+        ...apt,
+        closer: closer ? { full_name: closer.full_name } : null,
+        canvasser: canvasser ? { full_name: canvasser.full_name } : null,
+        lead: lead ? { homeowner_name: lead.homeowner_name, address_text: lead.address_text } : null,
+      }
+    })
+    
+    setAppointments(enrichedAppointments)
     setLoading(false)
   }
 

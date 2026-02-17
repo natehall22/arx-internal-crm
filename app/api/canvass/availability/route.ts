@@ -107,18 +107,19 @@ export async function GET(request: NextRequest) {
     const workingHoursEnd = settings?.working_hours_end || '18:00'
     const bufferMinutes = settings?.appointment_buffer_minutes || 30
 
-    // Parse the date in the closer's timezone
-    const selectedDate = new Date(dateStr + 'T00:00:00')
-    
-    // Create day start and end times
+    // Parse the date - we'll work in the closer's timezone
     const [startHour, startMin] = workingHoursStart.split(':').map(Number)
     const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
     
-    const dayStart = new Date(selectedDate)
-    dayStart.setHours(startHour, startMin, 0, 0)
+    // Create ISO strings with the timezone offset for the closer's timezone
+    // Format: YYYY-MM-DDTHH:MM:SS (local time in closer's timezone)
+    const dayStartStr = `${dateStr}T${workingHoursStart}:00`
+    const dayEndStr = `${dateStr}T${workingHoursEnd}:00`
     
-    const dayEnd = new Date(selectedDate)
-    dayEnd.setHours(endHour, endMin, 0, 0)
+    // For Google Calendar API, we need to convert to actual Date objects
+    // We'll use a helper to create dates that represent the closer's local time
+    const dayStart = new Date(dayStartStr)
+    const dayEnd = new Date(dayEndStr)
 
     // Get access token for closer
     const accessToken = await getValidAccessToken(adminClient, closerId)
@@ -169,8 +170,14 @@ export async function GET(request: NextRequest) {
       const displayMinutes = minutes.toString().padStart(2, '0')
       const display = `${displayHours}:${displayMinutes} ${ampm}`
       
-      // Format for datetime-local input
-      const timeValue = currentSlot.toISOString().slice(0, 16)
+      // Format as local time string (YYYY-MM-DDTHH:MM) - NOT UTC
+      // This preserves the intended local time in the closer's timezone
+      const year = currentSlot.getFullYear()
+      const month = String(currentSlot.getMonth() + 1).padStart(2, '0')
+      const day = String(currentSlot.getDate()).padStart(2, '0')
+      const hourStr = String(hours).padStart(2, '0')
+      const minStr = String(minutes).padStart(2, '0')
+      const timeValue = `${year}-${month}-${day}T${hourStr}:${minStr}`
       
       slots.push({
         time: timeValue,

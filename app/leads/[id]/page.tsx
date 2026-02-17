@@ -185,9 +185,10 @@ export default async function LeadDetailPage({
       updates.inspection_scheduled_at = new Date().toISOString()
     }
 
-    if (status === 'inspection' && closerUserId) {
-      updates.owner_user_id = closerUserId
-    }
+    // NOTE: We no longer change lead.owner_user_id to the closer
+    // The lead owner stays as the setter (who knocked the door)
+    // The closer is tracked in lead.closer_user_id and opportunity.owner_user_id
+    // This ensures the setter gets credit for door knocks in stats
 
     await supabase.from('leads').update(updates).eq('id', params.id)
 

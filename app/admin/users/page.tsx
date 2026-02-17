@@ -28,12 +28,17 @@ type UserWithDetails = User & {
 }
 
 const legacyRoleOptions: UserRole[] = [
+  'owner',
   'admin',
   'regional_manager',
+  'regional_setter_manager',
   'sales_manager',
+  'setter_manager',
   'sales_rep',
+  'setter',
   'canvasser',
   'operations',
+  'custom',
 ]
 
 // Permissions that can be granted individually to users
@@ -967,17 +972,36 @@ export default function UsersPage() {
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                       >
                         <option value="">No manager assigned</option>
-                        {users
-                          .filter(u => 
-                            u.active && 
-                            ['admin', 'regional_manager', 'sales_manager'].includes(u.role)
-                          )
-                          .map((manager) => (
-                            <option key={manager.id} value={manager.id}>
-                              {manager.full_name || manager.email} ({getUserRoleDisplay(manager)})
-                            </option>
-                          ))}
+                        <optgroup label="Leadership">
+                          {users
+                            .filter(u => 
+                              u.active && 
+                              u.id !== editingUser?.id &&
+                              ['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                            )
+                            .map((manager) => (
+                              <option key={manager.id} value={manager.id}>
+                                {manager.full_name || manager.email} ({getUserRoleDisplay(manager)})
+                              </option>
+                            ))}
+                        </optgroup>
+                        <optgroup label="Other Users">
+                          {users
+                            .filter(u => 
+                              u.active && 
+                              u.id !== editingUser?.id &&
+                              !['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                            )
+                            .map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.full_name || user.email} ({getUserRoleDisplay(user)})
+                              </option>
+                            ))}
+                        </optgroup>
                       </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Select who this user reports to for commission overrides and team structure.
+                      </p>
                     </div>
                   </div>
 
@@ -1226,20 +1250,33 @@ export default function UsersPage() {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                   >
                     <option value="">No manager assigned</option>
-                    {users
-                      .filter(u => 
-                        u.id !== editingUser?.id && 
-                        u.active && 
-                        ['admin', 'regional_manager', 'sales_manager'].includes(u.role)
-                      )
-                      .map((manager) => (
-                        <option key={manager.id} value={manager.id}>
-                          {manager.full_name || manager.email} ({getUserRoleDisplay(manager)})
-                        </option>
-                      ))}
+                    <optgroup label="Leadership">
+                      {users
+                        .filter(u => 
+                          u.active && 
+                          ['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                        )
+                        .map((manager) => (
+                          <option key={manager.id} value={manager.id}>
+                            {manager.full_name || manager.email} ({getUserRoleDisplay(manager)})
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="Other Users">
+                      {users
+                        .filter(u => 
+                          u.active && 
+                          !['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                        )
+                        .map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.full_name || user.email} ({getUserRoleDisplay(user)})
+                          </option>
+                        ))}
+                    </optgroup>
                   </select>
                   <p className="mt-1 text-xs text-gray-500">
-                    Set who this user reports to in the org hierarchy
+                    Set who this user reports to for commission overrides and team structure.
                   </p>
                 </div>
 

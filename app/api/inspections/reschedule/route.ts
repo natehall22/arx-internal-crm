@@ -170,7 +170,28 @@ export async function POST(request: NextRequest) {
       if (accessToken) {
         try {
           const timezone = await getTimezoneForUser(supabase, originalAppointment.closer_user_id)
-          const endTime = new Date(newScheduledDate.getTime() + originalAppointment.duration_minutes * 60 * 1000)
+          
+          // new_scheduled_for should be in format "YYYY-MM-DDTHH:MM" (local time)
+          // We need to send it to Google Calendar with the timezone, NOT as UTC
+          const startDateTime = new_scheduled_for.includes(':') && new_scheduled_for.length === 16 
+            ? `${new_scheduled_for}:00`  // Add seconds if not present
+            : new_scheduled_for.includes('T') && new_scheduled_for.length > 16
+              ? new_scheduled_for.slice(0, 19) // Trim to YYYY-MM-DDTHH:MM:SS
+              : new_scheduled_for
+          
+          // Calculate end time by parsing the local time and adding duration
+          const [datePart, timePart] = new_scheduled_for.split('T')
+          const timeOnly = timePart?.split(':') || ['00', '00']
+          let endHour = parseInt(timeOnly[0], 10)
+          let endMin = parseInt(timeOnly[1], 10) + originalAppointment.duration_minutes
+          
+          // Handle minute overflow
+          while (endMin >= 60) {
+            endMin -= 60
+            endHour += 1
+          }
+          
+          const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
           
           const event: CalendarEvent = {
             summary: `Inspection: ${originalAppointment.leads?.homeowner_name || 'Customer'} (Rescheduled)`,
@@ -180,11 +201,11 @@ export async function POST(request: NextRequest) {
             ].filter(Boolean).join('\n'),
             location: originalAppointment.leads?.address_text || originalAppointment.address_text || undefined,
             start: {
-              dateTime: newScheduledDate.toISOString(),
+              dateTime: startDateTime,
               timeZone: timezone,
             },
             end: {
-              dateTime: endTime.toISOString(),
+              dateTime: endDateTime,
               timeZone: timezone,
             },
           }

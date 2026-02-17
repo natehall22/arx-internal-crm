@@ -177,8 +177,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Create calendar event
-    const startTime = new Date(scheduled_for)
-    const endTime = new Date(startTime.getTime() + duration_minutes * 60 * 1000)
+    // scheduled_for should be in format "YYYY-MM-DDTHH:MM" (local time in closer's timezone)
+    // We need to send it to Google Calendar with the timezone, NOT as UTC
+    const startDateTime = scheduled_for.includes(':') && scheduled_for.length === 16 
+      ? `${scheduled_for}:00`  // Add seconds if not present
+      : scheduled_for.includes('T') && scheduled_for.length > 16
+        ? scheduled_for.slice(0, 19) // Trim to YYYY-MM-DDTHH:MM:SS
+        : scheduled_for
+    
+    // Calculate end time by parsing the local time and adding duration
+    const [datePart, timePart] = scheduled_for.split('T')
+    const timeOnly = timePart?.split(':') || ['00', '00']
+    let endHour = parseInt(timeOnly[0], 10)
+    let endMin = parseInt(timeOnly[1], 10) + duration_minutes
+    
+    // Handle minute overflow
+    while (endMin >= 60) {
+      endMin -= 60
+      endHour += 1
+    }
+    
+    const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
 
     const event: CalendarEvent = {
       summary: `Inspection: ${homeowner_name || 'Customer'}`,
@@ -190,11 +209,11 @@ export async function POST(request: NextRequest) {
       ].filter(Boolean).join('\n'),
       location: address_text || undefined,
       start: {
-        dateTime: startTime.toISOString(),
+        dateTime: startDateTime,
         timeZone: timezone,
       },
       end: {
-        dateTime: endTime.toISOString(),
+        dateTime: endDateTime,
         timeZone: timezone,
       },
     }

@@ -64,9 +64,7 @@ export default function CompPlansPage() {
   const [compPlans, setCompPlans] = useState<CompPlan[]>([])
   const [userAssignments, setUserAssignments] = useState<UserCompPlan[]>([])
   const [users, setUsers] = useState<any[]>([])
-  const [regions, setRegions] = useState<any[]>([])
-  const [teams, setTeams] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'plans' | 'assignments' | 'hierarchy'>('plans')
+  const [activeTab, setActiveTab] = useState<'plans' | 'assignments'>('plans')
   
   // Modal states
   const [showPlanModal, setShowPlanModal] = useState(false)
@@ -127,53 +125,12 @@ export default function CompPlansPage() {
       setCompPlans(data.compPlans || [])
       setUserAssignments(data.userAssignments || [])
       setUsers(data.users || [])
-      
-      // Also load regions for hierarchy
-      const regionsResponse = await fetch('/api/admin/data?resource=regions')
-      if (regionsResponse.ok) {
-        const regionsData = await regionsResponse.json()
-        setRegions(regionsData.regions || [])
-      }
-      
-      // Load teams for hierarchy
-      const teamsResponse = await fetch('/api/admin/data?resource=teams')
-      if (teamsResponse.ok) {
-        const teamsData = await teamsResponse.json()
-        setTeams(teamsData.teams || [])
-      }
     } catch (error) {
       console.error('Error loading comp plans:', error)
     }
     setLoading(false)
   }
   
-  // Update user hierarchy (manager, region, team)
-  const updateUserHierarchy = async (userId: string, updates: { manager_user_id?: string | null, region_id?: string | null, team_id?: string | null }) => {
-    try {
-      const response = await fetch('/api/admin/data', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          resource: 'user_hierarchy',
-          id: userId,
-          ...updates
-        })
-      })
-      
-      if (!response.ok) {
-        const error = await response.json()
-        alert(error.error || 'Failed to update user')
-        return
-      }
-      
-      // Refresh data
-      loadData()
-    } catch (error) {
-      console.error('Error updating user hierarchy:', error)
-      alert('Failed to update user')
-    }
-  }
-
   const savePlan = async () => {
     const planData = {
       resource: editingPlan ? 'comp_plan' : 'comp_plan',
@@ -490,16 +447,6 @@ export default function CompPlansPage() {
           >
             User Assignments ({userAssignments.length})
           </button>
-          <button
-            onClick={() => setActiveTab('hierarchy')}
-            className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
-              activeTab === 'hierarchy'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Team Hierarchy
-          </button>
         </div>
 
         {/* Plans Tab */}
@@ -703,234 +650,6 @@ export default function CompPlansPage() {
                   No user assignments yet
                 </div>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* Hierarchy Tab */}
-        {activeTab === 'hierarchy' && (
-          <div>
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">Team Hierarchy</h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Assign managers and regions to users. Commission overrides flow: Direct Manager → Regional Manager → Admin
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border overflow-hidden overflow-x-auto">
-              <table className="w-full min-w-[900px]">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Direct Reports</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {users.map((user) => {
-                    // Determine who this user reports to
-                    const directManager = users.find(u => u.id === user.manager_user_id)
-                    
-                    // Find regional-level managers in same region as fallback
-                    const regionalManagers = users.filter(u => 
-                      u.region_id === user.region_id && 
-                      u.id !== user.id &&
-                      ['regional_manager', 'regional_setter_manager'].includes(u.role)
-                    )
-                    
-                    // Find owner/admin as final fallback
-                    const ownerOrAdmin = users.find(u => ['owner', 'admin'].includes(u.role) && u.id !== user.id)
-                    
-                    // Reporting chain: Direct Manager > Regional Manager > Owner/Admin
-                    let reportsTo = 'None (Top Level)'
-                    let reportsToColor = 'text-gray-400'
-                    if (directManager) {
-                      reportsTo = directManager.full_name
-                      reportsToColor = 'text-green-600'
-                    } else if (regionalManagers.length > 0) {
-                      reportsTo = `${regionalManagers[0].full_name} (Regional)`
-                      reportsToColor = 'text-blue-600'
-                    } else if (ownerOrAdmin) {
-                      reportsTo = `${ownerOrAdmin.full_name} (${ownerOrAdmin.role === 'owner' ? 'Owner' : 'Admin'})`
-                      reportsToColor = 'text-purple-600'
-                    }
-                    
-                    // Get potential managers - anyone can be a manager except the user themselves
-                    // Filter to show leadership roles first, but allow any user
-                    const leadershipRoles = ['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager']
-                    const potentialManagers = users
-                      .filter(u => u.id !== user.id)
-                      .sort((a, b) => {
-                        const aIsLeader = leadershipRoles.includes(a.role) ? 0 : 1
-                        const bIsLeader = leadershipRoles.includes(b.role) ? 0 : 1
-                        if (aIsLeader !== bIsLeader) return aIsLeader - bIsLeader
-                        return (a.full_name || '').localeCompare(b.full_name || '')
-                      })
-                    
-                    // Count team members (people who report to this user)
-                    const teamMembers = users.filter(u => u.manager_user_id === user.id)
-                    
-                    // Role color mapping
-                    const getRoleColor = (role: string) => {
-                      switch(role) {
-                        case 'owner': return 'bg-yellow-100 text-yellow-800'
-                        case 'admin': return 'bg-purple-100 text-purple-700'
-                        case 'regional_manager': return 'bg-blue-100 text-blue-700'
-                        case 'regional_setter_manager': return 'bg-blue-100 text-blue-700'
-                        case 'sales_manager': return 'bg-green-100 text-green-700'
-                        case 'setter_manager': return 'bg-green-100 text-green-700'
-                        case 'sales_rep': return 'bg-gray-100 text-gray-700'
-                        case 'setter': return 'bg-orange-100 text-orange-700'
-                        case 'canvasser': return 'bg-teal-100 text-teal-700'
-                        case 'operations': return 'bg-pink-100 text-pink-700'
-                        default: return 'bg-gray-100 text-gray-700'
-                      }
-                    }
-                    
-                    // Get user's current team
-                    const userTeam = teams.find(t => t.id === user.team_id)
-                    
-                    // Filter teams by region if user has a region
-                    const availableTeams = user.region_id 
-                      ? teams.filter(t => t.region_id === user.region_id || !t.region_id)
-                      : teams
-                    
-                    return (
-                      <tr key={user.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{user.full_name}</div>
-                          <div className="text-xs text-gray-500">{user.email}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 text-xs rounded-full capitalize ${getRoleColor(user.role)}`}>
-                            {user.role?.replace(/_/g, ' ')}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={user.manager_user_id || ''}
-                            onChange={(e) => updateUserHierarchy(user.id, { 
-                              manager_user_id: e.target.value || null 
-                            })}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
-                          >
-                            <option value="">-- Select Manager --</option>
-                            <optgroup label="Leadership">
-                              {potentialManagers.filter(m => leadershipRoles.includes(m.role)).map(m => (
-                                <option key={m.id} value={m.id}>
-                                  {m.full_name} ({m.role?.replace(/_/g, ' ')})
-                                </option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="Other Users">
-                              {potentialManagers.filter(m => !leadershipRoles.includes(m.role)).map(m => (
-                                <option key={m.id} value={m.id}>
-                                  {m.full_name} ({m.role?.replace(/_/g, ' ')})
-                                </option>
-                              ))}
-                            </optgroup>
-                          </select>
-                          {!user.manager_user_id && (
-                            <div className={`text-xs mt-1 ${reportsToColor}`}>
-                              Fallback: {reportsTo}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={user.team_id || ''}
-                            onChange={(e) => updateUserHierarchy(user.id, { 
-                              team_id: e.target.value || null 
-                            })}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
-                          >
-                            <option value="">No team</option>
-                            {availableTeams.map(t => (
-                              <option key={t.id} value={t.id}>
-                                {t.name} {t.regions?.name ? `(${t.regions.name})` : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={user.region_id || ''}
-                            onChange={(e) => updateUserHierarchy(user.id, { 
-                              region_id: e.target.value || null 
-                            })}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
-                          >
-                            <option value="">No region</option>
-                            {regions.map(r => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          {teamMembers.length > 0 ? (
-                            <div>
-                              <span className="text-sm font-medium text-gray-900">{teamMembers.length}</span>
-                              <div className="text-xs text-gray-500 mt-1">
-                                {teamMembers.slice(0, 2).map(m => m.full_name).join(', ')}
-                                {teamMembers.length > 2 && ` +${teamMembers.length - 2}`}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-              {users.length === 0 && (
-                <div className="text-center py-12 text-gray-500">
-                  No users found
-                </div>
-              )}
-            </div>
-
-            {/* Hierarchy Legend */}
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Role Hierarchy & Fallback Chain</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
-                <div>
-                  <p className="font-medium text-gray-700 mb-1">Top Level</p>
-                  <div className="space-y-1">
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-800">Owner</span>
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 ml-1">Admin</span>
-                  </div>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-700 mb-1">Regional</p>
-                  <div className="space-y-1">
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">Regional Manager</span>
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 ml-1">Regional Setter Mgr</span>
-                  </div>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-700 mb-1">Manager</p>
-                  <div className="space-y-1">
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">Sales Manager</span>
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700 ml-1">Setter Manager</span>
-                  </div>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-700 mb-1">Rep Level</p>
-                  <div className="space-y-1">
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700">Sales Rep</span>
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 ml-1">Setter</span>
-                    <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-teal-100 text-teal-700 ml-1">Canvasser</span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500">
-                <strong>Fallback Chain:</strong> If no direct manager is assigned, the system looks for a Regional Manager in the same region, then falls back to Owner/Admin.
-              </p>
             </div>
           </div>
         )}

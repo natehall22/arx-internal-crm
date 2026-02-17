@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+    if (!profile || !['owner', 'admin', 'regional_manager', 'regional_setter_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
     }
 
@@ -309,7 +309,7 @@ export async function PUT(request: NextRequest) {
     .eq('id', user.id)
     .single()
 
-  if (!profile || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
+  if (!profile || !['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -457,7 +457,7 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+    if (!profile || !['owner', 'admin', 'regional_manager', 'regional_setter_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
     }
 
