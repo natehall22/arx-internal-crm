@@ -402,6 +402,10 @@ export default function CanvassMapPage() {
 
     if (!window.google) return
 
+    // Map ID enables vector maps with rotation/tilt gestures
+    // Create one at: https://console.cloud.google.com/google/maps-apis/studio/maps
+    const googleMapId = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID
+    
     mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
       center: defaultCenter,
       zoom: 18,
@@ -414,12 +418,17 @@ export default function CanvassMapPage() {
       zoomControl: true,
       rotateControl: false, // We'll add our own compass button
       gestureHandling: 'greedy',
+      // Enable rotation and tilt gestures (requires vector map via mapId)
+      ...(googleMapId && {
+        mapId: googleMapId,
+        headingInteractionEnabled: true,
+        tiltInteractionEnabled: true,
+      }),
       // Performance optimizations
       maxZoom: 20,
       minZoom: 10,
       clickableIcons: false, // Disable POI clicks for faster rendering
-      isFractionalZoomEnabled: false, // Disable fractional zoom for faster tile loading
-    })
+    } as google.maps.MapOptions)
     setMapStatus('loaded')
     infoWindowRef.current = new window.google.maps.InfoWindow()
 
