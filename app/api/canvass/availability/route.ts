@@ -86,8 +86,18 @@ export async function GET(request: NextRequest) {
     const dateStr = request.nextUrl.searchParams.get('date')
     const durationStr = request.nextUrl.searchParams.get('duration')
 
+    console.log(`Availability API called with: closer_id=${closerId}, date=${dateStr}, duration=${durationStr}`)
+
     if (!closerId || !dateStr) {
-      return NextResponse.json({ error: 'closer_id and date are required' }, { status: 400 })
+      console.error(`Availability: Missing required params - closer_id: ${closerId}, date: ${dateStr}`)
+      return NextResponse.json({ error: 'closer_id and date are required', slots: [], hasCalendar: false }, { status: 400 })
+    }
+    
+    // Validate closer_id is a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(closerId)) {
+      console.error(`Availability: Invalid closer_id format: ${closerId}`)
+      return NextResponse.json({ error: 'Invalid closer_id format', slots: [], hasCalendar: false }, { status: 400 })
     }
 
     const durationMinutes = parseInt(durationStr || '60', 10)
@@ -108,18 +118,30 @@ export async function GET(request: NextRequest) {
     const bufferMinutes = settings?.appointment_buffer_minutes || 30
 
     // Parse the date - we'll work in the closer's timezone
-    const [startHour, startMin] = workingHoursStart.split(':').map(Number)
-    const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
+    console.log(`Availability: Parsing date ${dateStr} with working hours ${workingHoursStart} - ${workingHoursEnd}`)
+    
+    // Validate date format (YYYY-MM-DD)
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      console.error(`Availability: Invalid date format: ${dateStr}`)
+      return NextResponse.json({ error: 'Invalid date format', slots: [], hasCalendar: false }, { status: 400 })
+    }
     
     // Create ISO strings with the timezone offset for the closer's timezone
     // Format: YYYY-MM-DDTHH:MM:SS (local time in closer's timezone)
     const dayStartStr = `${dateStr}T${workingHoursStart}:00`
     const dayEndStr = `${dateStr}T${workingHoursEnd}:00`
     
+    console.log(`Availability: Day start string: ${dayStartStr}, Day end string: ${dayEndStr}`)
+    
     // For Google Calendar API, we need to convert to actual Date objects
-    // We'll use a helper to create dates that represent the closer's local time
     const dayStart = new Date(dayStartStr)
     const dayEnd = new Date(dayEndStr)
+    
+    // Validate dates are valid
+    if (isNaN(dayStart.getTime()) || isNaN(dayEnd.getTime())) {
+      console.error(`Availability: Invalid date objects - dayStart: ${dayStart}, dayEnd: ${dayEnd}`)
+      return NextResponse.json({ error: 'Failed to parse date', slots: [], hasCalendar: false }, { status: 400 })
+    }
 
     // Get access token for closer
     console.log(`Availability check for closer ${closerId} on ${dateStr}`)
