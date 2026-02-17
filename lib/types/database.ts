@@ -96,6 +96,8 @@ export interface TeamCloserQueue {
   user_id: string
   priority: number
   buffer_minutes: number
+  buffer_before: number
+  buffer_after: number
   active: boolean
   last_assigned_at: string | null
   created_at: string
