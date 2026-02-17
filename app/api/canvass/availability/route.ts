@@ -252,7 +252,12 @@ export async function GET(request: NextRequest) {
       currentSlot = new Date(currentSlot.getTime() + slotInterval)
     }
 
-    console.log(`Availability: Generated ${slots.length} available slots, skipped ${skippedPast} past slots out of ${totalSlots} total. hasCalendar=${hasCalendar}, busySlots=${busySlots.length}, closerId=${closerId}`)
+    // Count how many slots have conflicts
+    const unavailableCount = slots.filter(s => !s.available).length
+    
+    console.log(`Availability: Generated ${slots.length} slots (${unavailableCount} unavailable, ${slots.length - unavailableCount} available), skipped ${skippedPast} past. hasCalendar=${hasCalendar}, busySlots=${busySlots.length}, closerId=${closerId}`)
+    console.log(`Availability: Busy slots from Google:`, JSON.stringify(busySlots))
+    console.log(`Availability: Day range: ${dayStart.toISOString()} to ${dayEnd.toISOString()}`)
 
     return NextResponse.json({
       slots,
@@ -265,6 +270,8 @@ export async function GET(request: NextRequest) {
       debug: {
         busySlotsCount: busySlots.length,
         busySlots: busySlots,
+        dayStart: dayStart.toISOString(),
+        dayEnd: dayEnd.toISOString(),
       }
     })
 
