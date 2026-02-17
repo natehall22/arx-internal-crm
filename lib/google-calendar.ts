@@ -168,10 +168,18 @@ export async function getFreeBusy(
   }
 
   const data = await response.json()
-  console.log(`getFreeBusy: Full response:`, JSON.stringify(data))
   
   const busySlots = data.calendars?.[calendarId]?.busy || []
-  console.log(`getFreeBusy: Found ${busySlots.length} busy slots`)
+  const errors = data.calendars?.[calendarId]?.errors
+  
+  if (errors && errors.length > 0) {
+    console.error(`getFreeBusy: Calendar errors:`, JSON.stringify(errors))
+  }
+  
+  console.log(`getFreeBusy: ${calendarId} returned ${busySlots.length} busy slots for range ${timeMin.toISOString()} to ${timeMax.toISOString()}`)
+  if (busySlots.length > 0) {
+    console.log(`getFreeBusy: Busy times:`, busySlots.map((s: FreeBusySlot) => `${s.start} - ${s.end}`).join(', '))
+  }
   
   return busySlots
 }
