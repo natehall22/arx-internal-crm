@@ -283,9 +283,26 @@ export async function POST(request: Request) {
     }
     
     const scheduleInspection = Boolean(body.schedule_inspection)
-    const inspectionScheduledFor = body.inspection_scheduled_for
-      ? new Date(body.inspection_scheduled_for).toISOString()
-      : null
+    
+    // Parse inspection time - the client sends local time (e.g., "2026-02-17T09:00")
+    // We need to convert this to UTC for storage
+    // Assume Eastern timezone (UTC-5, or UTC-4 during DST)
+    let inspectionScheduledFor: string | null = null
+    if (body.inspection_scheduled_for) {
+      // Parse the local time string
+      const localTimeStr = body.inspection_scheduled_for // e.g., "2026-02-17T09:00"
+      const [datePart, timePart] = localTimeStr.split('T')
+      const [year, month, day] = datePart.split('-').map(Number)
+      const [hour, minute] = timePart.split(':').map(Number)
+      
+      // Create date in Eastern timezone by adding 5 hours to get UTC
+      // TODO: Use proper timezone library for DST handling
+      const tzOffsetHours = 5 // Eastern Standard Time offset
+      const utcDate = new Date(Date.UTC(year, month - 1, day, hour + tzOffsetHours, minute, 0))
+      inspectionScheduledFor = utcDate.toISOString()
+      
+      console.log(`Inspection time conversion: local=${localTimeStr} -> UTC=${inspectionScheduledFor}`)
+    }
     // Use round-robin if team was selected OR if no closer was specified
     const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
 
