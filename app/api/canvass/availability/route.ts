@@ -16,13 +16,20 @@ function getAdminClient() {
 
 // Helper to get valid access token (refresh if needed)
 async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
-  const { data: tokenData } = await adminClient
+  console.log(`getValidAccessToken: Looking up token for user ${userId}`)
+  
+  const { data: tokenData, error: tokenError } = await adminClient
     .from('user_google_tokens')
     .select('*')
     .eq('user_id', userId)
     .single()
 
-  if (!tokenData) return null
+  console.log(`getValidAccessToken: Query result - found: ${!!tokenData}, error: ${tokenError?.message || 'none'}`)
+
+  if (!tokenData) {
+    console.log(`getValidAccessToken: No token found for user ${userId}`)
+    return null
+  }
 
   const expiresAt = new Date(tokenData.expires_at)
   const now = new Date()
