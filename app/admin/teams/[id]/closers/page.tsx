@@ -37,8 +37,11 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
       .eq('id', teamId)
       .single()
 
+    console.log('Closer queue - Team query result:', { teamData, teamError, teamId })
+
     if (teamError || !teamData) {
-      setError('Team not found')
+      console.error('Closer queue - Team not found:', teamError)
+      setError(`Team not found: ${teamError?.message || 'Unknown error'}`)
       setLoading(false)
       return
     }
