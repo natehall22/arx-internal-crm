@@ -30,53 +30,38 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
   const loadData = async () => {
     const supabase = createClientBrowser()
 
-    // Load team - use maybeSingle to avoid 406 error when RLS blocks
-    const { data: teamData, error: teamError } = await supabase
-      .from('teams')
-      .select('*')
-      .eq('id', teamId)
-      .maybeSingle()
-
-    console.log('Closer queue - Team query result:', { teamData, teamError, teamId })
-
-    if (teamError) {
-      console.error('Closer queue - Team query error:', teamError)
-      setError(`Failed to load team: ${teamError.message}`)
-      setLoading(false)
-      return
-    }
-    
-    if (!teamData) {
-      console.log('Closer queue - Direct query returned no data, trying API fallback')
-      // Try fetching via API to bypass RLS
-      try {
-        const response = await fetch(`/api/admin/data?resource=teams`)
-        console.log('Closer queue - API response status:', response.status)
-        if (response.ok) {
-          const data = await response.json()
-          console.log('Closer queue - API returned teams:', data.teams?.length, 'teams')
-          console.log('Closer queue - Looking for team ID:', teamId)
-          const team = data.teams?.find((t: any) => t.id === teamId)
-          console.log('Closer queue - Found team:', team ? team.name : 'NOT FOUND')
-          if (team) {
-            setTeam(team)
-            // Continue loading queue data
-            await loadQueueData(supabase, teamId)
-            return
-          }
-        } else {
-          console.error('Closer queue - API response not ok:', response.status)
-        }
-      } catch (e) {
-        console.error('Closer queue - API fallback failed:', e)
+    // Use API to load team (bypasses RLS issues)
+    try {
+      const response = await fetch(`/api/admin/data?resource=teams`)
+      console.log('Closer queue - API response status:', response.status)
+      
+      if (!response.ok) {
+        console.error('Closer queue - API response not ok:', response.status)
+        setError('Failed to load teams')
+        setLoading(false)
+        return
       }
-      setError('Team not found or you do not have access')
+      
+      const data = await response.json()
+      console.log('Closer queue - API returned teams:', data.teams?.length, 'teams')
+      console.log('Closer queue - Looking for team ID:', teamId)
+      
+      const team = data.teams?.find((t: any) => t.id === teamId)
+      console.log('Closer queue - Found team:', team ? team.name : 'NOT FOUND')
+      
+      if (!team) {
+        setError('Team not found')
+        setLoading(false)
+        return
+      }
+      
+      setTeam(team)
+      await loadQueueData(supabase, teamId)
+    } catch (e) {
+      console.error('Closer queue - Failed to load team:', e)
+      setError('Failed to load team')
       setLoading(false)
-      return
     }
-
-    setTeam(teamData)
-    await loadQueueData(supabase, teamId)
   }
   
   const loadQueueData = async (supabase: any, teamIdToLoad: string) => {
