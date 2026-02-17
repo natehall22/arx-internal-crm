@@ -1041,7 +1041,6 @@ export default function CanvassMapPage() {
                 strokeWeight: 3,
               },
               title: place.formatted_address || 'Searched location',
-              animation: google.maps.Animation.DROP,
             })
             
             // Store reference to remove later
