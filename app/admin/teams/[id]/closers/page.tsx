@@ -47,19 +47,25 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
     }
     
     if (!teamData) {
-      console.error('Closer queue - Team not found or access denied')
+      console.log('Closer queue - Direct query returned no data, trying API fallback')
       // Try fetching via API to bypass RLS
       try {
         const response = await fetch(`/api/admin/data?resource=teams`)
+        console.log('Closer queue - API response status:', response.status)
         if (response.ok) {
           const data = await response.json()
+          console.log('Closer queue - API returned teams:', data.teams?.length, 'teams')
+          console.log('Closer queue - Looking for team ID:', teamId)
           const team = data.teams?.find((t: any) => t.id === teamId)
+          console.log('Closer queue - Found team:', team ? team.name : 'NOT FOUND')
           if (team) {
             setTeam(team)
             // Continue loading queue data
             await loadQueueData(supabase, teamId)
             return
           }
+        } else {
+          console.error('Closer queue - API response not ok:', response.status)
         }
       } catch (e) {
         console.error('Closer queue - API fallback failed:', e)
