@@ -280,6 +280,22 @@ export async function POST(request: Request) {
       : null
     const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
 
+    // Get default inspection duration from appointment_types
+    let inspectionDuration = 60 // default
+    const { data: inspectionType } = await supabase
+      .from('appointment_types')
+      .select('duration_minutes')
+      .eq('org_id', profile.org_id)
+      .eq('category', 'inspection')
+      .eq('active', true)
+      .order('sort_order', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    
+    if (inspectionType?.duration_minutes) {
+      inspectionDuration = inspectionType.duration_minutes
+    }
+
     // Log incoming data for debugging
     console.log('Canvass lead payload:', {
       lat: body.lat,
@@ -382,7 +398,7 @@ export async function POST(request: Request) {
             supabaseServiceKey,
             teamId,
             new Date(inspectionScheduledFor),
-            60, // duration
+            inspectionDuration,
             leadRow.id,
             undefined, // opportunity_id - will be created below
             leadRow.address_text,
@@ -478,7 +494,7 @@ export async function POST(request: Request) {
         supabase,
         closerUserId,
         inspectionScheduledFor,
-        60, // duration in minutes
+        inspectionDuration,
         leadRow.homeowner_name,
         leadRow.address_text,
         leadRow.phone,
@@ -530,7 +546,7 @@ export async function POST(request: Request) {
           profile.id, // setter is the current user who scheduled
           closerName,
           inspectionScheduledFor,
-          60,
+          inspectionDuration,
           leadRow.homeowner_name,
           leadRow.address_text,
           leadRow.phone,

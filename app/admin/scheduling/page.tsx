@@ -11,6 +11,17 @@ type UserWithCalendar = User & {
   team?: Team | null
 }
 
+type AppointmentType = {
+  id: string
+  name: string
+  duration_minutes: number
+  color: string
+  description: string | null
+  category: 'inspection' | 'close' | 'other'
+  active: boolean
+  sort_order: number
+}
+
 export default function SchedulingPage() {
   const searchParams = useSearchParams()
   const success = searchParams.get('success')
@@ -18,8 +29,19 @@ export default function SchedulingPage() {
 
   const [currentUser, setCurrentUser] = useState<UserWithCalendar | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
+  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [showTypeModal, setShowTypeModal] = useState(false)
+  const [editingType, setEditingType] = useState<AppointmentType | null>(null)
+  const [typeForm, setTypeForm] = useState({
+    name: '',
+    duration_minutes: 60,
+    color: '#3b82f6',
+    description: '',
+    category: 'inspection' as 'inspection' | 'close' | 'other',
+    active: true,
+  })
 
   useEffect(() => {
     if (success === 'calendar_connected') {
@@ -42,22 +64,107 @@ export default function SchedulingPage() {
 
   const loadData = async () => {
     try {
-      const res = await fetch('/api/admin/scheduling')
-      const data = await res.json()
+      const [schedulingRes, typesRes] = await Promise.all([
+        fetch('/api/admin/scheduling'),
+        fetch('/api/admin/appointment-types'),
+      ])
       
-      if (!res.ok) {
-        console.error('Failed to load scheduling data:', data.error)
+      const schedulingData = await schedulingRes.json()
+      const typesData = await typesRes.json()
+      
+      if (!schedulingRes.ok) {
+        console.error('Failed to load scheduling data:', schedulingData.error)
         setLoading(false)
         return
       }
 
-      setCurrentUser(data.profile)
-      setTeams(data.teams || [])
+      setCurrentUser(schedulingData.profile)
+      setTeams(schedulingData.teams || [])
+      setAppointmentTypes(typesData.appointmentTypes || [])
     } catch (error) {
       console.error('Failed to load scheduling data:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSaveType = async () => {
+    try {
+      const method = editingType ? 'PUT' : 'POST'
+      const body = editingType 
+        ? { id: editingType.id, ...typeForm }
+        : typeForm
+
+      const res = await fetch('/api/admin/appointment-types', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to save')
+      }
+
+      await loadData()
+      setShowTypeModal(false)
+      setEditingType(null)
+      setTypeForm({
+        name: '',
+        duration_minutes: 60,
+        color: '#3b82f6',
+        description: '',
+        category: 'inspection',
+        active: true,
+      })
+      setMessage({ type: 'success', text: `Appointment type ${editingType ? 'updated' : 'created'}` })
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to save appointment type' })
+    }
+  }
+
+  const handleDeleteType = async (id: string) => {
+    if (!confirm('Delete this appointment type?')) return
+
+    try {
+      const res = await fetch(`/api/admin/appointment-types?id=${id}`, { method: 'DELETE' })
+      
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to delete')
+      }
+
+      await loadData()
+      setMessage({ type: 'success', text: 'Appointment type deleted' })
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to delete appointment type' })
+    }
+  }
+
+  const openEditModal = (type: AppointmentType) => {
+    setEditingType(type)
+    setTypeForm({
+      name: type.name,
+      duration_minutes: type.duration_minutes,
+      color: type.color,
+      description: type.description || '',
+      category: type.category,
+      active: type.active,
+    })
+    setShowTypeModal(true)
+  }
+
+  const openCreateModal = () => {
+    setEditingType(null)
+    setTypeForm({
+      name: '',
+      duration_minutes: 60,
+      color: '#3b82f6',
+      description: '',
+      category: 'inspection',
+      active: true,
+    })
+    setShowTypeModal(true)
   }
 
   const handleDisconnectCalendar = async () => {
@@ -176,6 +283,185 @@ export default function SchedulingPage() {
               )}
             </div>
 
+            {/* Appointment Types */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Appointment Types</h2>
+                  <p className="text-sm text-gray-500">Configure durations for different appointment types</p>
+                </div>
+                <button
+                  onClick={openCreateModal}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm"
+                >
+                  Add Type
+                </button>
+              </div>
+
+              {/* Inspection Types (Setter) */}
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  Inspection Types (Setter schedules)
+                </h3>
+                <div className="space-y-2">
+                  {appointmentTypes.filter(t => t.category === 'inspection').length === 0 ? (
+                    <p className="text-gray-400 text-sm italic">No inspection types configured</p>
+                  ) : (
+                    appointmentTypes.filter(t => t.category === 'inspection').map((type) => (
+                      <div
+                        key={type.id}
+                        className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-gray-300"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div 
+                            className="w-4 h-4 rounded-full" 
+                            style={{ backgroundColor: type.color }}
+                          />
+                          <div>
+                            <p className="font-medium text-gray-900">{type.name}</p>
+                            <p className="text-sm text-gray-500">
+                              {type.duration_minutes} minutes
+                              {type.description && ` • ${type.description}`}
+                            </p>
+                          </div>
+                          {!type.active && (
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded">Inactive</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditModal(type)}
+                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteType(type.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Close Types (Closer) */}
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  Close Types (Closer schedules from flow cards)
+                </h3>
+                <div className="space-y-2">
+                  {appointmentTypes.filter(t => t.category === 'close').length === 0 ? (
+                    <p className="text-gray-400 text-sm italic">No close types configured</p>
+                  ) : (
+                    appointmentTypes.filter(t => t.category === 'close').map((type) => (
+                      <div
+                        key={type.id}
+                        className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-gray-300"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div 
+                            className="w-4 h-4 rounded-full" 
+                            style={{ backgroundColor: type.color }}
+                          />
+                          <div>
+                            <p className="font-medium text-gray-900">{type.name}</p>
+                            <p className="text-sm text-gray-500">
+                              {type.duration_minutes} minutes
+                              {type.description && ` • ${type.description}`}
+                            </p>
+                          </div>
+                          {!type.active && (
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded">Inactive</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditModal(type)}
+                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteType(type.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Other Types */}
+              {appointmentTypes.filter(t => t.category === 'other').length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-gray-500"></span>
+                    Other Types
+                  </h3>
+                  <div className="space-y-2">
+                    {appointmentTypes.filter(t => t.category === 'other').map((type) => (
+                      <div
+                        key={type.id}
+                        className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-gray-300"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div 
+                            className="w-4 h-4 rounded-full" 
+                            style={{ backgroundColor: type.color }}
+                          />
+                          <div>
+                            <p className="font-medium text-gray-900">{type.name}</p>
+                            <p className="text-sm text-gray-500">
+                              {type.duration_minutes} minutes
+                              {type.description && ` • ${type.description}`}
+                            </p>
+                          </div>
+                          {!type.active && (
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded">Inactive</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditModal(type)}
+                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteType(type.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Team Closer Queues */}
             <div className="bg-white rounded-xl shadow-sm border p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Round-Robin Queues</h2>
@@ -212,12 +498,135 @@ export default function SchedulingPage() {
               <h3 className="font-semibold text-blue-900 mb-3">How Scheduling Works</h3>
               <ol className="text-sm text-blue-800 space-y-2 list-decimal ml-4">
                 <li>Canvasser schedules an inspection from the canvass map</li>
-                <li>System checks the team's closer queue (priority order)</li>
+                <li>System checks the team&apos;s closer queue (priority order)</li>
                 <li>For each closer, checks Google Calendar availability</li>
                 <li>First available closer gets assigned the appointment</li>
                 <li>Calendar event is created automatically</li>
                 <li>Lead is converted to an Opportunity assigned to that closer</li>
               </ol>
+            </div>
+          </div>
+        )}
+
+        {/* Appointment Type Modal */}
+        {showTypeModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                {editingType ? 'Edit Appointment Type' : 'New Appointment Type'}
+              </h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={typeForm.name}
+                    onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                    placeholder="e.g., Initial Inspection"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                  <select
+                    value={typeForm.category}
+                    onChange={(e) => setTypeForm({ ...typeForm, category: e.target.value as 'inspection' | 'close' | 'other' })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  >
+                    <option value="inspection">Inspection (Setter schedules)</option>
+                    <option value="close">Close (Closer schedules from flow cards)</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {typeForm.category === 'inspection' && 'Used when setters schedule appointments from the canvass app'}
+                    {typeForm.category === 'close' && 'Used when closers schedule follow-up or close appointments from flow cards'}
+                    {typeForm.category === 'other' && 'General purpose appointment type'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
+                  <select
+                    value={typeForm.duration_minutes}
+                    onChange={(e) => setTypeForm({ ...typeForm, duration_minutes: parseInt(e.target.value, 10) })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  >
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                    <option value={45}>45 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={90}>1.5 hours</option>
+                    <option value={120}>2 hours</option>
+                    <option value={180}>3 hours</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={typeForm.color}
+                      onChange={(e) => setTypeForm({ ...typeForm, color: e.target.value })}
+                      className="w-10 h-10 rounded border border-gray-300 cursor-pointer"
+                    />
+                    <div className="flex gap-2">
+                      {['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899'].map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => setTypeForm({ ...typeForm, color })}
+                          className={`w-6 h-6 rounded-full border-2 ${typeForm.color === color ? 'border-gray-900' : 'border-transparent'}`}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
+                  <input
+                    type="text"
+                    value={typeForm.description}
+                    onChange={(e) => setTypeForm({ ...typeForm, description: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                    placeholder="Brief description"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="active"
+                    checked={typeForm.active}
+                    onChange={(e) => setTypeForm({ ...typeForm, active: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                  />
+                  <label htmlFor="active" className="text-sm text-gray-700">Active</label>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowTypeModal(false)
+                    setEditingType(null)
+                  }}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveType}
+                  disabled={!typeForm.name}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium disabled:opacity-50"
+                >
+                  {editingType ? 'Save Changes' : 'Create'}
+                </button>
+              </div>
             </div>
           </div>
         )}

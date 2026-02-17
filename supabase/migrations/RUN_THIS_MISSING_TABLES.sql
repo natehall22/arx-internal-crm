@@ -306,11 +306,15 @@ CREATE TABLE IF NOT EXISTS appointment_types (
   duration_minutes INTEGER NOT NULL DEFAULT 60,
   color TEXT DEFAULT '#3b82f6',
   description TEXT,
+  category TEXT NOT NULL DEFAULT 'inspection', -- 'inspection' (setter sets), 'close' (closer schedules), 'other'
   active BOOLEAN NOT NULL DEFAULT true,
   sort_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add category column if table already exists
+ALTER TABLE appointment_types ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'inspection';
 
 -- ============================================
 -- 13. CUSTOM REPORTS TABLE
@@ -505,15 +509,16 @@ WHERE NOT EXISTS (
 );
 
 -- Insert default appointment types
-INSERT INTO appointment_types (org_id, name, duration_minutes, color, description, sort_order)
-SELECT o.id, apt.name, apt.duration_minutes, apt.color, apt.description, apt.sort_order
+INSERT INTO appointment_types (org_id, name, duration_minutes, color, description, category, sort_order)
+SELECT o.id, apt.name, apt.duration_minutes, apt.color, apt.description, apt.category, apt.sort_order
 FROM orgs o
 CROSS JOIN (VALUES 
-  ('Inspection', 60, '#3b82f6', 'Standard roof inspection', 1),
-  ('Follow Up', 30, '#22c55e', 'Follow up visit', 2),
-  ('Contract Signing', 45, '#8b5cf6', 'Contract signing appointment', 3),
-  ('Final Walkthrough', 30, '#f59e0b', 'Post-installation walkthrough', 4)
-) AS apt(name, duration_minutes, color, description, sort_order)
+  ('Inspection', 60, '#3b82f6', 'Initial roof inspection set by canvasser', 'inspection', 1),
+  ('Follow Up', 30, '#22c55e', 'Follow up visit', 'inspection', 2),
+  ('Contract Signing', 45, '#8b5cf6', 'Contract signing appointment', 'close', 3),
+  ('Close Appointment', 60, '#ef4444', 'Closing appointment scheduled by closer', 'close', 4),
+  ('Final Walkthrough', 30, '#f59e0b', 'Post-installation walkthrough', 'other', 5)
+) AS apt(name, duration_minutes, color, description, category, sort_order)
 WHERE NOT EXISTS (
   SELECT 1 FROM appointment_types at WHERE at.org_id = o.id
 );
