@@ -36,6 +36,7 @@ interface Proposal {
   pdf_url: string | null
   pdf_generated_at: string | null
   opportunity_id: string | null
+  cover_image_url: string | null
   users?: { full_name: string; email?: string; phone?: string }
 }
 
@@ -67,6 +68,9 @@ export default function ProposalDetailPage() {
   const [company, setCompany] = useState<any>(null)
   const [rep, setRep] = useState<any>(null)
   const [savingVisibility, setSavingVisibility] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [showImageModal, setShowImageModal] = useState(false)
+  const [imageUrlInput, setImageUrlInput] = useState('')
 
   useEffect(() => {
     loadProposal()
@@ -145,11 +149,16 @@ export default function ProposalDetailPage() {
     setGenerating(true)
 
     try {
-      // Generate satellite image URL
-      const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
-      const satelliteImageUrl = proposal.customer_address && googleMapsApiKey
-        ? `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${googleMapsApiKey}`
-        : undefined
+      // Use custom cover image if set, otherwise fall back to satellite image
+      let propertyImageUrl = proposal.cover_image_url || undefined
+      
+      if (!propertyImageUrl) {
+        // Generate satellite image URL as fallback
+        const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+        propertyImageUrl = proposal.customer_address && googleMapsApiKey
+          ? `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${googleMapsApiKey}`
+          : undefined
+      }
 
       // Prepare data for PDF
       const pdfData = {
@@ -162,7 +171,7 @@ export default function ProposalDetailPage() {
         measurement,
         company,
         rep,
-        satelliteImageUrl,
+        satelliteImageUrl: propertyImageUrl,
       }
 
       // Generate PDF blob
@@ -199,6 +208,89 @@ export default function ProposalDetailPage() {
     }
 
     setGenerating(false)
+  }
+
+  const handleImageUpload = async (file: File) => {
+    if (!proposal) return
+    setUploadingImage(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('image', file)
+
+      const response = await fetch(`/api/proposals/${proposalId}/image`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        alert(`Failed to upload image: ${data.error}`)
+        return
+      }
+
+      const { cover_image_url } = await response.json()
+      setProposal(prev => prev ? { ...prev, cover_image_url } : null)
+      setShowImageModal(false)
+    } catch (err) {
+      console.error('Error uploading image:', err)
+      alert('Failed to upload image')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleImageUrlSave = async () => {
+    if (!proposal || !imageUrlInput.trim()) return
+    setUploadingImage(true)
+
+    try {
+      const response = await fetch(`/api/proposals/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cover_image_url: imageUrlInput.trim() })
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        alert(`Failed to save image URL: ${data.error}`)
+        return
+      }
+
+      setProposal(prev => prev ? { ...prev, cover_image_url: imageUrlInput.trim() } : null)
+      setShowImageModal(false)
+      setImageUrlInput('')
+    } catch (err) {
+      console.error('Error saving image URL:', err)
+      alert('Failed to save image URL')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleRemoveImage = async () => {
+    if (!proposal) return
+    if (!confirm('Remove the property image?')) return
+    setUploadingImage(true)
+
+    try {
+      const response = await fetch(`/api/proposals/${proposalId}/image`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        alert(`Failed to remove image: ${data.error}`)
+        return
+      }
+
+      setProposal(prev => prev ? { ...prev, cover_image_url: null } : null)
+    } catch (err) {
+      console.error('Error removing image:', err)
+      alert('Failed to remove image')
+    } finally {
+      setUploadingImage(false)
+    }
   }
 
   const toggleItemVisibility = async (itemId: string, showToCustomer: boolean) => {
@@ -341,23 +433,96 @@ export default function ProposalDetailPage() {
               </div>
             </div>
 
-            {/* Property Satellite Image */}
-            {proposal.customer_address && (
-              <div className="mb-8">
-                <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-3">Property Location</h3>
-                <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-                  <img
-                    src={`https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}`}
-                    alt={`Satellite view of ${proposal.customer_address}`}
-                    className="w-full h-64 object-cover"
-                    onError={(e) => {
-                      // Hide the image container if it fails to load
-                      (e.target as HTMLImageElement).parentElement!.style.display = 'none'
-                    }}
-                  />
-                </div>
+            {/* Property Image */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider">Property Image</h3>
+                <button
+                  onClick={() => setShowImageModal(true)}
+                  className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  {proposal.cover_image_url ? 'Change Image' : 'Add Image'}
+                </button>
               </div>
-            )}
+              <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm relative group">
+                {proposal.cover_image_url ? (
+                  <>
+                    <img
+                      src={proposal.cover_image_url}
+                      alt={`Property at ${proposal.customer_address}`}
+                      className="w-full h-64 object-cover"
+                      onError={(e) => {
+                        // Fall back to satellite view if custom image fails
+                        const target = e.target as HTMLImageElement
+                        const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+                        if (googleMapsApiKey && proposal.customer_address) {
+                          target.src = `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${googleMapsApiKey}`
+                        }
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                      <button
+                        onClick={() => setShowImageModal(true)}
+                        className="px-4 py-2 bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100"
+                      >
+                        Change
+                      </button>
+                      <button
+                        onClick={handleRemoveImage}
+                        disabled={uploadingImage}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="absolute top-2 right-2 px-2 py-1 bg-green-600 text-white text-xs font-medium rounded">
+                      Custom Image
+                    </div>
+                  </>
+                ) : proposal.customer_address ? (
+                  <>
+                    <img
+                      src={`https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(proposal.customer_address)}&zoom=19&size=800x400&maptype=satellite&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}`}
+                      alt={`Satellite view of ${proposal.customer_address}`}
+                      className="w-full h-64 object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).parentElement!.style.display = 'none'
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button
+                        onClick={() => setShowImageModal(true)}
+                        className="px-4 py-2 bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100"
+                      >
+                        Upload Custom Image
+                      </button>
+                    </div>
+                    <div className="absolute top-2 right-2 px-2 py-1 bg-gray-600 text-white text-xs font-medium rounded">
+                      Auto (Satellite)
+                    </div>
+                  </>
+                ) : (
+                  <div className="w-full h-64 bg-gray-100 flex flex-col items-center justify-center">
+                    <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <p className="text-gray-500 text-sm mb-2">No property image</p>
+                    <button
+                      onClick={() => setShowImageModal(true)}
+                      className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                    >
+                      Add Image
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                This image will appear on the PDF proposal. Upload a photo of the property for a professional touch.
+              </p>
+            </div>
 
             {/* Measurement Summary */}
             {measurement && (
@@ -546,6 +711,124 @@ export default function ProposalDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Image Upload Modal */}
+      {showImageModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">Property Image</h2>
+              <button
+                onClick={() => { setShowImageModal(false); setImageUrlInput(''); }}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-600 mb-6">
+                Upload a photo of the property to display on the proposal PDF. This helps customers identify the correct property.
+              </p>
+
+              {/* File Upload */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-indigo-400 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleImageUpload(file)
+                    }}
+                    className="hidden"
+                    id="property-image-upload"
+                    disabled={uploadingImage}
+                  />
+                  <label
+                    htmlFor="property-image-upload"
+                    className="cursor-pointer"
+                  >
+                    {uploadingImage ? (
+                      <div className="flex flex-col items-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2" />
+                        <span className="text-gray-500">Uploading...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <svg className="w-10 h-10 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <p className="text-indigo-600 font-medium">Click to upload</p>
+                        <p className="text-xs text-gray-500 mt-1">PNG, JPG, WEBP up to 5MB</p>
+                      </>
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="relative mb-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white text-gray-500">or</span>
+                </div>
+              </div>
+
+              {/* URL Input */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Image URL</label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={imageUrlInput}
+                    onChange={(e) => setImageUrlInput(e.target.value)}
+                    placeholder="https://example.com/property-photo.jpg"
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    disabled={uploadingImage}
+                  />
+                  <button
+                    onClick={handleImageUrlSave}
+                    disabled={!imageUrlInput.trim() || uploadingImage}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Save
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Paste a direct link to an image (must be publicly accessible)
+                </p>
+              </div>
+
+              {/* Current Image Preview */}
+              {proposal.cover_image_url && (
+                <div className="mt-6 pt-6 border-t">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Image</label>
+                  <div className="rounded-lg overflow-hidden border border-gray-200">
+                    <img
+                      src={proposal.cover_image_url}
+                      alt="Current property"
+                      className="w-full h-40 object-cover"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-3">
+              <button
+                onClick={() => { setShowImageModal(false); setImageUrlInput(''); }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
