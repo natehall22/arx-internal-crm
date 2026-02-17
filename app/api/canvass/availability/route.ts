@@ -237,15 +237,21 @@ export async function GET(request: NextRequest) {
       const slotStartUTC = new Date(currentSlot.getTime() + tzOffsetHours * 60 * 60 * 1000)
       const slotEndUTC = new Date(slotEnd.getTime() + tzOffsetHours * 60 * 60 * 1000)
       
-      // Check if slot conflicts with any busy period (including buffer)
-      const bufferedStartUTC = new Date(slotStartUTC.getTime() - bufferMinutes * 60 * 1000)
-      const bufferedEndUTC = new Date(slotEndUTC.getTime() + bufferMinutes * 60 * 1000)
-      
-      // Compare UTC times (busy slots from Google are in UTC)
+      // Check for conflicts with buffer
+      // Buffer ensures there's X minutes gap between this slot and any busy period
       const hasConflict = busySlots.some(busy => {
         const busyStart = new Date(busy.start)
         const busyEnd = new Date(busy.end)
-        return bufferedStartUTC < busyEnd && bufferedEndUTC > busyStart
+        
+        // Slot would conflict if:
+        // 1. Slot overlaps with busy period directly
+        // 2. Slot ends within buffer time before busy period starts
+        // 3. Slot starts within buffer time after busy period ends
+        const slotOverlaps = slotStartUTC < busyEnd && slotEndUTC > busyStart
+        const tooCloseBeforeEvent = slotEndUTC > new Date(busyStart.getTime() - bufferMinutes * 60 * 1000) && slotEndUTC <= busyStart
+        const tooCloseAfterEvent = slotStartUTC < new Date(busyEnd.getTime() + bufferMinutes * 60 * 1000) && slotStartUTC >= busyEnd
+        
+        return slotOverlaps || tooCloseBeforeEvent || tooCloseAfterEvent
       })
       
       // Format time for display (e.g., "9:00 AM")

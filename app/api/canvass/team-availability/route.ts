@@ -213,15 +213,22 @@ export async function GET(request: NextRequest) {
         // Use this closer's buffer setting (default to 30 if not set)
         const closerBuffer = closer.buffer_minutes ?? 30
         
-        // Apply buffer to slot times for this closer
-        const bufferedStartUTC = new Date(slotStartUTC.getTime() - closerBuffer * 60 * 1000)
-        const bufferedEndUTC = new Date(slotEndUTC.getTime() + closerBuffer * 60 * 1000)
-        
-        // Compare UTC times (busy slots from Google are in UTC)
+        // Check for conflicts with buffer
+        // Buffer ensures there's X minutes gap between this slot and any busy period
+        // We only need buffer AFTER the slot (before the next event), not before the slot
         const hasConflict = busySlots.some(busy => {
           const busyStart = new Date(busy.start)
           const busyEnd = new Date(busy.end)
-          return bufferedStartUTC < busyEnd && bufferedEndUTC > busyStart
+          
+          // Slot would conflict if:
+          // 1. Slot overlaps with busy period directly
+          // 2. Slot ends within buffer time before busy period starts
+          // 3. Slot starts within buffer time after busy period ends
+          const slotOverlaps = slotStartUTC < busyEnd && slotEndUTC > busyStart
+          const tooCloseBeforeEvent = slotEndUTC > new Date(busyStart.getTime() - closerBuffer * 60 * 1000) && slotEndUTC <= busyStart
+          const tooCloseAfterEvent = slotStartUTC < new Date(busyEnd.getTime() + closerBuffer * 60 * 1000) && slotStartUTC >= busyEnd
+          
+          return slotOverlaps || tooCloseBeforeEvent || tooCloseAfterEvent
         })
         
         if (!hasConflict) {
