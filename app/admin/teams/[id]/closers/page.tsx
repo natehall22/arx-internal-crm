@@ -30,29 +30,55 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
   const loadData = async () => {
     const supabase = createClientBrowser()
 
-    // Load team
+    // Load team - use maybeSingle to avoid 406 error when RLS blocks
     const { data: teamData, error: teamError } = await supabase
       .from('teams')
       .select('*')
       .eq('id', teamId)
-      .single()
+      .maybeSingle()
 
     console.log('Closer queue - Team query result:', { teamData, teamError, teamId })
 
-    if (teamError || !teamData) {
-      console.error('Closer queue - Team not found:', teamError)
-      setError(`Team not found: ${teamError?.message || 'Unknown error'}`)
+    if (teamError) {
+      console.error('Closer queue - Team query error:', teamError)
+      setError(`Failed to load team: ${teamError.message}`)
+      setLoading(false)
+      return
+    }
+    
+    if (!teamData) {
+      console.error('Closer queue - Team not found or access denied')
+      // Try fetching via API to bypass RLS
+      try {
+        const response = await fetch(`/api/admin/data?resource=teams`)
+        if (response.ok) {
+          const data = await response.json()
+          const team = data.teams?.find((t: any) => t.id === teamId)
+          if (team) {
+            setTeam(team)
+            // Continue loading queue data
+            await loadQueueData(supabase, teamId)
+            return
+          }
+        }
+      } catch (e) {
+        console.error('Closer queue - API fallback failed:', e)
+      }
+      setError('Team not found or you do not have access')
       setLoading(false)
       return
     }
 
     setTeam(teamData)
-
+    await loadQueueData(supabase, teamId)
+  }
+  
+  const loadQueueData = async (supabase: any, teamIdToLoad: string) => {
     // Load closer queue for this team
     const { data: queueData } = await supabase
       .from('team_closer_queue')
       .select('*, users(*)')
-      .eq('team_id', teamId)
+      .eq('team_id', teamIdToLoad)
       .order('priority')
 
     const closersWithQueue: CloserWithQueue[] = (queueData || []).map((q: any) => ({
