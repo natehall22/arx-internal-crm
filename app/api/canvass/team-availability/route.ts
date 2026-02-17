@@ -81,8 +81,8 @@ export async function GET(request: NextRequest) {
 
     console.log(`Team availability: Query for team ${teamId}`, { queueError, queueClosersCount: queueClosers?.length })
     console.log(`Team availability: Queue closers:`, queueClosers?.map((c: any) => ({ 
-      user_id: c.user_id, 
       name: c.user?.full_name, 
+      buffer: c.buffer_minutes,
       active: c.active 
     })))
 
