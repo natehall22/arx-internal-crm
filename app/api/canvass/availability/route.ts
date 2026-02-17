@@ -119,13 +119,25 @@ export async function GET(request: NextRequest) {
       .eq('user_id', closerId)
       .single()
 
+    // Also check if this closer is in any team queue (to get their buffer settings from there)
+    const { data: queueEntry } = await adminClient
+      .from('team_closer_queue')
+      .select('buffer_before, buffer_after, buffer_minutes')
+      .eq('user_id', closerId)
+      .eq('active', true)
+      .limit(1)
+      .single()
+
     // Default working hours: 8 AM - 6 PM
     let workingHoursStart = settings?.working_hours_start || '08:00'
     let workingHoursEnd = settings?.working_hours_end || '18:00'
     
-    // Use separate before/after buffers, fall back to old single buffer for backwards compatibility
-    const bufferBefore = settings?.appointment_buffer_before ?? 0
-    const bufferAfter = settings?.appointment_buffer_after ?? settings?.appointment_buffer_minutes ?? 15
+    // Use buffer settings from team queue if available, otherwise fall back to user_settings
+    // Priority: team_closer_queue > user_settings > defaults
+    const bufferBefore = queueEntry?.buffer_before ?? settings?.appointment_buffer_before ?? 0
+    const bufferAfter = queueEntry?.buffer_after ?? settings?.appointment_buffer_after ?? settings?.appointment_buffer_minutes ?? 15
+    
+    console.log(`Availability: Buffer settings - before=${bufferBefore}, after=${bufferAfter} (from queue: ${!!queueEntry})`)
 
     console.log(`Availability: Raw settings:`, settings)
     console.log(`Availability: Working hours from DB: start=${workingHoursStart} (type: ${typeof workingHoursStart}), end=${workingHoursEnd} (type: ${typeof workingHoursEnd})`)
