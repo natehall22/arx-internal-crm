@@ -85,7 +85,10 @@ export default function CrewsPage() {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager', 'operations', 'manager'].includes(profile.role)) {
+    // Allow any admin-level role to access crews management
+    const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
+    if (!profile || !adminRoles.includes(profile.role)) {
+      console.log('Crews page access denied. User role:', profile?.role)
       router.push('/dashboard')
       return
     }
@@ -103,9 +106,14 @@ export default function CrewsPage() {
         .from('users')
         .select('id, full_name, role')
         .eq('org_id', profile.org_id)
-        .eq('active', true)
         .order('full_name'),
     ])
+
+    // Handle case where crews table doesn't exist yet
+    if (crewsRes.error) {
+      console.error('Error loading crews:', crewsRes.error)
+      // Still show the page, just with empty crews
+    }
 
     setCrews(crewsRes.data || [])
     setUsers(usersRes.data || [])

@@ -77,7 +77,10 @@ export default function SubContractorsPage() {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager', 'manager', 'operations'].includes(profile.role)) {
+    // Allow any admin-level role to access subs management
+    const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
+    if (!profile || !adminRoles.includes(profile.role)) {
+      console.log('Subs page access denied. User role:', profile?.role)
       router.push('/dashboard')
       return
     }
