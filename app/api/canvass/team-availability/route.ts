@@ -129,11 +129,28 @@ export async function GET(request: NextRequest) {
     const workingHoursEnd = '18:00'
     const bufferMinutes = 30
 
-    // Create day bounds
-    const dayStartStr = `${dateStr}T${workingHoursStart}:00`
-    const dayEndStr = `${dateStr}T${workingHoursEnd}:00`
-    const dayStart = new Date(dayStartStr)
-    const dayEnd = new Date(dayEndStr)
+    // Parse date parts manually
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const [startHour, startMin] = workingHoursStart.split(':').map(Number)
+    const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
+    
+    // Create dates using local time components (server local time)
+    // These will be used to generate slot display times
+    const dayStart = new Date(year, month - 1, day, startHour, startMin, 0)
+    const dayEnd = new Date(year, month - 1, day, endHour, endMin, 0)
+    
+    // For Google Calendar API, we need to account for timezone offset
+    // Get the offset for the target timezone (e.g., America/New_York)
+    // For now, assume Eastern Time (-5 hours from UTC, or -4 during DST)
+    // TODO: Use proper timezone library for accurate conversion
+    const tzOffsetHours = -5 // Eastern Standard Time
+    
+    // Create UTC times for Google Calendar API query
+    const dayStartUTC = new Date(Date.UTC(year, month - 1, day, startHour - tzOffsetHours, startMin, 0))
+    const dayEndUTC = new Date(Date.UTC(year, month - 1, day, endHour - tzOffsetHours, endMin, 0))
+    
+    console.log(`Team availability: Date range - Local: ${dayStart.toISOString()} to ${dayEnd.toISOString()}`)
+    console.log(`Team availability: Date range - UTC for API: ${dayStartUTC.toISOString()} to ${dayEndUTC.toISOString()}`)
 
     // Get busy slots for ALL closers with calendars
     const allCloserBusySlots: Map<string, { start: string; end: string }[]> = new Map()
@@ -144,9 +161,10 @@ export async function GET(request: NextRequest) {
       
       if (accessToken) {
         try {
-          const busySlots = await getFreeBusy(accessToken, dayStart, dayEnd)
+          // Use UTC times for Google Calendar API
+          const busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
           allCloserBusySlots.set(closer.user_id, busySlots)
-          console.log(`Team availability: ${closer.user?.full_name} has ${busySlots.length} busy slots`)
+          console.log(`Team availability: ${closer.user?.full_name} has ${busySlots.length} busy slots:`, JSON.stringify(busySlots))
         } catch (error) {
           console.error(`Failed to get free/busy for ${closer.user?.full_name}:`, error)
           // Mark as fully busy if we can't check

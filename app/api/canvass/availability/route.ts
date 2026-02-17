@@ -158,12 +158,23 @@ export async function GET(request: NextRequest) {
     const [startHour, startMin] = workingHoursStart.split(':').map(Number)
     const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
     
-    // Create dates using local time components
+    // Create dates using local time components (for display/slot generation)
     const dayStart = new Date(year, month - 1, day, startHour, startMin, 0)
     const dayEnd = new Date(year, month - 1, day, endHour, endMin, 0)
     
+    // For Google Calendar API, we need to convert to UTC
+    // The timezone variable tells us what timezone the closer is in
+    // For now, assume Eastern Time (-5 hours from UTC, or -4 during DST)
+    // TODO: Use proper timezone library for accurate conversion based on 'timezone' variable
+    const tzOffsetHours = -5 // Eastern Standard Time
+    
+    // Create UTC times for Google Calendar API query
+    const dayStartUTC = new Date(Date.UTC(year, month - 1, day, startHour - tzOffsetHours, startMin, 0))
+    const dayEndUTC = new Date(Date.UTC(year, month - 1, day, endHour - tzOffsetHours, endMin, 0))
+    
     console.log(`Availability: Parsed - year=${year}, month=${month}, day=${day}, startHour=${startHour}, endHour=${endHour}`)
-    console.log(`Availability: Day start: ${dayStart.toISOString()}, Day end: ${dayEnd.toISOString()}`)
+    console.log(`Availability: Day start (local): ${dayStart.toISOString()}, Day end (local): ${dayEnd.toISOString()}`)
+    console.log(`Availability: Day start (UTC for API): ${dayStartUTC.toISOString()}, Day end (UTC for API): ${dayEndUTC.toISOString()}`)
     
     // Validate dates are valid
     if (isNaN(dayStart.getTime()) || isNaN(dayEnd.getTime())) {
@@ -182,7 +193,8 @@ export async function GET(request: NextRequest) {
       hasCalendar = true
       console.log(`Availability: Found calendar token for ${closerId}`)
       try {
-        busySlots = await getFreeBusy(accessToken, dayStart, dayEnd)
+        // Use UTC times for Google Calendar API
+        busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
         console.log(`Availability: ${closerId} has ${busySlots.length} busy slots:`, JSON.stringify(busySlots))
       } catch (error: any) {
         console.error('Failed to get free/busy:', error?.message || error)
