@@ -264,6 +264,12 @@ export async function GET(request: NextRequest) {
       currentSlot = new Date(currentSlot.getTime() + slotInterval)
     }
 
+    // Include debug info about buffers
+    const closerDebug = closersWithCalendars.map((c: any) => ({
+      name: c.user?.full_name,
+      buffer: c.buffer_minutes
+    }))
+
     return NextResponse.json({
       slots,
       hasCalendar: true,
@@ -273,6 +279,7 @@ export async function GET(request: NextRequest) {
         end: workingHoursEnd,
       },
       closersInQueue: closersWithCalendars.length,
+      debug: { closers: closerDebug }
     })
 
   } catch (error) {
