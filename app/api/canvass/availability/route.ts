@@ -252,7 +252,7 @@ export async function GET(request: NextRequest) {
       currentSlot = new Date(currentSlot.getTime() + slotInterval)
     }
 
-    console.log(`Availability: Generated ${slots.length} available slots, skipped ${skippedPast} past slots out of ${totalSlots} total`)
+    console.log(`Availability: Generated ${slots.length} available slots, skipped ${skippedPast} past slots out of ${totalSlots} total. hasCalendar=${hasCalendar}, busySlots=${busySlots.length}, closerId=${closerId}`)
 
     return NextResponse.json({
       slots,
@@ -262,6 +262,10 @@ export async function GET(request: NextRequest) {
         start: workingHoursStart,
         end: workingHoursEnd,
       },
+      debug: {
+        busySlotsCount: busySlots.length,
+        busySlots: busySlots,
+      }
     })
 
   } catch (error) {
