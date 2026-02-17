@@ -113,12 +113,32 @@ export async function GET(request: NextRequest) {
       .single()
 
     // Default working hours: 8 AM - 6 PM
-    const workingHoursStart = settings?.working_hours_start || '08:00'
-    const workingHoursEnd = settings?.working_hours_end || '18:00'
+    let workingHoursStart = settings?.working_hours_start || '08:00'
+    let workingHoursEnd = settings?.working_hours_end || '18:00'
     const bufferMinutes = settings?.appointment_buffer_minutes || 30
 
+    console.log(`Availability: Raw settings:`, settings)
+    console.log(`Availability: Working hours from DB: start=${workingHoursStart} (type: ${typeof workingHoursStart}), end=${workingHoursEnd} (type: ${typeof workingHoursEnd})`)
+
+    // Normalize working hours to HH:MM format
+    // Handle various formats: "08:00", "8:00", "08:00:00", etc.
+    const normalizeTime = (time: string): string => {
+      if (!time || typeof time !== 'string') return '08:00'
+      // Remove seconds if present
+      const parts = time.split(':')
+      if (parts.length >= 2) {
+        const hour = parts[0].padStart(2, '0')
+        const min = parts[1].padStart(2, '0')
+        return `${hour}:${min}`
+      }
+      return '08:00'
+    }
+    
+    workingHoursStart = normalizeTime(workingHoursStart)
+    workingHoursEnd = normalizeTime(workingHoursEnd)
+
     // Parse the date - we'll work in the closer's timezone
-    console.log(`Availability: Parsing date ${dateStr} with working hours ${workingHoursStart} - ${workingHoursEnd}`)
+    console.log(`Availability: Parsing date ${dateStr} with normalized working hours ${workingHoursStart} - ${workingHoursEnd}`)
     
     // Validate date format (YYYY-MM-DD)
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
@@ -126,16 +146,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid date format', slots: [], hasCalendar: false }, { status: 400 })
     }
     
-    // Create ISO strings with the timezone offset for the closer's timezone
-    // Format: YYYY-MM-DDTHH:MM:SS (local time in closer's timezone)
-    const dayStartStr = `${dateStr}T${workingHoursStart}:00`
-    const dayEndStr = `${dateStr}T${workingHoursEnd}:00`
+    // Parse date parts manually to avoid timezone issues
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const [startHour, startMin] = workingHoursStart.split(':').map(Number)
+    const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
     
-    console.log(`Availability: Day start string: ${dayStartStr}, Day end string: ${dayEndStr}`)
+    // Create dates using local time components
+    const dayStart = new Date(year, month - 1, day, startHour, startMin, 0)
+    const dayEnd = new Date(year, month - 1, day, endHour, endMin, 0)
     
-    // For Google Calendar API, we need to convert to actual Date objects
-    const dayStart = new Date(dayStartStr)
-    const dayEnd = new Date(dayEndStr)
+    console.log(`Availability: Parsed - year=${year}, month=${month}, day=${day}, startHour=${startHour}, endHour=${endHour}`)
+    console.log(`Availability: Day start: ${dayStart.toISOString()}, Day end: ${dayEnd.toISOString()}`)
     
     // Validate dates are valid
     if (isNaN(dayStart.getTime()) || isNaN(dayEnd.getTime())) {
