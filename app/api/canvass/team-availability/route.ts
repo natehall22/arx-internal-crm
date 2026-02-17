@@ -213,6 +213,11 @@ export async function GET(request: NextRequest) {
         // Use this closer's buffer setting (default to 30 if not set)
         const closerBuffer = closer.buffer_minutes ?? 30
         
+        // Log first slot only to avoid spam
+        if (currentSlot.getTime() === dayStart.getTime() + slotInterval) {
+          console.log(`Team availability: ${closer.user?.full_name} buffer_minutes=${closerBuffer}, busy slots:`, busySlots.length)
+        }
+        
         // Check for conflicts with buffer
         // Buffer ensures there's X minutes gap between this slot and any busy period
         // We only need buffer AFTER the slot (before the next event), not before the slot
