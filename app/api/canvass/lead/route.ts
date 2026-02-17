@@ -274,10 +274,19 @@ export async function POST(request: Request) {
 
     const leadId = String(body.lead_id || '')
     let closerUserId = body.closer_user_id ? String(body.closer_user_id) : null
+    let teamIdForRoundRobin: string | null = null
+    
+    // Check if closer_user_id is actually a team selection (format: "team:uuid")
+    if (closerUserId && closerUserId.startsWith('team:')) {
+      teamIdForRoundRobin = closerUserId.replace('team:', '')
+      closerUserId = null // Will be assigned via round-robin
+    }
+    
     const scheduleInspection = Boolean(body.schedule_inspection)
     const inspectionScheduledFor = body.inspection_scheduled_for
       ? new Date(body.inspection_scheduled_for).toISOString()
       : null
+    // Use round-robin if team was selected OR if no closer was specified
     const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
 
     // Get default inspection duration from appointment_types
@@ -389,8 +398,8 @@ export async function POST(request: Request) {
       if (supabaseUrl && supabaseServiceKey) {
         const serviceClient = createServiceClient(supabaseUrl, supabaseServiceKey)
         
-        // Get user's team or default team
-        const teamId = profile.team_id || await getDefaultTeam(serviceClient, profile.org_id)
+        // Use explicitly selected team, or fall back to user's team or default team
+        const teamId = teamIdForRoundRobin || profile.team_id || await getDefaultTeam(serviceClient, profile.org_id)
 
         if (teamId) {
           const assignment = await assignNextAvailableCloser(

@@ -70,16 +70,24 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
 
     setClosers(closersWithQueue)
 
-    // Load available users (sales reps not in queue)
+    // Load available users (users who can receive appointments and not already in queue)
     const queueUserIds = closersWithQueue.map(c => c.id)
     const { data: usersData } = await supabase
       .from('users')
-      .select('*')
-      .in('role', ['sales_rep', 'sales_manager'])
+      .select('*, can_receive_appointments')
       .eq('active', true)
       .order('full_name')
 
-    const available = (usersData || []).filter(u => !queueUserIds.includes(u.id))
+    // Filter to users who can receive appointments:
+    // - Users with can_receive_appointments = true (explicitly enabled)
+    // - Users with can_receive_appointments = null AND sales roles (default behavior)
+    const appointmentEligibleRoles = ['sales_rep', 'rep', 'closer', 'sales_manager', 'regional_manager']
+    const available = (usersData || []).filter(u => {
+      if (queueUserIds.includes(u.id)) return false
+      if (u.can_receive_appointments === false) return false
+      if (u.can_receive_appointments === true) return true
+      return appointmentEligibleRoles.includes(u.role)
+    })
     setAvailableUsers(available)
 
     setLoading(false)

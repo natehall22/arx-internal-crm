@@ -556,6 +556,11 @@ ALTER TABLE proposal_line_items ADD COLUMN IF NOT EXISTS show_to_customer BOOLEA
 -- Defaults to true so existing users appear in reports
 ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_reports BOOLEAN DEFAULT true;
 
+-- Add can_receive_appointments column to users for controlling who can receive scheduled appointments
+-- Defaults to NULL which means "use role-based default" (sales roles can, admin/operations cannot)
+-- Set to true to explicitly allow, false to explicitly disallow
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_receive_appointments BOOLEAN DEFAULT NULL;
+
 -- ============================================
 -- 21b. USERS - HIERARCHY COLUMNS
 -- ============================================

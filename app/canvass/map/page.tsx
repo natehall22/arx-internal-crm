@@ -112,9 +112,12 @@ const clearSyncedPins = async (): Promise<void> => {
   })
 }
 
+type TeamOption = { id: string; name: string }
+
 export default function CanvassMapPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [closers, setClosers] = useState<UserOption[]>([])
+  const [teams, setTeams] = useState<TeamOption[]>([])
   const [currentUserRole, setCurrentUserRole] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [dispositionOptions, setDispositionOptions] = useState(defaultDispositionOptions)
@@ -365,6 +368,7 @@ export default function CanvassMapPage() {
       setCurrentUserRole(data.currentUserRole || '')
       setLeads(data.leads || [])
       setClosers((data.users || []) as UserOption[])
+      setTeams((data.teams || []) as TeamOption[])
       
       // Load org disposition settings
       if (data.orgSettings?.canvass_dispositions) {
@@ -1382,15 +1386,26 @@ export default function CanvassMapPage() {
                           onChange={(e) => setFormState((prev) => ({ ...prev, closer_user_id: e.target.value }))}
                         >
                           <option value="">1. Select closer / sales rep</option>
-                          {closers.map((closer) => (
-                            <option key={closer.id} value={closer.id}>
-                              {closer.full_name || 'Unknown'} ({closer.role}){!closer.has_calendar ? ' ⚠️' : ''}
-                            </option>
-                          ))}
+                          {teams.length > 0 && (
+                            <optgroup label="Team Round-Robin">
+                              {teams.map((team) => (
+                                <option key={`team-${team.id}`} value={`team:${team.id}`}>
+                                  🔄 {team.name} (Auto-assign)
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          <optgroup label="Individual Users">
+                            {closers.map((closer) => (
+                              <option key={closer.id} value={closer.id}>
+                                {closer.full_name || 'Unknown'} ({closer.role}){!closer.has_calendar ? ' ⚠️' : ''}
+                              </option>
+                            ))}
+                          </optgroup>
                         </select>
                         
-                        {/* Calendar warning */}
-                        {formState.closer_user_id && (() => {
+                        {/* Calendar warning - only show for individual users, not teams */}
+                        {formState.closer_user_id && !formState.closer_user_id.startsWith('team:') && (() => {
                           const selectedCloser = closers.find(c => c.id === formState.closer_user_id)
                           if (selectedCloser && !selectedCloser.has_calendar) {
                             return (
@@ -1406,6 +1421,16 @@ export default function CanvassMapPage() {
                           }
                           return null
                         })()}
+                        
+                        {/* Team round-robin info */}
+                        {formState.closer_user_id && formState.closer_user_id.startsWith('team:') && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                            <p className="text-blue-800 font-medium">🔄 Round-Robin Assignment</p>
+                            <p className="text-blue-700 text-xs mt-1">
+                              The system will automatically assign the next available closer from this team based on their calendar availability and queue position.
+                            </p>
+                          </div>
+                        )}
 
                         {/* Step 2: Select Date */}
                         {formState.closer_user_id && (
@@ -1657,15 +1682,26 @@ export default function CanvassMapPage() {
                             onChange={(e) => setFormState((prev) => ({ ...prev, closer_user_id: e.target.value }))}
                           >
                             <option value="">1. Select closer / sales rep</option>
-                            {closers.map((closer) => (
-                              <option key={closer.id} value={closer.id}>
-                                {closer.full_name || 'Unknown'} ({closer.role}){!closer.has_calendar ? ' ⚠️' : ''}
-                              </option>
-                            ))}
+                            {teams.length > 0 && (
+                              <optgroup label="Team Round-Robin">
+                                {teams.map((team) => (
+                                  <option key={`team-${team.id}`} value={`team:${team.id}`}>
+                                    🔄 {team.name} (Auto-assign)
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            <optgroup label="Individual Users">
+                              {closers.map((closer) => (
+                                <option key={closer.id} value={closer.id}>
+                                  {closer.full_name || 'Unknown'} ({closer.role}){!closer.has_calendar ? ' ⚠️' : ''}
+                                </option>
+                              ))}
+                            </optgroup>
                           </select>
                           
-                          {/* Calendar warning */}
-                          {formState.closer_user_id && (() => {
+                          {/* Calendar warning - only show for individual users, not teams */}
+                          {formState.closer_user_id && !formState.closer_user_id.startsWith('team:') && (() => {
                             const selectedCloser = closers.find(c => c.id === formState.closer_user_id)
                             if (selectedCloser && !selectedCloser.has_calendar) {
                               return (
@@ -1681,6 +1717,16 @@ export default function CanvassMapPage() {
                             }
                             return null
                           })()}
+                          
+                          {/* Team round-robin info */}
+                          {formState.closer_user_id && formState.closer_user_id.startsWith('team:') && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                              <p className="text-blue-800 font-medium">🔄 Round-Robin Assignment</p>
+                              <p className="text-blue-700 text-xs mt-1">
+                                The system will automatically assign the next available closer from this team based on their calendar availability and queue position.
+                              </p>
+                            </div>
+                          )}
 
                           {/* Step 2: Select Date */}
                           {formState.closer_user_id && (

@@ -189,26 +189,47 @@ export async function GET(request: NextRequest) {
     
     console.log('Canvass data: returning', leads?.length || 0, 'leads, visibility:', visibility, 'filter:', visibleUserIds.length > 0 ? visibleUserIds : 'all')
 
-    // Get users for closer selection
+    // Get users for closer selection - only users who can receive appointments
+    // Filter to sales roles and users who have can_receive_appointments = true (or null for backwards compat)
     const { data: users } = await adminClient
       .from('users')
-      .select('id, full_name, role')
+      .select('id, full_name, role, can_receive_appointments')
       .eq('org_id', profile.org_id)
+      .eq('active', true)
       .order('full_name', { ascending: true })
+
+    // Filter to only users who can receive appointments
+    // Include sales roles by default, exclude admin/operations unless explicitly enabled
+    const appointmentEligibleRoles = ['sales_rep', 'rep', 'closer', 'sales_manager', 'regional_manager']
+    const filteredUsers = (users || []).filter(u => {
+      // If can_receive_appointments is explicitly set, use that
+      if (u.can_receive_appointments === false) return false
+      if (u.can_receive_appointments === true) return true
+      // Default: include sales roles, exclude admin/operations
+      return appointmentEligibleRoles.includes(u.role)
+    })
 
     // Check which users have Google Calendar connected
     const { data: calendarTokens } = await adminClient
       .from('user_google_tokens')
       .select('user_id')
     
-    const usersWithCalendarStatus = (users || []).map(user => ({
+    const usersWithCalendarStatus = filteredUsers.map(user => ({
       ...user,
       has_calendar: calendarTokens?.some(t => t.user_id === user.id) || false,
     }))
+    
+    // Get teams for round-robin option
+    const { data: teams } = await adminClient
+      .from('teams')
+      .select('id, name')
+      .eq('org_id', profile.org_id)
+      .order('name', { ascending: true })
 
     return NextResponse.json({
       leads: leads || [],
       users: usersWithCalendarStatus,
+      teams: teams || [],
       currentUserRole: profile.role,
       orgSettings: org?.settings || {},
       pinVisibility: visibility,

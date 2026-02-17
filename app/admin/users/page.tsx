@@ -82,6 +82,7 @@ export default function UsersPage() {
   const [formManagerId, setFormManagerId] = useState('')
   const [formCanvassVisibility, setFormCanvassVisibility] = useState<'own' | 'team' | 'region' | 'org'>('org')
   const [formShowInReports, setFormShowInReports] = useState(true)
+  const [formCanReceiveAppointments, setFormCanReceiveAppointments] = useState<boolean | null>(null)
   // Create user form fields
   const [createEmail, setCreateEmail] = useState('')
   const [createFullName, setCreateFullName] = useState('')
@@ -309,6 +310,7 @@ export default function UsersPage() {
     setFormManagerId(user.manager_user_id || '')
     setFormCanvassVisibility((user as any).canvass_pin_visibility || 'org')
     setFormShowInReports((user as any).show_in_reports !== false) // Default true if not set
+    setFormCanReceiveAppointments((user as any).can_receive_appointments ?? null)
     setError(null)
     await loadUserPermissions(user.id)
   }
@@ -332,6 +334,7 @@ export default function UsersPage() {
           manager_user_id: formManagerId || null,
           canvass_pin_visibility: formCanvassVisibility,
           show_in_reports: formShowInReports,
+          can_receive_appointments: formCanReceiveAppointments,
         }),
       })
 
@@ -1338,6 +1341,52 @@ export default function UsersPage() {
                       </div>
                     </div>
                   </label>
+
+                  {/* Can Receive Appointments Toggle */}
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Can Receive Appointments</label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="can_receive_appointments"
+                          checked={formCanReceiveAppointments === null}
+                          onChange={() => setFormCanReceiveAppointments(null)}
+                          className="w-4 h-4 text-indigo-600 border-gray-300"
+                        />
+                        <div>
+                          <span className="text-sm text-gray-700">Use Role Default</span>
+                          <p className="text-xs text-gray-500">Sales roles can receive, Admin/Operations cannot</p>
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="can_receive_appointments"
+                          checked={formCanReceiveAppointments === true}
+                          onChange={() => setFormCanReceiveAppointments(true)}
+                          className="w-4 h-4 text-indigo-600 border-gray-300"
+                        />
+                        <div>
+                          <span className="text-sm text-gray-700">Yes - Can Receive Appointments</span>
+                          <p className="text-xs text-gray-500">User appears in closer selection and round-robin</p>
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="can_receive_appointments"
+                          checked={formCanReceiveAppointments === false}
+                          onChange={() => setFormCanReceiveAppointments(false)}
+                          className="w-4 h-4 text-indigo-600 border-gray-300"
+                        />
+                        <div>
+                          <span className="text-sm text-gray-700">No - Cannot Receive Appointments</span>
+                          <p className="text-xs text-gray-500">User will not appear in closer selection</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Additional Permissions */}
