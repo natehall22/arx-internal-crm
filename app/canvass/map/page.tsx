@@ -404,7 +404,7 @@ export default function CanvassMapPage() {
 
     // Map ID enables vector maps with rotation/tilt gestures
     // Create one at: https://console.cloud.google.com/google/maps-apis/studio/maps
-    const googleMapId = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID
+    const googleMapId = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID || 'f9f9a6138b2fd7e46c477374'
     
     mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
       center: defaultCenter,
