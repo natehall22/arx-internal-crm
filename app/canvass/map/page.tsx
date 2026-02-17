@@ -417,7 +417,6 @@ export default function CanvassMapPage() {
       minZoom: 10,
       clickableIcons: false, // Disable POI clicks for faster rendering
       isFractionalZoomEnabled: false, // Disable fractional zoom for faster tile loading
-      renderingType: google.maps.RenderingType?.RASTER, // Use raster for faster mobile performance
     })
     setMapStatus('loaded')
     infoWindowRef.current = new window.google.maps.InfoWindow()
