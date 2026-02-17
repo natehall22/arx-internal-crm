@@ -179,43 +179,27 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
     setSaving(true)
     setError(null)
 
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Not authenticated')
-      setSaving(false)
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      setError('User profile not found')
-      setSaving(false)
-      return
-    }
-
-    const { error: insertError } = await supabase
-      .from('team_closer_queue')
-      .insert({
-        org_id: profile.org_id,
-        team_id: teamId,
-        user_id: selectedUserId,
-        priority: closers.length,
-        buffer_minutes: 60,
-        active: true,
+    try {
+      const response = await fetch('/api/admin/team-closer-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          team_id: teamId,
+          user_id: selectedUserId,
+          buffer_minutes: 60,
+        }),
       })
 
-    if (insertError) {
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to add closer')
+      } else {
+        setShowAddModal(false)
+        setSelectedUserId('')
+        await loadData()
+      }
+    } catch (e) {
       setError('Failed to add closer')
-    } else {
-      setShowAddModal(false)
-      setSelectedUserId('')
-      await loadData()
     }
     setSaving(false)
   }
@@ -224,45 +208,60 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
     if (!closer.queue) return
     if (!confirm(`Remove ${closer.full_name || 'this user'} from the closer queue?`)) return
 
-    const supabase = createClientBrowser()
-    const { error: deleteError } = await supabase
-      .from('team_closer_queue')
-      .delete()
-      .eq('id', closer.queue.id)
+    try {
+      const response = await fetch(`/api/admin/team-closer-queue?id=${closer.queue.id}`, {
+        method: 'DELETE',
+      })
 
-    if (deleteError) {
+      if (!response.ok) {
+        setError('Failed to remove closer')
+      } else {
+        await loadData()
+      }
+    } catch (e) {
       setError('Failed to remove closer')
-    } else {
-      await loadData()
     }
   }
 
   const handleToggleActive = async (closer: CloserWithQueue) => {
     if (!closer.queue) return
 
-    const supabase = createClientBrowser()
-    const { error: updateError } = await supabase
-      .from('team_closer_queue')
-      .update({ active: !closer.queue.active })
-      .eq('id', closer.queue.id)
+    try {
+      const response = await fetch('/api/admin/team-closer-queue', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: closer.queue.id,
+          active: !closer.queue.active,
+        }),
+      })
 
-    if (updateError) {
+      if (!response.ok) {
+        setError('Failed to update closer')
+      } else {
+        await loadData()
+      }
+    } catch (e) {
       setError('Failed to update closer')
-    } else {
-      await loadData()
     }
   }
 
   const handleUpdateBuffer = async (closer: CloserWithQueue, minutes: number) => {
     if (!closer.queue) return
 
-    const supabase = createClientBrowser()
-    await supabase
-      .from('team_closer_queue')
-      .update({ buffer_minutes: minutes })
-      .eq('id', closer.queue.id)
-
-    await loadData()
+    try {
+      await fetch('/api/admin/team-closer-queue', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: closer.queue.id,
+          buffer_minutes: minutes,
+        }),
+      })
+      await loadData()
+    } catch (e) {
+      console.error('Failed to update buffer:', e)
+    }
   }
 
   if (loading) {
