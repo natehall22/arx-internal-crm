@@ -79,12 +79,9 @@ export async function GET(request: NextRequest) {
       .eq('active', true)
       .order('priority', { ascending: true })
 
-    console.log(`Team availability: Query for team ${teamId}`, { queueError, queueClosersCount: queueClosers?.length })
-    console.log(`Team availability: Queue closers:`, queueClosers?.map((c: any) => ({ 
-      name: c.user?.full_name, 
-      buffer: c.buffer_minutes,
-      active: c.active 
-    })))
+    // Log buffer values prominently
+    const closerBuffers = queueClosers?.map((c: any) => `${c.user?.full_name}:${c.buffer_minutes}min`).join(', ')
+    console.log(`BUFFER CHECK: ${closerBuffers}`)
 
     if (queueError || !queueClosers || queueClosers.length === 0) {
       console.log(`Team availability: No active closers found in queue for team ${teamId}`)
