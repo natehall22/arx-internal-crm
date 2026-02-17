@@ -111,7 +111,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
     // - Users with can_receive_appointments = true (explicitly enabled)
     // - Users with can_receive_appointments = null AND sales roles (default behavior)
     const appointmentEligibleRoles = ['sales_rep', 'rep', 'closer', 'sales_manager', 'regional_manager']
-    const available = (usersData || []).filter(u => {
+    const available = (usersData || []).filter((u: any) => {
       if (queueUserIds.includes(u.id)) return false
       if (u.can_receive_appointments === false) return false
       if (u.can_receive_appointments === true) return true
