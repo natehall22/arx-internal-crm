@@ -176,9 +176,9 @@ export async function GET(request: NextRequest) {
       console.log(`Availability: Found calendar token for ${closerId}`)
       try {
         busySlots = await getFreeBusy(accessToken, dayStart, dayEnd)
-        console.log(`Availability: ${closerId} has ${busySlots.length} busy slots`)
-      } catch (error) {
-        console.error('Failed to get free/busy:', error)
+        console.log(`Availability: ${closerId} has ${busySlots.length} busy slots:`, JSON.stringify(busySlots))
+      } catch (error: any) {
+        console.error('Failed to get free/busy:', error?.message || error)
       }
     } else {
       console.log(`Availability: No calendar token found for ${closerId}`)

@@ -146,6 +146,8 @@ export async function getFreeBusy(
   timeMax: Date,
   calendarId: string = 'primary'
 ): Promise<FreeBusySlot[]> {
+  console.log(`getFreeBusy: Checking ${calendarId} from ${timeMin.toISOString()} to ${timeMax.toISOString()}`)
+  
   const response = await fetch(`${GOOGLE_CALENDAR_API}/freeBusy`, {
     method: 'POST',
     headers: {
@@ -160,11 +162,18 @@ export async function getFreeBusy(
   })
 
   if (!response.ok) {
-    throw new Error('Failed to get free/busy info')
+    const errorText = await response.text()
+    console.error(`getFreeBusy: API error ${response.status}:`, errorText)
+    throw new Error(`Failed to get free/busy info: ${response.status}`)
   }
 
   const data = await response.json()
-  return data.calendars?.[calendarId]?.busy || []
+  console.log(`getFreeBusy: Full response:`, JSON.stringify(data))
+  
+  const busySlots = data.calendars?.[calendarId]?.busy || []
+  console.log(`getFreeBusy: Found ${busySlots.length} busy slots`)
+  
+  return busySlots
 }
 
 /**
