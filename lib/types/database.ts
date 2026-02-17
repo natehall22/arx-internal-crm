@@ -860,3 +860,112 @@ export interface WorkOrderStatusHistory {
   notes: string | null
   created_at: string
 }
+
+// ============================================
+// OPERATIONS / PRODUCTION TYPES
+// ============================================
+
+export type JobStatus = 
+  | 'sold'           // Contract signed, ready for ops
+  | 'materials'      // Materials being ordered
+  | 'scheduled'      // Install date set
+  | 'in_progress'    // Work in progress
+  | 'complete'       // Work done, pending collection
+  | 'collected'      // Payment collected
+  | 'on_hold'        // Paused for some reason
+
+export type CrewType = 'roofing' | 'siding' | 'gutters' | 'windows' | 'general'
+
+export interface Crew {
+  id: string
+  org_id: string
+  name: string
+  crew_type: CrewType
+  foreman_user_id: string | null
+  members: string[]  // Array of user IDs
+  color: string      // For calendar display
+  phone: string | null
+  daily_capacity: number  // Jobs per day
+  active: boolean
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductionJob {
+  id: string
+  org_id: string
+  project_id: string
+  customer_id: string | null
+  job_number: string
+  status: JobStatus
+  job_type: ProjectType
+  address_text: string
+  lat: number | null
+  lng: number | null
+  // Sales info
+  sale_amount: number | null
+  sale_date: string | null
+  salesperson_id: string | null
+  // Materials
+  materials_status: 'not_ordered' | 'ordered' | 'partial' | 'received'
+  materials_ordered_at: string | null
+  materials_eta: string | null
+  materials_notes: string | null
+  // Scheduling
+  scheduled_date: string | null
+  scheduled_time_start: string | null
+  scheduled_time_end: string | null
+  estimated_duration_hours: number | null
+  // Assignment
+  assigned_crew_id: string | null
+  assigned_sub_id: string | null
+  // Permits
+  permit_required: boolean
+  permit_status: 'not_needed' | 'pending' | 'approved' | 'denied'
+  permit_number: string | null
+  // Completion
+  started_at: string | null
+  completed_at: string | null
+  completion_notes: string | null
+  // Photos
+  before_photos: string[]
+  progress_photos: string[]
+  after_photos: string[]
+  // Financials
+  labor_cost: number | null
+  material_cost: number | null
+  // Meta
+  priority: 'normal' | 'high' | 'urgent'
+  internal_notes: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductionJobNote {
+  id: string
+  job_id: string
+  user_id: string
+  note: string
+  is_internal: boolean
+  created_at: string
+}
+
+export interface MaterialOrder {
+  id: string
+  org_id: string
+  job_id: string
+  supplier: string
+  order_number: string | null
+  items: { name: string; quantity: number; unit: string; cost: number | null }[]
+  status: 'pending' | 'ordered' | 'shipped' | 'delivered'
+  ordered_at: string | null
+  expected_delivery: string | null
+  delivered_at: string | null
+  total_cost: number | null
+  notes: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}

@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import ReferralsSection from '@/components/ReferralsSection'
+import SendToOpsButton from '@/components/SendToOpsButton'
 
 export default async function ProjectDetailPage({
   params,
@@ -56,6 +57,13 @@ export default async function ProjectDetailPage({
     .select('*, assigned_user:users!work_orders_assigned_user_id_fkey(full_name), assigned_sub:sub_contractors(company_name)')
     .eq('project_id', params.id)
     .order('created_at', { ascending: false })
+
+  // Check if production job exists for this project
+  const { data: productionJob } = await supabase
+    .from('production_jobs')
+    .select('id, job_number')
+    .eq('project_id', params.id)
+    .single()
 
   const updateOps = async (formData: FormData) => {
     'use server'
@@ -135,12 +143,21 @@ export default async function ProjectDetailPage({
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex justify-between items-start mb-4">
             <h1 className="text-2xl font-bold text-gray-900">Project Details</h1>
-            <Link
-              href={`/estimates/new?project_id=${project.id}`}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm"
-            >
-              Create Estimate
-            </Link>
+            <div className="flex items-center gap-3">
+              {['admin', 'regional_manager', 'operations', 'manager', 'sales_manager'].includes(profile.role) && (
+                <SendToOpsButton 
+                  projectId={project.id}
+                  existingJobId={productionJob?.id}
+                  existingJobNumber={productionJob?.job_number}
+                />
+              )}
+              <Link
+                href={`/estimates/new?project_id=${project.id}`}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm"
+              >
+                Create Estimate
+              </Link>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>

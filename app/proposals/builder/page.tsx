@@ -134,6 +134,8 @@ export default function ProposalBuilderPage() {
   const [tearOffOptions, setTearOffOptions] = useState<PricebookItem[]>([])
   const [selectedTearOff, setSelectedTearOff] = useState<PricebookItem | null>(null)
   const [wastePercent, setWastePercent] = useState<number>(10) // Default 10% waste
+  const [quantityModalItem, setQuantityModalItem] = useState<PricebookItem | null>(null)
+  const [quantityModalValue, setQuantityModalValue] = useState<number>(1)
 
   useEffect(() => {
     loadData()
@@ -356,7 +358,20 @@ export default function ProposalBuilderPage() {
     }
   }
 
+  // Check if an item needs quantity input (for "each", "sheet", "bundle" type items)
+  const needsQuantityInput = (unit: string): boolean => {
+    const unitLower = unit?.toLowerCase() || ''
+    return ['each', 'sheet', 'sheets', 'bundle', 'bundles', 'roll', 'rolls', 'piece', 'pieces', 'unit', 'units'].includes(unitLower)
+  }
+
   const addLineItem = (item: PricebookItem, quantity?: number) => {
+    // If this is an "each" type item and no quantity provided, show the quantity modal
+    if (needsQuantityInput(item.unit) && !quantity) {
+      setQuantityModalItem(item)
+      setQuantityModalValue(1)
+      return
+    }
+
     // If no quantity provided, calculate based on measurement data and unit type
     let calculatedQuantity = quantity || 1
     
@@ -378,6 +393,28 @@ export default function ProposalBuilderPage() {
       show_to_customer: item.show_to_customer ?? false,  // Pass through customer visibility setting
     }
     setLineItems(prev => [...prev, newItem])
+    setShowAddItem(false)
+  }
+
+  const confirmQuantityAndAdd = () => {
+    if (!quantityModalItem) return
+    
+    const newItem: LineItem = {
+      id: crypto.randomUUID(),
+      pricebook_item_id: quantityModalItem.id,
+      category: quantityModalItem.category,
+      name: quantityModalItem.name,
+      description: '',
+      unit: quantityModalItem.unit,
+      quantity: quantityModalValue,
+      unit_price: quantityModalItem.unit_price,
+      line_total: quantityModalItem.unit_price * quantityModalValue,
+      is_adder: quantityModalItem.is_adder,
+      show_to_customer: quantityModalItem.show_to_customer ?? false,
+    }
+    setLineItems(prev => [...prev, newItem])
+    setQuantityModalItem(null)
+    setQuantityModalValue(1)
     setShowAddItem(false)
   }
 
@@ -1219,19 +1256,50 @@ export default function ProposalBuilderPage() {
               {lineItems.filter(i => i.is_adder).length > 0 && (
                 <div className="mb-6 p-4 bg-green-50 rounded-xl border border-green-200">
                   <h3 className="font-medium text-green-800 mb-3">Selected Add-Ons</h3>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {lineItems.filter(i => i.is_adder).map((item) => (
-                      <div key={item.id} className="flex items-center justify-between">
-                        <span className="text-green-700">{item.name}</span>
+                      <div key={item.id} className="flex items-center justify-between p-3 bg-white rounded-lg">
+                        <div className="flex-1">
+                          <span className="text-green-700 font-medium">{item.name}</span>
+                          <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {getUnitLabel(item.unit)}</p>
+                        </div>
                         <div className="flex items-center gap-3">
-                          <span className="font-medium text-green-800">
+                          {/* Quantity controls for "each" type items */}
+                          {needsQuantityInput(item.unit) ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => updateLineItem(item.id, 'quantity', Math.max(1, item.quantity - 1))}
+                                className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600"
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => updateLineItem(item.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-16 px-2 py-1 border border-gray-300 rounded-lg text-center font-medium"
+                              />
+                              <button
+                                onClick={() => updateLineItem(item.id, 'quantity', item.quantity + 1)}
+                                className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600"
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-gray-500">{item.quantity} {getUnitLabel(item.unit)}</span>
+                          )}
+                          <span className="font-bold text-green-800 w-24 text-right">
                             ${(item.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </span>
                           <button
                             onClick={() => removeLineItem(item.id)}
-                            className="text-red-500 hover:text-red-700"
+                            className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
                           >
-                            ✕
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
                           </button>
                         </div>
                       </div>
@@ -1253,11 +1321,18 @@ export default function ProposalBuilderPage() {
                     >
                       <div>
                         <p className="font-medium text-gray-900">{adder.name}</p>
-                        <p className="text-sm text-gray-500">{adder.adder_category || adder.category}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-gray-500">{adder.adder_category || adder.category}</p>
+                          {needsQuantityInput(adder.unit) && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
+                              Qty required
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="text-right">
                         <p className="font-bold text-indigo-600">${(adder.unit_price || 0).toLocaleString()}</p>
-                        <p className="text-xs text-gray-400">per {adder.unit}</p>
+                        <p className="text-xs text-gray-400">per {getUnitLabel(adder.unit)}</p>
                       </div>
                     </button>
                   ))}
@@ -1609,6 +1684,101 @@ export default function ProposalBuilderPage() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Quantity Input Modal - for "each" type items */}
+        {quantityModalItem && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+              <div className="p-6 border-b">
+                <h2 className="text-xl font-bold text-gray-900">Enter Quantity</h2>
+                <p className="text-gray-500 text-sm mt-1">How many {getUnitLabel(quantityModalItem.unit)} do you need?</p>
+              </div>
+              <div className="p-6">
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-xl">
+                    <div>
+                      <p className="font-medium text-gray-900">{quantityModalItem.name}</p>
+                      <p className="text-sm text-gray-500">{quantityModalItem.category}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-indigo-600">${(quantityModalItem.unit_price || 0).toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">per {getUnitLabel(quantityModalItem.unit)}</p>
+                    </div>
+                  </div>
+
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Quantity ({getUnitLabel(quantityModalItem.unit)})
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setQuantityModalValue(Math.max(1, quantityModalValue - 1))}
+                      className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min="1"
+                      value={quantityModalValue}
+                      onChange={(e) => setQuantityModalValue(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold"
+                    />
+                    <button
+                      onClick={() => setQuantityModalValue(quantityModalValue + 1)}
+                      className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Quick quantity buttons */}
+                  <div className="flex gap-2 mt-3">
+                    {[1, 2, 4, 6, 8, 10, 12, 16, 20].map((qty) => (
+                      <button
+                        key={qty}
+                        onClick={() => setQuantityModalValue(qty)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                          quantityModalValue === qty
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {qty}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Line total preview */}
+                <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-700">Line Total</span>
+                    <span className="text-2xl font-bold text-indigo-600">
+                      ${(quantityModalItem.unit_price * quantityModalValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {quantityModalValue} × ${quantityModalItem.unit_price.toLocaleString()} per {getUnitLabel(quantityModalItem.unit)}
+                  </p>
+                </div>
+              </div>
+              <div className="p-6 border-t flex justify-end gap-3">
+                <button
+                  onClick={() => { setQuantityModalItem(null); setQuantityModalValue(1); }}
+                  className="px-4 py-2 border border-gray-300 rounded-xl hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmQuantityAndAdd}
+                  className="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700"
+                >
+                  Add to Proposal
+                </button>
               </div>
             </div>
           </div>

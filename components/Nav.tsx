@@ -111,7 +111,7 @@ export default function Nav() {
     { href: '/leads', label: 'Leads' },
     { href: '/opportunities', label: 'Opportunities' },
     { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
-    // Work Orders now lives under Projects
+    { href: '/ops', label: 'Operations', roles: ['admin', 'regional_manager', 'operations', 'manager'] },
     { href: '/canvass/map', label: 'Canvass' },
     { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations'], permission: 'pricebook:view' },
     { href: '/customers', label: 'Customers', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
