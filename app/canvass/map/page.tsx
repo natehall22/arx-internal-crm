@@ -412,6 +412,12 @@ export default function CanvassMapPage() {
       fullscreenControl: false,
       zoomControl: true,
       gestureHandling: 'greedy',
+      // Performance optimizations
+      maxZoom: 20,
+      minZoom: 10,
+      clickableIcons: false, // Disable POI clicks for faster rendering
+      isFractionalZoomEnabled: false, // Disable fractional zoom for faster tile loading
+      renderingType: google.maps.RenderingType?.RASTER, // Use raster for faster mobile performance
     })
     setMapStatus('loaded')
     infoWindowRef.current = new window.google.maps.InfoWindow()
@@ -997,16 +1003,26 @@ export default function CanvassMapPage() {
           
           // Pan and zoom to the selected location
           if (mapRef.current) {
-            // First set zoom, then pan for smoother transition
-            mapRef.current.setZoom(18)
-            mapRef.current.panTo({ lat, lng })
+            // Temporarily switch to roadmap for faster initial load, then switch back
+            const currentType = mapRef.current.getMapTypeId()
+            const useRoadmapFirst = currentType === 'satellite' || currentType === 'hybrid'
             
-            // Trigger resize to ensure tiles load properly
-            setTimeout(() => {
-              if (window.google?.maps?.event) {
-                window.google.maps.event.trigger(mapRef.current, 'resize')
-              }
-            }, 100)
+            if (useRoadmapFirst) {
+              mapRef.current.setMapTypeId('roadmap')
+            }
+            
+            // Set center directly (faster than panTo for large distances)
+            mapRef.current.setCenter({ lat, lng })
+            mapRef.current.setZoom(17)
+            
+            // Switch back to satellite/hybrid after a short delay for tile loading
+            if (useRoadmapFirst) {
+              setTimeout(() => {
+                if (mapRef.current) {
+                  mapRef.current.setMapTypeId(currentType)
+                }
+              }, 500)
+            }
             
             // Drop a temporary marker at the searched location
             // Remove any existing search marker first
