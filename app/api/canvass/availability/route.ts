@@ -148,11 +148,20 @@ export async function GET(request: NextRequest) {
     let currentSlot = new Date(dayStart)
     const now = new Date()
     
+    console.log(`Availability: Generating slots from ${dayStart.toISOString()} to ${dayEnd.toISOString()}`)
+    console.log(`Availability: Current time (now): ${now.toISOString()}`)
+    console.log(`Availability: Duration: ${durationMinutes} minutes`)
+    
+    let skippedPast = 0
+    let totalSlots = 0
+    
     while (currentSlot.getTime() + durationMinutes * 60 * 1000 <= dayEnd.getTime()) {
       const slotEnd = new Date(currentSlot.getTime() + durationMinutes * 60 * 1000)
+      totalSlots++
       
       // Skip slots in the past
       if (currentSlot <= now) {
+        skippedPast++
         currentSlot = new Date(currentSlot.getTime() + slotInterval)
         continue
       }
@@ -192,6 +201,8 @@ export async function GET(request: NextRequest) {
       
       currentSlot = new Date(currentSlot.getTime() + slotInterval)
     }
+
+    console.log(`Availability: Generated ${slots.length} available slots, skipped ${skippedPast} past slots out of ${totalSlots} total`)
 
     return NextResponse.json({
       slots,
