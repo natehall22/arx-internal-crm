@@ -54,8 +54,8 @@ export async function POST(request: NextRequest) {
     const adminClient = getAdminClient()
     
     const body = await request.json()
-    const { team_id, user_id, buffer_minutes = 60 } = body
-    console.log('Team closer queue POST - body:', { team_id, user_id, buffer_minutes })
+    const { team_id, user_id, buffer_minutes = 30, buffer_before = 0, buffer_after = 15 } = body
+    console.log('Team closer queue POST - body:', { team_id, user_id, buffer_before, buffer_after })
     
     if (!team_id || !user_id) {
       return NextResponse.json({ error: 'team_id and user_id are required' }, { status: 400 })
@@ -85,6 +85,8 @@ export async function POST(request: NextRequest) {
         user_id,
         priority: nextPriority,
         buffer_minutes,
+        buffer_before,
+        buffer_after,
         active: true,
       })
       .select()
@@ -140,7 +142,7 @@ export async function PUT(request: NextRequest) {
     const adminClient = getAdminClient()
     
     const body = await request.json()
-    const { id, active, buffer_minutes, priority } = body
+    const { id, active, buffer_minutes, buffer_before, buffer_after, priority } = body
     
     if (!id) {
       return NextResponse.json({ error: 'Queue entry id is required' }, { status: 400 })
@@ -149,6 +151,8 @@ export async function PUT(request: NextRequest) {
     const updateData: any = {}
     if (active !== undefined) updateData.active = active
     if (buffer_minutes !== undefined) updateData.buffer_minutes = buffer_minutes
+    if (buffer_before !== undefined) updateData.buffer_before = buffer_before
+    if (buffer_after !== undefined) updateData.buffer_after = buffer_after
     if (priority !== undefined) updateData.priority = priority
     
     const { error } = await adminClient

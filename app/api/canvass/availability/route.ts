@@ -115,14 +115,17 @@ export async function GET(request: NextRequest) {
     // Get closer's working hours from settings
     const { data: settings } = await adminClient
       .from('user_settings')
-      .select('working_hours_start, working_hours_end, appointment_buffer_minutes')
+      .select('working_hours_start, working_hours_end, appointment_buffer_minutes, appointment_buffer_before, appointment_buffer_after')
       .eq('user_id', closerId)
       .single()
 
     // Default working hours: 8 AM - 6 PM
     let workingHoursStart = settings?.working_hours_start || '08:00'
     let workingHoursEnd = settings?.working_hours_end || '18:00'
-    const bufferMinutes = settings?.appointment_buffer_minutes || 30
+    
+    // Use separate before/after buffers, fall back to old single buffer for backwards compatibility
+    const bufferBefore = settings?.appointment_buffer_before ?? 0
+    const bufferAfter = settings?.appointment_buffer_after ?? settings?.appointment_buffer_minutes ?? 15
 
     console.log(`Availability: Raw settings:`, settings)
     console.log(`Availability: Working hours from DB: start=${workingHoursStart} (type: ${typeof workingHoursStart}), end=${workingHoursEnd} (type: ${typeof workingHoursEnd})`)
@@ -237,19 +240,18 @@ export async function GET(request: NextRequest) {
       const slotStartUTC = new Date(currentSlot.getTime() + tzOffsetHours * 60 * 60 * 1000)
       const slotEndUTC = new Date(slotEnd.getTime() + tzOffsetHours * 60 * 60 * 1000)
       
-      // Check for conflicts with buffer
-      // Buffer ensures there's X minutes gap between this slot and any busy period
+      // Check for conflicts with separate before/after buffers
       const hasConflict = busySlots.some(busy => {
         const busyStart = new Date(busy.start)
         const busyEnd = new Date(busy.end)
         
         // Slot would conflict if:
         // 1. Slot overlaps with busy period directly
-        // 2. Slot ends within buffer time before busy period starts
-        // 3. Slot starts within buffer time after busy period ends
+        // 2. Slot ends within buffer_after time before busy period starts (need gap after this appt)
+        // 3. Slot starts within buffer_before time after busy period ends (need gap before this appt)
         const slotOverlaps = slotStartUTC < busyEnd && slotEndUTC > busyStart
-        const tooCloseBeforeEvent = slotEndUTC > new Date(busyStart.getTime() - bufferMinutes * 60 * 1000) && slotEndUTC <= busyStart
-        const tooCloseAfterEvent = slotStartUTC < new Date(busyEnd.getTime() + bufferMinutes * 60 * 1000) && slotStartUTC >= busyEnd
+        const tooCloseBeforeEvent = bufferAfter > 0 && slotEndUTC > new Date(busyStart.getTime() - bufferAfter * 60 * 1000) && slotEndUTC <= busyStart
+        const tooCloseAfterEvent = bufferBefore > 0 && slotStartUTC < new Date(busyEnd.getTime() + bufferBefore * 60 * 1000) && slotStartUTC >= busyEnd
         
         return slotOverlaps || tooCloseBeforeEvent || tooCloseAfterEvent
       })

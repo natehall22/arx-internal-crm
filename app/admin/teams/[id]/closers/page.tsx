@@ -91,6 +91,8 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
           user_id: q.user_id,
           priority: q.priority,
           buffer_minutes: q.buffer_minutes,
+          buffer_before: q.buffer_before ?? 0,
+          buffer_after: q.buffer_after ?? q.buffer_minutes ?? 15,
           active: q.active,
           last_assigned_at: q.last_assigned_at,
           created_at: q.created_at,
@@ -251,7 +253,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
     }
   }
 
-  const handleUpdateBuffer = async (closer: CloserWithQueue, minutes: number) => {
+  const handleUpdateBuffer = async (closer: CloserWithQueue, field: 'buffer_before' | 'buffer_after', minutes: number) => {
     if (!closer.queue) return
 
     try {
@@ -260,7 +262,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: closer.queue.id,
-          buffer_minutes: minutes,
+          [field]: minutes,
         }),
       })
       await loadData()
@@ -364,9 +366,10 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
             <div className="px-6 py-4 border-b bg-gray-50">
               <div className="grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase tracking-wide">
                 <div className="col-span-1">#</div>
-                <div className="col-span-4">Closer</div>
+                <div className="col-span-3">Closer</div>
                 <div className="col-span-2">Status</div>
-                <div className="col-span-3">Buffer Time</div>
+                <div className="col-span-2">Buffer Before</div>
+                <div className="col-span-2">Buffer After</div>
                 <div className="col-span-2">Actions</div>
               </div>
             </div>
@@ -388,14 +391,14 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
                         {index + 1}
                       </div>
                     </div>
-                    <div className="col-span-4">
+                    <div className="col-span-3">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-medium">
                           {closer.full_name?.charAt(0) || '?'}
                         </div>
                         <div>
                           <p className="font-medium text-gray-900">{closer.full_name || 'Unknown'}</p>
-                          <p className="text-sm text-gray-500">{closer.email}</p>
+                          <p className="text-sm text-gray-500 truncate max-w-[120px]">{closer.email}</p>
                         </div>
                       </div>
                     </div>
@@ -411,13 +414,25 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
                         {closer.queue?.active ? 'Active' : 'Paused'}
                       </button>
                     </div>
-                    <div className="col-span-3">
+                    <div className="col-span-2">
                       <select
-                        value={closer.queue?.buffer_minutes ?? 30}
-                        onChange={(e) => handleUpdateBuffer(closer, parseInt(e.target.value))}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                        value={closer.queue?.buffer_before ?? 0}
+                        onChange={(e) => handleUpdateBuffer(closer, 'buffer_before', parseInt(e.target.value))}
+                        className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white"
                       >
-                        <option value={0}>No buffer</option>
+                        <option value={0}>None</option>
+                        <option value={15}>15 min</option>
+                        <option value={30}>30 min</option>
+                        <option value={45}>45 min</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <select
+                        value={closer.queue?.buffer_after ?? 15}
+                        onChange={(e) => handleUpdateBuffer(closer, 'buffer_after', parseInt(e.target.value))}
+                        className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                      >
+                        <option value={0}>None</option>
                         <option value={15}>15 min</option>
                         <option value={30}>30 min</option>
                         <option value={45}>45 min</option>

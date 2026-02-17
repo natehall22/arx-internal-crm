@@ -722,5 +722,51 @@ CREATE POLICY "Admins can manage commissions" ON commissions
     org_id IN (SELECT org_id FROM users WHERE id = auth.uid() AND role = 'admin')
   );
 
+-- ============================================
+-- ADD BUFFER BEFORE/AFTER COLUMNS TO TEAM CLOSER QUEUE
+-- ============================================
+
+-- Add buffer_before column (minutes before appointment)
+DO $$
+BEGIN
+  ALTER TABLE team_closer_queue ADD COLUMN IF NOT EXISTS buffer_before INTEGER NOT NULL DEFAULT 0;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+-- Add buffer_after column (minutes after appointment)
+DO $$
+BEGIN
+  ALTER TABLE team_closer_queue ADD COLUMN IF NOT EXISTS buffer_after INTEGER NOT NULL DEFAULT 15;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+-- Migrate existing buffer_minutes to buffer_after (if buffer_minutes exists and buffer_after is default)
+-- This preserves existing settings
+DO $$
+BEGIN
+  UPDATE team_closer_queue 
+  SET buffer_after = buffer_minutes 
+  WHERE buffer_minutes IS NOT NULL AND buffer_minutes != 60;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+-- ============================================
+-- ADD BUFFER BEFORE/AFTER COLUMNS TO USER SETTINGS
+-- ============================================
+
+-- Add buffer_before column to user_settings
+DO $$
+BEGIN
+  ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS appointment_buffer_before INTEGER DEFAULT 0;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+-- Add buffer_after column to user_settings
+DO $$
+BEGIN
+  ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS appointment_buffer_after INTEGER DEFAULT 15;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
 -- Done!
 SELECT 'Migration completed successfully!' as status;

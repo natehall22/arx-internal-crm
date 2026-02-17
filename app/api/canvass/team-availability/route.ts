@@ -207,28 +207,22 @@ export async function GET(request: NextRequest) {
       for (const closer of closersWithCalendars) {
         const busySlots = allCloserBusySlots.get(closer.user_id) || []
         
-        // Use this closer's buffer setting (default to 30 if not set)
-        const closerBuffer = closer.buffer_minutes ?? 30
+        // Use separate before/after buffers (fall back to buffer_minutes for backwards compatibility)
+        const bufferBefore = closer.buffer_before ?? 0
+        const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? 15
         
-        // Log first slot only to avoid spam
-        if (currentSlot.getTime() === dayStart.getTime() + slotInterval) {
-          console.log(`Team availability: ${closer.user?.full_name} buffer_minutes=${closerBuffer}, busy slots:`, busySlots.length)
-        }
-        
-        // Check for conflicts with buffer
-        // Buffer ensures there's X minutes gap between this slot and any busy period
-        // We only need buffer AFTER the slot (before the next event), not before the slot
+        // Check for conflicts with separate before/after buffers
         const hasConflict = busySlots.some(busy => {
           const busyStart = new Date(busy.start)
           const busyEnd = new Date(busy.end)
           
           // Slot would conflict if:
           // 1. Slot overlaps with busy period directly
-          // 2. Slot ends within buffer time before busy period starts
-          // 3. Slot starts within buffer time after busy period ends
+          // 2. Slot ends within buffer_after time before busy period starts (need gap after this appt)
+          // 3. Slot starts within buffer_before time after busy period ends (need gap before this appt)
           const slotOverlaps = slotStartUTC < busyEnd && slotEndUTC > busyStart
-          const tooCloseBeforeEvent = slotEndUTC > new Date(busyStart.getTime() - closerBuffer * 60 * 1000) && slotEndUTC <= busyStart
-          const tooCloseAfterEvent = slotStartUTC < new Date(busyEnd.getTime() + closerBuffer * 60 * 1000) && slotStartUTC >= busyEnd
+          const tooCloseBeforeEvent = bufferAfter > 0 && slotEndUTC > new Date(busyStart.getTime() - bufferAfter * 60 * 1000) && slotEndUTC <= busyStart
+          const tooCloseAfterEvent = bufferBefore > 0 && slotStartUTC < new Date(busyEnd.getTime() + bufferBefore * 60 * 1000) && slotStartUTC >= busyEnd
           
           return slotOverlaps || tooCloseBeforeEvent || tooCloseAfterEvent
         })
@@ -267,7 +261,8 @@ export async function GET(request: NextRequest) {
     // Include debug info about buffers
     const closerDebug = closersWithCalendars.map((c: any) => ({
       name: c.user?.full_name,
-      buffer: c.buffer_minutes
+      buffer_before: c.buffer_before ?? 0,
+      buffer_after: c.buffer_after ?? c.buffer_minutes ?? 15
     }))
 
     return NextResponse.json({
