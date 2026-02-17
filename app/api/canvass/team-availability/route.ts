@@ -79,7 +79,15 @@ export async function GET(request: NextRequest) {
       .eq('active', true)
       .order('priority', { ascending: true })
 
+    console.log(`Team availability: Query for team ${teamId}`, { queueError, queueClosersCount: queueClosers?.length })
+    console.log(`Team availability: Queue closers:`, queueClosers?.map((c: any) => ({ 
+      user_id: c.user_id, 
+      name: c.user?.full_name, 
+      active: c.active 
+    })))
+
     if (queueError || !queueClosers || queueClosers.length === 0) {
+      console.log(`Team availability: No active closers found in queue for team ${teamId}`)
       return NextResponse.json({ 
         error: 'No active closers in team queue',
         slots: [],
@@ -95,12 +103,16 @@ export async function GET(request: NextRequest) {
       .select('*')
       .in('user_id', closerUserIds)
 
+    console.log(`Team availability: Found ${tokens?.length || 0} Google tokens for ${closerUserIds.length} closers`)
+    console.log(`Team availability: Token user IDs:`, tokens?.map(t => t.user_id))
+
     // Filter to only closers with calendars
     const closersWithCalendars = queueClosers.filter((c: any) => 
       tokens?.some(t => t.user_id === c.user_id)
     )
 
     if (closersWithCalendars.length === 0) {
+      console.log(`Team availability: No closers have Google Calendar connected`)
       return NextResponse.json({ 
         error: 'No closers in queue have Google Calendar connected',
         slots: [],
@@ -109,7 +121,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log(`Team availability: ${closersWithCalendars.length} closers with calendars in team ${teamId}`)
+    console.log(`Team availability: ${closersWithCalendars.length} closers with calendars:`, 
+      closersWithCalendars.map((c: any) => c.user?.full_name))
 
     // Default working hours: 8 AM - 6 PM
     const workingHoursStart = '08:00'

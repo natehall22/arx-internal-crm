@@ -122,6 +122,7 @@ export async function GET(request: NextRequest) {
     const dayEnd = new Date(dayEndStr)
 
     // Get access token for closer
+    console.log(`Availability check for closer ${closerId} on ${dateStr}`)
     const accessToken = await getValidAccessToken(adminClient, closerId)
     
     let busySlots: { start: string; end: string }[] = []
@@ -129,11 +130,15 @@ export async function GET(request: NextRequest) {
 
     if (accessToken) {
       hasCalendar = true
+      console.log(`Availability: Found calendar token for ${closerId}`)
       try {
         busySlots = await getFreeBusy(accessToken, dayStart, dayEnd)
+        console.log(`Availability: ${closerId} has ${busySlots.length} busy slots`)
       } catch (error) {
         console.error('Failed to get free/busy:', error)
       }
+    } else {
+      console.log(`Availability: No calendar token found for ${closerId}`)
     }
 
     // Generate 15-minute time slots

@@ -201,6 +201,15 @@ export async function GET(request: NextRequest) {
     // Filter to only users who can receive appointments
     // Include sales roles by default, exclude admin/operations unless explicitly enabled
     const appointmentEligibleRoles = ['sales_rep', 'rep', 'closer', 'sales_manager', 'regional_manager']
+    
+    // Debug logging
+    console.log('All users before filtering:', users?.map(u => ({ 
+      name: u.full_name, 
+      role: u.role, 
+      can_receive: u.can_receive_appointments,
+      can_receive_type: typeof u.can_receive_appointments
+    })))
+    
     const filteredUsers = (users || []).filter(u => {
       // If can_receive_appointments is explicitly set, use that
       if (u.can_receive_appointments === false) return false
@@ -208,6 +217,8 @@ export async function GET(request: NextRequest) {
       // Default: include sales roles, exclude admin/operations
       return appointmentEligibleRoles.includes(u.role)
     })
+    
+    console.log('Filtered users for closer selection:', filteredUsers.map(u => u.full_name))
 
     // Check which users have Google Calendar connected
     const { data: calendarTokens } = await adminClient
