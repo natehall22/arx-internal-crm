@@ -237,6 +237,16 @@ export async function GET(request: NextRequest) {
       .eq('org_id', profile.org_id)
       .order('name', { ascending: true })
 
+    // Get inspection appointment type duration
+    const { data: appointmentTypes } = await adminClient
+      .from('appointment_types')
+      .select('id, name, duration_minutes')
+      .eq('org_id', profile.org_id)
+    
+    // Find inspection type duration (default to 60 if not found)
+    const inspectionType = appointmentTypes?.find(t => t.name?.toLowerCase() === 'inspection')
+    const inspectionDuration = inspectionType?.duration_minutes || 60
+
     return NextResponse.json({
       leads: leads || [],
       users: usersWithCalendarStatus,
@@ -244,6 +254,7 @@ export async function GET(request: NextRequest) {
       currentUserRole: profile.role,
       orgSettings: org?.settings || {},
       pinVisibility: visibility,
+      inspectionDuration,
     })
   } catch (err) {
     console.error('Canvass data error:', err)

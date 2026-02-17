@@ -121,6 +121,7 @@ export default function CanvassMapPage() {
   const [currentUserRole, setCurrentUserRole] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [dispositionOptions, setDispositionOptions] = useState(defaultDispositionOptions)
+  const [inspectionDuration, setInspectionDuration] = useState<number>(60)
 
   // Get disposition color - uses current dispositionOptions state
   const getDispositionColor = (disposition?: CanvassDisposition | string | null): string => {
@@ -363,12 +364,13 @@ export default function CanvassMapPage() {
       
       const data = await response.json()
       
-      console.log('Canvass data loaded:', data.leads?.length, 'leads')
+      console.log('Canvass data loaded:', data.leads?.length, 'leads', 'inspectionDuration:', data.inspectionDuration)
       
       setCurrentUserRole(data.currentUserRole || '')
       setLeads(data.leads || [])
       setClosers((data.users || []) as UserOption[])
       setTeams((data.teams || []) as TeamOption[])
+      setInspectionDuration(data.inspectionDuration || 60)
       
       // Load org disposition settings
       if (data.orgSettings?.canvass_dispositions) {
@@ -653,7 +655,7 @@ export default function CanvassMapPage() {
   }, [formState.closer_user_id, formState.inspection_scheduled_for, formState.schedule_inspection])
 
   // Load available time slots when date or closer changes
-  const loadTimeSlots = async (closerOrTeamId: string, date: string) => {
+  const loadTimeSlots = async (closerOrTeamId: string, date: string, duration: number = 60) => {
     if (!closerOrTeamId || !date || !isOnline) {
       setTimeSlots([])
       return
@@ -666,9 +668,9 @@ export default function CanvassMapPage() {
       // Check if this is a team selection (format: "team:uuid")
       if (closerOrTeamId.startsWith('team:')) {
         const teamId = closerOrTeamId.replace('team:', '')
-        res = await fetch(`/api/canvass/team-availability?team_id=${teamId}&date=${date}&duration=60`)
+        res = await fetch(`/api/canvass/team-availability?team_id=${teamId}&date=${date}&duration=${duration}`)
       } else {
-        res = await fetch(`/api/canvass/availability?closer_id=${closerOrTeamId}&date=${date}&duration=60`)
+        res = await fetch(`/api/canvass/availability?closer_id=${closerOrTeamId}&date=${date}&duration=${duration}`)
       }
       
       if (res.ok) {
@@ -687,11 +689,11 @@ export default function CanvassMapPage() {
   // Load slots when date or closer changes
   useEffect(() => {
     if (formState.schedule_inspection && formState.closer_user_id && selectedDate) {
-      loadTimeSlots(formState.closer_user_id, selectedDate)
+      loadTimeSlots(formState.closer_user_id, selectedDate, inspectionDuration)
     } else {
       setTimeSlots([])
     }
-  }, [formState.closer_user_id, selectedDate, formState.schedule_inspection])
+  }, [formState.closer_user_id, selectedDate, formState.schedule_inspection, inspectionDuration])
 
   // Reset date selection when closer changes
   useEffect(() => {
