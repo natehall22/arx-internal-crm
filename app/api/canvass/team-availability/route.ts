@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
     // Default working hours: 8 AM - 6 PM
     const workingHoursStart = '08:00'
     const workingHoursEnd = '18:00'
-    const bufferMinutes = 30
+    // Buffer will be per-closer from their queue settings
 
     // Parse date parts manually
     const [year, month, day] = dateStr.split('-').map(Number)
@@ -205,13 +205,17 @@ export async function GET(request: NextRequest) {
       const slotEndUTC = new Date(slotEnd.getTime() + tzOffsetHours * 60 * 60 * 1000)
       
       // Check how many closers are available at this slot
-      const bufferedStartUTC = new Date(slotStartUTC.getTime() - bufferMinutes * 60 * 1000)
-      const bufferedEndUTC = new Date(slotEndUTC.getTime() + bufferMinutes * 60 * 1000)
-      
       let availableCloserCount = 0
       
       for (const closer of closersWithCalendars) {
         const busySlots = allCloserBusySlots.get(closer.user_id) || []
+        
+        // Use this closer's buffer setting (default to 30 if not set)
+        const closerBuffer = closer.buffer_minutes ?? 30
+        
+        // Apply buffer to slot times for this closer
+        const bufferedStartUTC = new Date(slotStartUTC.getTime() - closerBuffer * 60 * 1000)
+        const bufferedEndUTC = new Date(slotEndUTC.getTime() + closerBuffer * 60 * 1000)
         
         // Compare UTC times (busy slots from Google are in UTC)
         const hasConflict = busySlots.some(busy => {

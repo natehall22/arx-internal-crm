@@ -191,7 +191,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
         body: JSON.stringify({
           team_id: teamId,
           user_id: selectedUserId,
-          buffer_minutes: 60,
+          buffer_minutes: 30, // Default 30 min buffer
         }),
       })
 
@@ -413,15 +413,14 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
                     </div>
                     <div className="col-span-3">
                       <select
-                        value={closer.queue?.buffer_minutes || 60}
+                        value={closer.queue?.buffer_minutes ?? 30}
                         onChange={(e) => handleUpdateBuffer(closer, parseInt(e.target.value))}
                         className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
                       >
+                        <option value={0}>No buffer</option>
+                        <option value={15}>15 min</option>
                         <option value={30}>30 min</option>
                         <option value={45}>45 min</option>
-                        <option value={60}>1 hour</option>
-                        <option value={90}>1.5 hours</option>
-                        <option value={120}>2 hours</option>
                       </select>
                     </div>
                     <div className="col-span-2 flex items-center gap-2">
