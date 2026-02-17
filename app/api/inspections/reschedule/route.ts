@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createCalendarEvent, refreshAccessToken, CalendarEvent } from '@/lib/google-calendar'
+import { createCalendarEvent, deleteCalendarEvent, refreshAccessToken, CalendarEvent } from '@/lib/google-calendar'
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -169,6 +169,16 @@ export async function POST(request: NextRequest) {
       
       if (accessToken) {
         try {
+          // Delete the old calendar event first
+          if (originalAppointment.google_event_id) {
+            try {
+              await deleteCalendarEvent(accessToken, originalAppointment.google_event_id)
+            } catch (deleteError) {
+              console.error('Failed to delete old calendar event:', deleteError)
+              // Continue anyway - the old event might already be deleted
+            }
+          }
+          
           const timezone = await getTimezoneForUser(supabase, originalAppointment.closer_user_id)
           
           // new_scheduled_for should be in format "YYYY-MM-DDTHH:MM" (local time)
@@ -193,12 +203,23 @@ export async function POST(request: NextRequest) {
           
           const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
           
+          // Get lead's canvass notes for the calendar event
+          const { data: leadData } = await supabase
+            .from('leads')
+            .select('canvass_notes')
+            .eq('id', originalAppointment.lead_id)
+            .single()
+          
           const event: CalendarEvent = {
             summary: `Inspection: ${originalAppointment.leads?.homeowner_name || 'Customer'} (Rescheduled)`,
             description: [
-              notes || 'Rescheduled appointment',
+              `Customer: ${originalAppointment.leads?.homeowner_name || 'N/A'}`,
               originalAppointment.leads?.phone ? `Phone: ${originalAppointment.leads.phone}` : '',
-            ].filter(Boolean).join('\n'),
+              originalAppointment.leads?.address_text ? `Address: ${originalAppointment.leads.address_text}` : '',
+              '',
+              leadData?.canvass_notes ? `Canvass Notes:\n${leadData.canvass_notes}` : '',
+              notes ? `Reschedule Notes:\n${notes}` : '',
+            ].filter(line => line !== undefined && line !== '').join('\n').trim(),
             location: originalAppointment.leads?.address_text || originalAppointment.address_text || undefined,
             start: {
               dateTime: startDateTime,

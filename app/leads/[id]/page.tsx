@@ -7,6 +7,12 @@ import { revalidatePath } from 'next/cache'
 import LeadAIHelper from '@/components/LeadAIHelper'
 import LeadReferralInfo from '@/components/LeadReferralInfo'
 import DeleteLeadButton from '@/components/DeleteLeadButton'
+import { 
+  createCalendarEvent, 
+  deleteCalendarEvent, 
+  refreshAccessToken,
+  CalendarEvent 
+} from '@/lib/google-calendar'
 
 export default async function LeadDetailPage({
   params,
@@ -191,6 +197,150 @@ export default async function LeadDetailPage({
     // This ensures the setter gets credit for door knocks in stats
 
     await supabase.from('leads').update(updates).eq('id', params.id)
+
+    // Check if inspection time changed and sync to Google Calendar
+    const oldScheduledTime = freshLead.inspection_scheduled_for
+    const newScheduledTime = inspectionScheduledFor ? new Date(inspectionScheduledFor).toISOString() : null
+    
+    if (newScheduledTime && oldScheduledTime !== newScheduledTime) {
+      // Find existing appointment for this lead
+      const { data: existingAppointment } = await supabase
+        .from('scheduled_appointments')
+        .select('id, google_event_id, closer_user_id, duration_minutes')
+        .eq('lead_id', params.id)
+        .eq('status', 'scheduled')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      
+      const targetCloserId = closerUserId || freshLead.closer_user_id
+      
+      if (targetCloserId) {
+        // Get closer's Google token
+        const { data: tokenData } = await supabase
+          .from('user_google_tokens')
+          .select('*')
+          .eq('user_id', targetCloserId)
+          .single()
+        
+        if (tokenData) {
+          let accessToken = tokenData.access_token
+          const expiresAt = new Date(tokenData.expires_at)
+          
+          // Refresh token if needed
+          if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
+            try {
+              const refreshed = await refreshAccessToken(tokenData.refresh_token)
+              accessToken = refreshed.access_token
+              await supabase
+                .from('user_google_tokens')
+                .update({
+                  access_token: refreshed.access_token,
+                  expires_at: refreshed.expires_at.toISOString(),
+                })
+                .eq('user_id', targetCloserId)
+            } catch (e) {
+              console.error('Failed to refresh token:', e)
+            }
+          }
+          
+          // Delete old calendar event if exists
+          if (existingAppointment?.google_event_id) {
+            try {
+              await deleteCalendarEvent(accessToken, existingAppointment.google_event_id)
+            } catch (e) {
+              console.error('Failed to delete old calendar event:', e)
+            }
+          }
+          
+          // Get timezone for closer
+          let timezone = 'America/New_York'
+          const { data: closerProfile } = await supabase
+            .from('users')
+            .select('team_id')
+            .eq('id', targetCloserId)
+            .single()
+          
+          if (closerProfile?.team_id) {
+            const { data: team } = await supabase
+              .from('teams')
+              .select('timezone')
+              .eq('id', closerProfile.team_id)
+              .single()
+            if (team?.timezone) timezone = team.timezone
+          }
+          
+          // Create new calendar event with local time format
+          const localTimeStr = inspectionScheduledFor // Already in YYYY-MM-DDTHH:MM format
+          const startDateTime = `${localTimeStr}:00`
+          
+          const [datePart, timePart] = localTimeStr.split('T')
+          const [hourStr, minStr] = timePart.split(':')
+          const durationMinutes = existingAppointment?.duration_minutes || 60
+          let endHour = parseInt(hourStr, 10)
+          let endMin = parseInt(minStr, 10) + durationMinutes
+          
+          while (endMin >= 60) {
+            endMin -= 60
+            endHour += 1
+          }
+          
+          const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
+          
+          const event: CalendarEvent = {
+            summary: `Inspection: ${freshLead.homeowner_name || 'Customer'}${oldScheduledTime ? ' (Rescheduled)' : ''}`,
+            description: [
+              `Customer: ${freshLead.homeowner_name || 'N/A'}`,
+              freshLead.phone ? `Phone: ${freshLead.phone}` : '',
+              freshLead.address_text ? `Address: ${freshLead.address_text}` : '',
+              '',
+              freshLead.canvass_notes ? `Canvass Notes:\n${freshLead.canvass_notes}` : '',
+            ].filter(line => line !== undefined && line !== '').join('\n').trim(),
+            location: freshLead.address_text || undefined,
+            start: {
+              dateTime: startDateTime,
+              timeZone: timezone,
+            },
+            end: {
+              dateTime: endDateTime,
+              timeZone: timezone,
+            },
+          }
+          
+          try {
+            const createdEvent = await createCalendarEvent(accessToken, event)
+            
+            // Update or create appointment record
+            if (existingAppointment) {
+              await supabase
+                .from('scheduled_appointments')
+                .update({
+                  scheduled_for: newScheduledTime,
+                  google_event_id: createdEvent.id,
+                })
+                .eq('id', existingAppointment.id)
+            } else {
+              // Create new appointment record
+              await supabase
+                .from('scheduled_appointments')
+                .insert({
+                  org_id: profile.org_id,
+                  lead_id: params.id,
+                  closer_user_id: targetCloserId,
+                  canvasser_user_id: freshLead.owner_user_id,
+                  scheduled_for: newScheduledTime,
+                  duration_minutes: 60,
+                  status: 'scheduled',
+                  address_text: freshLead.address_text,
+                  google_event_id: createdEvent.id,
+                })
+            }
+          } catch (e) {
+            console.error('Failed to create calendar event:', e)
+          }
+        }
+      }
+    }
 
     await supabase.from('activities').insert({
       org_id: profile.org_id,
