@@ -401,6 +401,13 @@ export async function POST(request: Request) {
         // Use explicitly selected team, or fall back to user's team or default team
         const teamId = teamIdForRoundRobin || profile.team_id || await getDefaultTeam(serviceClient, profile.org_id)
 
+        console.log('Round-robin assignment:', {
+          teamIdForRoundRobin,
+          profileTeamId: profile.team_id,
+          resolvedTeamId: teamId,
+          scheduledFor: inspectionScheduledFor,
+        })
+
         if (teamId) {
           const assignment = await assignNextAvailableCloser(
             supabaseUrl,
@@ -415,6 +422,8 @@ export async function POST(request: Request) {
             profile.org_id
           )
 
+          console.log('Round-robin assignment result:', assignment)
+
           if (assignment.success && assignment.closerId) {
             closerUserId = assignment.closerId
             assignedCloserName = assignment.closerName || null
@@ -428,7 +437,11 @@ export async function POST(request: Request) {
                 // NOTE: Don't change owner_user_id - setter keeps credit for door knock
               })
               .eq('id', leadRow.id)
+          } else {
+            console.log('Round-robin assignment failed:', assignment.error)
           }
+        } else {
+          console.log('No team found for round-robin assignment')
         }
       }
     }
