@@ -285,12 +285,15 @@ export async function POST(request: Request) {
     const scheduleInspection = Boolean(body.schedule_inspection)
     
     // Parse inspection time - the client sends local time (e.g., "2026-02-17T09:00")
-    // We need to convert this to UTC for storage
+    // We store UTC in the database but need local time for Google Calendar API
     // Assume Eastern timezone (UTC-5, or UTC-4 during DST)
-    let inspectionScheduledFor: string | null = null
+    let inspectionScheduledFor: string | null = null // UTC for database
+    let inspectionLocalTime: string | null = null // Local time for Google Calendar
     if (body.inspection_scheduled_for) {
       // Parse the local time string
       const localTimeStr = body.inspection_scheduled_for // e.g., "2026-02-17T09:00"
+      inspectionLocalTime = localTimeStr // Keep original for calendar sync
+      
       const [datePart, timePart] = localTimeStr.split('T')
       const [year, month, day] = datePart.split('-').map(Number)
       const [hour, minute] = timePart.split(':').map(Number)
@@ -529,10 +532,11 @@ export async function POST(request: Request) {
       const closerName = closerData?.full_name || assignedCloserName
       
       // Sync to closer's calendar (they need to be available)
+      // Use local time for Google Calendar API (not UTC)
       const calendarResult = await syncToGoogleCalendar(
         supabase,
         closerUserId,
-        inspectionScheduledFor,
+        inspectionLocalTime!, // Use local time, not UTC
         inspectionDuration,
         leadRow.homeowner_name,
         leadRow.address_text,
@@ -584,7 +588,7 @@ export async function POST(request: Request) {
           supabase,
           profile.id, // setter is the current user who scheduled
           closerName,
-          inspectionScheduledFor,
+          inspectionLocalTime!, // Use local time, not UTC
           inspectionDuration,
           leadRow.homeowner_name,
           leadRow.address_text,
