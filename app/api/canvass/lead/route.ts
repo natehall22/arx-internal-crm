@@ -94,6 +94,7 @@ async function syncToGoogleCalendar(
   addressText: string | null,
   phone: string | null,
   notes: string | null,
+  canvassNotes: string | null,
   leadId: string,
   opportunityId: string | null
 ): Promise<{ synced: boolean; eventId?: string; error?: string }> {
@@ -135,8 +136,9 @@ async function syncToGoogleCalendar(
         phone ? `Phone: ${phone}` : '',
         addressText ? `Address: ${addressText}` : '',
         '',
-        notes ? `Notes from setter:\n${notes}` : '',
-      ].filter(line => line !== undefined).join('\n').trim(),
+        canvassNotes ? `Canvass Notes:\n${canvassNotes}` : '',
+        notes ? `Additional Notes:\n${notes}` : '',
+      ].filter(line => line !== undefined && line !== '').join('\n').trim(),
       location: addressText || undefined,
       start: {
         dateTime: startDateTime,
@@ -481,6 +483,7 @@ export async function POST(request: Request) {
         leadRow.address_text,
         leadRow.phone,
         leadRow.notes,
+        leadRow.canvass_notes,
         leadRow.id,
         opportunityId
       )
