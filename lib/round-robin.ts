@@ -124,21 +124,10 @@ export async function assignNextAvailableCloser(
         console.log(`Round-robin: ${closer.user?.full_name} availability: ${available ? 'AVAILABLE' : 'BUSY'}`)
 
         if (available) {
-          // Get setter's email if they exist
-          let setterEmail: string | undefined
-          if (canvasserUserId) {
-            const { data: setter } = await supabase
-              .from('users')
-              .select('email')
-              .eq('id', canvasserUserId)
-              .single()
-            setterEmail = setter?.email || undefined
-          }
-
-          // Create calendar event for closer (with setter as attendee)
+          // Create calendar event for closer (NO attendees to avoid duplicate invites)
+          // Setter gets their own separate event on their calendar
           let googleEventId: string | undefined
           try {
-            const attendees = setterEmail ? [{ email: setterEmail }] : undefined
             const event = await createCalendarEvent(accessToken, {
               summary: `Inspection - ${address || 'TBD'}`,
               description: `Scheduled inspection${leadId ? ` for lead ${leadId}` : ''}`,
@@ -151,7 +140,7 @@ export async function assignNextAvailableCloser(
                 dateTime: endTime.toISOString(),
                 timeZone: teamTimezone,
               },
-              attendees,
+              // No attendees - each person gets their own event to avoid duplicate invites
             })
             googleEventId = event.id
           } catch (calendarError) {
@@ -183,10 +172,11 @@ export async function assignNextAvailableCloser(
                     .eq('id', setterToken.id)
                 }
 
-                // Create event on setter's calendar (with closer as attendee)
+                // Create event on setter's calendar (NO attendees - just for their visibility)
+                // Don't add closer as attendee to avoid sending them duplicate invites
                 await createCalendarEvent(setterAccessToken, {
-                  summary: `Inspection - ${address || 'TBD'}`,
-                  description: `Scheduled inspection${leadId ? ` for lead ${leadId}` : ''}\nCloser: ${closer.user?.full_name || 'Assigned closer'}`,
+                  summary: `[Set] ${address || 'Inspection'} → ${closer.user?.full_name || 'Closer'}`,
+                  description: `Appointment you scheduled\nCloser: ${closer.user?.full_name || 'Assigned closer'}${leadId ? `\nLead: ${leadId}` : ''}`,
                   location: address,
                   start: {
                     dateTime: scheduledFor.toISOString(),
@@ -196,7 +186,7 @@ export async function assignNextAvailableCloser(
                     dateTime: endTime.toISOString(),
                     timeZone: teamTimezone,
                   },
-                  attendees: closer.user?.email ? [{ email: closer.user.email }] : undefined,
+                  // No attendees - this is just for setter's visibility
                 })
               }
             } catch (setterCalendarError) {

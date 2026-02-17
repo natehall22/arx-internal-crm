@@ -516,13 +516,18 @@ export async function POST(request: Request) {
     }
 
     // Sync to Google Calendar if we have a closer and scheduled time
+    // SKIP if round-robin was used - it already creates calendar events
     let calendarSynced = false
     let setterCalendarSynced = false
     let googleEventId: string | null = null
     let calendarError: string | null = null
     let setterCalendarError: string | null = null
     
-    if (scheduleInspection && closerUserId && inspectionScheduledFor) {
+    // Only sync calendars manually if round-robin was NOT used
+    // Round-robin already handles calendar event creation in assignNextAvailableCloser()
+    const roundRobinHandledCalendar = useRoundRobin && assignedCloserName
+    
+    if (scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar) {
       // Get closer's name for setter calendar event
       const { data: closerData } = await supabase
         .from('users')
@@ -603,6 +608,11 @@ export async function POST(request: Request) {
           console.log('Setter calendar sync failed:', setterCalendarError)
         }
       }
+    } else if (roundRobinHandledCalendar) {
+      // Round-robin already synced calendars
+      calendarSynced = true
+      setterCalendarSynced = true
+      console.log('Calendar sync handled by round-robin assignment')
     }
 
     if (scheduleInspection) {
