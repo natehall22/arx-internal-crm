@@ -64,20 +64,25 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
     }
   }
   
-  const loadQueueData = async (supabase: any, teamIdToLoad: string) => {
+  const loadQueueData = async (_supabase: any, teamIdToLoad: string) => {
     try {
       console.log('Closer queue - Loading queue data for team:', teamIdToLoad)
       
-      // Load closer queue for this team
-      const { data: queueData, error: queueError } = await supabase
-        .from('team_closer_queue')
-        .select('*, users(*)')
-        .eq('team_id', teamIdToLoad)
-        .order('priority')
+      // Load closer queue via API to bypass RLS
+      const queueResponse = await fetch(`/api/admin/team-closer-queue?team_id=${teamIdToLoad}`)
       
-      console.log('Closer queue - Queue query result:', { queueData: queueData?.length, queueError })
+      if (!queueResponse.ok) {
+        console.error('Closer queue - Failed to fetch queue:', queueResponse.status)
+        setLoading(false)
+        return
+      }
+      
+      const queueApiData = await queueResponse.json()
+      const queueData = queueApiData.queue || []
+      
+      console.log('Closer queue - Queue from API:', queueData.length, 'closers')
 
-      const closersWithQueue: CloserWithQueue[] = (queueData || []).map((q: any) => ({
+      const closersWithQueue: CloserWithQueue[] = queueData.map((q: any) => ({
         ...q.users,
         queue: {
           id: q.id,

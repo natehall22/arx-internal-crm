@@ -13,6 +13,37 @@ function getAdminClient() {
   })
 }
 
+// Get queue for a team
+export async function GET(request: NextRequest) {
+  try {
+    await requireAuth()
+    const adminClient = getAdminClient()
+    
+    const { searchParams } = new URL(request.url)
+    const teamId = searchParams.get('team_id')
+    
+    if (!teamId) {
+      return NextResponse.json({ error: 'team_id is required' }, { status: 400 })
+    }
+    
+    const { data: queueData, error } = await adminClient
+      .from('team_closer_queue')
+      .select('*, users(*)')
+      .eq('team_id', teamId)
+      .order('priority')
+    
+    if (error) {
+      console.error('Failed to fetch queue:', error)
+      return NextResponse.json({ error: 'Failed to fetch queue' }, { status: 500 })
+    }
+    
+    return NextResponse.json({ queue: queueData || [] })
+  } catch (error) {
+    console.error('Team closer queue GET error:', error)
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+  }
+}
+
 // Add closer to queue
 export async function POST(request: NextRequest) {
   try {
