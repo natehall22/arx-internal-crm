@@ -73,10 +73,7 @@ export async function assignNextAvailableCloser(
     console.log(`Round-robin: Found ${closers.length} active closers in team ${teamId}:`, 
       closers.map((c: any) => ({ id: c.user_id, name: c.user?.full_name, priority: c.priority })))
 
-    // Track closers without calendars as fallback
-    const closersWithoutCalendar: CloserWithToken[] = []
-
-    // Try each closer in priority order - first pass: only closers WITH calendars
+    // Try each closer in priority order - only closers WITH calendars
     for (const closer of closers as CloserWithToken[]) {
       // Get their Google token
       const { data: token } = await supabase
@@ -86,10 +83,9 @@ export async function assignNextAvailableCloser(
         .single()
 
       if (!token) {
-        // Closer has no calendar connected - save for fallback
-        console.log(`Round-robin: Closer ${closer.user?.full_name} has no calendar, saving as fallback`)
-        closersWithoutCalendar.push(closer)
-        continue // Try next closer with calendar first
+        // Closer has no calendar connected - skip entirely
+        console.log(`Round-robin: Skipping ${closer.user?.full_name} - no Google Calendar connected`)
+        continue
       }
 
       // Check if token needs refresh
@@ -229,71 +225,8 @@ export async function assignNextAvailableCloser(
       }
     }
 
-    // Fallback: If no closers with calendars are available, use first closer without calendar
-    if (closersWithoutCalendar.length > 0) {
-      console.log(`Round-robin: No closers with calendars available, using fallback closer: ${closersWithoutCalendar[0].user?.full_name}`)
-      const fallbackCloser = closersWithoutCalendar[0]
-      
-      // Create event on setter's calendar if they have one
-      if (canvasserUserId) {
-        try {
-          const { data: setterToken } = await supabase
-            .from('user_google_tokens')
-            .select('*')
-            .eq('user_id', canvasserUserId)
-            .single()
-
-          if (setterToken) {
-            let setterAccessToken = setterToken.access_token
-            if (new Date(setterToken.expires_at) < new Date()) {
-              const refreshed = await refreshAccessToken(setterToken.refresh_token)
-              setterAccessToken = refreshed.access_token
-              await supabase
-                .from('user_google_tokens')
-                .update({
-                  access_token: refreshed.access_token,
-                  expires_at: refreshed.expires_at.toISOString(),
-                })
-                .eq('id', setterToken.id)
-            }
-
-            const endTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
-            await createCalendarEvent(setterAccessToken, {
-              summary: `Inspection - ${address || 'TBD'}`,
-              description: `Scheduled inspection${leadId ? ` for lead ${leadId}` : ''}\nCloser: ${fallbackCloser.user?.full_name || 'Assigned closer'} (no calendar connected)`,
-              location: address,
-              start: {
-                dateTime: scheduledFor.toISOString(),
-                timeZone: teamTimezone,
-              },
-              end: {
-                dateTime: endTime.toISOString(),
-                timeZone: teamTimezone,
-              },
-              attendees: fallbackCloser.user?.email ? [{ email: fallbackCloser.user.email }] : undefined,
-            })
-          }
-        } catch (setterCalendarError) {
-          console.error('Failed to create setter calendar event for fallback:', setterCalendarError)
-        }
-      }
-
-      const result = await createAppointment(
-        supabase,
-        fallbackCloser,
-        scheduledFor,
-        durationMinutes,
-        leadId,
-        opportunityId,
-        address,
-        canvasserUserId,
-        orgId
-      )
-      return result
-    }
-
-    console.log('Round-robin: No closers available at requested time')
-    return { success: false, error: 'No closers available at this time' }
+    console.log('Round-robin: No closers with connected calendars available at requested time')
+    return { success: false, error: 'No closers with connected calendars available at this time' }
   } catch (error) {
     console.error('Round-robin assignment error:', error)
     return { success: false, error: 'Assignment failed' }
