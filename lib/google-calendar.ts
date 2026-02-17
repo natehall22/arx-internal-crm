@@ -138,7 +138,26 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
 }
 
 /**
- * Get free/busy information for a user's calendar
+ * Get list of user's calendars
+ */
+export async function getCalendarList(accessToken: string): Promise<{ id: string; summary: string; primary?: boolean }[]> {
+  const response = await fetch(`${GOOGLE_CALENDAR_API}/users/me/calendarList`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    console.error(`getCalendarList: API error ${response.status}`)
+    return [{ id: 'primary', summary: 'Primary' }]
+  }
+
+  const data = await response.json()
+  return data.items || [{ id: 'primary', summary: 'Primary' }]
+}
+
+/**
+ * Get free/busy information for ALL of a user's calendars
  */
 export async function getFreeBusy(
   accessToken: string,
@@ -146,7 +165,14 @@ export async function getFreeBusy(
   timeMax: Date,
   calendarId: string = 'primary'
 ): Promise<FreeBusySlot[]> {
-  console.log(`getFreeBusy: Checking ${calendarId} from ${timeMin.toISOString()} to ${timeMax.toISOString()}`)
+  console.log(`getFreeBusy: Checking from ${timeMin.toISOString()} to ${timeMax.toISOString()}`)
+  
+  // First, get list of all user's calendars
+  const calendars = await getCalendarList(accessToken)
+  console.log(`getFreeBusy: User has ${calendars.length} calendars:`, calendars.map(c => c.summary).join(', '))
+  
+  // Query free/busy for ALL calendars
+  const calendarItems = calendars.map(c => ({ id: c.id }))
   
   const response = await fetch(`${GOOGLE_CALENDAR_API}/freeBusy`, {
     method: 'POST',
@@ -157,7 +183,7 @@ export async function getFreeBusy(
     body: JSON.stringify({
       timeMin: timeMin.toISOString(),
       timeMax: timeMax.toISOString(),
-      items: [{ id: calendarId }],
+      items: calendarItems,
     }),
   })
 
@@ -169,19 +195,30 @@ export async function getFreeBusy(
 
   const data = await response.json()
   
-  const busySlots = data.calendars?.[calendarId]?.busy || []
-  const errors = data.calendars?.[calendarId]?.errors
+  // Collect busy slots from ALL calendars
+  const allBusySlots: FreeBusySlot[] = []
   
-  if (errors && errors.length > 0) {
-    console.error(`getFreeBusy: Calendar errors:`, JSON.stringify(errors))
+  for (const calendar of calendars) {
+    const calendarData = data.calendars?.[calendar.id]
+    const busySlots = calendarData?.busy || []
+    const errors = calendarData?.errors
+    
+    if (errors && errors.length > 0) {
+      console.error(`getFreeBusy: Errors for ${calendar.summary}:`, JSON.stringify(errors))
+    }
+    
+    if (busySlots.length > 0) {
+      console.log(`getFreeBusy: ${calendar.summary} has ${busySlots.length} busy slots`)
+      allBusySlots.push(...busySlots)
+    }
   }
   
-  console.log(`getFreeBusy: ${calendarId} returned ${busySlots.length} busy slots for range ${timeMin.toISOString()} to ${timeMax.toISOString()}`)
-  if (busySlots.length > 0) {
-    console.log(`getFreeBusy: Busy times:`, busySlots.map((s: FreeBusySlot) => `${s.start} - ${s.end}`).join(', '))
+  console.log(`getFreeBusy: Total ${allBusySlots.length} busy slots across all calendars`)
+  if (allBusySlots.length > 0) {
+    console.log(`getFreeBusy: Busy times:`, allBusySlots.map((s: FreeBusySlot) => `${s.start} - ${s.end}`).join(', '))
   }
   
-  return busySlots
+  return allBusySlots
 }
 
 /**
