@@ -97,7 +97,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
 
       // Load available users via API to bypass RLS
       console.log('Closer queue - Fetching users via API')
-      const usersResponse = await fetch('/api/admin/data?resource=hierarchy')
+      const usersResponse = await fetch('/api/admin/data?resource=users')
       
       if (!usersResponse.ok) {
         console.error('Closer queue - Failed to fetch users:', usersResponse.status)
