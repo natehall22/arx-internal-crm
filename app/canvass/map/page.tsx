@@ -1256,9 +1256,9 @@ export default function CanvassMapPage() {
                 </div>
               )}
 
-              {/* Legend - positioned above mobile nav */}
+              {/* Legend - desktop only */}
               {mapStatus === 'loaded' && (
-                <div className="absolute bottom-24 lg:bottom-4 left-4 bg-white/95 backdrop-blur rounded-lg shadow-lg p-3 z-10">
+                <div className="hidden lg:block absolute bottom-4 left-4 bg-white/95 backdrop-blur rounded-lg shadow-lg p-3 z-10">
                   <div className="text-xs font-medium text-gray-500 mb-2">Dispositions</div>
                   <div className="grid grid-cols-3 gap-x-3 gap-y-1">
                     {dispositionOptions.map((opt) => (
