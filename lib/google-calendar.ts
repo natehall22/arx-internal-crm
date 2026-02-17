@@ -138,9 +138,9 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
 }
 
 /**
- * Get list of user's calendars
+ * Get list of user's calendars (filtered to only include calendars that support freeBusy)
  */
-export async function getCalendarList(accessToken: string): Promise<{ id: string; summary: string; primary?: boolean }[]> {
+export async function getCalendarList(accessToken: string): Promise<{ id: string; summary: string; primary?: boolean; accessRole?: string }[]> {
   const response = await fetch(`${GOOGLE_CALENDAR_API}/users/me/calendarList`, {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -153,7 +153,41 @@ export async function getCalendarList(accessToken: string): Promise<{ id: string
   }
 
   const data = await response.json()
-  return data.items || [{ id: 'primary', summary: 'Primary' }]
+  const allCalendars = data.items || [{ id: 'primary', summary: 'Primary' }]
+  
+  // Filter out calendars that don't support freeBusy queries:
+  // - Holiday calendars (contain #holiday@group.v.calendar.google.com)
+  // - Contacts birthdays (contain #contacts@group.v.calendar.google.com)
+  // - Other Google-provided calendars that are read-only
+  const filteredCalendars = allCalendars.filter((cal: any) => {
+    const id = cal.id || ''
+    
+    // Skip holiday calendars
+    if (id.includes('#holiday@group.v.calendar.google.com')) {
+      return false
+    }
+    
+    // Skip birthday calendars
+    if (id.includes('#contacts@group.v.calendar.google.com')) {
+      return false
+    }
+    
+    // Skip "Holidays in" calendars by name as fallback
+    if (cal.summary?.toLowerCase().includes('holidays in')) {
+      return false
+    }
+    
+    // Skip week numbers calendar
+    if (id.includes('#weeknum@group.v.calendar.google.com')) {
+      return false
+    }
+    
+    return true
+  })
+  
+  console.log(`getCalendarList: Filtered ${allCalendars.length} calendars down to ${filteredCalendars.length}`)
+  
+  return filteredCalendars.length > 0 ? filteredCalendars : [{ id: 'primary', summary: 'Primary' }]
 }
 
 /**
