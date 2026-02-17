@@ -139,15 +139,15 @@ export async function GET(request: NextRequest) {
     const dayStart = new Date(year, month - 1, day, startHour, startMin, 0)
     const dayEnd = new Date(year, month - 1, day, endHour, endMin, 0)
     
-    // For Google Calendar API, we need to account for timezone offset
-    // Get the offset for the target timezone (e.g., America/New_York)
-    // For now, assume Eastern Time (-5 hours from UTC, or -4 during DST)
+    // For Google Calendar API, we need to convert local time to UTC
+    // Eastern Time is UTC-5 (or UTC-4 during DST)
+    // To convert 8 AM Eastern to UTC: 8 + 5 = 13:00 UTC
     // TODO: Use proper timezone library for accurate conversion
-    const tzOffsetHours = -5 // Eastern Standard Time
+    const tzOffsetHours = 5 // Eastern is UTC-5, so add 5 to get UTC
     
     // Create UTC times for Google Calendar API query
-    const dayStartUTC = new Date(Date.UTC(year, month - 1, day, startHour - tzOffsetHours, startMin, 0))
-    const dayEndUTC = new Date(Date.UTC(year, month - 1, day, endHour - tzOffsetHours, endMin, 0))
+    const dayStartUTC = new Date(Date.UTC(year, month - 1, day, startHour + tzOffsetHours, startMin, 0))
+    const dayEndUTC = new Date(Date.UTC(year, month - 1, day, endHour + tzOffsetHours, endMin, 0))
     
     console.log(`Team availability: Date range - Local: ${dayStart.toISOString()} to ${dayEnd.toISOString()}`)
     console.log(`Team availability: Date range - UTC for API: ${dayStartUTC.toISOString()} to ${dayEndUTC.toISOString()}`)
