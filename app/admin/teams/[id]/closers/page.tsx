@@ -65,60 +65,71 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
   }
   
   const loadQueueData = async (supabase: any, teamIdToLoad: string) => {
-    console.log('Closer queue - Loading queue data for team:', teamIdToLoad)
-    
-    // Load closer queue for this team
-    const { data: queueData, error: queueError } = await supabase
-      .from('team_closer_queue')
-      .select('*, users(*)')
-      .eq('team_id', teamIdToLoad)
-      .order('priority')
-    
-    console.log('Closer queue - Queue query result:', { queueData: queueData?.length, queueError })
+    try {
+      console.log('Closer queue - Loading queue data for team:', teamIdToLoad)
+      
+      // Load closer queue for this team
+      const { data: queueData, error: queueError } = await supabase
+        .from('team_closer_queue')
+        .select('*, users(*)')
+        .eq('team_id', teamIdToLoad)
+        .order('priority')
+      
+      console.log('Closer queue - Queue query result:', { queueData: queueData?.length, queueError })
 
-    const closersWithQueue: CloserWithQueue[] = (queueData || []).map((q: any) => ({
-      ...q.users,
-      queue: {
-        id: q.id,
-        org_id: q.org_id,
-        team_id: q.team_id,
-        user_id: q.user_id,
-        priority: q.priority,
-        buffer_minutes: q.buffer_minutes,
-        active: q.active,
-        last_assigned_at: q.last_assigned_at,
-        created_at: q.created_at,
-        updated_at: q.updated_at,
+      const closersWithQueue: CloserWithQueue[] = (queueData || []).map((q: any) => ({
+        ...q.users,
+        queue: {
+          id: q.id,
+          org_id: q.org_id,
+          team_id: q.team_id,
+          user_id: q.user_id,
+          priority: q.priority,
+          buffer_minutes: q.buffer_minutes,
+          active: q.active,
+          last_assigned_at: q.last_assigned_at,
+          created_at: q.created_at,
+          updated_at: q.updated_at,
+        }
+      }))
+
+      setClosers(closersWithQueue)
+
+      // Load available users via API to bypass RLS
+      console.log('Closer queue - Fetching users via API')
+      const usersResponse = await fetch('/api/admin/data?resource=hierarchy')
+      
+      if (!usersResponse.ok) {
+        console.error('Closer queue - Failed to fetch users:', usersResponse.status)
+        setLoading(false)
+        return
       }
-    }))
+      
+      const usersApiData = await usersResponse.json()
+      const usersData = usersApiData.users || []
+      
+      console.log('Closer queue - Users from API:', usersData.length)
 
-    setClosers(closersWithQueue)
+      // Filter to users who can receive appointments:
+      // - Users with can_receive_appointments = true (explicitly enabled)
+      // - Users with can_receive_appointments = null AND sales roles (default behavior)
+      const queueUserIds = closersWithQueue.map(c => c.id)
+      const appointmentEligibleRoles = ['sales_rep', 'rep', 'closer', 'sales_manager', 'regional_manager', 'admin']
+      const available = (usersData || []).filter((u: any) => {
+        if (queueUserIds.includes(u.id)) return false
+        if (u.can_receive_appointments === false) return false
+        if (u.can_receive_appointments === true) return true
+        return appointmentEligibleRoles.includes(u.role)
+      })
+      
+      console.log('Closer queue - Available users after filtering:', available.map((u: any) => ({ name: u.full_name, role: u.role, can_receive: u.can_receive_appointments })))
+      setAvailableUsers(available)
 
-    // Load available users (users who can receive appointments and not already in queue)
-    const queueUserIds = closersWithQueue.map(c => c.id)
-    const { data: usersData, error: usersError } = await supabase
-      .from('users')
-      .select('*, can_receive_appointments')
-      .eq('active', true)
-      .order('full_name')
-
-    console.log('Closer queue - Users query result:', { usersData: usersData?.length, usersError })
-
-    // Filter to users who can receive appointments:
-    // - Users with can_receive_appointments = true (explicitly enabled)
-    // - Users with can_receive_appointments = null AND sales roles (default behavior)
-    const appointmentEligibleRoles = ['sales_rep', 'rep', 'closer', 'sales_manager', 'regional_manager', 'admin']
-    const available = (usersData || []).filter((u: any) => {
-      if (queueUserIds.includes(u.id)) return false
-      if (u.can_receive_appointments === false) return false
-      if (u.can_receive_appointments === true) return true
-      return appointmentEligibleRoles.includes(u.role)
-    })
-    
-    console.log('Closer queue - Available users after filtering:', available.map((u: any) => ({ name: u.full_name, role: u.role, can_receive: u.can_receive_appointments })))
-    setAvailableUsers(available)
-
-    setLoading(false)
+      setLoading(false)
+    } catch (e) {
+      console.error('Closer queue - loadQueueData error:', e)
+      setLoading(false)
+    }
   }
 
   const handleDragStart = (index: number) => {
