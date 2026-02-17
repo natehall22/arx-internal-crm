@@ -1167,6 +1167,17 @@ export default function CanvassMapPage() {
               {/* Map controls */}
               {mapStatus === 'loaded' && (
                 <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
+                  {/* Address search button */}
+                  <button
+                    onClick={() => setShowAddressSearch(!showAddressSearch)}
+                    className="w-12 h-12 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
+                    title="Search address"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </button>
+                  
                   {/* Map type selector */}
                   <div className="relative">
                     <button
@@ -1197,6 +1208,34 @@ export default function CanvassMapPage() {
                         ))}
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Address search input overlay */}
+              {showAddressSearch && mapStatus === 'loaded' && (
+                <div className="absolute top-4 left-4 right-20 z-20">
+                  <div className="relative">
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Search address..."
+                      value={searchAddress}
+                      onChange={(e) => setSearchAddress(e.target.value)}
+                      className="w-full px-4 py-3 pr-10 bg-white rounded-lg shadow-lg border-0 text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => {
+                        setShowAddressSearch(false)
+                        setSearchAddress('')
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
               )}
