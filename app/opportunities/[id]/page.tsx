@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import ContractUpload from '@/components/ContractUpload'
+import DeleteOpportunityButton from '@/components/DeleteOpportunityButton'
 
 export default async function OpportunityDetailPage({
   params,
@@ -194,14 +195,22 @@ export default async function OpportunityDetailPage({
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
             <h1 className="text-2xl font-bold text-gray-900">Opportunity</h1>
-            <form action={markOpportunityLost}>
-              <button
-                type="submit"
-                className="rounded-md border border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
-              >
-                Mark Lost
-              </button>
-            </form>
+            <div className="flex items-center gap-3">
+              <form action={markOpportunityLost}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50"
+                >
+                  Mark Lost
+                </button>
+              </form>
+              {profile.role === 'admin' && (
+                <DeleteOpportunityButton 
+                  opportunityId={params.id} 
+                  customerName={opportunity.leads?.homeowner_name || opportunity.customers?.name}
+                />
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

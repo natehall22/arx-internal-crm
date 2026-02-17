@@ -85,7 +85,7 @@ export default function CrewsPage() {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'regional_manager', 'operations'].includes(profile.role)) {
+    if (!profile || !['admin', 'regional_manager', 'operations', 'manager'].includes(profile.role)) {
       router.push('/dashboard')
       return
     }
