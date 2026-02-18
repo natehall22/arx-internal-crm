@@ -28,8 +28,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No leads provided' }, { status: 400 })
     }
 
-    // Validate and prepare leads for insertion
-    const validDispositions = ['not_home', 'bad_roof', 'renter', 'go_back', 'hot_lead', 'not_interested']
+    // Map various status/disposition formats to our standard values
+    const dispositionMap: Record<string, string> = {
+      // Standard values
+      'not_home': 'not_home',
+      'bad_roof': 'bad_roof', 
+      'renter': 'renter',
+      'go_back': 'go_back',
+      'hot_lead': 'hot_lead',
+      'not_interested': 'not_interested',
+      // SalesRabbit / human readable formats
+      'not home': 'not_home',
+      'nothome': 'not_home',
+      'bad roof': 'bad_roof',
+      'badroof': 'bad_roof',
+      'go back': 'go_back',
+      'goback': 'go_back',
+      'hot lead': 'hot_lead',
+      'hotlead': 'hot_lead',
+      'not interested': 'not_interested',
+      'notinterested': 'not_interested',
+      'ni': 'not_interested',
+      // Additional common values
+      'inspection set': 'hot_lead',
+      'inspectionset': 'hot_lead',
+      'inspection': 'hot_lead',
+      'sale': 'hot_lead',
+      'sold': 'hot_lead',
+      'callback': 'go_back',
+      'call back': 'go_back',
+    }
+    
+    const normalizeDisposition = (value: string | null | undefined): string | null => {
+      if (!value) return null
+      const normalized = value.toLowerCase().trim()
+      return dispositionMap[normalized] || null
+    }
     
     const leadsToInsert = leads.map(lead => ({
       org_id: profile.org_id,
@@ -42,9 +76,7 @@ export async function POST(request: NextRequest) {
       email: lead.email || null,
       lat: lead.lat,
       lng: lead.lng,
-      canvass_disposition: validDispositions.includes(lead.canvass_disposition) 
-        ? lead.canvass_disposition 
-        : null,
+      canvass_disposition: normalizeDisposition(lead.canvass_disposition),
       canvass_notes: lead.canvass_notes || null,
     }))
 
