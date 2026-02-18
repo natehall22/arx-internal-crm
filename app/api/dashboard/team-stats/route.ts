@@ -170,11 +170,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Get all active team members with their info
+    // Filter out users who have show_in_reports set to false
     let membersQuery = supabase
       .from('users')
-      .select('id, full_name, role')
+      .select('id, full_name, role, show_in_reports')
       .eq('org_id', profile.org_id)
       .eq('active', true)
+      .neq('show_in_reports', false) // Exclude users who opted out of leaderboards
     
     if (!isAdmin && teamMemberIds.length > 0) {
       membersQuery = membersQuery.in('id', teamMemberIds)
