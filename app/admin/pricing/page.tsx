@@ -735,7 +735,7 @@ export default function AdminPricingPage() {
               </button>
               <button
                 onClick={saveRoofingType}
-                disabled={saving || !typeForm.name || !typeForm.unit_price}
+                disabled={saving || !typeForm.name || (!typeForm.unit_price && !(typeForm.material_cost || typeForm.labor_cost))}
                 className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
               >
                 {saving ? 'Saving...' : editingType ? 'Save Changes' : 'Add Service Type'}
