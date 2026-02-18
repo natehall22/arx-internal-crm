@@ -916,6 +916,7 @@ export default function CanvassMapPage() {
       const notesIdx = header.findIndex(h => h.includes('notes'))
 
       const leadsToImport = []
+      const leadsNeedingGeocode = []
       
       for (let i = 1; i < lines.length; i++) {
         // Simple CSV parsing (handles quoted fields)
@@ -937,13 +938,10 @@ export default function CanvassMapPage() {
 
         const getValue = (idx: number) => idx >= 0 && idx < values.length ? values[idx].replace(/^"|"$/g, '') : ''
         
-        const lat = latIdx >= 0 ? parseFloat(getValue(latIdx)) : null
-        const lng = lngIdx >= 0 ? parseFloat(getValue(lngIdx)) : null
+        let lat = latIdx >= 0 ? parseFloat(getValue(latIdx)) : null
+        let lng = lngIdx >= 0 ? parseFloat(getValue(lngIdx)) : null
         
-        // Skip rows without lat/lng - they can't be placed on map
-        if (!lat || !lng || isNaN(lat) || isNaN(lng)) continue
-
-        leadsToImport.push({
+        const leadData = {
           homeowner_name: getValue(nameIdx),
           address_text: getValue(addressIdx),
           phone: getValue(phoneIdx),
@@ -952,14 +950,48 @@ export default function CanvassMapPage() {
           lng,
           canvass_disposition: getValue(dispositionIdx) || '',
           canvass_notes: getValue(notesIdx),
-        })
+        }
+
+        // If we have valid coordinates, add directly
+        if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
+          leadsToImport.push(leadData)
+        } else if (leadData.address_text) {
+          // Otherwise, queue for geocoding if we have an address
+          leadsNeedingGeocode.push(leadData)
+        }
+      }
+
+      // Geocode addresses that don't have coordinates
+      if (leadsNeedingGeocode.length > 0 && mapKey) {
+        setStatusMessage(`Geocoding ${leadsNeedingGeocode.length} addresses...`)
+        
+        for (const lead of leadsNeedingGeocode) {
+          try {
+            const response = await fetch(
+              `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(lead.address_text)}&key=${mapKey}`
+            )
+            const data = await response.json()
+            
+            if (data.status === 'OK' && data.results?.[0]?.geometry?.location) {
+              lead.lat = data.results[0].geometry.location.lat
+              lead.lng = data.results[0].geometry.location.lng
+              leadsToImport.push(lead)
+            }
+            // Small delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 100))
+          } catch (e) {
+            console.error('Geocoding error for:', lead.address_text, e)
+          }
+        }
       }
 
       if (leadsToImport.length === 0) {
-        setStatusMessage('No valid leads found (need lat/lng coordinates)')
+        setStatusMessage('No valid leads found. Make sure CSV has address or lat/lng columns.')
         setImporting(false)
         return
       }
+      
+      setStatusMessage(`Importing ${leadsToImport.length} leads...`)
 
       // Send to API
       const res = await fetch('/api/canvass/import', {
