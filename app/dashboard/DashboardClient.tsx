@@ -139,15 +139,25 @@ export default function DashboardClient({
   }
 
   const loadCompPlanDetails = async () => {
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      console.log('No auth user found')
-      setHasCompPlan(false)
-      return
-    }
-
+    console.log('loadCompPlanDetails: Starting...')
     try {
+      const supabase = createClientBrowser()
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError) {
+        console.error('loadCompPlanDetails: Auth error:', authError)
+        setHasCompPlan(false)
+        return
+      }
+      
+      if (!user) {
+        console.log('loadCompPlanDetails: No auth user found')
+        setHasCompPlan(false)
+        return
+      }
+      
+      console.log('loadCompPlanDetails: User found:', user.id)
+
       // Get active comp plan assignment directly - no need for profile query
       const { data: userCompPlan, error } = await supabase
         .from('user_comp_plans')
@@ -157,7 +167,7 @@ export default function DashboardClient({
         .limit(1)
         .maybeSingle()
 
-      console.log('Comp plan query result:', { userCompPlan, error, userId: user.id })
+      console.log('loadCompPlanDetails: Query result:', { userCompPlan, error, userId: user.id })
 
       if (error) {
         console.error('Error fetching comp plan:', error)
