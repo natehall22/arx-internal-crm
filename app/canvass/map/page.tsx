@@ -1155,8 +1155,8 @@ export default function CanvassMapPage() {
               {syncing ? 'Syncing...' : 'Sync now'}
             </button>
           )}
-          {/* Import/Export - Admin only */}
-          {currentUserRole === 'admin' && (
+          {/* Import/Export - Admin/Owner only */}
+          {(currentUserRole === 'admin' || currentUserRole === 'owner') && (
             <>
               <div className="relative">
                 <button
