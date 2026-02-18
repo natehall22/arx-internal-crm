@@ -8,7 +8,7 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
 // Include legacy roles for backwards compatibility
-type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'canvasser' | 'operations'
+type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'canvasser' | 'operations' | 'owner'
 
 type NavItem = {
   href: string
@@ -103,15 +103,25 @@ export default function Nav() {
     }
   }
 
+  // Determine which dashboard to show based on role
+  // Ops-only users go to ops dashboard, others go to sales dashboard
+  // Admin and managers see both
+  const isOpsOnly = userRole === 'operations'
+  const hasOpsAccess = ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(userRole || '')
+  const hasSalesAccess = !isOpsOnly // Everyone except ops-only sees sales
+
   // Define nav items with role restrictions
   // Include legacy roles (manager, rep) for backwards compatibility
   const allNavItems: NavItem[] = [
-    { href: '/dashboard', label: 'Dashboard' },
+    // Sales dashboard - shown to everyone except ops-only users
+    ...(hasSalesAccess ? [{ href: '/dashboard', label: 'Dashboard' }] : []),
+    // Ops dashboard - shown to ops users and admins/managers
+    ...(hasOpsAccess ? [{ href: '/ops/dashboard', label: isOpsOnly ? 'Dashboard' : 'Ops Dashboard', roles: ['admin', 'regional_manager', 'operations', 'manager', 'owner'] as AnyUserRole[] }] : []),
     { href: '/calendar', label: 'Calendar', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
     { href: '/leads', label: 'Leads' },
     { href: '/opportunities', label: 'Opportunities' },
     { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
-    { href: '/ops', label: 'Operations', roles: ['admin', 'regional_manager', 'operations', 'manager'] },
+    { href: '/ops', label: 'Job Board', roles: ['admin', 'regional_manager', 'operations', 'manager'] },
     { href: '/canvass/map', label: 'Canvass' },
     { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations'], permission: 'pricebook:view' },
     { href: '/customers', label: 'Customers', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
@@ -139,7 +149,7 @@ export default function Nav() {
         <div className="flex items-center justify-between h-16">
           {/* Company Logo/Name */}
           <div className="flex-shrink-0">
-            <Link href="/dashboard" className="flex items-center gap-2 text-xl font-bold whitespace-nowrap">
+            <Link href={isOpsOnly ? '/ops/dashboard' : '/dashboard'} className="flex items-center gap-2 text-xl font-bold whitespace-nowrap">
               {companyLogo ? (
                 <div className="relative w-8 h-8 rounded overflow-hidden bg-white/10">
                   <Image

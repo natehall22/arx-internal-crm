@@ -4,12 +4,18 @@ export const fetchCache = 'force-no-store'
 
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import DashboardClient from './DashboardClient'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
   const supabase = createClient()
+
+  // Redirect ops-only users to ops dashboard
+  if (profile.role === 'operations') {
+    redirect('/ops/dashboard')
+  }
 
   const isAdmin = profile.role === 'admin'
   const isRegionalManager = profile.role === 'regional_manager'
