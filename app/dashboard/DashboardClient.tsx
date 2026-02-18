@@ -142,42 +142,16 @@ export default function DashboardClient({
     const supabase = createClientBrowser()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      console.log('No user found')
+      console.log('No auth user found')
+      setHasCompPlan(false)
       return
     }
 
     try {
-      // Get the user's profile to get org_id
-      const { data: userProfile, error: profileError } = await supabase
-        .from('users')
-        .select('org_id')
-        .eq('id', user.id)
-        .single()
-
-      if (profileError) {
-        console.error('Error fetching profile:', profileError)
-        setHasCompPlan(false)
-        return
-      }
-
-      if (!userProfile?.org_id) {
-        console.error('No org_id found for user')
-        setHasCompPlan(false)
-        return
-      }
-
-      // Get active assignment - try without org_id filter first to debug
+      // Get active comp plan assignment directly - no need for profile query
       const { data: userCompPlan, error } = await supabase
         .from('user_comp_plans')
-        .select(`
-          id,
-          effective_from,
-          effective_to,
-          comp_plan_id,
-          org_id,
-          user_id,
-          comp_plans (*)
-        `)
+        .select('*, comp_plans(*)')
         .eq('user_id', user.id)
         .order('effective_from', { ascending: false })
         .limit(1)
