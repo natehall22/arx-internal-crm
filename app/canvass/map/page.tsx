@@ -1653,12 +1653,23 @@ export default function CanvassMapPage() {
 
               {/* Bottom controls - positioned above mobile nav */}
               {mapStatus === 'loaded' && (
-                <div className="absolute bottom-40 lg:bottom-4 right-4 flex flex-col gap-3 z-20">
-                  {/* Cache/Settings button - smaller, less prominent */}
-                  <div className="relative">
+                <>
+                  {/* My Location button - prominent, always visible */}
+                  <button
+                    onClick={centerOnUser}
+                    className="absolute right-4 bottom-[120px] lg:bottom-4 w-14 h-14 bg-indigo-600 rounded-full shadow-xl flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95 border-2 border-white z-20"
+                    title="Snap to my location"
+                  >
+                    <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" />
+                    </svg>
+                  </button>
+                  
+                  {/* Cache/Settings button */}
+                  <div className="absolute right-4 bottom-[180px] lg:bottom-20 z-20">
                     <button
                       onClick={() => setShowCacheMenu(!showCacheMenu)}
-                      className="w-10 h-10 bg-white/90 rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
+                      className="w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
                       title="Cache settings"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1725,19 +1736,7 @@ export default function CanvassMapPage() {
                       </div>
                     )}
                   </div>
-                  
-                  {/* My Location button - prominent arrow design */}
-                  <button
-                    onClick={centerOnUser}
-                    className="w-14 h-14 bg-indigo-600 rounded-full shadow-xl flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95 border-2 border-white"
-                    title="Snap to my location"
-                  >
-                    <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
-                      {/* Navigation arrow pointing up */}
-                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" />
-                    </svg>
-                  </button>
-                </div>
+                </>
               )}
 
               {/* Legend - desktop only */}
