@@ -73,62 +73,73 @@ export default function CrewsPage() {
   }, [])
 
   const loadData = async () => {
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      console.log('Crews page: No auth user', authError)
-      router.push('/login')
-      return
-    }
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError || !user) {
+        console.log('Crews page: No auth user', authError)
+        router.push('/login')
+        return
+      }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    console.log('Crews page: Profile loaded', { profile, profileError, userId: user.id })
-
-    // Allow any admin-level role to access crews management
-    const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
-    if (!profile) {
-      console.log('Crews page: No profile found for user', user.id)
-      router.push('/dashboard')
-      return
-    }
-    
-    if (!adminRoles.includes(profile.role)) {
-      console.log('Crews page access denied. User role:', profile.role)
-      router.push('/dashboard')
-      return
-    }
-    
-    console.log('Crews page: Access granted for role:', profile.role)
-
-    setOrgId(profile.org_id)
-
-    // Load crews and users in parallel
-    const [crewsRes, usersRes] = await Promise.all([
-      supabase
-        .from('crews')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .order('name'),
-      supabase
+      const { data: profile, error: profileError } = await supabase
         .from('users')
-        .select('id, full_name, role')
-        .eq('org_id', profile.org_id)
-        .order('full_name'),
-    ])
+        .select('org_id, role')
+        .eq('id', user.id)
+        .single()
 
-    // Handle case where crews table doesn't exist yet
-    if (crewsRes.error) {
-      console.error('Error loading crews:', crewsRes.error)
-      // Still show the page, just with empty crews
+      console.log('Crews page: Profile loaded', { profile, profileError, userId: user.id })
+
+      if (profileError) {
+        console.error('Crews page: Profile error', profileError)
+        setLoading(false)
+        return
+      }
+
+      if (!profile) {
+        console.log('Crews page: No profile found for user', user.id)
+        setLoading(false)
+        return
+      }
+      
+      // Allow any admin-level role to access crews management
+      const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
+      if (!adminRoles.includes(profile.role)) {
+        console.log('Crews page access denied. User role:', profile.role)
+        router.push('/dashboard')
+        return
+      }
+      
+      console.log('Crews page: Access granted for role:', profile.role)
+
+      setOrgId(profile.org_id)
+
+      // Load crews and users in parallel
+      const [crewsRes, usersRes] = await Promise.all([
+        supabase
+          .from('crews')
+          .select('*')
+          .eq('org_id', profile.org_id)
+          .order('name'),
+        supabase
+          .from('users')
+          .select('id, full_name, role')
+          .eq('org_id', profile.org_id)
+          .order('full_name'),
+      ])
+
+      // Handle case where crews table doesn't exist yet
+      if (crewsRes.error) {
+        console.error('Error loading crews:', crewsRes.error)
+        // Still show the page, just with empty crews
+      }
+
+      setCrews(crewsRes.data || [])
+      setUsers(usersRes.data || [])
+      setLoading(false)
+    } catch (error) {
+      console.error('Crews page: Unexpected error', error)
+      setLoading(false)
     }
-
-    setCrews(crewsRes.data || [])
-    setUsers(usersRes.data || [])
-    setLoading(false)
   }
 
   const openModal = (crew?: Crew) => {

@@ -65,36 +65,55 @@ export default function SubContractorsPage() {
   }, [])
 
   const loadSubs = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError || !user) {
+        console.log('Subs page: No auth user', authError)
+        router.push('/login')
+        return
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('org_id, role')
+        .eq('id', user.id)
+        .single()
+
+      console.log('Subs page: Profile loaded', { profile, profileError, userId: user.id })
+
+      if (profileError || !profile) {
+        console.error('Subs page: Profile error', profileError)
+        setLoading(false)
+        return
+      }
+
+      // Allow any admin-level role to access subs management
+      const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
+      if (!adminRoles.includes(profile.role)) {
+        console.log('Subs page access denied. User role:', profile.role)
+        router.push('/dashboard')
+        return
+      }
+
+      console.log('Subs page: Access granted for role:', profile.role)
+      setOrgId(profile.org_id)
+
+      const { data, error: subsError } = await supabase
+        .from('sub_contractors')
+        .select('*')
+        .eq('org_id', profile.org_id)
+        .order('company_name')
+
+      if (subsError) {
+        console.error('Subs page: Error loading subs', subsError)
+      }
+
+      setSubs(data || [])
+      setLoading(false)
+    } catch (error) {
+      console.error('Subs page: Unexpected error', error)
+      setLoading(false)
     }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    // Allow any admin-level role to access subs management
-    const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
-    if (!profile || !adminRoles.includes(profile.role)) {
-      console.log('Subs page access denied. User role:', profile?.role)
-      router.push('/dashboard')
-      return
-    }
-
-    setOrgId(profile.org_id)
-
-    const { data } = await supabase
-      .from('sub_contractors')
-      .select('*')
-      .eq('org_id', profile.org_id)
-      .order('company_name')
-
-    setSubs(data || [])
-    setLoading(false)
   }
 
   const openModal = (sub?: SubContractor) => {
