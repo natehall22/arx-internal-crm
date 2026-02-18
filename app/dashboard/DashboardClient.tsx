@@ -675,7 +675,12 @@ export default function DashboardClient({
                         </p>
                       </div>
                       <Link
-                        href={`/opportunities/${apt.opportunity_id}`}
+                        href={apt.opportunity_id 
+                          ? `/opportunities/${apt.opportunity_id}` 
+                          : apt.lead_id 
+                            ? `/leads/${apt.lead_id}`
+                            : '/appointments'
+                        }
                         className="text-indigo-600 hover:text-indigo-700 flex-shrink-0"
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
