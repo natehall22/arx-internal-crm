@@ -239,3 +239,84 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const sessionData = getSessionFromRequest(request)
+    if (!sessionData?.access_token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const supabase = getAdminClient()
+
+    // Verify user
+    const authClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+    const { data: { user }, error: authError } = await authClient.auth.getUser(sessionData.access_token)
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Get profile
+    const { data: profile } = await supabase
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    }
+
+    // Only admin can delete
+    if (profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can delete subcontractors' }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'Sub ID required' }, { status: 400 })
+    }
+
+    // Check if sub has any assigned jobs or work orders
+    const [{ data: assignedJobs }, { data: assignedWorkOrders }] = await Promise.all([
+      supabase
+        .from('production_jobs')
+        .select('id')
+        .eq('assigned_sub_id', id)
+        .limit(1),
+      supabase
+        .from('work_orders')
+        .select('id')
+        .eq('sub_contractor_id', id)
+        .limit(1),
+    ])
+
+    if ((assignedJobs && assignedJobs.length > 0) || (assignedWorkOrders && assignedWorkOrders.length > 0)) {
+      return NextResponse.json({ 
+        error: 'Cannot delete subcontractor with assigned jobs or work orders. Reassign or complete them first, or deactivate the sub instead.' 
+      }, { status: 400 })
+    }
+
+    const { error } = await supabase
+      .from('sub_contractors')
+      .delete()
+      .eq('id', id)
+      .eq('org_id', profile.org_id)
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Subs DELETE error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

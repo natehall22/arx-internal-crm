@@ -239,3 +239,77 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const sessionData = getSessionFromRequest(request)
+    if (!sessionData?.access_token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const supabase = getAdminClient()
+
+    // Verify user
+    const authClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+    const { data: { user }, error: authError } = await authClient.auth.getUser(sessionData.access_token)
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Get profile
+    const { data: profile } = await supabase
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    }
+
+    // Only admin can delete
+    if (profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can delete crews' }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'Crew ID required' }, { status: 400 })
+    }
+
+    // Check if crew has any assigned jobs
+    const { data: assignedJobs } = await supabase
+      .from('production_jobs')
+      .select('id')
+      .eq('assigned_crew_id', id)
+      .limit(1)
+
+    if (assignedJobs && assignedJobs.length > 0) {
+      return NextResponse.json({ 
+        error: 'Cannot delete crew with assigned jobs. Reassign or complete jobs first, or deactivate the crew instead.' 
+      }, { status: 400 })
+    }
+
+    const { error } = await supabase
+      .from('crews')
+      .delete()
+      .eq('id', id)
+      .eq('org_id', profile.org_id)
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Crews DELETE error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

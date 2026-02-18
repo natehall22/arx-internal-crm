@@ -234,6 +234,29 @@ export default function SubContractorsPage() {
     }
   }
 
+  const deleteSub = async (sub: SubContractor) => {
+    if (!confirm(`Are you sure you want to delete "${sub.company_name}"? This cannot be undone.`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/admin/subs?id=${sub.id}`, {
+        method: 'DELETE',
+      })
+      
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to delete subcontractor')
+        return
+      }
+      
+      await loadSubs()
+    } catch (error) {
+      console.error('Error deleting sub:', error)
+      alert('Failed to delete subcontractor')
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -389,10 +412,17 @@ export default function SubContractorsPage() {
                         <button
                           onClick={() => toggleActive(sub)}
                           className={`text-sm font-medium ${
-                            sub.active ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'
+                            sub.active ? 'text-amber-600 hover:text-amber-800' : 'text-green-600 hover:text-green-800'
                           }`}
                         >
                           {sub.active ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          onClick={() => deleteSub(sub)}
+                          className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          title="Delete subcontractor"
+                        >
+                          Delete
                         </button>
                       </div>
                     </td>
