@@ -158,6 +158,7 @@ export default function DashboardClient({
       }
 
       // Get active assignment - include org_id in query for RLS
+      // Only select columns that are guaranteed to exist
       const { data: userCompPlan, error } = await supabase
         .from('user_comp_plans')
         .select(`
@@ -165,21 +166,7 @@ export default function DashboardClient({
           effective_from,
           effective_to,
           comp_plan_id,
-          comp_plans (
-            id,
-            name,
-            plan_type,
-            base_percentage,
-            flat_rate,
-            flat_amount,
-            hourly_rate,
-            unit_rate,
-            unit_type,
-            hybrid_components,
-            volume_bonuses,
-            team_overrides,
-            readme
-          )
+          comp_plans (*)
         `)
         .eq('user_id', user.id)
         .eq('org_id', userProfile.org_id)

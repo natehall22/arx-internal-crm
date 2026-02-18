@@ -163,27 +163,14 @@ export default function CommissionWidget() {
 
     // Check if user has a comp plan assigned and get details
     if (profile?.org_id) {
+      // Use select(*) to get all available columns without failing on missing ones
       const { data: userCompPlan, error: compPlanError } = await supabase
         .from('user_comp_plans')
         .select(`
           id,
           effective_from,
           effective_to,
-          comp_plans (
-            id,
-            name,
-            plan_type,
-            base_percentage,
-            flat_rate,
-            flat_amount,
-            hourly_rate,
-            unit_rate,
-            unit_type,
-            hybrid_components,
-            volume_bonuses,
-            team_overrides,
-            readme
-          )
+          comp_plans (*)
         `)
         .eq('user_id', user.id)
         .eq('org_id', profile.org_id)
