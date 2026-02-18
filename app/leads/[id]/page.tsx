@@ -540,7 +540,11 @@ export default async function LeadDetailPage({
                 <div className="col-span-2">
                   <span className="text-gray-500">Inspection:</span>
                   <span className="ml-2 text-gray-900">
-                    {new Date(lead.inspection_scheduled_for).toLocaleString()}
+                    {new Date(lead.inspection_scheduled_for).toLocaleString('en-US', { 
+                      dateStyle: 'medium', 
+                      timeStyle: 'short',
+                      timeZone: 'America/New_York'
+                    })}
                   </span>
                 </div>
               )}

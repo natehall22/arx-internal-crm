@@ -215,7 +215,7 @@ export default function AppointmentsPage() {
                         <div>
                           <p className="text-gray-500">Date & Time</p>
                           <p className="font-medium text-gray-900">
-                            {appointmentDate.toLocaleDateString()} at {appointmentDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {appointmentDate.toLocaleDateString('en-US', { timeZone: 'America/New_York' })} at {appointmentDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })}
                           </p>
                         </div>
                         <div>
@@ -256,7 +256,7 @@ export default function AppointmentsPage() {
                                appointment.feedback.outcome}
                             </span>
                             <span className="text-xs text-gray-400">
-                              {new Date(appointment.feedback.completed_at).toLocaleDateString()}
+                              {new Date(appointment.feedback.completed_at).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                             </span>
                           </div>
                           {appointment.feedback.setter_feedback && (

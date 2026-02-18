@@ -229,18 +229,33 @@ export default function DashboardClient({
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    // Use Eastern timezone for consistent display
+    return date.toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'America/New_York'
+    })
   }
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
-    const today = new Date()
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const now = new Date()
     
-    if (date.toDateString() === today.toDateString()) return 'Today'
-    if (date.toDateString() === tomorrow.toDateString()) return 'Tomorrow'
-    return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+    // Compare dates in Eastern timezone
+    const dateStr = date.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
+    const todayStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+    const tomorrowStr = tomorrow.toLocaleDateString('en-US', { timeZone: 'America/New_York' })
+    
+    if (dateStr === todayStr) return 'Today'
+    if (dateStr === tomorrowStr) return 'Tomorrow'
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric',
+      timeZone: 'America/New_York'
+    })
   }
 
   return (

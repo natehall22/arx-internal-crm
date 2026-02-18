@@ -1657,10 +1657,12 @@ export default function CanvassMapPage() {
                               Scheduled for {new Date(formState.inspection_scheduled_for).toLocaleDateString('en-US', { 
                                 weekday: 'short', 
                                 month: 'short', 
-                                day: 'numeric' 
+                                day: 'numeric',
+                                timeZone: 'America/New_York'
                               })} at {new Date(formState.inspection_scheduled_for).toLocaleTimeString('en-US', { 
                                 hour: 'numeric', 
-                                minute: '2-digit' 
+                                minute: '2-digit',
+                                timeZone: 'America/New_York'
                               })}
                             </span>
                           </div>
@@ -1953,10 +1955,12 @@ export default function CanvassMapPage() {
                                 {new Date(formState.inspection_scheduled_for).toLocaleDateString('en-US', { 
                                   weekday: 'short', 
                                   month: 'short', 
-                                  day: 'numeric' 
+                                  day: 'numeric',
+                                  timeZone: 'America/New_York'
                                 })} at {new Date(formState.inspection_scheduled_for).toLocaleTimeString('en-US', { 
                                   hour: 'numeric', 
-                                  minute: '2-digit' 
+                                  minute: '2-digit',
+                                  timeZone: 'America/New_York' 
                                 })}
                               </span>
                             </div>

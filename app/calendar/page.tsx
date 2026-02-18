@@ -215,7 +215,7 @@ export default function CalendarPage() {
   const timeSlots = Array.from({ length: 14 }, (_, i) => i + 7) // 7 AM to 8 PM
 
   const formatTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })
   }
 
   const getStatusColor = (status: string) => {

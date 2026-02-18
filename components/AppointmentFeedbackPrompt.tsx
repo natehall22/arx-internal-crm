@@ -89,7 +89,7 @@ export default function AppointmentFeedbackPrompt() {
                   {appointment.leads?.homeowner_name || 'Customer'}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {appointmentDate.toLocaleDateString()} at {appointmentDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {appointmentDate.toLocaleDateString('en-US', { timeZone: 'America/New_York' })} at {appointmentDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })}
                 </p>
               </div>
             </div>

@@ -132,10 +132,10 @@ export default function InspectionStatusCard({
             </div>
             <div className="text-right">
               <p className="text-sm font-medium text-gray-900">
-                {scheduledTime.toLocaleDateString()}
+                {scheduledTime.toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
               </p>
               <p className="text-sm text-gray-500">
-                {scheduledTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })}
               </p>
             </div>
           </div>
