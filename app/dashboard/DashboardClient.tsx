@@ -142,32 +142,45 @@ export default function DashboardClient({
     console.log('loadCompPlanDetails: Starting...')
     try {
       const supabase = createClientBrowser()
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
       
-      if (authError) {
-        console.error('loadCompPlanDetails: Auth error:', authError)
-        setHasCompPlan(false)
+      // First try getSession which works better on initial load
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.user) {
+        console.log('loadCompPlanDetails: No session, will retry on auth change')
+        // Set up a one-time listener for auth state change
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+          if (newSession?.user) {
+            console.log('loadCompPlanDetails: Auth state changed, retrying...')
+            subscription.unsubscribe()
+            await loadCompPlanDetailsWithUser(supabase, newSession.user.id)
+          }
+        })
         return
       }
       
-      if (!user) {
-        console.log('loadCompPlanDetails: No auth user found')
-        setHasCompPlan(false)
-        return
-      }
-      
-      console.log('loadCompPlanDetails: User found:', user.id)
+      console.log('loadCompPlanDetails: User found:', session.user.id)
+      await loadCompPlanDetailsWithUser(supabase, session.user.id)
+    } catch (err) {
+      console.error('Error in loadCompPlanDetails:', err)
+      setHasCompPlan(false)
+    }
+  }
+  
+  const loadCompPlanDetailsWithUser = async (supabase: ReturnType<typeof createClientBrowser>, userId: string) => {
+    try {
+      console.log('loadCompPlanDetailsWithUser: Fetching for user:', userId)
 
       // Get active comp plan assignment directly - no need for profile query
       const { data: userCompPlan, error } = await supabase
         .from('user_comp_plans')
         .select('*, comp_plans(*)')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('effective_from', { ascending: false })
         .limit(1)
         .maybeSingle()
 
-      console.log('loadCompPlanDetails: Query result:', { userCompPlan, error, userId: user.id })
+      console.log('loadCompPlanDetailsWithUser: Query result:', { userCompPlan, error, userId })
 
       if (error) {
         console.error('Error fetching comp plan:', error)
