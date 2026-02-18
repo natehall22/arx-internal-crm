@@ -211,8 +211,8 @@ export default function CalendarPage() {
     })
   }, [currentDate])
 
-  // Time slots for day/week view
-  const timeSlots = Array.from({ length: 13 }, (_, i) => i + 7) // 7 AM to 7 PM
+  // Time slots for day/week view (7 AM to 8 PM)
+  const timeSlots = Array.from({ length: 14 }, (_, i) => i + 7) // 7 AM to 8 PM
 
   const formatTime = (dateStr: string) => {
     return new Date(dateStr).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })

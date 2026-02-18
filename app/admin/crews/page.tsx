@@ -73,25 +73,36 @@ export default function CrewsPage() {
   }, [])
 
   const loadData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      console.log('Crews page: No auth user', authError)
       router.push('/login')
       return
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('users')
       .select('org_id, role')
       .eq('id', user.id)
       .single()
 
+    console.log('Crews page: Profile loaded', { profile, profileError, userId: user.id })
+
     // Allow any admin-level role to access crews management
     const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
-    if (!profile || !adminRoles.includes(profile.role)) {
-      console.log('Crews page access denied. User role:', profile?.role)
+    if (!profile) {
+      console.log('Crews page: No profile found for user', user.id)
       router.push('/dashboard')
       return
     }
+    
+    if (!adminRoles.includes(profile.role)) {
+      console.log('Crews page access denied. User role:', profile.role)
+      router.push('/dashboard')
+      return
+    }
+    
+    console.log('Crews page: Access granted for role:', profile.role)
 
     setOrgId(profile.org_id)
 

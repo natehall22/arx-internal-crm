@@ -121,9 +121,9 @@ export async function GET(request: NextRequest) {
     console.log(`Team availability: ${closersWithCalendars.length} closers with calendars:`, 
       closersWithCalendars.map((c: any) => c.user?.full_name))
 
-    // Default working hours: 8 AM - 6 PM
+    // Default working hours: 8 AM - 8 PM
     const workingHoursStart = '08:00'
-    const workingHoursEnd = '18:00'
+    const workingHoursEnd = '20:00'
     // Buffer will be per-closer from their queue settings
 
     // Parse date parts manually

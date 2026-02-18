@@ -281,7 +281,7 @@ export async function GET(request: NextRequest) {
 
     const bufferMinutes = closerSettings?.appointment_buffer_minutes || 30
     const workingStart = closerSettings?.working_hours_start ? parseInt(closerSettings.working_hours_start.split(':')[0]) : 8
-    const workingEnd = closerSettings?.working_hours_end ? parseInt(closerSettings.working_hours_end.split(':')[0]) : 18
+    const workingEnd = closerSettings?.working_hours_end ? parseInt(closerSettings.working_hours_end.split(':')[0]) : 20
 
     if (action === 'slots' && date) {
       // Get available slots for a date

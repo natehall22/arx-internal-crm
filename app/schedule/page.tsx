@@ -95,10 +95,12 @@ export default function SchedulePage() {
     }
   }
 
-  // Generate time slots
+  // Generate time slots (8 AM - 8 PM)
   const timeSlots: TimeSlot[] = []
-  for (let hour = 8; hour <= 18; hour++) {
+  for (let hour = 8; hour <= 20; hour++) {
     for (let min = 0; min < 60; min += 30) {
+      // Don't add slots after 8:00 PM
+      if (hour === 20 && min > 0) break
       const time = `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`
       timeSlots.push({ time, available: true })
     }

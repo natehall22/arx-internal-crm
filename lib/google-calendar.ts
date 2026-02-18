@@ -353,7 +353,7 @@ export async function getAvailableSlots(
   durationMinutes: number = 60,
   bufferMinutes: number = 60,
   workingHoursStart: number = 8, // 8 AM
-  workingHoursEnd: number = 18 // 6 PM
+  workingHoursEnd: number = 20 // 8 PM
 ): Promise<Date[]> {
   // Get start and end of the day
   const dayStart = new Date(date)

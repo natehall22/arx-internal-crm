@@ -128,9 +128,9 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .single()
 
-    // Default working hours: 8 AM - 6 PM
+    // Default working hours: 8 AM - 8 PM
     let workingHoursStart = settings?.working_hours_start || '08:00'
-    let workingHoursEnd = settings?.working_hours_end || '18:00'
+    let workingHoursEnd = settings?.working_hours_end || '20:00'
     
     // Use buffer settings from team queue if available, otherwise fall back to user_settings
     // Priority: team_closer_queue > user_settings > defaults
