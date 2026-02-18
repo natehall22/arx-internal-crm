@@ -84,23 +84,35 @@ export default function OpsPage() {
   }, [])
 
   const loadData = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
+    console.log('Job Board: Loading data...')
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    console.log('Job Board: Session result:', { hasSession: !!session, error: sessionError })
+    
     if (!session?.user) {
+      console.log('Job Board: No session, redirecting to login')
       router.push('/login')
       return
     }
     const user = session.user
+    console.log('Job Board: User found:', user.id)
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('users')
       .select('org_id, role')
       .eq('id', user.id)
       .single()
 
-    if (!profile) return
+    console.log('Job Board: Profile result:', { profile, error: profileError })
+
+    if (!profile) {
+      console.log('Job Board: No profile found')
+      return
+    }
 
     // Check role access
+    console.log('Job Board: Checking role access for:', profile.role)
     if (!['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile.role)) {
+      console.log('Job Board: Role not allowed, redirecting to dashboard')
       router.push('/dashboard')
       return
     }
