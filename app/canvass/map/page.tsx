@@ -910,8 +910,8 @@ export default function CanvassMapPage() {
       const addressIdx = header.findIndex(h => h.includes('address'))
       const phoneIdx = header.findIndex(h => h.includes('phone'))
       const emailIdx = header.findIndex(h => h.includes('email'))
-      const latIdx = header.findIndex(h => h === 'lat' || h === 'latitude')
-      const lngIdx = header.findIndex(h => h === 'lng' || h === 'longitude')
+      const latIdx = header.findIndex(h => h === 'lat' || h === 'latitude' || h === 'y' || h.includes('lat'))
+      const lngIdx = header.findIndex(h => h === 'lng' || h === 'longitude' || h === 'long' || h === 'x' || h.includes('lng') || h.includes('lon'))
       const dispositionIdx = header.findIndex(h => h.includes('disposition'))
       const notesIdx = header.findIndex(h => h.includes('notes'))
 
