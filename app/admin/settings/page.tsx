@@ -73,6 +73,17 @@ interface WorkOrderField {
   active: boolean
 }
 
+interface WorkOrderWorkflowStage {
+  id: string
+  name: string
+  color: string
+  sort_order: number
+  is_default?: boolean
+  is_complete_stage?: boolean
+  notify_customer?: boolean
+  auto_actions?: string[]
+}
+
 export default function AdminSettingsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -153,6 +164,18 @@ export default function AdminSettingsPage() {
   ])
   const [editingWorkOrderField, setEditingWorkOrderField] = useState<WorkOrderField | null>(null)
   const [showAddWorkOrderField, setShowAddWorkOrderField] = useState(false)
+  
+  // Work Order Workflow Stages state
+  const [workOrderStages, setWorkOrderStages] = useState<WorkOrderWorkflowStage[]>([
+    { id: 'pending', name: 'Pending', color: '#6b7280', sort_order: 0, is_default: true },
+    { id: 'scheduled', name: 'Scheduled', color: '#3b82f6', sort_order: 1, notify_customer: true },
+    { id: 'in_progress', name: 'In Progress', color: '#f59e0b', sort_order: 2 },
+    { id: 'on_hold', name: 'On Hold', color: '#ef4444', sort_order: 3 },
+    { id: 'completed', name: 'Completed', color: '#22c55e', sort_order: 4, is_complete_stage: true, notify_customer: true },
+    { id: 'cancelled', name: 'Cancelled', color: '#9ca3af', sort_order: 5 },
+  ])
+  const [editingWorkOrderStage, setEditingWorkOrderStage] = useState<WorkOrderWorkflowStage | null>(null)
+  const [showAddWorkOrderStage, setShowAddWorkOrderStage] = useState(false)
   
   // Logo state
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
@@ -2183,14 +2206,274 @@ export default function AdminSettingsPage() {
             <div className="max-w-3xl">
               <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">Work Order Workflows</h1>
-                <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
+                <button 
+                  onClick={() => {
+                    setEditingWorkOrderStage(null)
+                    setShowAddWorkOrderStage(true)
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+                >
                   + Add Stage
                 </button>
               </div>
               
               <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-500">Define workflow stages for work orders.</p>
+                <p className="text-gray-500 mb-6">Define workflow stages for work orders. Drag to reorder stages.</p>
+                
+                <div className="space-y-3">
+                  {workOrderStages.sort((a, b) => a.sort_order - b.sort_order).map((stage, index) => (
+                    <div key={stage.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <div className="flex flex-col gap-1">
+                          <button 
+                            onClick={() => {
+                              if (index > 0) {
+                                setWorkOrderStages(prev => {
+                                  const sorted = [...prev].sort((a, b) => a.sort_order - b.sort_order)
+                                  const newStages = [...sorted]
+                                  const temp = newStages[index].sort_order
+                                  newStages[index].sort_order = newStages[index - 1].sort_order
+                                  newStages[index - 1].sort_order = temp
+                                  return newStages
+                                })
+                              }
+                            }}
+                            disabled={index === 0}
+                            className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (index < workOrderStages.length - 1) {
+                                setWorkOrderStages(prev => {
+                                  const sorted = [...prev].sort((a, b) => a.sort_order - b.sort_order)
+                                  const newStages = [...sorted]
+                                  const temp = newStages[index].sort_order
+                                  newStages[index].sort_order = newStages[index + 1].sort_order
+                                  newStages[index + 1].sort_order = temp
+                                  return newStages
+                                })
+                              }
+                            }}
+                            disabled={index === workOrderStages.length - 1}
+                            className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div 
+                          className="w-4 h-4 rounded-full" 
+                          style={{ backgroundColor: stage.color }}
+                        />
+                        <div>
+                          <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                            {stage.name}
+                            {stage.is_default && (
+                              <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs rounded-full">Default</span>
+                            )}
+                            {stage.is_complete_stage && (
+                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Complete</span>
+                            )}
+                          </h4>
+                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                            {stage.notify_customer && (
+                              <span className="flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                                Notifies customer
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => {
+                            setEditingWorkOrderStage(stage)
+                            setShowAddWorkOrderStage(true)
+                          }}
+                          className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                        >
+                          Edit
+                        </button>
+                        {!stage.is_default && !stage.is_complete_stage && (
+                          <button 
+                            onClick={() => {
+                              if (confirm(`Delete stage "${stage.name}"?`)) {
+                                setWorkOrderStages(prev => prev.filter(s => s.id !== stage.id))
+                              }
+                            }}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                  <p className="text-sm text-blue-700">
+                    <strong>Tip:</strong> The "Default" stage is assigned to new work orders. The "Complete" stage marks work orders as finished.
+                  </p>
+                </div>
               </div>
+              
+              {/* Add/Edit Work Order Stage Modal */}
+              {showAddWorkOrderStage && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+                    <div className="p-6 border-b">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        {editingWorkOrderStage ? 'Edit Stage' : 'Add Stage'}
+                      </h2>
+                    </div>
+                    <form onSubmit={(e) => {
+                      e.preventDefault()
+                      const formData = new FormData(e.currentTarget)
+                      const stageData: WorkOrderWorkflowStage = {
+                        id: editingWorkOrderStage?.id || `stage_${Date.now()}`,
+                        name: formData.get('name') as string,
+                        color: formData.get('color') as string,
+                        sort_order: editingWorkOrderStage?.sort_order ?? workOrderStages.length,
+                        is_default: formData.get('is_default') === 'on',
+                        is_complete_stage: formData.get('is_complete_stage') === 'on',
+                        notify_customer: formData.get('notify_customer') === 'on',
+                      }
+                      
+                      if (editingWorkOrderStage) {
+                        setWorkOrderStages(prev => prev.map(s => s.id === editingWorkOrderStage.id ? stageData : s))
+                      } else {
+                        setWorkOrderStages(prev => [...prev, stageData])
+                      }
+                      
+                      // If this is set as default, unset other defaults
+                      if (stageData.is_default) {
+                        setWorkOrderStages(prev => prev.map(s => 
+                          s.id !== stageData.id ? { ...s, is_default: false } : s
+                        ))
+                      }
+                      
+                      // If this is set as complete stage, unset other complete stages
+                      if (stageData.is_complete_stage) {
+                        setWorkOrderStages(prev => prev.map(s => 
+                          s.id !== stageData.id ? { ...s, is_complete_stage: false } : s
+                        ))
+                      }
+                      
+                      setShowAddWorkOrderStage(false)
+                      setEditingWorkOrderStage(null)
+                    }}>
+                      <div className="p-6 space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Stage Name</label>
+                          <input
+                            type="text"
+                            name="name"
+                            required
+                            defaultValue={editingWorkOrderStage?.name || ''}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="e.g., In Progress"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="color"
+                              name="color"
+                              defaultValue={editingWorkOrderStage?.color || '#3b82f6'}
+                              className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
+                            />
+                            <div className="flex gap-2">
+                              {['#6b7280', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'].map(color => (
+                                <button
+                                  key={color}
+                                  type="button"
+                                  onClick={(e) => {
+                                    const colorInput = e.currentTarget.parentElement?.parentElement?.querySelector('input[type="color"]') as HTMLInputElement
+                                    if (colorInput) colorInput.value = color
+                                  }}
+                                  className="w-6 h-6 rounded-full border-2 border-white shadow-sm hover:scale-110 transition-transform"
+                                  style={{ backgroundColor: color }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              name="is_default"
+                              id="stage_is_default"
+                              defaultChecked={editingWorkOrderStage?.is_default || false}
+                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                            />
+                            <label htmlFor="stage_is_default" className="text-sm text-gray-700">
+                              Default stage for new work orders
+                            </label>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              name="is_complete_stage"
+                              id="stage_is_complete"
+                              defaultChecked={editingWorkOrderStage?.is_complete_stage || false}
+                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                            />
+                            <label htmlFor="stage_is_complete" className="text-sm text-gray-700">
+                              This stage marks work order as complete
+                            </label>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              name="notify_customer"
+                              id="stage_notify_customer"
+                              defaultChecked={editingWorkOrderStage?.notify_customer || false}
+                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                            />
+                            <label htmlFor="stage_notify_customer" className="text-sm text-gray-700">
+                              Notify customer when entering this stage
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="p-6 border-t flex justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddWorkOrderStage(false)
+                            setEditingWorkOrderStage(null)
+                          }}
+                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        >
+                          {editingWorkOrderStage ? 'Save Changes' : 'Add Stage'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
