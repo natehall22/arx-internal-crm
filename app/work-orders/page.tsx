@@ -307,7 +307,7 @@ export default function WorkOrdersPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
                       {wo.scheduled_date 
-                        ? new Date(wo.scheduled_date).toLocaleDateString()
+                        ? new Date(wo.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { timeZone: 'America/New_York' })
                         : <span className="text-gray-400">Not scheduled</span>
                       }
                     </td>

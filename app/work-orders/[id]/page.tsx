@@ -503,11 +503,12 @@ export default function WorkOrderDetailPage() {
               {workOrder.scheduled_date ? (
                 <div>
                   <div className="text-lg font-medium text-gray-900">
-                    {new Date(workOrder.scheduled_date).toLocaleDateString('en-US', {
+                    {new Date(workOrder.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
                       weekday: 'long',
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',
+                      timeZone: 'America/New_York',
                     })}
                   </div>
                   {workOrder.estimated_hours && (

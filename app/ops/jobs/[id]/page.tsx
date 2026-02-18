@@ -370,12 +370,12 @@ export default function JobDetailPage() {
 
               {job.materials_ordered_at && (
                 <p className="text-sm text-gray-500">
-                  Ordered: {new Date(job.materials_ordered_at).toLocaleDateString()}
+                  Ordered: {new Date(job.materials_ordered_at).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                 </p>
               )}
               {job.materials_eta && (
                 <p className="text-sm text-gray-500">
-                  ETA: {new Date(job.materials_eta).toLocaleDateString()}
+                  ETA: {new Date(job.materials_eta).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                 </p>
               )}
               {job.materials_notes && (
@@ -458,10 +458,11 @@ export default function JobDetailPage() {
               {job.scheduled_date ? (
                 <div>
                   <div className="text-xl font-bold text-gray-900">
-                    {new Date(job.scheduled_date).toLocaleDateString('en-US', {
+                    {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
                       weekday: 'long',
                       month: 'long',
                       day: 'numeric',
+                      timeZone: 'America/New_York',
                     })}
                   </div>
                   {job.scheduled_time_start && (
@@ -635,7 +636,7 @@ export default function JobDetailPage() {
                 )}
                 {job.sale_date && (
                   <p className="text-sm text-gray-500">
-                    Sale date: {new Date(job.sale_date).toLocaleDateString()}
+                    Sale date: {new Date(job.sale_date + 'T12:00:00').toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                   </p>
                 )}
               </div>

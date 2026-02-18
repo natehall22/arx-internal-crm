@@ -242,7 +242,7 @@ export default function SubPortalPage() {
                   </p>
                   {wo.scheduled_date && (
                     <p className="text-sm text-indigo-600 mt-2">
-                      📅 {new Date(wo.scheduled_date).toLocaleDateString()}
+                      📅 {new Date(wo.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                     </p>
                   )}
                 </div>
@@ -294,11 +294,12 @@ export default function SubPortalPage() {
                         <h3 className="text-sm font-medium text-gray-500 mb-2">SCHEDULED</h3>
                         <div className="bg-gray-50 rounded-lg p-4">
                           <p className="text-lg font-medium text-gray-900">
-                            {new Date(selectedWO.scheduled_date).toLocaleDateString('en-US', {
+                            {new Date(selectedWO.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
                               weekday: 'long',
                               year: 'numeric',
                               month: 'long',
                               day: 'numeric',
+                              timeZone: 'America/New_York',
                             })}
                           </p>
                           {selectedWO.estimated_hours && (

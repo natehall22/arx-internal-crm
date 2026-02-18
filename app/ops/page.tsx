@@ -281,10 +281,11 @@ export default function OpsPage() {
         {/* Schedule Date */}
         {job.scheduled_date && (
           <div className="text-xs text-indigo-600 font-medium">
-            📅 {new Date(job.scheduled_date).toLocaleDateString('en-US', { 
+            📅 {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { 
               weekday: 'short', 
               month: 'short', 
-              day: 'numeric' 
+              day: 'numeric',
+              timeZone: 'America/New_York'
             })}
           </div>
         )}
@@ -530,7 +531,7 @@ export default function OpsPage() {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {job.scheduled_date 
-                          ? new Date(job.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          ? new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
                           : <span className="text-gray-400">-</span>
                         }
                       </td>
