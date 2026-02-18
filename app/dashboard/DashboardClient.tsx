@@ -193,14 +193,16 @@ export default function DashboardClient({
 
       // Check if assignment exists and is currently active
       if (userCompPlan?.comp_plans) {
+        // Parse dates - effective_from is a DATE (not datetime), so compare dates only
         const now = new Date()
-        const effectiveFrom = new Date(userCompPlan.effective_from)
-        const effectiveTo = userCompPlan.effective_to ? new Date(userCompPlan.effective_to) : null
+        const todayStr = now.toISOString().split('T')[0] // YYYY-MM-DD
+        const effectiveFromStr = userCompPlan.effective_from // Already YYYY-MM-DD from DB
+        const effectiveToStr = userCompPlan.effective_to
         
-        // Plan is active if: started and (no end date OR end date is in future)
-        const isActive = effectiveFrom <= now && (!effectiveTo || effectiveTo > now)
+        // Plan is active if: effective_from <= today AND (no end date OR end date >= today)
+        const isActive = effectiveFromStr <= todayStr && (!effectiveToStr || effectiveToStr >= todayStr)
         
-        console.log('Plan active check:', { effectiveFrom, effectiveTo, now, isActive })
+        console.log('Plan active check:', { effectiveFromStr, effectiveToStr, todayStr, isActive })
         
         if (isActive) {
           const plan = userCompPlan.comp_plans as any

@@ -184,10 +184,14 @@ export default function CommissionWidget() {
       
       // Check if assignment is currently active
       if (userCompPlan?.comp_plans) {
+        // Parse dates - effective_from is a DATE (not datetime), so compare dates only
         const now = new Date()
-        const effectiveFrom = new Date(userCompPlan.effective_from)
-        const effectiveTo = userCompPlan.effective_to ? new Date(userCompPlan.effective_to) : null
-        const isActive = effectiveFrom <= now && (!effectiveTo || effectiveTo > now)
+        const todayStr = now.toISOString().split('T')[0] // YYYY-MM-DD
+        const effectiveFromStr = userCompPlan.effective_from // Already YYYY-MM-DD from DB
+        const effectiveToStr = userCompPlan.effective_to
+        
+        // Plan is active if: effective_from <= today AND (no end date OR end date >= today)
+        const isActive = effectiveFromStr <= todayStr && (!effectiveToStr || effectiveToStr >= todayStr)
         
         if (isActive) {
           setHasCompPlan(true)
@@ -195,7 +199,7 @@ export default function CommissionWidget() {
           setCompPlanDetails({
             id: plan.id,
             name: plan.name,
-            plan_type: plan.plan_type,
+            plan_type: plan.plan_type || 'percentage',
             base_percentage: plan.base_percentage,
             flat_rate: plan.flat_rate,
             flat_amount: plan.flat_amount,
