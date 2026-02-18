@@ -14,6 +14,7 @@ interface PricebookItem {
   adder_category: string | null
   visibility: string
   show_to_customer?: boolean
+  price_type?: 'fixed' | 'percentage' | null
 }
 
 interface RoofingType {
@@ -55,7 +56,8 @@ interface LineItem {
   unit_price: number
   line_total: number
   is_adder: boolean
-  show_to_customer?: boolean  // Whether this item should be shown on customer-facing proposal
+  show_to_customer?: boolean
+  price_type?: 'fixed' | 'percentage' | null
 }
 
 interface ProposalForm {
@@ -295,6 +297,8 @@ export default function ProposalBuilderPage() {
         return 'rolls'
       case 'sheet':
         return 'sheets'
+      case 'percent':
+        return '% of total'
       default:
         return unit || 'units'
     }
@@ -379,6 +383,7 @@ export default function ProposalBuilderPage() {
       calculatedQuantity = convertQuantityForUnit(measurementData.total_squares, item.unit)
     }
     
+    const isPercentage = item.price_type === 'percentage' || item.unit === 'percent'
     const newItem: LineItem = {
       id: crypto.randomUUID(),
       pricebook_item_id: item.id,
@@ -386,11 +391,12 @@ export default function ProposalBuilderPage() {
       name: item.name,
       description: '',
       unit: item.unit,
-      quantity: calculatedQuantity,
+      quantity: isPercentage ? 1 : calculatedQuantity,
       unit_price: item.unit_price,
-      line_total: item.unit_price * calculatedQuantity,
+      line_total: isPercentage ? 0 : item.unit_price * calculatedQuantity, // Percentage items calculated later
       is_adder: item.is_adder,
-      show_to_customer: item.show_to_customer ?? false,  // Pass through customer visibility setting
+      show_to_customer: item.show_to_customer ?? false,
+      price_type: item.price_type,
     }
     setLineItems(prev => [...prev, newItem])
     setShowAddItem(false)
@@ -411,6 +417,7 @@ export default function ProposalBuilderPage() {
       line_total: quantityModalItem.unit_price * quantityModalValue,
       is_adder: quantityModalItem.is_adder,
       show_to_customer: quantityModalItem.show_to_customer ?? false,
+      price_type: quantityModalItem.price_type,
     }
     setLineItems(prev => [...prev, newItem])
     setQuantityModalItem(null)
@@ -433,8 +440,22 @@ export default function ProposalBuilderPage() {
     setLineItems(prev => prev.filter(item => item.id !== id))
   }
 
+  const isPercentageItem = (item: LineItem): boolean => {
+    return item.price_type === 'percentage' || item.unit === 'percent'
+  }
+
   const calculateTotals = () => {
-    const subtotal = lineItems.reduce((sum, item) => sum + (item.line_total || 0), 0)
+    // First calculate base subtotal (non-percentage items)
+    const baseSubtotal = lineItems
+      .filter(item => !isPercentageItem(item))
+      .reduce((sum, item) => sum + (item.line_total || 0), 0)
+    
+    // Then calculate percentage-based items as % of base subtotal
+    const percentageTotal = lineItems
+      .filter(item => isPercentageItem(item))
+      .reduce((sum, item) => sum + (baseSubtotal * (item.unit_price / 100)), 0)
+    
+    const subtotal = baseSubtotal + percentageTotal
     const discountAmount = form.discount_percent > 0 
       ? subtotal * (form.discount_percent / 100)
       : (form.discount_amount || 0)
@@ -447,6 +468,8 @@ export default function ProposalBuilderPage() {
 
     return { 
       subtotal: subtotal || 0, 
+      baseSubtotal: baseSubtotal || 0,
+      percentageTotal: percentageTotal || 0,
       discountAmount: discountAmount || 0, 
       afterDiscount: afterDiscount || 0, 
       taxAmount: taxAmount || 0, 
@@ -1257,15 +1280,28 @@ export default function ProposalBuilderPage() {
                 <div className="mb-6 p-4 bg-green-50 rounded-xl border border-green-200">
                   <h3 className="font-medium text-green-800 mb-3">Selected Add-Ons</h3>
                   <div className="space-y-3">
-                    {lineItems.filter(i => i.is_adder).map((item) => (
+                    {lineItems.filter(i => i.is_adder).map((item) => {
+                      const isPercent = isPercentageItem(item)
+                      const baseSubtotal = lineItems
+                        .filter(li => !isPercentageItem(li))
+                        .reduce((sum, li) => sum + (li.line_total || 0), 0)
+                      const calculatedTotal = isPercent 
+                        ? baseSubtotal * (item.unit_price / 100)
+                        : item.line_total || 0
+                      
+                      return (
                       <div key={item.id} className="flex items-center justify-between p-3 bg-white rounded-lg">
                         <div className="flex-1">
                           <span className="text-green-700 font-medium">{item.name}</span>
-                          <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {getUnitLabel(item.unit)}</p>
+                          {isPercent ? (
+                            <p className="text-xs text-gray-500">{item.unit_price}% of project total</p>
+                          ) : (
+                            <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {getUnitLabel(item.unit)}</p>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
-                          {/* Quantity controls for "each" type items */}
-                          {needsQuantityInput(item.unit) ? (
+                          {/* Quantity controls for "each" type items (not for percentage items) */}
+                          {!isPercent && needsQuantityInput(item.unit) ? (
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => updateLineItem(item.id, 'quantity', Math.max(1, item.quantity - 1))}
@@ -1287,11 +1323,11 @@ export default function ProposalBuilderPage() {
                                 +
                               </button>
                             </div>
-                          ) : (
+                          ) : !isPercent ? (
                             <span className="text-sm text-gray-500">{item.quantity} {getUnitLabel(item.unit)}</span>
-                          )}
+                          ) : null}
                           <span className="font-bold text-green-800 w-24 text-right">
-                            ${(item.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            ${calculatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </span>
                           <button
                             onClick={() => removeLineItem(item.id)}
@@ -1303,7 +1339,8 @@ export default function ProposalBuilderPage() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1313,7 +1350,9 @@ export default function ProposalBuilderPage() {
                 {adders
                   .filter(a => selectedAdderCategory === 'all' || a.adder_category === selectedAdderCategory)
                   .filter(a => !lineItems.find(li => li.pricebook_item_id === a.id))
-                  .map((adder) => (
+                  .map((adder) => {
+                    const isPercent = adder.price_type === 'percentage' || adder.unit === 'percent'
+                    return (
                     <button
                       key={adder.id}
                       onClick={() => addLineItem(adder)}
@@ -1323,19 +1362,34 @@ export default function ProposalBuilderPage() {
                         <p className="font-medium text-gray-900">{adder.name}</p>
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-gray-500">{adder.adder_category || adder.category}</p>
-                          {needsQuantityInput(adder.unit) && (
+                          {needsQuantityInput(adder.unit) && !isPercent && (
                             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
                               Qty required
+                            </span>
+                          )}
+                          {isPercent && (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                              % based
                             </span>
                           )}
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-bold text-indigo-600">${(adder.unit_price || 0).toLocaleString()}</p>
-                        <p className="text-xs text-gray-400">per {getUnitLabel(adder.unit)}</p>
+                        {isPercent ? (
+                          <>
+                            <p className="font-bold text-indigo-600">{adder.unit_price}%</p>
+                            <p className="text-xs text-gray-400">of project total</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-bold text-indigo-600">${(adder.unit_price || 0).toLocaleString()}</p>
+                            <p className="text-xs text-gray-400">per {getUnitLabel(adder.unit)}</p>
+                          </>
+                        )}
                       </div>
                     </button>
-                  ))}
+                    )
+                  })}
               </div>
 
               {adders.length === 0 && (
@@ -1478,16 +1532,37 @@ export default function ProposalBuilderPage() {
                 {lineItems.filter(i => i.is_adder).length > 0 && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-amber-800">Add-Ons Included:</p>
-                    {lineItems.filter(i => i.is_adder).map((item) => (
+                    {lineItems.filter(i => i.is_adder).map((item) => {
+                      const isPercent = isPercentageItem(item)
+                      const baseSubtotal = lineItems
+                        .filter(li => !isPercentageItem(li))
+                        .reduce((sum, li) => sum + (li.line_total || 0), 0)
+                      const calculatedTotal = isPercent 
+                        ? baseSubtotal * (item.unit_price / 100)
+                        : item.line_total || 0
+                      
+                      return (
                       <div key={item.id} className="flex justify-between text-sm pl-4">
-                        <span className="text-amber-700">{item.name} {item.quantity > 1 && `(×${item.quantity})`}</span>
-                        <span className="text-amber-700">${(item.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span className="text-amber-700">
+                          {item.name} 
+                          {isPercent ? ` (${item.unit_price}%)` : item.quantity > 1 ? ` (×${item.quantity})` : ''}
+                        </span>
+                        <span className="text-amber-700">${calculatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
-                    ))}
+                      )
+                    })}
                     <div className="flex justify-between py-2 border-t border-amber-200">
                       <span className="text-amber-900">Total Add-Ons</span>
                       <span className="font-medium text-amber-900">
-                        ${lineItems.filter(i => i.is_adder).reduce((sum, i) => sum + (i.line_total || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        ${(() => {
+                          const baseSubtotal = lineItems
+                            .filter(li => !isPercentageItem(li))
+                            .reduce((sum, li) => sum + (li.line_total || 0), 0)
+                          return lineItems.filter(i => i.is_adder).reduce((sum, item) => {
+                            const isPercent = isPercentageItem(item)
+                            return sum + (isPercent ? baseSubtotal * (item.unit_price / 100) : item.line_total || 0)
+                          }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })
+                        })()}
                       </span>
                     </div>
                   </div>
