@@ -162,50 +162,70 @@ export default function CommissionWidget() {
     setCommissionSettings(settings)
 
     // Check if user has a comp plan assigned and get details
-    const { data: userCompPlan } = await supabase
-      .from('user_comp_plans')
-      .select(`
-        id,
-        comp_plans (
+    if (profile?.org_id) {
+      const { data: userCompPlan, error: compPlanError } = await supabase
+        .from('user_comp_plans')
+        .select(`
           id,
-          name,
-          plan_type,
-          base_percentage,
-          flat_rate,
-          flat_amount,
-          hourly_rate,
-          unit_rate,
-          unit_type,
-          hybrid_components,
-          volume_bonuses,
-          team_overrides,
-          readme
-        )
-      `)
-      .eq('user_id', user.id)
-      .is('effective_to', null)
-      .limit(1)
-      .maybeSingle()
-    
-    setHasCompPlan(!!userCompPlan)
-    
-    if (userCompPlan?.comp_plans) {
-      const plan = userCompPlan.comp_plans as any
-      setCompPlanDetails({
-        id: plan.id,
-        name: plan.name,
-        plan_type: plan.plan_type,
-        base_percentage: plan.base_percentage,
-        flat_rate: plan.flat_rate,
-        flat_amount: plan.flat_amount,
-        hourly_rate: plan.hourly_rate,
-        unit_rate: plan.unit_rate,
-        unit_type: plan.unit_type,
-        hybrid_components: plan.hybrid_components || null,
-        volume_bonuses: plan.volume_bonuses || [],
-        team_overrides: plan.team_overrides || [],
-        readme: plan.readme,
-      })
+          effective_from,
+          effective_to,
+          comp_plans (
+            id,
+            name,
+            plan_type,
+            base_percentage,
+            flat_rate,
+            flat_amount,
+            hourly_rate,
+            unit_rate,
+            unit_type,
+            hybrid_components,
+            volume_bonuses,
+            team_overrides,
+            readme
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('org_id', profile.org_id)
+        .order('effective_from', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      
+      if (compPlanError) {
+        console.error('Error fetching comp plan:', compPlanError)
+      }
+      
+      // Check if assignment is currently active
+      if (userCompPlan?.comp_plans) {
+        const now = new Date()
+        const effectiveFrom = new Date(userCompPlan.effective_from)
+        const effectiveTo = userCompPlan.effective_to ? new Date(userCompPlan.effective_to) : null
+        const isActive = effectiveFrom <= now && (!effectiveTo || effectiveTo > now)
+        
+        if (isActive) {
+          setHasCompPlan(true)
+          const plan = userCompPlan.comp_plans as any
+          setCompPlanDetails({
+            id: plan.id,
+            name: plan.name,
+            plan_type: plan.plan_type,
+            base_percentage: plan.base_percentage,
+            flat_rate: plan.flat_rate,
+            flat_amount: plan.flat_amount,
+            hourly_rate: plan.hourly_rate,
+            unit_rate: plan.unit_rate,
+            unit_type: plan.unit_type,
+            hybrid_components: plan.hybrid_components || null,
+            volume_bonuses: plan.volume_bonuses || [],
+            team_overrides: plan.team_overrides || [],
+            readme: plan.readme,
+          })
+        } else {
+          setHasCompPlan(false)
+        }
+      } else {
+        setHasCompPlan(false)
+      }
     }
 
     const now = new Date()

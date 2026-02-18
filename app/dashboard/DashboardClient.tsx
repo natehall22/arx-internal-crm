@@ -143,50 +143,90 @@ export default function DashboardClient({
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: userCompPlan } = await supabase
-      .from('user_comp_plans')
-      .select(`
-        id,
-        comp_plans (
-          id,
-          name,
-          plan_type,
-          base_percentage,
-          flat_rate,
-          flat_amount,
-          hourly_rate,
-          unit_rate,
-          unit_type,
-          hybrid_components,
-          volume_bonuses,
-          team_overrides,
-          readme
-        )
-      `)
-      .eq('user_id', user.id)
-      .is('effective_to', null)
-      .limit(1)
-      .maybeSingle()
+    try {
+      // Get the user's profile to get org_id
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('org_id')
+        .eq('id', user.id)
+        .single()
 
-    if (userCompPlan?.comp_plans) {
-      const plan = userCompPlan.comp_plans as any
-      setCompPlanDetails({
-        id: plan.id,
-        name: plan.name,
-        plan_type: plan.plan_type,
-        base_percentage: plan.base_percentage,
-        flat_rate: plan.flat_rate,
-        flat_amount: plan.flat_amount,
-        hourly_rate: plan.hourly_rate,
-        unit_rate: plan.unit_rate,
-        unit_type: plan.unit_type,
-        hybrid_components: plan.hybrid_components || null,
-        volume_bonuses: plan.volume_bonuses || [],
-        team_overrides: plan.team_overrides || [],
-        readme: plan.readme,
-      })
-      setHasCompPlan(true)
-    } else {
+      if (!userProfile?.org_id) {
+        console.error('No org_id found for user')
+        setHasCompPlan(false)
+        return
+      }
+
+      // Get active assignment - include org_id in query for RLS
+      const { data: userCompPlan, error } = await supabase
+        .from('user_comp_plans')
+        .select(`
+          id,
+          effective_from,
+          effective_to,
+          comp_plan_id,
+          comp_plans (
+            id,
+            name,
+            plan_type,
+            base_percentage,
+            flat_rate,
+            flat_amount,
+            hourly_rate,
+            unit_rate,
+            unit_type,
+            hybrid_components,
+            volume_bonuses,
+            team_overrides,
+            readme
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('org_id', userProfile.org_id)
+        .order('effective_from', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (error) {
+        console.error('Error fetching comp plan:', error)
+        setHasCompPlan(false)
+        return
+      }
+
+      // Check if assignment exists and is currently active
+      if (userCompPlan?.comp_plans) {
+        const now = new Date()
+        const effectiveFrom = new Date(userCompPlan.effective_from)
+        const effectiveTo = userCompPlan.effective_to ? new Date(userCompPlan.effective_to) : null
+        
+        // Plan is active if: started and (no end date OR end date is in future)
+        const isActive = effectiveFrom <= now && (!effectiveTo || effectiveTo > now)
+        
+        if (isActive) {
+          const plan = userCompPlan.comp_plans as any
+          setCompPlanDetails({
+            id: plan.id,
+            name: plan.name,
+            plan_type: plan.plan_type,
+            base_percentage: plan.base_percentage,
+            flat_rate: plan.flat_rate,
+            flat_amount: plan.flat_amount,
+            hourly_rate: plan.hourly_rate,
+            unit_rate: plan.unit_rate,
+            unit_type: plan.unit_type,
+            hybrid_components: plan.hybrid_components || null,
+            volume_bonuses: plan.volume_bonuses || [],
+            team_overrides: plan.team_overrides || [],
+            readme: plan.readme,
+          })
+          setHasCompPlan(true)
+          return
+        }
+      }
+      
+      setHasCompPlan(false)
+    } catch (err) {
+      console.error('Error loading comp plan:', err)
       setHasCompPlan(false)
     }
   }
@@ -1026,16 +1066,23 @@ export default function DashboardClient({
 
       {/* Comp Plan Modal */}
       {showCompPlanModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl">
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowCompPlanModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-900">My Compensation Plan</h2>
                 <button 
+                  type="button"
                   onClick={() => setShowCompPlanModal(false)}
-                  className="p-2 hover:bg-gray-100 rounded-lg"
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -1224,16 +1271,23 @@ export default function DashboardClient({
 
       {/* Comp Calculator Modal */}
       {showCalculatorModal && compPlanDetails && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl">
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowCalculatorModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-900">Comp Calculator</h2>
                 <button 
+                  type="button"
                   onClick={() => setShowCalculatorModal(false)}
-                  className="p-2 hover:bg-gray-100 rounded-lg"
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
