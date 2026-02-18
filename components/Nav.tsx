@@ -107,8 +107,8 @@ export default function Nav() {
   // Ops-only users go to ops dashboard, others go to sales dashboard
   // Admin and managers see both
   const isOpsOnly = userRole === 'operations'
-  const hasOpsAccess = ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(userRole || '')
-  const hasSalesAccess = !isOpsOnly // Everyone except ops-only sees sales
+  const hasOpsAccess = userRole ? ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(userRole) : false
+  const hasSalesAccess = userRole ? userRole !== 'operations' : true // Default to sales dashboard while loading
 
   // Define nav items with role restrictions
   // Include legacy roles (manager, rep) for backwards compatibility
@@ -138,7 +138,8 @@ export default function Nav() {
     }
     // Check role-based access
     if (!item.roles) return true // No restriction, show to everyone
-    if (!userRole) return true // Still loading, show all for now to prevent flash
+    // If still loading and item has role restrictions, hide restricted items
+    if (!userRole) return false
     return item.roles.includes(userRole)
   })
 
