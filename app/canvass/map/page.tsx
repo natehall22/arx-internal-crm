@@ -1653,7 +1653,7 @@ export default function CanvassMapPage() {
 
               {/* Bottom controls - positioned above mobile nav */}
               {mapStatus === 'loaded' && (
-                <div className="absolute bottom-28 lg:bottom-4 right-4 flex flex-col gap-3 z-20">
+                <div className="absolute bottom-40 lg:bottom-4 right-4 flex flex-col gap-3 z-20">
                   {/* Cache/Settings button - smaller, less prominent */}
                   <div className="relative">
                     <button
