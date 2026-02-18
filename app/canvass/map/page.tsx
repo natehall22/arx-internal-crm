@@ -1657,7 +1657,7 @@ export default function CanvassMapPage() {
                   {/* My Location button - prominent, always visible */}
                   <button
                     onClick={centerOnUser}
-                    className="absolute right-4 bottom-[120px] lg:bottom-4 w-14 h-14 bg-indigo-600 rounded-full shadow-xl flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95 border-2 border-white z-20"
+                    className="absolute right-4 bottom-[180px] lg:bottom-4 w-14 h-14 bg-indigo-600 rounded-full shadow-xl flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95 border-2 border-white z-20"
                     title="Snap to my location"
                   >
                     <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
@@ -1666,7 +1666,7 @@ export default function CanvassMapPage() {
                   </button>
                   
                   {/* Cache/Settings button */}
-                  <div className="absolute right-4 bottom-[180px] lg:bottom-20 z-20">
+                  <div className="absolute right-4 bottom-[250px] lg:bottom-20 z-20">
                     <button
                       onClick={() => setShowCacheMenu(!showCacheMenu)}
                       className="w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
