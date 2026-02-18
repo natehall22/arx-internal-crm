@@ -65,20 +65,63 @@ export async function POST(request: NextRequest) {
       return dispositionMap[normalized] || null
     }
     
-    const leadsToInsert = leads.map(lead => ({
-      org_id: profile.org_id,
-      owner_user_id: user.id,
-      status: 'new',
-      source: 'csv_import',
-      homeowner_name: lead.homeowner_name || null,
-      address_text: lead.address_text || null,
-      phone: lead.phone || null,
-      email: lead.email || null,
-      lat: lead.lat,
-      lng: lead.lng,
-      canvass_disposition: normalizeDisposition(lead.canvass_disposition),
-      canvass_notes: lead.canvass_notes || null,
-    }))
+    // Get existing addresses to avoid duplicates
+    const addresses = leads
+      .map(l => l.address_text?.toLowerCase().trim())
+      .filter(Boolean)
+    
+    const { data: existingLeads } = await supabase
+      .from('leads')
+      .select('address_text, lat, lng')
+      .eq('org_id', profile.org_id)
+    
+    // Create a set of existing addresses and coordinates for fast lookup
+    const existingAddresses = new Set(
+      (existingLeads || []).map(l => l.address_text?.toLowerCase().trim()).filter(Boolean)
+    )
+    const existingCoords = new Set(
+      (existingLeads || []).map(l => `${l.lat?.toFixed(6)},${l.lng?.toFixed(6)}`)
+    )
+    
+    const leadsToInsert = leads
+      .filter(lead => {
+        // Skip if address already exists
+        const addr = lead.address_text?.toLowerCase().trim()
+        if (addr && existingAddresses.has(addr)) {
+          return false
+        }
+        // Skip if exact coordinates already exist
+        if (lead.lat && lead.lng) {
+          const coordKey = `${lead.lat.toFixed(6)},${lead.lng.toFixed(6)}`
+          if (existingCoords.has(coordKey)) {
+            return false
+          }
+        }
+        return true
+      })
+      .map(lead => ({
+        org_id: profile.org_id,
+        owner_user_id: user.id,
+        status: 'new',
+        source: 'csv_import',
+        homeowner_name: lead.homeowner_name || null,
+        address_text: lead.address_text || null,
+        phone: lead.phone || null,
+        email: lead.email || null,
+        lat: lead.lat,
+        lng: lead.lng,
+        canvass_disposition: normalizeDisposition(lead.canvass_disposition),
+        canvass_notes: lead.canvass_notes || null,
+      }))
+
+    if (leadsToInsert.length === 0) {
+      return NextResponse.json({ 
+        success: true, 
+        count: 0,
+        skipped: leads.length,
+        message: `All ${leads.length} leads already exist (duplicates skipped)`
+      })
+    }
 
     const { data, error } = await supabase
       .from('leads')
@@ -90,10 +133,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to import leads' }, { status: 500 })
     }
 
+    const skipped = leads.length - leadsToInsert.length
     return NextResponse.json({ 
       success: true, 
       count: data?.length || 0,
-      message: `Successfully imported ${data?.length || 0} leads`
+      skipped,
+      message: `Imported ${data?.length || 0} leads${skipped > 0 ? ` (${skipped} duplicates skipped)` : ''}`
     })
 
   } catch (error) {
