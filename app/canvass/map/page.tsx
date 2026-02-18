@@ -906,14 +906,31 @@ export default function CanvassMapPage() {
 
       // Parse header
       const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''))
-      const nameIdx = header.findIndex(h => h.includes('name') || h === 'homeowner_name')
-      const addressIdx = header.findIndex(h => h.includes('address'))
-      const phoneIdx = header.findIndex(h => h.includes('phone'))
-      const emailIdx = header.findIndex(h => h.includes('email'))
-      const latIdx = header.findIndex(h => h === 'lat' || h === 'latitude' || h === 'y' || h.includes('lat'))
-      const lngIdx = header.findIndex(h => h === 'lng' || h === 'longitude' || h === 'long' || h === 'x' || h.includes('lng') || h.includes('lon'))
-      const dispositionIdx = header.findIndex(h => h.includes('disposition'))
-      const notesIdx = header.findIndex(h => h.includes('notes'))
+      
+      // Support multiple column name formats (standard and SalesRabbit-style exports)
+      const firstNameIdx = header.findIndex(h => h === 'contacts_first_name' || h === 'first_name' || h === 'firstname')
+      const lastNameIdx = header.findIndex(h => h === 'contacts_last_name' || h === 'last_name' || h === 'lastname')
+      const nameIdx = header.findIndex(h => h === 'name' || h === 'homeowner_name' || h === 'contact_name')
+      
+      // Address - try full address first, then street address
+      const fullAddressIdx = header.findIndex(h => h === 'lead_address' || h === 'full_address' || h === 'address')
+      const streetIdx = header.findIndex(h => h === 'address_street1' || h === 'street' || h === 'street_address')
+      const street2Idx = header.findIndex(h => h === 'address_street2' || h === 'street2' || h === 'apt')
+      const cityIdx = header.findIndex(h => h === 'address_city' || h === 'city')
+      const stateIdx = header.findIndex(h => h === 'address_state' || h === 'state')
+      const zipIdx = header.findIndex(h => h === 'address_postal_code' || h === 'zip' || h === 'postal_code' || h === 'zipcode')
+      
+      const phoneIdx = header.findIndex(h => h === 'contacts_phone_primary' || h === 'phone_primary' || h.includes('phone'))
+      const emailIdx = header.findIndex(h => h === 'contacts_email' || h.includes('email'))
+      const latIdx = header.findIndex(h => h === 'latitude' || h === 'lat' || h === 'y')
+      const lngIdx = header.findIndex(h => h === 'longitude' || h === 'lng' || h === 'long' || h === 'x' || h === 'lon')
+      const dispositionIdx = header.findIndex(h => h === 'status' || h.includes('disposition'))
+      const notesIdx = header.findIndex(h => h === 'notes' || h === 'note' || h === 'comments')
+      
+      console.log('CSV Import - Found columns:', { 
+        firstNameIdx, lastNameIdx, nameIdx, fullAddressIdx, streetIdx, cityIdx, 
+        stateIdx, zipIdx, phoneIdx, emailIdx, latIdx, lngIdx, dispositionIdx, notesIdx 
+      })
 
       const leadsToImport = []
       const leadsNeedingGeocode = []
@@ -941,9 +958,30 @@ export default function CanvassMapPage() {
         let lat = latIdx >= 0 ? parseFloat(getValue(latIdx)) : null
         let lng = lngIdx >= 0 ? parseFloat(getValue(lngIdx)) : null
         
+        // Build name from first/last or use full name field
+        let homeownerName = getValue(nameIdx)
+        if (!homeownerName && (firstNameIdx >= 0 || lastNameIdx >= 0)) {
+          const firstName = getValue(firstNameIdx)
+          const lastName = getValue(lastNameIdx)
+          homeownerName = [firstName, lastName].filter(Boolean).join(' ')
+        }
+        
+        // Build address from components or use full address
+        let addressText = getValue(fullAddressIdx)
+        if (!addressText && streetIdx >= 0) {
+          const parts = [
+            getValue(streetIdx),
+            getValue(street2Idx),
+            getValue(cityIdx),
+            getValue(stateIdx),
+            getValue(zipIdx)
+          ].filter(Boolean)
+          addressText = parts.join(', ')
+        }
+        
         const leadData = {
-          homeowner_name: getValue(nameIdx),
-          address_text: getValue(addressIdx),
+          homeowner_name: homeownerName,
+          address_text: addressText,
           phone: getValue(phoneIdx),
           email: getValue(emailIdx),
           lat,
