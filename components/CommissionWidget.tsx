@@ -37,6 +37,8 @@ interface CompPlanDetails {
   plan_type: string
   base_percentage: number | null
   flat_rate: number | null
+  flat_amount: number | null
+  hourly_rate: number | null
   volume_bonuses: any[]
   team_overrides: any[]
   readme?: string
@@ -160,6 +162,8 @@ export default function CommissionWidget() {
           plan_type,
           base_percentage,
           flat_rate,
+          flat_amount,
+          hourly_rate,
           volume_bonuses,
           team_overrides,
           readme
@@ -180,6 +184,8 @@ export default function CommissionWidget() {
         plan_type: plan.plan_type,
         base_percentage: plan.base_percentage,
         flat_rate: plan.flat_rate,
+        flat_amount: plan.flat_amount,
+        hourly_rate: plan.hourly_rate,
         volume_bonuses: plan.volume_bonuses || [],
         team_overrides: plan.team_overrides || [],
         readme: plan.readme,
@@ -395,16 +401,18 @@ export default function CommissionWidget() {
           My Comp Plan
         </button>
         
-        {/* Comp Calculator Button */}
-        <button 
-          onClick={() => setShowCalculatorModal(true)}
-          className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-          </svg>
-          Comp Calculator
-        </button>
+        {/* Comp Calculator Button - Hidden for hourly plans */}
+        {compPlanDetails?.plan_type !== 'hourly' && (
+          <button 
+            onClick={() => setShowCalculatorModal(true)}
+            className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            Comp Calculator
+          </button>
+        )}
         
         {/* Advanced Estimator Link */}
         <Link 
@@ -458,13 +466,28 @@ export default function CommissionWidget() {
                   
                   {/* Base Rate */}
                   <div className="bg-gray-50 rounded-xl p-4">
-                    <h4 className="font-semibold text-gray-900 mb-2">Base Commission Rate</h4>
-                    {compPlanDetails.plan_type === 'flat_rate' ? (
-                      <p className="text-2xl font-bold text-green-600">${compPlanDetails.flat_rate?.toLocaleString() || 0} per job</p>
+                    <h4 className="font-semibold text-gray-900 mb-2">
+                      {compPlanDetails.plan_type === 'hourly' ? 'Hourly Rate' : 'Base Commission Rate'}
+                    </h4>
+                    {compPlanDetails.plan_type === 'hourly' ? (
+                      <p className="text-2xl font-bold text-green-600">${compPlanDetails.hourly_rate?.toLocaleString() || 0}/hour</p>
+                    ) : compPlanDetails.plan_type === 'flat_rate' ? (
+                      <p className="text-2xl font-bold text-green-600">${(compPlanDetails.flat_rate || compPlanDetails.flat_amount)?.toLocaleString() || 0} per job</p>
                     ) : (
                       <p className="text-2xl font-bold text-green-600">{compPlanDetails.base_percentage || 0}% of sale</p>
                     )}
                   </div>
+                  
+                  {/* Hourly Plan Notice */}
+                  {compPlanDetails.plan_type === 'hourly' && (
+                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                      <h4 className="font-semibold text-blue-900 mb-2">Hourly Compensation</h4>
+                      <p className="text-sm text-blue-800">
+                        Your compensation is based on hours worked. Track your hours through the time tracking system. 
+                        Commission calculators don't apply to hourly plans.
+                      </p>
+                    </div>
+                  )}
                   
                   {/* Volume Bonuses */}
                   {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
@@ -517,11 +540,18 @@ export default function CommissionWidget() {
                   {/* Role-Specific Tips */}
                   <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
                     <h4 className="font-semibold text-amber-900 mb-2">
-                      {userRole === 'canvasser' || userRole === 'setter' ? 'Setter Tips' : 
+                      {compPlanDetails.plan_type === 'hourly' ? 'Hourly Employee Tips' :
+                       userRole === 'canvasser' || userRole === 'setter' ? 'Setter Tips' : 
                        userRole === 'manager' || userRole === 'sales_manager' ? 'Manager Tips' : 'Closer Tips'}
                     </h4>
                     <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
-                      {(userRole === 'canvasser' || userRole === 'setter') ? (
+                      {compPlanDetails.plan_type === 'hourly' ? (
+                        <>
+                          <li>Log your hours accurately and on time</li>
+                          <li>Overtime may be available - check with your manager</li>
+                          <li>Your pay is based on hours worked, not sales volume</li>
+                        </>
+                      ) : (userRole === 'canvasser' || userRole === 'setter') ? (
                         <>
                           <li>Your commission is based on jobs that close from your sets</li>
                           <li>Higher monthly volume unlocks better commission tiers</li>
