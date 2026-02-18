@@ -186,12 +186,26 @@ export async function GET(request: NextRequest) {
       .order('sort_order')
     
     // Map database fields to frontend expected fields
-    const roofingTypes = (roofingTypesRaw || []).map((rt: any) => ({
-      ...rt,
-      price_per_square: rt.unit_price || 0,
-      material_cost_per_square: rt.material_cost || null,
-      labor_cost_per_square: rt.labor_cost || null,
-    }))
+    // Convert pricing based on pricing_unit: sqft needs to be multiplied by 100 to get per-square price
+    const roofingTypes = (roofingTypesRaw || []).map((rt: any) => {
+      let pricePerSquare = rt.unit_price || 0
+      let materialCostPerSquare = rt.material_cost || null
+      let laborCostPerSquare = rt.labor_cost || null
+      
+      // If pricing is per sq ft, multiply by 100 to convert to per square (1 square = 100 sq ft)
+      if (rt.pricing_unit === 'sqft') {
+        pricePerSquare = pricePerSquare * 100
+        if (materialCostPerSquare) materialCostPerSquare = materialCostPerSquare * 100
+        if (laborCostPerSquare) laborCostPerSquare = laborCostPerSquare * 100
+      }
+      
+      return {
+        ...rt,
+        price_per_square: pricePerSquare,
+        material_cost_per_square: materialCostPerSquare,
+        labor_cost_per_square: laborCostPerSquare,
+      }
+    })
 
     // If no pricebook items exist, create default items from org pricing settings
     let pricebookItems = visibleItems.filter((i: any) => !i.is_adder)
