@@ -6,7 +6,38 @@ import InspectionStatusCard from '@/components/InspectionStatusCard'
 import CommissionWidget from '@/components/CommissionWidget'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
+import { createClientBrowser } from '@/lib/supabase/client'
 import type { InspectionOutcome } from '@/lib/types/database'
+
+interface HybridComponent {
+  type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
+  rate: number
+  unit_type?: string
+  description?: string
+}
+
+interface CompPlanDetails {
+  id: string
+  name: string
+  plan_type: string
+  base_percentage: number | null
+  flat_rate: number | null
+  flat_amount: number | null
+  hourly_rate: number | null
+  unit_rate: number | null
+  unit_type: string | null
+  hybrid_components: HybridComponent[] | null
+  volume_bonuses: any[]
+  team_overrides: any[]
+  readme?: string
+}
+
+interface VolumeTier {
+  min_volume: number
+  max_volume: number | null
+  bonus_type: 'percentage' | 'flat'
+  bonus_value: number
+}
 
 interface TeamMemberStat {
   id: string
@@ -70,10 +101,16 @@ export default function DashboardClient({
   const [loadingStats, setLoadingStats] = useState(false)
   const [weeklyPay, setWeeklyPay] = useState<number>(0)
   const [hasCompPlan, setHasCompPlan] = useState<boolean | null>(null)
+  const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
+  const [showCompPlanModal, setShowCompPlanModal] = useState(false)
+  const [showCalculatorModal, setShowCalculatorModal] = useState(false)
+  const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
+  const [calcJobsClosed, setCalcJobsClosed] = useState(4)
 
   useEffect(() => {
     loadDashboardReports()
     loadWeeklyPay()
+    loadCompPlanDetails()
   }, [])
 
   useEffect(() => {
@@ -101,13 +138,68 @@ export default function DashboardClient({
     }
   }
 
+  const loadCompPlanDetails = async () => {
+    const supabase = createClientBrowser()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: userCompPlan } = await supabase
+      .from('user_comp_plans')
+      .select(`
+        id,
+        comp_plans (
+          id,
+          name,
+          plan_type,
+          base_percentage,
+          flat_rate,
+          flat_amount,
+          hourly_rate,
+          unit_rate,
+          unit_type,
+          hybrid_components,
+          volume_bonuses,
+          team_overrides,
+          readme
+        )
+      `)
+      .eq('user_id', user.id)
+      .is('effective_to', null)
+      .limit(1)
+      .maybeSingle()
+
+    if (userCompPlan?.comp_plans) {
+      const plan = userCompPlan.comp_plans as any
+      setCompPlanDetails({
+        id: plan.id,
+        name: plan.name,
+        plan_type: plan.plan_type,
+        base_percentage: plan.base_percentage,
+        flat_rate: plan.flat_rate,
+        flat_amount: plan.flat_amount,
+        hourly_rate: plan.hourly_rate,
+        unit_rate: plan.unit_rate,
+        unit_type: plan.unit_type,
+        hybrid_components: plan.hybrid_components || null,
+        volume_bonuses: plan.volume_bonuses || [],
+        team_overrides: plan.team_overrides || [],
+        readme: plan.readme,
+      })
+      setHasCompPlan(true)
+    } else {
+      setHasCompPlan(false)
+    }
+  }
+
   const loadWeeklyPay = async () => {
     try {
       const res = await fetch('/api/commissions/weekly')
       if (res.ok) {
         const data = await res.json()
         setWeeklyPay(data.weeklyTotal || 0)
-        setHasCompPlan(data.hasCompPlan ?? true)
+        if (hasCompPlan === null) {
+          setHasCompPlan(data.hasCompPlan ?? true)
+        }
       }
     } catch (error) {
       console.error('Failed to load weekly pay:', error)
@@ -380,6 +472,31 @@ export default function DashboardClient({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
+          </div>
+          
+          {/* Comp Plan Action Buttons */}
+          <div className="flex gap-2 mt-4 pt-4 border-t border-white/20">
+            <button 
+              onClick={() => setShowCompPlanModal(true)}
+              className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm font-medium"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              My Comp Plan
+            </button>
+            
+            {compPlanDetails && !['hourly', 'unit_based', 'hybrid'].includes(compPlanDetails.plan_type) && (
+              <button 
+                onClick={() => setShowCalculatorModal(true)}
+                className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm font-medium"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                Comp Calculator
+              </button>
+            )}
           </div>
         </div>
 
@@ -896,6 +1013,352 @@ export default function DashboardClient({
 
       {/* AI Assistant */}
       <AIAssistantWrapper context={{ type: 'general' }} />
+
+      {/* Comp Plan Modal */}
+      {showCompPlanModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900">My Compensation Plan</h2>
+                <button 
+                  onClick={() => setShowCompPlanModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {!hasCompPlan || !compPlanDetails ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Comp Plan Assigned</h3>
+                  <p className="text-gray-500">Contact your manager to get a compensation plan assigned to your account.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Plan Name & Type */}
+                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-4 text-white">
+                    <p className="text-indigo-100 text-sm">Your Plan</p>
+                    <h3 className="text-2xl font-bold">{compPlanDetails.name}</h3>
+                    <p className="text-indigo-200 text-sm mt-1 capitalize">{compPlanDetails.plan_type.replace('_', ' ')} Plan</p>
+                  </div>
+                  
+                  {/* Base Rate - varies by plan type */}
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="font-semibold text-gray-900 mb-2">
+                      {compPlanDetails.plan_type === 'hourly' ? 'Hourly Rate' : 
+                       compPlanDetails.plan_type === 'unit_based' ? 'Per Unit Rate' :
+                       compPlanDetails.plan_type === 'hybrid' ? 'Compensation Components' :
+                       'Base Commission Rate'}
+                    </h4>
+                    {compPlanDetails.plan_type === 'hourly' ? (
+                      <p className="text-2xl font-bold text-green-600">${compPlanDetails.hourly_rate?.toLocaleString() || 0}/hour</p>
+                    ) : compPlanDetails.plan_type === 'flat_rate' ? (
+                      <p className="text-2xl font-bold text-green-600">${(compPlanDetails.flat_rate || compPlanDetails.flat_amount)?.toLocaleString() || 0} per job</p>
+                    ) : compPlanDetails.plan_type === 'unit_based' ? (
+                      <div>
+                        <p className="text-2xl font-bold text-green-600">
+                          ${compPlanDetails.unit_rate?.toLocaleString() || 0} per {compPlanDetails.unit_type || 'unit'}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {compPlanDetails.unit_type === 'square' && 'Roofing squares (100 sq ft each)'}
+                          {compPlanDetails.unit_type === 'kw' && 'Kilowatts of solar installed'}
+                          {compPlanDetails.unit_type === 'linear_foot' && 'Linear feet of material'}
+                          {compPlanDetails.unit_type === 'panel' && 'Panels installed'}
+                        </p>
+                      </div>
+                    ) : compPlanDetails.plan_type === 'hybrid' && compPlanDetails.hybrid_components ? (
+                      <div className="space-y-2">
+                        {compPlanDetails.hybrid_components.map((comp, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border">
+                            <span className="text-gray-700 capitalize">
+                              {comp.type === 'hourly' ? 'Hourly Rate' :
+                               comp.type === 'percentage' ? 'Commission' :
+                               comp.type === 'flat_per_job' ? 'Per Job' :
+                               `Per ${comp.unit_type || 'Unit'}`}
+                              {comp.description && <span className="text-gray-500 text-sm ml-1">({comp.description})</span>}
+                            </span>
+                            <span className="font-semibold text-green-600">
+                              {comp.type === 'hourly' ? `$${comp.rate}/hr` :
+                               comp.type === 'percentage' ? `${comp.rate}%` :
+                               comp.type === 'flat_per_job' ? `$${comp.rate}/job` :
+                               `$${comp.rate}/${comp.unit_type || 'unit'}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-2xl font-bold text-green-600">{compPlanDetails.base_percentage || 0}% of sale</p>
+                    )}
+                  </div>
+                  
+                  {/* Plan Type Notices */}
+                  {compPlanDetails.plan_type === 'hourly' && (
+                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                      <h4 className="font-semibold text-blue-900 mb-2">Hourly Compensation</h4>
+                      <p className="text-sm text-blue-800">
+                        Your compensation is based on hours worked. Track your hours through the time tracking system.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {compPlanDetails.plan_type === 'hybrid' && (
+                    <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
+                      <h4 className="font-semibold text-purple-900 mb-2">Hybrid Compensation</h4>
+                      <p className="text-sm text-purple-800">
+                        Your pay combines multiple components. Each component is calculated separately and added together.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {compPlanDetails.plan_type === 'unit_based' && (
+                    <div className="bg-teal-50 rounded-xl p-4 border border-teal-100">
+                      <h4 className="font-semibold text-teal-900 mb-2">Per-Unit Compensation</h4>
+                      <p className="text-sm text-teal-800">
+                        Your pay is based on the quantity of work completed. Track your units through job completion records.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Volume Bonuses */}
+                  {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3">Volume Bonuses</h4>
+                      <p className="text-sm text-gray-600 mb-3">Hit these thresholds to earn bonus commissions:</p>
+                      <div className="space-y-2">
+                        {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                            <span className="text-gray-700">
+                              ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
+                            </span>
+                            <span className="font-semibold text-green-600">
+                              {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Team Overrides (for managers) */}
+                  {compPlanDetails.team_overrides && compPlanDetails.team_overrides.length > 0 && (
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3">Team Override Bonuses</h4>
+                      <p className="text-sm text-gray-600 mb-3">Earn overrides on your team's sales:</p>
+                      <div className="space-y-2">
+                        {compPlanDetails.team_overrides.map((tier: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                            <span className="text-gray-700">
+                              Team Volume: ${tier.min_team_volume?.toLocaleString() || 0}+
+                            </span>
+                            <span className="font-semibold text-blue-600">
+                              {tier.override_type === 'percentage' ? `${tier.override_value}%` : `$${tier.override_value}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Custom Readme */}
+                  {compPlanDetails.readme && (
+                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                      <h4 className="font-semibold text-blue-900 mb-2">Additional Details</h4>
+                      <div className="text-sm text-blue-800 whitespace-pre-wrap">{compPlanDetails.readme}</div>
+                    </div>
+                  )}
+                  
+                  {/* Tips */}
+                  <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                    <h4 className="font-semibold text-amber-900 mb-2">Tips</h4>
+                    <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
+                      {compPlanDetails.plan_type === 'hourly' ? (
+                        <>
+                          <li>Log your hours accurately and on time</li>
+                          <li>Overtime may be available - check with your manager</li>
+                        </>
+                      ) : compPlanDetails.plan_type === 'unit_based' ? (
+                        <>
+                          <li>Track your completed units accurately for each job</li>
+                          <li>More units completed = higher earnings</li>
+                        </>
+                      ) : compPlanDetails.plan_type === 'hybrid' ? (
+                        <>
+                          <li>Your pay combines multiple compensation types</li>
+                          <li>Track both hours and production for accurate pay</li>
+                        </>
+                      ) : (
+                        <>
+                          <li>Your commission is based on total sale amount</li>
+                          <li>Volume bonuses reward consistent performance</li>
+                          <li>Focus on quality to maximize close rate</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comp Calculator Modal */}
+      {showCalculatorModal && compPlanDetails && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900">Comp Calculator</h2>
+                <button 
+                  onClick={() => setShowCalculatorModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Calculator Inputs */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price</label>
+                  <input
+                    type="number"
+                    value={calcAvgSalePrice}
+                    onChange={(e) => setCalcAvgSalePrice(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    {[8000, 10000, 13500, 18000, 25000].map(price => (
+                      <button
+                        key={price}
+                        onClick={() => setCalcAvgSalePrice(price)}
+                        className={`px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      >
+                        ${(price/1000).toFixed(0)}k
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Jobs Closed per Month</label>
+                  <input
+                    type="number"
+                    value={calcJobsClosed}
+                    onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    {[2, 4, 6, 8, 10, 12].map(jobs => (
+                      <button
+                        key={jobs}
+                        onClick={() => setCalcJobsClosed(jobs)}
+                        className={`px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      >
+                        {jobs}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Results */}
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-100">
+                <h4 className="font-semibold text-green-900 mb-4">Estimated Earnings</h4>
+                
+                {(() => {
+                  const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                  let baseRate = compPlanDetails.base_percentage || 0
+                  
+                  // Check for volume bonuses
+                  if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
+                    for (const tier of compPlanDetails.volume_bonuses) {
+                      if (monthlyVolume >= tier.min_volume && (!tier.max_volume || monthlyVolume <= tier.max_volume)) {
+                        if (tier.bonus_type === 'percentage') {
+                          baseRate += tier.bonus_value
+                        }
+                      }
+                    }
+                  }
+                  
+                  const monthlyCommission = compPlanDetails.plan_type === 'flat_rate' 
+                    ? (compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0) * calcJobsClosed
+                    : monthlyVolume * (baseRate / 100)
+                  
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Monthly Volume</span>
+                        <span className="font-semibold text-gray-900">${monthlyVolume.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Commission Rate</span>
+                        <span className="font-semibold text-gray-900">
+                          {compPlanDetails.plan_type === 'flat_rate' 
+                            ? `$${(compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0).toLocaleString()}/job`
+                            : `${baseRate}%`}
+                        </span>
+                      </div>
+                      <div className="border-t pt-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-700 font-medium">Monthly Commission</span>
+                          <span className="text-2xl font-bold text-green-600">${monthlyCommission.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center mt-2">
+                          <span className="text-gray-600">Annual (x12)</span>
+                          <span className="font-semibold text-green-700">${(monthlyCommission * 12).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center mt-1">
+                          <span className="text-gray-600">Per Job</span>
+                          <span className="font-semibold text-green-700">${calcJobsClosed > 0 ? (monthlyCommission / calcJobsClosed).toLocaleString() : 0}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+              
+              {/* Volume Tiers */}
+              {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Commission Tiers</h4>
+                  <div className="space-y-2">
+                    {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
+                      const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                      const isActive = monthlyVolume >= tier.min_volume && (!tier.max_volume || monthlyVolume <= tier.max_volume)
+                      return (
+                        <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${isActive ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+                          <span className={isActive ? 'text-green-800 font-medium' : 'text-gray-700'}>
+                            ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
+                          </span>
+                          <span className={`font-semibold ${isActive ? 'text-green-600' : 'text-gray-500'}`}>
+                            {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
+                            {isActive && ' ✓'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
