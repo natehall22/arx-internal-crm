@@ -138,8 +138,7 @@ export default function Nav() {
     }
     // Check role-based access
     if (!item.roles) return true // No restriction, show to everyone
-    // If still loading and item has role restrictions, hide restricted items
-    if (!userRole) return false
+    if (!userRole) return true // Still loading, show all for now to prevent flash
     return item.roles.includes(userRole)
   })
 
