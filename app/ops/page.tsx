@@ -84,11 +84,12 @@ export default function OpsPage() {
   }, [])
 
   const loadData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) {
       router.push('/login')
       return
     }
+    const user = session.user
 
     const { data: profile } = await supabase
       .from('users')
@@ -99,7 +100,7 @@ export default function OpsPage() {
     if (!profile) return
 
     // Check role access
-    if (!['admin', 'regional_manager', 'operations', 'manager'].includes(profile.role)) {
+    if (!['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile.role)) {
       router.push('/dashboard')
       return
     }
