@@ -130,8 +130,8 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'operations'].includes(profile.role)) {
-      return NextResponse.json({ error: 'Access denied. Only admins and operations managers can manage roofing types.' }, { status: 403 })
+    if (!profile || !['admin', 'operations', 'owner'].includes(profile.role)) {
+      return NextResponse.json({ error: 'Access denied. Only admins, owners, and operations managers can manage roofing types.' }, { status: 403 })
     }
 
     const body = await request.json()
@@ -199,7 +199,7 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'operations'].includes(profile.role)) {
+    if (!profile || !['admin', 'operations', 'owner'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
@@ -276,7 +276,7 @@ export async function DELETE(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['admin', 'operations'].includes(profile.role)) {
+    if (!profile || !['admin', 'operations', 'owner'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
