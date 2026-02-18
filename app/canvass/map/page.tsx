@@ -931,12 +931,13 @@ export default function CanvassMapPage() {
       const emailIdx = header.findIndex(h => h === 'contacts_email' || h.includes('email'))
       const latIdx = header.findIndex(h => h === 'latitude' || h === 'lat' || h === 'y' || h === 'address_latitude' || h.includes('latitude'))
       const lngIdx = header.findIndex(h => h === 'longitude' || h === 'lng' || h === 'long' || h === 'x' || h === 'lon' || h === 'address_longitude' || h.includes('longitude'))
-      const dispositionIdx = header.findIndex(h => h === 'status' || h.includes('disposition'))
+      const dispositionIdx = header.findIndex(h => h === 'status' || h === 'lead_status' || h.includes('disposition') || h.includes('result'))
       const notesIdx = header.findIndex(h => h === 'notes' || h === 'note' || h === 'comments')
       
       console.log('CSV Import - Found columns:', { 
         firstNameIdx, lastNameIdx, nameIdx, fullAddressIdx, streetIdx, cityIdx, 
-        stateIdx, zipIdx, phoneIdx, emailIdx, latIdx, lngIdx, dispositionIdx, notesIdx 
+        stateIdx, zipIdx, phoneIdx, emailIdx, latIdx, lngIdx, dispositionIdx, notesIdx,
+        headerRow: header.join(', ')
       })
 
       const leadsToImport = []
@@ -1006,7 +1007,7 @@ export default function CanvassMapPage() {
         }
       }
 
-      // Debug: show first few rows' lat/lng values
+      // Debug: show first few rows' values
       if (lines.length > 1) {
         const debugValues: string[] = []
         let current = ''
@@ -1017,11 +1018,13 @@ export default function CanvassMapPage() {
           else current += char
         }
         debugValues.push(current.trim())
-        console.log('First row lat/lng raw values:', {
+        console.log('First row debug values:', {
           latIdx,
           lngIdx,
+          dispositionIdx,
           latValue: latIdx >= 0 ? debugValues[latIdx] : 'N/A',
           lngValue: lngIdx >= 0 ? debugValues[lngIdx] : 'N/A',
+          dispositionValue: dispositionIdx >= 0 ? debugValues[dispositionIdx] : 'N/A',
           parsedLat: latIdx >= 0 ? parseFloat(debugValues[latIdx]) : null,
           parsedLng: lngIdx >= 0 ? parseFloat(debugValues[lngIdx]) : null,
         })
@@ -1280,9 +1283,9 @@ export default function CanvassMapPage() {
                   <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-xl border z-50 min-w-[160px]">
                     <button
                       onClick={handleExportCSV}
-                      className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
+                      className="w-full px-4 py-3 text-left text-sm text-gray-900 hover:bg-gray-50 flex items-center gap-2"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
                       Export CSV
@@ -1290,9 +1293,9 @@ export default function CanvassMapPage() {
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       disabled={importing}
-                      className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      className="w-full px-4 py-3 text-left text-sm text-gray-900 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                       </svg>
                       {importing ? 'Importing...' : 'Import CSV'}
