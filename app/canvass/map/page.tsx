@@ -1653,12 +1653,12 @@ export default function CanvassMapPage() {
 
               {/* Bottom controls - positioned above mobile nav */}
               {mapStatus === 'loaded' && (
-                <div className="absolute bottom-24 lg:bottom-4 right-4 flex flex-col gap-2 z-20">
-                  {/* Cache/Settings button */}
+                <div className="absolute bottom-28 lg:bottom-4 right-4 flex flex-col gap-3 z-20">
+                  {/* Cache/Settings button - smaller, less prominent */}
                   <div className="relative">
                     <button
                       onClick={() => setShowCacheMenu(!showCacheMenu)}
-                      className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
+                      className="w-10 h-10 bg-white/90 rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
                       title="Cache settings"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1729,7 +1729,7 @@ export default function CanvassMapPage() {
                   {/* My Location button - prominent arrow design */}
                   <button
                     onClick={centerOnUser}
-                    className="w-14 h-14 bg-indigo-600 rounded-full shadow-lg flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95"
+                    className="w-14 h-14 bg-indigo-600 rounded-full shadow-xl flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95 border-2 border-white"
                     title="Snap to my location"
                   >
                     <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
