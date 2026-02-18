@@ -1653,7 +1653,7 @@ export default function CanvassMapPage() {
 
               {/* Bottom controls - positioned above mobile nav */}
               {mapStatus === 'loaded' && (
-                <div className="absolute bottom-20 lg:bottom-4 right-4 flex flex-col gap-2 z-10">
+                <div className="absolute bottom-24 lg:bottom-4 right-4 flex flex-col gap-2 z-20">
                   {/* Cache/Settings button */}
                   <div className="relative">
                     <button
@@ -2375,7 +2375,7 @@ export default function CanvassMapPage() {
 
         {/* Tap hint */}
         {!showForm && mapStatus === 'loaded' && (
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 pointer-events-none safe-area-inset-bottom">
+          <div className="absolute bottom-28 lg:bottom-8 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <div className="bg-black/80 text-white px-6 py-3 rounded-full text-sm font-medium shadow-lg backdrop-blur-sm">
               Tap anywhere to drop a pin
             </div>
