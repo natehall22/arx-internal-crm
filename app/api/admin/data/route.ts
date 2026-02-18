@@ -368,6 +368,7 @@ export async function POST(request: NextRequest) {
         applicable_roles: data.applicable_roles || ['sales_rep', 'canvasser'],
         is_active: data.is_active ?? true,
         is_default: data.is_default || false,
+        readme: data.readme || null,
       }
 
       const { error } = await adminClient
@@ -519,6 +520,7 @@ export async function PATCH(request: NextRequest) {
         applicable_roles: data.applicable_roles || ['sales_rep', 'canvasser'],
         is_active: data.is_active ?? true,
         is_default: data.is_default || false,
+        readme: data.readme || null,
       }
 
       const { error } = await adminClient

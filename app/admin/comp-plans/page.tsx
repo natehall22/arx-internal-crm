@@ -88,6 +88,7 @@ export default function CompPlansPage() {
     applicable_roles: ['sales_rep', 'canvasser'],
     is_active: true,
     is_default: false,
+    readme: '', // Custom readme/explanation for the plan
   })
   
   const [assignForm, setAssignForm] = useState({
@@ -153,6 +154,7 @@ export default function CompPlansPage() {
       applicable_roles: planForm.applicable_roles,
       is_active: planForm.is_active,
       is_default: planForm.is_default,
+      readme: planForm.readme || null,
     }
 
     try {
@@ -262,6 +264,7 @@ export default function CompPlansPage() {
       applicable_roles: ['sales_rep', 'canvasser'],
       is_active: true,
       is_default: false,
+      readme: '',
     })
   }
 
@@ -282,6 +285,7 @@ export default function CompPlansPage() {
       applicable_roles: plan.applicable_roles || ['sales_rep', 'canvasser'],
       is_active: plan.is_active,
       is_default: plan.is_default,
+      readme: (plan as any).readme || '',
     })
     setShowPlanModal(true)
   }
@@ -1076,6 +1080,23 @@ export default function CompPlansPage() {
                     />
                     <span className="text-sm text-gray-700">Default Plan</span>
                   </label>
+                </div>
+                
+                {/* Plan Readme */}
+                <div className="mt-4 pt-4 border-t">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Plan Readme / Additional Details
+                  </label>
+                  <textarea
+                    value={planForm.readme}
+                    onChange={(e) => setPlanForm(prev => ({ ...prev, readme: e.target.value }))}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                    placeholder="Add any additional details, special conditions, or notes that team members should know about this comp plan..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    This will be shown to team members when they view their comp plan details.
+                  </p>
                 </div>
               </div>
               <div className="p-6 border-t flex justify-end gap-3">

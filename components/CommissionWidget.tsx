@@ -31,6 +31,24 @@ interface CommissionSettings {
   bi_weekly_start_date?: string
 }
 
+interface CompPlanDetails {
+  id: string
+  name: string
+  plan_type: string
+  base_percentage: number | null
+  flat_rate: number | null
+  volume_bonuses: any[]
+  team_overrides: any[]
+  readme?: string
+}
+
+interface VolumeTier {
+  min_volume: number
+  max_volume: number | null
+  bonus_type: 'percentage' | 'flat'
+  bonus_value: number
+}
+
 export default function CommissionWidget() {
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)
@@ -47,6 +65,14 @@ export default function CommissionWidget() {
     commission_period: 'monthly',
     week_start_day: 0,
   })
+  const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
+  const [userRole, setUserRole] = useState<string>('')
+  const [showCompPlanModal, setShowCompPlanModal] = useState(false)
+  const [showCalculatorModal, setShowCalculatorModal] = useState(false)
+  
+  // Calculator state
+  const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
+  const [calcJobsClosed, setCalcJobsClosed] = useState(4)
 
   useEffect(() => {
     setMounted(true)
@@ -98,16 +124,18 @@ export default function CommissionWidget() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // Get user's org settings
+    // Get user's org settings and role
     const { data: profile } = await supabase
       .from('users')
-      .select('org_id')
+      .select('org_id, role')
       .eq('id', user.id)
       .single()
 
     let settings: CommissionSettings = { commission_period: 'monthly', week_start_day: 0 }
     
     if (profile) {
+      setUserRole(profile.role || '')
+      
       const { data: org } = await supabase
         .from('orgs')
         .select('settings')
@@ -121,16 +149,42 @@ export default function CommissionWidget() {
 
     setCommissionSettings(settings)
 
-    // Check if user has a comp plan assigned
+    // Check if user has a comp plan assigned and get details
     const { data: userCompPlan } = await supabase
       .from('user_comp_plans')
-      .select('id')
+      .select(`
+        id,
+        comp_plans (
+          id,
+          name,
+          plan_type,
+          base_percentage,
+          flat_rate,
+          volume_bonuses,
+          team_overrides,
+          readme
+        )
+      `)
       .eq('user_id', user.id)
       .is('effective_to', null)
       .limit(1)
       .maybeSingle()
     
     setHasCompPlan(!!userCompPlan)
+    
+    if (userCompPlan?.comp_plans) {
+      const plan = userCompPlan.comp_plans as any
+      setCompPlanDetails({
+        id: plan.id,
+        name: plan.name,
+        plan_type: plan.plan_type,
+        base_percentage: plan.base_percentage,
+        flat_rate: plan.flat_rate,
+        volume_bonuses: plan.volume_bonuses || [],
+        team_overrides: plan.team_overrides || [],
+        readme: plan.readme,
+      })
+    }
 
     const now = new Date()
     const yearStart = new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0]
@@ -328,18 +382,434 @@ export default function CommissionWidget() {
         </div>
       )}
 
-      {/* Estimator Link */}
-      <div className="mt-4 pt-4 border-t">
+      {/* Action Buttons */}
+      <div className="mt-4 pt-4 border-t space-y-2">
+        {/* My Comp Plan Button */}
+        <button 
+          onClick={() => setShowCompPlanModal(true)}
+          className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-sm font-medium"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          My Comp Plan
+        </button>
+        
+        {/* Comp Calculator Button */}
+        <button 
+          onClick={() => setShowCalculatorModal(true)}
+          className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+          Comp Calculator
+        </button>
+        
+        {/* Advanced Estimator Link */}
         <Link 
           href="/commissions/estimator"
           className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors text-sm font-medium"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
           </svg>
-          Commission Estimator
+          Advanced Estimator
         </Link>
       </div>
+
+      {/* Comp Plan Modal */}
+      {showCompPlanModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900">My Compensation Plan</h2>
+                <button 
+                  onClick={() => setShowCompPlanModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {!hasCompPlan || !compPlanDetails ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Comp Plan Assigned</h3>
+                  <p className="text-gray-500">Contact your manager to get a compensation plan assigned to your account.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Plan Name & Type */}
+                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-4 text-white">
+                    <p className="text-indigo-100 text-sm">Your Plan</p>
+                    <h3 className="text-2xl font-bold">{compPlanDetails.name}</h3>
+                    <p className="text-indigo-200 text-sm mt-1 capitalize">{compPlanDetails.plan_type.replace('_', ' ')} Plan</p>
+                  </div>
+                  
+                  {/* Base Rate */}
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="font-semibold text-gray-900 mb-2">Base Commission Rate</h4>
+                    {compPlanDetails.plan_type === 'flat_rate' ? (
+                      <p className="text-2xl font-bold text-green-600">${compPlanDetails.flat_rate?.toLocaleString() || 0} per job</p>
+                    ) : (
+                      <p className="text-2xl font-bold text-green-600">{compPlanDetails.base_percentage || 0}% of sale</p>
+                    )}
+                  </div>
+                  
+                  {/* Volume Bonuses */}
+                  {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3">Volume Bonuses</h4>
+                      <p className="text-sm text-gray-600 mb-3">Hit these thresholds to earn bonus commissions:</p>
+                      <div className="space-y-2">
+                        {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                            <span className="text-gray-700">
+                              ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
+                            </span>
+                            <span className="font-semibold text-green-600">
+                              {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Team Overrides (for managers) */}
+                  {compPlanDetails.team_overrides && compPlanDetails.team_overrides.length > 0 && (
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3">Team Override Bonuses</h4>
+                      <p className="text-sm text-gray-600 mb-3">Earn overrides on your team's sales:</p>
+                      <div className="space-y-2">
+                        {compPlanDetails.team_overrides.map((tier: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                            <span className="text-gray-700">
+                              Team Volume: ${tier.min_team_volume?.toLocaleString() || 0}+
+                            </span>
+                            <span className="font-semibold text-blue-600">
+                              {tier.override_type === 'percentage' ? `${tier.override_value}%` : `$${tier.override_value}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Custom Readme */}
+                  {compPlanDetails.readme && (
+                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                      <h4 className="font-semibold text-blue-900 mb-2">Additional Details</h4>
+                      <div className="text-sm text-blue-800 whitespace-pre-wrap">{compPlanDetails.readme}</div>
+                    </div>
+                  )}
+                  
+                  {/* Role-Specific Tips */}
+                  <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                    <h4 className="font-semibold text-amber-900 mb-2">
+                      {userRole === 'canvasser' || userRole === 'setter' ? 'Setter Tips' : 
+                       userRole === 'manager' || userRole === 'sales_manager' ? 'Manager Tips' : 'Closer Tips'}
+                    </h4>
+                    <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
+                      {(userRole === 'canvasser' || userRole === 'setter') ? (
+                        <>
+                          <li>Your commission is based on jobs that close from your sets</li>
+                          <li>Higher monthly volume unlocks better commission tiers</li>
+                          <li>Quality sets lead to higher close rates</li>
+                        </>
+                      ) : (userRole === 'manager' || userRole === 'sales_manager') ? (
+                        <>
+                          <li>Earn on your personal sales plus team overrides</li>
+                          <li>Team volume bonuses stack with personal bonuses</li>
+                          <li>Help your team hit their goals to maximize earnings</li>
+                        </>
+                      ) : (
+                        <>
+                          <li>Your commission is based on total sale amount</li>
+                          <li>Volume bonuses reward consistent performance</li>
+                          <li>Focus on quality to maximize close rate</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comp Calculator Modal */}
+      {showCalculatorModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900">Comp Calculator</h2>
+                <button 
+                  onClick={() => setShowCalculatorModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-gray-500 text-sm mt-1">
+                {userRole === 'canvasser' || userRole === 'setter' ? 'Setter' : 
+                 userRole === 'manager' || userRole === 'sales_manager' ? 'Manager' : 'Closer'} Commission Calculator
+              </p>
+            </div>
+            
+            <div className="p-6">
+              {/* Inputs */}
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Average Sale Price per Job
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      value={calcAvgSalePrice}
+                      onChange={(e) => setCalcAvgSalePrice(Number(e.target.value) || 0)}
+                      className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                    />
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    {[10000, 13500, 16500, 25000, 30000].map(price => (
+                      <button
+                        key={price}
+                        onClick={() => setCalcAvgSalePrice(price)}
+                        className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                          calcAvgSalePrice === price 
+                            ? 'bg-indigo-600 text-white border-indigo-600' 
+                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        ${(price / 1000).toFixed(price % 1000 === 0 ? 0 : 1)}k
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Monthly Jobs Closed {(userRole === 'canvasser' || userRole === 'setter') && '(from personal sets)'}
+                  </label>
+                  <input
+                    type="number"
+                    value={calcJobsClosed}
+                    onChange={(e) => setCalcJobsClosed(Number(e.target.value) || 0)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                    min="0"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    {[2, 4, 8, 12, 16, 20].map(jobs => (
+                      <button
+                        key={jobs}
+                        onClick={() => setCalcJobsClosed(jobs)}
+                        className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                          calcJobsClosed === jobs 
+                            ? 'bg-indigo-600 text-white border-indigo-600' 
+                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        {jobs}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Commission Tiers Table */}
+              {compPlanDetails && compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
+                <div className="mb-6 p-4 bg-gray-50 rounded-xl">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Commission Tiers</h4>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500">
+                        <th className="pb-2">Monthly Volume</th>
+                        <th className="pb-2 text-right">Commission Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      <tr className={(() => {
+                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        const firstTier = compPlanDetails.volume_bonuses[0]
+                        return monthlyVolume < (firstTier?.min_volume || 0) ? 'bg-indigo-50' : ''
+                      })()}>
+                        <td className="py-2">Base Rate</td>
+                        <td className="py-2 text-right font-medium">
+                          {compPlanDetails.plan_type === 'flat_rate' 
+                            ? `$${compPlanDetails.flat_rate?.toLocaleString() || 0}` 
+                            : `${compPlanDetails.base_percentage || 0}%`}
+                        </td>
+                      </tr>
+                      {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
+                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        const isActive = monthlyVolume >= tier.min_volume && 
+                          (tier.max_volume === null || monthlyVolume <= tier.max_volume)
+                        return (
+                          <tr key={idx} className={isActive ? 'bg-indigo-50' : ''}>
+                            <td className="py-2">
+                              ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
+                            </td>
+                            <td className="py-2 text-right font-medium">
+                              {tier.bonus_type === 'percentage' 
+                                ? `${(compPlanDetails.base_percentage || 0) + tier.bonus_value}%` 
+                                : `+$${tier.bonus_value}`}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              
+              {/* Results */}
+              <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-6 text-white">
+                <p className="text-green-100 text-sm font-medium mb-1">Estimated Monthly Commissions</p>
+                <p className="text-4xl font-bold mb-4">
+                  ${(() => {
+                    if (!compPlanDetails) return 0
+                    const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                    let rate = compPlanDetails.base_percentage || 0
+                    let flatBonus = 0
+                    
+                    if (compPlanDetails.plan_type === 'flat_rate') {
+                      return ((compPlanDetails.flat_rate || 0) * calcJobsClosed).toLocaleString()
+                    }
+                    
+                    // Find applicable volume bonus
+                    if (compPlanDetails.volume_bonuses) {
+                      for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
+                        if (monthlyVolume >= tier.min_volume && 
+                            (tier.max_volume === null || monthlyVolume <= tier.max_volume)) {
+                          if (tier.bonus_type === 'percentage') {
+                            rate += tier.bonus_value
+                          } else {
+                            flatBonus += tier.bonus_value
+                          }
+                        }
+                      }
+                    }
+                    
+                    return ((monthlyVolume * rate / 100) + flatBonus).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                  })()}
+                </p>
+                
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/20">
+                  <div>
+                    <p className="text-green-100 text-xs">Commission Rate</p>
+                    <p className="text-xl font-bold">
+                      {(() => {
+                        if (!compPlanDetails) return '0%'
+                        if (compPlanDetails.plan_type === 'flat_rate') {
+                          return `$${compPlanDetails.flat_rate?.toLocaleString() || 0}/job`
+                        }
+                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        let rate = compPlanDetails.base_percentage || 0
+                        
+                        if (compPlanDetails.volume_bonuses) {
+                          for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
+                            if (monthlyVolume >= tier.min_volume && 
+                                (tier.max_volume === null || monthlyVolume <= tier.max_volume) &&
+                                tier.bonus_type === 'percentage') {
+                              rate += tier.bonus_value
+                            }
+                          }
+                        }
+                        return `${rate}%`
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-green-100 text-xs">Commission per Job</p>
+                    <p className="text-xl font-bold">
+                      ${(() => {
+                        if (!compPlanDetails || calcJobsClosed === 0) return 0
+                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        let rate = compPlanDetails.base_percentage || 0
+                        
+                        if (compPlanDetails.plan_type === 'flat_rate') {
+                          return (compPlanDetails.flat_rate || 0).toLocaleString()
+                        }
+                        
+                        if (compPlanDetails.volume_bonuses) {
+                          for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
+                            if (monthlyVolume >= tier.min_volume && 
+                                (tier.max_volume === null || monthlyVolume <= tier.max_volume) &&
+                                tier.bonus_type === 'percentage') {
+                              rate += tier.bonus_value
+                            }
+                          }
+                        }
+                        
+                        return (calcAvgSalePrice * rate / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-green-100 text-xs">Annual Projection</p>
+                    <p className="text-xl font-bold">
+                      ${(() => {
+                        if (!compPlanDetails) return 0
+                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        let rate = compPlanDetails.base_percentage || 0
+                        let flatBonus = 0
+                        
+                        if (compPlanDetails.plan_type === 'flat_rate') {
+                          return ((compPlanDetails.flat_rate || 0) * calcJobsClosed * 12).toLocaleString()
+                        }
+                        
+                        if (compPlanDetails.volume_bonuses) {
+                          for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
+                            if (monthlyVolume >= tier.min_volume && 
+                                (tier.max_volume === null || monthlyVolume <= tier.max_volume)) {
+                              if (tier.bonus_type === 'percentage') {
+                                rate += tier.bonus_value
+                              } else {
+                                flatBonus += tier.bonus_value
+                              }
+                            }
+                          }
+                        }
+                        
+                        return (((monthlyVolume * rate / 100) + flatBonus) * 12).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-green-100 text-xs">Monthly Volume</p>
+                    <p className="text-xl font-bold">${(calcAvgSalePrice * calcJobsClosed).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {!hasCompPlan && (
+                <div className="mt-4 p-4 bg-amber-50 rounded-lg border border-amber-100">
+                  <p className="text-sm text-amber-700">
+                    <strong>Note:</strong> You don't have a comp plan assigned. These calculations use default rates. Contact your manager to get your actual plan set up.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
