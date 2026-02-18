@@ -112,21 +112,22 @@ export default function Nav() {
 
   // Define nav items with role restrictions
   // Include legacy roles (manager, rep) for backwards compatibility
+  // Canvassers have limited access: Dashboard, Leads, Canvass only
   const allNavItems: NavItem[] = [
     // Sales dashboard - shown to everyone except ops-only users
     ...(hasSalesAccess ? [{ href: '/dashboard', label: 'Dashboard' }] : []),
     // Ops dashboard - shown to ops users and admins/managers
     ...(hasOpsAccess ? [{ href: '/ops/dashboard', label: isOpsOnly ? 'Dashboard' : 'Ops Dashboard', roles: ['admin', 'regional_manager', 'operations', 'manager', 'owner'] as AnyUserRole[] }] : []),
-    { href: '/calendar', label: 'Calendar', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
+    { href: '/calendar', label: 'Calendar', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/leads', label: 'Leads' },
-    { href: '/opportunities', label: 'Opportunities' },
-    { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
-    { href: '/ops', label: 'Job Board', roles: ['admin', 'regional_manager', 'operations', 'manager'] },
+    { href: '/opportunities', label: 'Opportunities', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    { href: '/ops', label: 'Job Board', roles: ['admin', 'regional_manager', 'operations', 'manager', 'owner'] },
     { href: '/canvass/map', label: 'Canvass' },
-    { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations'], permission: 'pricebook:view' },
-    { href: '/customers', label: 'Customers', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations'] },
-    { href: '/reports', label: 'Reports' },
-    { href: '/admin', label: 'Admin', roles: ['admin', 'manager', 'regional_manager'] },
+    { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations', 'owner'], permission: 'pricebook:view' },
+    { href: '/customers', label: 'Customers', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    { href: '/reports', label: 'Reports', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    { href: '/admin', label: 'Admin', roles: ['admin', 'manager', 'regional_manager', 'owner'] },
   ]
 
   // Filter nav items based on user role and permissions

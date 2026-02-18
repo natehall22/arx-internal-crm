@@ -762,7 +762,8 @@ export default function DashboardClient({
               />
             </div>
 
-            {/* Upcoming Appointments */}
+            {/* Upcoming Appointments - hidden for canvassers */}
+            {profile.role !== 'canvasser' && (
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <div className="flex items-center justify-between mb-3 sm:mb-4">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900">Upcoming Appointments</h2>
@@ -809,31 +810,38 @@ export default function DashboardClient({
                 </div>
               )}
             </div>
+            )}
 
-            {/* Account Overview */}
+            {/* Account Overview - show different content for canvassers */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Account Overview</h2>
-              <div className="grid grid-cols-3 gap-2 sm:gap-4">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
+                {profile.role === 'canvasser' ? 'My Stats' : 'Account Overview'}
+              </h2>
+              <div className={`grid gap-2 sm:gap-4 ${profile.role === 'canvasser' ? 'grid-cols-1' : 'grid-cols-3'}`}>
                 <Link href="/leads" className="p-2 sm:p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-center sm:text-left">
                   <p className="text-xl sm:text-3xl font-bold text-blue-600">{stats.totalLeads}</p>
                   <p className="text-xs sm:text-sm text-gray-600">Total Leads</p>
                   <p className="text-xs text-blue-600 mt-1 hidden sm:block">{stats.newLeads} new</p>
                 </Link>
-                <Link href="/opportunities" className="p-2 sm:p-4 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors text-center sm:text-left">
-                  <p className="text-xl sm:text-3xl font-bold text-amber-600">{stats.totalOpportunities}</p>
-                  <p className="text-xs sm:text-sm text-gray-600">Opps</p>
-                  <p className="text-xs text-amber-600 mt-1 hidden sm:block">{stats.openOpportunities} open</p>
-                </Link>
-                <Link href="/projects" className="p-2 sm:p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors text-center sm:text-left">
-                  <p className="text-xl sm:text-3xl font-bold text-green-600">{stats.totalProjects}</p>
-                  <p className="text-xs sm:text-sm text-gray-600">Projects</p>
-                  <p className="text-xs text-green-600 mt-1 hidden sm:block">{stats.activeProjects} active</p>
-                </Link>
+                {profile.role !== 'canvasser' && (
+                  <>
+                    <Link href="/opportunities" className="p-2 sm:p-4 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors text-center sm:text-left">
+                      <p className="text-xl sm:text-3xl font-bold text-amber-600">{stats.totalOpportunities}</p>
+                      <p className="text-xs sm:text-sm text-gray-600">Opps</p>
+                      <p className="text-xs text-amber-600 mt-1 hidden sm:block">{stats.openOpportunities} open</p>
+                    </Link>
+                    <Link href="/projects" className="p-2 sm:p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors text-center sm:text-left">
+                      <p className="text-xl sm:text-3xl font-bold text-green-600">{stats.totalProjects}</p>
+                      <p className="text-xs sm:text-sm text-gray-600">Projects</p>
+                      <p className="text-xs text-green-600 mt-1 hidden sm:block">{stats.activeProjects} active</p>
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Custom Reports Widgets */}
-            {customReports.length > 0 && (
+            {/* Custom Reports Widgets - hidden for canvassers */}
+            {customReports.length > 0 && profile.role !== 'canvasser' && (
               <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
                 <div className="flex items-center justify-between mb-3 sm:mb-4">
                   <h2 className="text-base sm:text-lg font-semibold text-gray-900">Custom Reports</h2>
@@ -994,17 +1002,19 @@ export default function DashboardClient({
                   </div>
                   <span className="font-medium text-gray-900 text-sm sm:text-base">Add New Lead</span>
                 </Link>
-                <Link
-                  href="/reports"
-                  className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                  </div>
-                  <span className="font-medium text-gray-900 text-sm sm:text-base">View Reports</span>
-                </Link>
+                {profile.role !== 'canvasser' && (
+                  <Link
+                    href="/reports"
+                    className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium text-gray-900 text-sm sm:text-base">View Reports</span>
+                  </Link>
+                )}
               </div>
             </div>
           </div>
