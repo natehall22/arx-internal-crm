@@ -931,7 +931,7 @@ export default function CanvassMapPage() {
       const emailIdx = header.findIndex(h => h === 'contacts_email' || h.includes('email'))
       const latIdx = header.findIndex(h => h === 'latitude' || h === 'lat' || h === 'y' || h === 'address_latitude' || h.includes('latitude'))
       const lngIdx = header.findIndex(h => h === 'longitude' || h === 'lng' || h === 'long' || h === 'x' || h === 'lon' || h === 'address_longitude' || h.includes('longitude'))
-      const dispositionIdx = header.findIndex(h => h === 'status' || h === 'lead_status' || h.includes('disposition') || h.includes('result'))
+      const dispositionIdx = header.findIndex(h => h === 'status' || h === 'status_name' || h === 'lead_status' || h.includes('disposition') || h.includes('result'))
       const notesIdx = header.findIndex(h => h === 'notes' || h === 'note' || h === 'comments')
       
       console.log('CSV Import - Found columns:', { 
