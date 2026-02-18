@@ -138,24 +138,23 @@ export default function DashboardClient({
     }
   }
 
-  const loadCompPlanDetails = async () => {
-    console.log('loadCompPlanDetails: Starting...')
+  const loadCompPlanDetails = async (retryCount = 0) => {
+    console.log('loadCompPlanDetails: Starting... (attempt', retryCount + 1, ')')
     try {
       const supabase = createClientBrowser()
       
-      // First try getSession which works better on initial load
+      // Try getSession first
       const { data: { session } } = await supabase.auth.getSession()
       
       if (!session?.user) {
-        console.log('loadCompPlanDetails: No session, will retry on auth change')
-        // Set up a one-time listener for auth state change
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-          if (newSession?.user) {
-            console.log('loadCompPlanDetails: Auth state changed, retrying...')
-            subscription.unsubscribe()
-            await loadCompPlanDetailsWithUser(supabase, newSession.user.id)
-          }
-        })
+        // Retry up to 3 times with a delay
+        if (retryCount < 3) {
+          console.log('loadCompPlanDetails: No session yet, retrying in 500ms...')
+          setTimeout(() => loadCompPlanDetails(retryCount + 1), 500)
+          return
+        }
+        console.log('loadCompPlanDetails: No session after retries')
+        setHasCompPlan(false)
         return
       }
       
