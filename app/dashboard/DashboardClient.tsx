@@ -141,15 +141,24 @@ export default function DashboardClient({
   const loadCompPlanDetails = async () => {
     const supabase = createClientBrowser()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) {
+      console.log('No user found')
+      return
+    }
 
     try {
       // Get the user's profile to get org_id
-      const { data: userProfile } = await supabase
+      const { data: userProfile, error: profileError } = await supabase
         .from('users')
         .select('org_id')
         .eq('id', user.id)
         .single()
+
+      if (profileError) {
+        console.error('Error fetching profile:', profileError)
+        setHasCompPlan(false)
+        return
+      }
 
       if (!userProfile?.org_id) {
         console.error('No org_id found for user')
@@ -157,8 +166,7 @@ export default function DashboardClient({
         return
       }
 
-      // Get active assignment - include org_id in query for RLS
-      // Only select columns that are guaranteed to exist
+      // Get active assignment - try without org_id filter first to debug
       const { data: userCompPlan, error } = await supabase
         .from('user_comp_plans')
         .select(`
@@ -166,13 +174,16 @@ export default function DashboardClient({
           effective_from,
           effective_to,
           comp_plan_id,
+          org_id,
+          user_id,
           comp_plans (*)
         `)
         .eq('user_id', user.id)
-        .eq('org_id', userProfile.org_id)
         .order('effective_from', { ascending: false })
         .limit(1)
         .maybeSingle()
+
+      console.log('Comp plan query result:', { userCompPlan, error, userId: user.id })
 
       if (error) {
         console.error('Error fetching comp plan:', error)
@@ -189,12 +200,14 @@ export default function DashboardClient({
         // Plan is active if: started and (no end date OR end date is in future)
         const isActive = effectiveFrom <= now && (!effectiveTo || effectiveTo > now)
         
+        console.log('Plan active check:', { effectiveFrom, effectiveTo, now, isActive })
+        
         if (isActive) {
           const plan = userCompPlan.comp_plans as any
           setCompPlanDetails({
             id: plan.id,
             name: plan.name,
-            plan_type: plan.plan_type,
+            plan_type: plan.plan_type || 'percentage',
             base_percentage: plan.base_percentage,
             flat_rate: plan.flat_rate,
             flat_amount: plan.flat_amount,
@@ -207,8 +220,11 @@ export default function DashboardClient({
             readme: plan.readme,
           })
           setHasCompPlan(true)
+          console.log('Comp plan loaded successfully:', plan.name)
           return
         }
+      } else {
+        console.log('No comp plan assignment found for user')
       }
       
       setHasCompPlan(false)
