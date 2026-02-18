@@ -31,6 +31,13 @@ interface CommissionSettings {
   bi_weekly_start_date?: string
 }
 
+interface HybridComponent {
+  type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
+  rate: number
+  unit_type?: string
+  description?: string
+}
+
 interface CompPlanDetails {
   id: string
   name: string
@@ -39,6 +46,9 @@ interface CompPlanDetails {
   flat_rate: number | null
   flat_amount: number | null
   hourly_rate: number | null
+  unit_rate: number | null
+  unit_type: string | null
+  hybrid_components: HybridComponent[] | null
   volume_bonuses: any[]
   team_overrides: any[]
   readme?: string
@@ -164,6 +174,9 @@ export default function CommissionWidget() {
           flat_rate,
           flat_amount,
           hourly_rate,
+          unit_rate,
+          unit_type,
+          hybrid_components,
           volume_bonuses,
           team_overrides,
           readme
@@ -186,6 +199,9 @@ export default function CommissionWidget() {
         flat_rate: plan.flat_rate,
         flat_amount: plan.flat_amount,
         hourly_rate: plan.hourly_rate,
+        unit_rate: plan.unit_rate,
+        unit_type: plan.unit_type,
+        hybrid_components: plan.hybrid_components || null,
         volume_bonuses: plan.volume_bonuses || [],
         team_overrides: plan.team_overrides || [],
         readme: plan.readme,
@@ -401,8 +417,8 @@ export default function CommissionWidget() {
           My Comp Plan
         </button>
         
-        {/* Comp Calculator Button - Hidden for hourly plans */}
-        {compPlanDetails?.plan_type !== 'hourly' && (
+        {/* Comp Calculator Button - Hidden for hourly, unit_based, and hybrid plans */}
+        {compPlanDetails && !['hourly', 'unit_based', 'hybrid'].includes(compPlanDetails.plan_type) && (
           <button 
             onClick={() => setShowCalculatorModal(true)}
             className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
@@ -464,15 +480,50 @@ export default function CommissionWidget() {
                     <p className="text-indigo-200 text-sm mt-1 capitalize">{compPlanDetails.plan_type.replace('_', ' ')} Plan</p>
                   </div>
                   
-                  {/* Base Rate */}
+                  {/* Base Rate - varies by plan type */}
                   <div className="bg-gray-50 rounded-xl p-4">
                     <h4 className="font-semibold text-gray-900 mb-2">
-                      {compPlanDetails.plan_type === 'hourly' ? 'Hourly Rate' : 'Base Commission Rate'}
+                      {compPlanDetails.plan_type === 'hourly' ? 'Hourly Rate' : 
+                       compPlanDetails.plan_type === 'unit_based' ? 'Per Unit Rate' :
+                       compPlanDetails.plan_type === 'hybrid' ? 'Compensation Components' :
+                       'Base Commission Rate'}
                     </h4>
                     {compPlanDetails.plan_type === 'hourly' ? (
                       <p className="text-2xl font-bold text-green-600">${compPlanDetails.hourly_rate?.toLocaleString() || 0}/hour</p>
                     ) : compPlanDetails.plan_type === 'flat_rate' ? (
                       <p className="text-2xl font-bold text-green-600">${(compPlanDetails.flat_rate || compPlanDetails.flat_amount)?.toLocaleString() || 0} per job</p>
+                    ) : compPlanDetails.plan_type === 'unit_based' ? (
+                      <div>
+                        <p className="text-2xl font-bold text-green-600">
+                          ${compPlanDetails.unit_rate?.toLocaleString() || 0} per {compPlanDetails.unit_type || 'unit'}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {compPlanDetails.unit_type === 'square' && 'Roofing squares (100 sq ft each)'}
+                          {compPlanDetails.unit_type === 'kw' && 'Kilowatts of solar installed'}
+                          {compPlanDetails.unit_type === 'linear_foot' && 'Linear feet of material'}
+                          {compPlanDetails.unit_type === 'panel' && 'Panels installed'}
+                        </p>
+                      </div>
+                    ) : compPlanDetails.plan_type === 'hybrid' && compPlanDetails.hybrid_components ? (
+                      <div className="space-y-2">
+                        {compPlanDetails.hybrid_components.map((comp, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border">
+                            <span className="text-gray-700 capitalize">
+                              {comp.type === 'hourly' ? 'Hourly Rate' :
+                               comp.type === 'percentage' ? 'Commission' :
+                               comp.type === 'flat_per_job' ? 'Per Job' :
+                               `Per ${comp.unit_type || 'Unit'}`}
+                              {comp.description && <span className="text-gray-500 text-sm ml-1">({comp.description})</span>}
+                            </span>
+                            <span className="font-semibold text-green-600">
+                              {comp.type === 'hourly' ? `$${comp.rate}/hr` :
+                               comp.type === 'percentage' ? `${comp.rate}%` :
+                               comp.type === 'flat_per_job' ? `$${comp.rate}/job` :
+                               `$${comp.rate}/${comp.unit_type || 'unit'}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <p className="text-2xl font-bold text-green-600">{compPlanDetails.base_percentage || 0}% of sale</p>
                     )}
@@ -485,6 +536,26 @@ export default function CommissionWidget() {
                       <p className="text-sm text-blue-800">
                         Your compensation is based on hours worked. Track your hours through the time tracking system. 
                         Commission calculators don't apply to hourly plans.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Hybrid Plan Notice */}
+                  {compPlanDetails.plan_type === 'hybrid' && (
+                    <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
+                      <h4 className="font-semibold text-purple-900 mb-2">Hybrid Compensation</h4>
+                      <p className="text-sm text-purple-800">
+                        Your pay combines multiple components. Each component is calculated separately and added together for your total compensation.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Unit-Based Plan Notice */}
+                  {compPlanDetails.plan_type === 'unit_based' && (
+                    <div className="bg-teal-50 rounded-xl p-4 border border-teal-100">
+                      <h4 className="font-semibold text-teal-900 mb-2">Per-Unit Compensation</h4>
+                      <p className="text-sm text-teal-800">
+                        Your pay is based on the quantity of work completed. Track your units through job completion records.
                       </p>
                     </div>
                   )}
@@ -541,6 +612,8 @@ export default function CommissionWidget() {
                   <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
                     <h4 className="font-semibold text-amber-900 mb-2">
                       {compPlanDetails.plan_type === 'hourly' ? 'Hourly Employee Tips' :
+                       compPlanDetails.plan_type === 'unit_based' ? 'Per-Unit Pay Tips' :
+                       compPlanDetails.plan_type === 'hybrid' ? 'Hybrid Plan Tips' :
                        userRole === 'canvasser' || userRole === 'setter' ? 'Setter Tips' : 
                        userRole === 'manager' || userRole === 'sales_manager' ? 'Manager Tips' : 'Closer Tips'}
                     </h4>
@@ -550,6 +623,18 @@ export default function CommissionWidget() {
                           <li>Log your hours accurately and on time</li>
                           <li>Overtime may be available - check with your manager</li>
                           <li>Your pay is based on hours worked, not sales volume</li>
+                        </>
+                      ) : compPlanDetails.plan_type === 'unit_based' ? (
+                        <>
+                          <li>Track your completed units accurately for each job</li>
+                          <li>More units completed = higher earnings</li>
+                          <li>Quality work ensures units are counted correctly</li>
+                        </>
+                      ) : compPlanDetails.plan_type === 'hybrid' ? (
+                        <>
+                          <li>Your pay combines multiple compensation types</li>
+                          <li>Track both hours and production for accurate pay</li>
+                          <li>Each component is calculated and paid separately</li>
                         </>
                       ) : (userRole === 'canvasser' || userRole === 'setter') ? (
                         <>

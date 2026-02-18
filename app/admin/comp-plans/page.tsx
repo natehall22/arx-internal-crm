@@ -23,21 +23,33 @@ interface CompPlan {
   id: string
   name: string
   description: string | null
-  plan_type: 'flat_rate' | 'percentage' | 'tiered' | 'hybrid'
+  plan_type: 'flat_rate' | 'percentage' | 'tiered' | 'hybrid' | 'hourly' | 'unit_based'
   is_active: boolean
   is_default: boolean
   flat_amount: number | null
   base_percentage: number | null
+  hourly_rate: number | null
+  unit_rate: number | null
+  unit_type: string | null  // 'square', 'kw', 'linear_foot', etc.
   tiers: { min: number; max: number | null; rate: number }[] | null
   bonuses: { type: string; target: number; bonus: number }[] | null
-  volume_bonuses: VolumeTier[] | null  // Sliding scale volume bonuses
+  volume_bonuses: VolumeTier[] | null
+  // Hybrid plan components
+  hybrid_components: HybridComponent[] | null
   // Manager-specific fields
   is_manager_plan: boolean
-  personal_sales_enabled: boolean  // Manager can earn from their own sales
-  team_override_enabled: boolean   // Manager earns override from team sales
-  team_overrides: OverrideTier[] | null  // Sliding scale team overrides
+  personal_sales_enabled: boolean
+  team_override_enabled: boolean
+  team_overrides: OverrideTier[] | null
   applicable_roles: string[]
   created_at: string
+}
+
+interface HybridComponent {
+  type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
+  rate: number
+  unit_type?: string  // For per_unit: 'square', 'kw', 'linear_foot', etc.
+  description?: string
 }
 
 interface UserCompPlan {
@@ -51,11 +63,22 @@ interface UserCompPlan {
   comp_plans?: { name: string }
 }
 
-const planTypeLabels = {
+const planTypeLabels: Record<string, string> = {
   flat_rate: 'Flat Rate',
   percentage: 'Percentage',
   tiered: 'Tiered',
   hybrid: 'Hybrid',
+  hourly: 'Hourly',
+  unit_based: 'Per Unit',
+}
+
+const unitTypeLabels: Record<string, string> = {
+  square: 'per Square',
+  kw: 'per kW',
+  linear_foot: 'per Linear Foot',
+  panel: 'per Panel',
+  window: 'per Window',
+  custom: 'Custom Unit',
 }
 
 export default function CompPlansPage() {
@@ -78,8 +101,14 @@ export default function CompPlansPage() {
     plan_type: 'percentage' as CompPlan['plan_type'],
     flat_amount: '',
     base_percentage: '',
+    hourly_rate: '',
+    unit_rate: '',
+    unit_type: 'square',
+    custom_unit_label: '',
     tiers: [{ min: 0, max: 10000 as number | null, rate: 5 }],
     volume_bonuses: [] as VolumeTier[],
+    // Hybrid components
+    hybrid_components: [] as HybridComponent[],
     // Manager-specific fields
     is_manager_plan: false,
     personal_sales_enabled: true,
@@ -88,7 +117,7 @@ export default function CompPlansPage() {
     applicable_roles: ['sales_rep', 'canvasser'],
     is_active: true,
     is_default: false,
-    readme: '', // Custom readme/explanation for the plan
+    readme: '',
   })
   
   const [assignForm, setAssignForm] = useState({
@@ -143,8 +172,20 @@ export default function CompPlansPage() {
       base_percentage: ['percentage', 'tiered', 'hybrid'].includes(planForm.plan_type) 
         ? parseFloat(planForm.base_percentage) || null 
         : null,
+      hourly_rate: ['hourly', 'hybrid'].includes(planForm.plan_type) 
+        ? parseFloat(planForm.hourly_rate) || null 
+        : null,
+      unit_rate: planForm.plan_type === 'unit_based' || planForm.hybrid_components.some(c => c.type === 'per_unit')
+        ? parseFloat(planForm.unit_rate) || null 
+        : null,
+      unit_type: planForm.plan_type === 'unit_based' 
+        ? (planForm.unit_type === 'custom' ? planForm.custom_unit_label : planForm.unit_type)
+        : null,
       tiers: planForm.plan_type === 'tiered' ? planForm.tiers : null,
       volume_bonuses: planForm.volume_bonuses.length > 0 ? planForm.volume_bonuses : null,
+      hybrid_components: planForm.plan_type === 'hybrid' && planForm.hybrid_components.length > 0 
+        ? planForm.hybrid_components 
+        : null,
       is_manager_plan: planForm.is_manager_plan,
       personal_sales_enabled: planForm.is_manager_plan ? planForm.personal_sales_enabled : null,
       team_override_enabled: planForm.is_manager_plan ? planForm.team_override_enabled : null,
@@ -255,8 +296,13 @@ export default function CompPlansPage() {
       plan_type: 'percentage',
       flat_amount: '',
       base_percentage: '',
+      hourly_rate: '',
+      unit_rate: '',
+      unit_type: 'square',
+      custom_unit_label: '',
       tiers: [{ min: 0, max: 10000 as number | null, rate: 5 }],
       volume_bonuses: [],
+      hybrid_components: [],
       is_manager_plan: false,
       personal_sales_enabled: true,
       team_override_enabled: false,
@@ -270,14 +316,20 @@ export default function CompPlansPage() {
 
   const openEditPlan = (plan: CompPlan) => {
     setEditingPlan(plan)
+    const isCustomUnit = plan.unit_type && !['square', 'kw', 'linear_foot', 'panel', 'window'].includes(plan.unit_type)
     setPlanForm({
       name: plan.name,
       description: plan.description || '',
       plan_type: plan.plan_type,
       flat_amount: plan.flat_amount?.toString() || '',
       base_percentage: plan.base_percentage?.toString() || '',
+      hourly_rate: plan.hourly_rate?.toString() || '',
+      unit_rate: plan.unit_rate?.toString() || '',
+      unit_type: isCustomUnit ? 'custom' : (plan.unit_type || 'square'),
+      custom_unit_label: isCustomUnit ? (plan.unit_type || '') : '',
       tiers: plan.tiers || [{ min: 0, max: 10000, rate: 5 }],
       volume_bonuses: plan.volume_bonuses || [],
+      hybrid_components: plan.hybrid_components || [],
       is_manager_plan: plan.is_manager_plan || false,
       personal_sales_enabled: plan.personal_sales_enabled ?? true,
       team_override_enabled: plan.team_override_enabled || false,
@@ -387,6 +439,41 @@ export default function CompPlansPage() {
           return { ...override, [field]: value as 'percentage' | 'flat' }
         }
         return { ...override, [field]: parseFloat(value as string) || 0 }
+      })
+    }))
+  }
+
+  // Hybrid component functions
+  const addHybridComponent = () => {
+    setPlanForm(prev => ({
+      ...prev,
+      hybrid_components: [...prev.hybrid_components, { 
+        type: 'hourly',
+        rate: 0,
+        description: ''
+      }]
+    }))
+  }
+
+  const removeHybridComponent = (index: number) => {
+    setPlanForm(prev => ({
+      ...prev,
+      hybrid_components: prev.hybrid_components.filter((_, i) => i !== index)
+    }))
+  }
+
+  const updateHybridComponent = (index: number, field: string, value: string | number) => {
+    setPlanForm(prev => ({
+      ...prev,
+      hybrid_components: prev.hybrid_components.map((comp, i) => {
+        if (i !== index) return comp
+        if (field === 'type') {
+          return { ...comp, [field]: value as HybridComponent['type'] }
+        }
+        if (field === 'rate') {
+          return { ...comp, [field]: parseFloat(value as string) || 0 }
+        }
+        return { ...comp, [field]: value }
       })
     }))
   }
@@ -699,8 +786,173 @@ export default function CompPlansPage() {
                     <option value="percentage">Percentage of Sale</option>
                     <option value="flat_rate">Flat Rate per Sale</option>
                     <option value="tiered">Tiered Percentage</option>
+                    <option value="hourly">Hourly Rate</option>
+                    <option value="unit_based">Per Unit (sq, kW, etc.)</option>
+                    <option value="hybrid">Hybrid (Multiple Components)</option>
                   </select>
                 </div>
+
+                {/* Hourly Rate */}
+                {planForm.plan_type === 'hourly' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Hourly Rate ($)</label>
+                    <input
+                      type="number"
+                      value={planForm.hourly_rate}
+                      onChange={(e) => setPlanForm(prev => ({ ...prev, hourly_rate: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      placeholder="e.g., 18.50"
+                      step="0.25"
+                    />
+                  </div>
+                )}
+
+                {/* Unit-Based Rate */}
+                {planForm.plan_type === 'unit_based' && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Unit Type</label>
+                        <select
+                          value={planForm.unit_type}
+                          onChange={(e) => setPlanForm(prev => ({ ...prev, unit_type: e.target.value }))}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                        >
+                          <option value="square">Per Square (roofing)</option>
+                          <option value="kw">Per kW (solar)</option>
+                          <option value="linear_foot">Per Linear Foot</option>
+                          <option value="panel">Per Panel</option>
+                          <option value="window">Per Window</option>
+                          <option value="custom">Custom Unit</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Rate per Unit ($)</label>
+                        <input
+                          type="number"
+                          value={planForm.unit_rate}
+                          onChange={(e) => setPlanForm(prev => ({ ...prev, unit_rate: e.target.value }))}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          placeholder="e.g., 25.00"
+                          step="0.01"
+                        />
+                      </div>
+                    </div>
+                    {planForm.unit_type === 'custom' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Custom Unit Label</label>
+                        <input
+                          type="text"
+                          value={planForm.custom_unit_label}
+                          onChange={(e) => setPlanForm(prev => ({ ...prev, custom_unit_label: e.target.value }))}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                          placeholder="e.g., per gutter section"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Hybrid Plan Components */}
+                {planForm.plan_type === 'hybrid' && (
+                  <div className="space-y-4 p-4 bg-purple-50 rounded-lg border border-purple-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium text-purple-900">Compensation Components</h4>
+                        <p className="text-sm text-purple-700">Add multiple pay components (e.g., hourly + commission)</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addHybridComponent}
+                        className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
+                      >
+                        + Add Component
+                      </button>
+                    </div>
+                    
+                    {planForm.hybrid_components.length === 0 && (
+                      <p className="text-sm text-purple-600 text-center py-4">No components added yet. Click "Add Component" to start.</p>
+                    )}
+                    
+                    {planForm.hybrid_components.map((comp, index) => (
+                      <div key={index} className="p-3 bg-white rounded-lg border border-purple-200">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1 grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="text-xs text-gray-600">Type</label>
+                              <select
+                                value={comp.type}
+                                onChange={(e) => updateHybridComponent(index, 'type', e.target.value)}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                              >
+                                <option value="hourly">Hourly Rate</option>
+                                <option value="percentage">% of Sale</option>
+                                <option value="flat_per_job">$ per Job</option>
+                                <option value="per_unit">Per Unit</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-600">
+                                {comp.type === 'hourly' ? '$/Hour' : 
+                                 comp.type === 'percentage' ? '% Rate' : 
+                                 comp.type === 'flat_per_job' ? '$/Job' : '$/Unit'}
+                              </label>
+                              <input
+                                type="number"
+                                value={comp.rate}
+                                onChange={(e) => updateHybridComponent(index, 'rate', e.target.value)}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                step={comp.type === 'percentage' ? '0.1' : '0.01'}
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-600">
+                                {comp.type === 'per_unit' ? 'Unit Type' : 'Description'}
+                              </label>
+                              {comp.type === 'per_unit' ? (
+                                <select
+                                  value={comp.unit_type || 'square'}
+                                  onChange={(e) => updateHybridComponent(index, 'unit_type', e.target.value)}
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                >
+                                  <option value="square">Square</option>
+                                  <option value="kw">kW</option>
+                                  <option value="linear_foot">Linear Ft</option>
+                                  <option value="panel">Panel</option>
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={comp.description || ''}
+                                  onChange={(e) => updateHybridComponent(index, 'description', e.target.value)}
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                  placeholder="Optional"
+                                />
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeHybridComponent(index)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {planForm.hybrid_components.length > 0 && (
+                      <div className="p-3 bg-purple-100 rounded-lg">
+                        <p className="text-sm text-purple-800">
+                          <strong>Example:</strong> Inspector with $15/hr + 2% commission on closed deals
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {planForm.plan_type === 'flat_rate' && (
                   <div>
