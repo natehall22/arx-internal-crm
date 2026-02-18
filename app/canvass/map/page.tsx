@@ -1006,6 +1006,27 @@ export default function CanvassMapPage() {
         }
       }
 
+      // Debug: show first few rows' lat/lng values
+      if (lines.length > 1) {
+        const debugValues: string[] = []
+        let current = ''
+        let inQuotes = false
+        for (const char of lines[1]) {
+          if (char === '"') inQuotes = !inQuotes
+          else if (char === ',' && !inQuotes) { debugValues.push(current.trim()); current = '' }
+          else current += char
+        }
+        debugValues.push(current.trim())
+        console.log('First row lat/lng raw values:', {
+          latIdx,
+          lngIdx,
+          latValue: latIdx >= 0 ? debugValues[latIdx] : 'N/A',
+          lngValue: lngIdx >= 0 ? debugValues[lngIdx] : 'N/A',
+          parsedLat: latIdx >= 0 ? parseFloat(debugValues[latIdx]) : null,
+          parsedLng: lngIdx >= 0 ? parseFloat(debugValues[lngIdx]) : null,
+        })
+      }
+      
       console.log('Parsed leads with coords:', leadsToImport.length, 'Needs geocoding:', leadsNeedingGeocode.length)
       
       // Geocode addresses that don't have coordinates
