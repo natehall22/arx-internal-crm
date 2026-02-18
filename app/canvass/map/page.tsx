@@ -889,14 +889,21 @@ export default function CanvassMapPage() {
 
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (!file) return
+    if (!file) {
+      console.log('No file selected')
+      return
+    }
 
+    console.log('Starting CSV import for file:', file.name)
     setImporting(true)
-    setStatusMessage('Importing leads...')
+    setStatusMessage('Reading CSV file...')
+    setShowImportExport(false)
 
     try {
       const text = await file.text()
       const lines = text.split('\n').filter(line => line.trim())
+      
+      console.log('CSV lines found:', lines.length)
       
       if (lines.length < 2) {
         setStatusMessage('CSV file is empty or has no data rows')
@@ -999,6 +1006,8 @@ export default function CanvassMapPage() {
         }
       }
 
+      console.log('Parsed leads with coords:', leadsToImport.length, 'Needs geocoding:', leadsNeedingGeocode.length)
+      
       // Geocode addresses that don't have coordinates
       if (leadsNeedingGeocode.length > 0 && mapKey) {
         setStatusMessage(`Geocoding ${leadsNeedingGeocode.length} addresses...`)
@@ -1024,11 +1033,13 @@ export default function CanvassMapPage() {
       }
 
       if (leadsToImport.length === 0) {
+        console.log('No valid leads to import')
         setStatusMessage('No valid leads found. Make sure CSV has address or lat/lng columns.')
         setImporting(false)
         return
       }
       
+      console.log('Sending', leadsToImport.length, 'leads to API')
       setStatusMessage(`Importing ${leadsToImport.length} leads...`)
 
       // Send to API
@@ -1038,23 +1049,29 @@ export default function CanvassMapPage() {
         body: JSON.stringify({ leads: leadsToImport }),
       })
 
+      console.log('API response status:', res.status)
+      
       if (!res.ok) {
         const err = await res.json()
+        console.error('Import API error:', err)
         setStatusMessage(err.error || 'Import failed')
       } else {
         const result = await res.json()
-        setStatusMessage(`Imported ${result.count} leads`)
+        console.log('Import success:', result)
+        setStatusMessage(`Successfully imported ${result.count} leads!`)
         await loadData()
       }
     } catch (err) {
-      setStatusMessage('Failed to parse CSV file')
+      console.error('CSV import error:', err)
+      setStatusMessage('Failed to parse CSV file: ' + (err instanceof Error ? err.message : 'Unknown error'))
     } finally {
       setImporting(false)
       setShowImportExport(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
-      setTimeout(() => setStatusMessage(null), 3000)
+      // Keep message visible longer
+      setTimeout(() => setStatusMessage(null), 5000)
     }
   }
 
