@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface Crew {
   id: string
@@ -54,6 +53,7 @@ export default function CrewsPage() {
   const [editingCrew, setEditingCrew] = useState<Crew | null>(null)
   const [saving, setSaving] = useState(false)
   const [orgId, setOrgId] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -66,78 +66,39 @@ export default function CrewsPage() {
     notes: '',
   })
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
     loadData()
   }, [])
 
   const loadData = async () => {
     try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError || !user) {
-        console.log('Crews page: No auth user', authError)
+      const response = await fetch('/api/admin/crews')
+      
+      if (response.status === 401) {
         router.push('/login')
         return
       }
-
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('org_id, role')
-        .eq('id', user.id)
-        .single()
-
-      console.log('Crews page: Profile loaded', { profile, profileError, userId: user.id })
-
-      if (profileError) {
-        console.error('Crews page: Profile error', profileError)
-        setLoading(false)
-        return
-      }
-
-      if (!profile) {
-        console.log('Crews page: No profile found for user', user.id)
-        setLoading(false)
-        return
-      }
       
-      // Allow any admin-level role to access crews management
-      const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
-      if (!adminRoles.includes(profile.role)) {
-        console.log('Crews page access denied. User role:', profile.role)
+      if (response.status === 403) {
         router.push('/dashboard')
         return
       }
       
-      console.log('Crews page: Access granted for role:', profile.role)
-
-      setOrgId(profile.org_id)
-
-      // Load crews and users in parallel
-      const [crewsRes, usersRes] = await Promise.all([
-        supabase
-          .from('crews')
-          .select('*')
-          .eq('org_id', profile.org_id)
-          .order('name'),
-        supabase
-          .from('users')
-          .select('id, full_name, role')
-          .eq('org_id', profile.org_id)
-          .order('full_name'),
-      ])
-
-      // Handle case where crews table doesn't exist yet
-      if (crewsRes.error) {
-        console.error('Error loading crews:', crewsRes.error)
-        // Still show the page, just with empty crews
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to load data')
+        setLoading(false)
+        return
       }
-
-      setCrews(crewsRes.data || [])
-      setUsers(usersRes.data || [])
+      
+      const data = await response.json()
+      setCrews(data.crews || [])
+      setUsers(data.users || [])
+      setOrgId(data.orgId)
       setLoading(false)
-    } catch (error) {
-      console.error('Crews page: Unexpected error', error)
+    } catch (err) {
+      console.error('Crews page error:', err)
+      setError('Failed to load data')
       setLoading(false)
     }
   }
@@ -201,33 +162,52 @@ export default function CrewsPage() {
       }
 
       if (editingCrew) {
-        await supabase
-          .from('crews')
-          .update(crewData)
-          .eq('id', editingCrew.id)
+        crewData.id = editingCrew.id
+        const response = await fetch('/api/admin/crews', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(crewData),
+        })
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || 'Failed to update crew')
+        }
       } else {
-        crewData.org_id = orgId
-        crewData.active = true
-        await supabase.from('crews').insert(crewData)
+        const response = await fetch('/api/admin/crews', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(crewData),
+        })
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || 'Failed to create crew')
+        }
       }
 
       setShowModal(false)
       await loadData()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving crew:', error)
-      alert('Failed to save crew')
+      alert(error.message || 'Failed to save crew')
     } finally {
       setSaving(false)
     }
   }
 
   const toggleActive = async (crew: Crew) => {
-    await supabase
-      .from('crews')
-      .update({ active: !crew.active })
-      .eq('id', crew.id)
-
-    await loadData()
+    try {
+      const response = await fetch('/api/admin/crews', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: crew.id, active: !crew.active }),
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update crew')
+      }
+      await loadData()
+    } catch (error) {
+      console.error('Error toggling crew:', error)
+    }
   }
 
   const getUserName = (userId: string) => {

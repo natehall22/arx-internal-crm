@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface SubContractor {
   id: string
@@ -27,6 +26,7 @@ export default function SubContractorsPage() {
   const [editingSub, setEditingSub] = useState<SubContractor | null>(null)
   const [saving, setSaving] = useState(false)
   const [orgId, setOrgId] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -58,60 +58,38 @@ export default function SubContractorsPage() {
     'General Labor',
   ]
 
-  const supabase = createClientBrowser()
-
   useEffect(() => {
     loadSubs()
   }, [])
 
   const loadSubs = async () => {
     try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError || !user) {
-        console.log('Subs page: No auth user', authError)
+      const response = await fetch('/api/admin/subs')
+      
+      if (response.status === 401) {
         router.push('/login')
         return
       }
-
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('org_id, role')
-        .eq('id', user.id)
-        .single()
-
-      console.log('Subs page: Profile loaded', { profile, profileError, userId: user.id })
-
-      if (profileError || !profile) {
-        console.error('Subs page: Profile error', profileError)
-        setLoading(false)
-        return
-      }
-
-      // Allow any admin-level role to access subs management
-      const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
-      if (!adminRoles.includes(profile.role)) {
-        console.log('Subs page access denied. User role:', profile.role)
+      
+      if (response.status === 403) {
         router.push('/dashboard')
         return
       }
-
-      console.log('Subs page: Access granted for role:', profile.role)
-      setOrgId(profile.org_id)
-
-      const { data, error: subsError } = await supabase
-        .from('sub_contractors')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .order('company_name')
-
-      if (subsError) {
-        console.error('Subs page: Error loading subs', subsError)
+      
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to load data')
+        setLoading(false)
+        return
       }
-
-      setSubs(data || [])
+      
+      const data = await response.json()
+      setSubs(data.subs || [])
+      setOrgId(data.orgId)
       setLoading(false)
-    } catch (error) {
-      console.error('Subs page: Unexpected error', error)
+    } catch (err) {
+      console.error('Subs page error:', err)
+      setError('Failed to load data')
       setLoading(false)
     }
   }
@@ -187,48 +165,73 @@ export default function SubContractorsPage() {
       }
 
       if (editingSub) {
-        await supabase
-          .from('sub_contractors')
-          .update(subData)
-          .eq('id', editingSub.id)
+        subData.id = editingSub.id
+        const response = await fetch('/api/admin/subs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(subData),
+        })
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || 'Failed to update sub')
+        }
       } else {
-        // Generate portal access token
-        subData.org_id = orgId
-        subData.portal_access_token = crypto.randomUUID()
-        
-        await supabase.from('sub_contractors').insert(subData)
+        const response = await fetch('/api/admin/subs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(subData),
+        })
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || 'Failed to create sub')
+        }
       }
 
       setShowModal(false)
       await loadSubs()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving sub:', error)
-      alert('Failed to save sub-contractor')
+      alert(error.message || 'Failed to save sub-contractor')
     } finally {
       setSaving(false)
     }
   }
 
   const toggleActive = async (sub: SubContractor) => {
-    await supabase
-      .from('sub_contractors')
-      .update({ active: !sub.active })
-      .eq('id', sub.id)
-
-    await loadSubs()
+    try {
+      const response = await fetch('/api/admin/subs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sub.id, active: !sub.active }),
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update sub')
+      }
+      await loadSubs()
+    } catch (error) {
+      console.error('Error toggling sub:', error)
+    }
   }
 
   const regenerateToken = async (sub: SubContractor) => {
     if (!confirm('Regenerate portal access token? The old link will stop working.')) return
 
-    const newToken = crypto.randomUUID()
-    await supabase
-      .from('sub_contractors')
-      .update({ portal_access_token: newToken })
-      .eq('id', sub.id)
-
-    alert(`New portal link: ${window.location.origin}/sub-portal/${newToken}`)
-    await loadSubs()
+    try {
+      const newToken = crypto.randomUUID()
+      const response = await fetch('/api/admin/subs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sub.id, portal_access_token: newToken }),
+      })
+      if (!response.ok) {
+        throw new Error('Failed to regenerate token')
+      }
+      alert(`New portal link: ${window.location.origin}/sub-portal/${newToken}`)
+      await loadSubs()
+    } catch (error) {
+      console.error('Error regenerating token:', error)
+      alert('Failed to regenerate token')
+    }
   }
 
   if (loading) {
