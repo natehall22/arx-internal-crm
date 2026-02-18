@@ -29,8 +29,13 @@ type CachedPin = LeadFormState & {
 type MapType = 'roadmap' | 'satellite' | 'hybrid' | 'terrain'
 
 const DB_NAME = 'arx_canvass_db'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_NAME = 'pending_pins'
+const LEADS_STORE = 'cached_leads'
+const CACHE_META_STORE = 'cache_meta'
+
+// Cache expiry time - 1 hour
+const CACHE_EXPIRY_MS = 60 * 60 * 1000
 
 // Default disposition config with colors and categories
 // These can be customized by admin in Settings > Canvass Dispositions
@@ -61,6 +66,7 @@ const defaultForm: LeadFormState = {
 declare global {
   interface Window {
     google?: any
+    markerClusterer?: any
   }
 }
 
@@ -75,8 +81,90 @@ const openDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'cached_at' })
       }
+      if (!db.objectStoreNames.contains(LEADS_STORE)) {
+        db.createObjectStore(LEADS_STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(CACHE_META_STORE)) {
+        db.createObjectStore(CACHE_META_STORE, { keyPath: 'key' })
+      }
     }
   })
+}
+
+// Cache leads locally
+const cacheLeads = async (leads: Lead[]): Promise<void> => {
+  try {
+    const db = await openDB()
+    const tx = db.transaction([LEADS_STORE, CACHE_META_STORE], 'readwrite')
+    const leadsStore = tx.objectStore(LEADS_STORE)
+    const metaStore = tx.objectStore(CACHE_META_STORE)
+    
+    // Clear existing leads and add new ones
+    await new Promise<void>((resolve, reject) => {
+      const clearReq = leadsStore.clear()
+      clearReq.onerror = () => reject(clearReq.error)
+      clearReq.onsuccess = () => resolve()
+    })
+    
+    for (const lead of leads) {
+      leadsStore.put(lead)
+    }
+    
+    // Update cache timestamp
+    metaStore.put({ key: 'leads_cached_at', value: Date.now() })
+    
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (e) {
+    console.error('Failed to cache leads:', e)
+  }
+}
+
+// Get cached leads
+const getCachedLeads = async (): Promise<{ leads: Lead[]; cachedAt: number | null }> => {
+  try {
+    const db = await openDB()
+    const tx = db.transaction([LEADS_STORE, CACHE_META_STORE], 'readonly')
+    const leadsStore = tx.objectStore(LEADS_STORE)
+    const metaStore = tx.objectStore(CACHE_META_STORE)
+    
+    const leads = await new Promise<Lead[]>((resolve, reject) => {
+      const req = leadsStore.getAll()
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => resolve(req.result || [])
+    })
+    
+    const meta = await new Promise<{ key: string; value: number } | undefined>((resolve, reject) => {
+      const req = metaStore.get('leads_cached_at')
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => resolve(req.result)
+    })
+    
+    return { leads, cachedAt: meta?.value || null }
+  } catch (e) {
+    return { leads: [], cachedAt: null }
+  }
+}
+
+// Clear all cached data
+const clearAllCache = async (): Promise<void> => {
+  try {
+    const db = await openDB()
+    const tx = db.transaction([LEADS_STORE, CACHE_META_STORE, STORE_NAME], 'readwrite')
+    tx.objectStore(LEADS_STORE).clear()
+    tx.objectStore(CACHE_META_STORE).clear()
+    tx.objectStore(STORE_NAME).clear()
+    
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (e) {
+    console.error('Failed to clear cache:', e)
+    throw e
+  }
 }
 
 const savePinOffline = async (pin: CachedPin): Promise<void> => {
@@ -169,11 +257,17 @@ export default function CanvassMapPage() {
 
   const mapRef = useRef<any>(null)
   const markersRef = useRef<Record<string, any>>({})
+  const markerClusterRef = useRef<any>(null)
   const userMarkerRef = useRef<any>(null)
   const infoWindowRef = useRef<any>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const newPinMarkerRef = useRef<any>(null)
+  
+  // Cache state
+  const [cacheInfo, setCacheInfo] = useState<{ cachedAt: number | null; count: number }>({ cachedAt: null, count: 0 })
+  const [showCacheMenu, setShowCacheMenu] = useState(false)
+  const [clearingCache, setClearingCache] = useState(false)
 
   const hasPin = formState.lat != null && formState.lng != null
 
@@ -349,7 +443,24 @@ export default function CanvassMapPage() {
     }
   }, [hasPin, formState.lat, formState.lng, formState.lead_id])
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh = false) => {
+    // Try to load from cache first for instant display
+    if (!forceRefresh) {
+      const cached = await getCachedLeads()
+      if (cached.leads.length > 0 && cached.cachedAt) {
+        const cacheAge = Date.now() - cached.cachedAt
+        console.log('Loading from cache:', cached.leads.length, 'leads, age:', Math.round(cacheAge / 1000), 's')
+        setLeads(cached.leads)
+        setCacheInfo({ cachedAt: cached.cachedAt, count: cached.leads.length })
+        setLoading(false)
+        
+        // If cache is still fresh and we're offline, don't fetch
+        if (!navigator.onLine || cacheAge < CACHE_EXPIRY_MS) {
+          return
+        }
+      }
+    }
+    
     if (!navigator.onLine) {
       setLoading(false)
       return
@@ -365,13 +476,19 @@ export default function CanvassMapPage() {
       
       const data = await response.json()
       
-      console.log('Canvass data loaded:', data.leads?.length, 'leads', 'inspectionDuration:', data.inspectionDuration)
+      console.log('Canvass data loaded from server:', data.leads?.length, 'leads', 'inspectionDuration:', data.inspectionDuration)
       
       setCurrentUserRole(data.currentUserRole || '')
       setLeads(data.leads || [])
       setClosers((data.users || []) as UserOption[])
       setTeams((data.teams || []) as TeamOption[])
       setInspectionDuration(data.inspectionDuration || 60)
+      
+      // Cache leads for offline/fast loading
+      if (data.leads?.length > 0) {
+        await cacheLeads(data.leads)
+        setCacheInfo({ cachedAt: Date.now(), count: data.leads.length })
+      }
       
       // Load org disposition settings
       if (data.orgSettings?.canvass_dispositions) {
@@ -467,15 +584,18 @@ export default function CanvassMapPage() {
   const loadGoogleMapsScript = () => {
     return new Promise<void>((resolve, reject) => {
       if (window.google && window.google.maps) {
-        resolve()
+        // Also load MarkerClusterer if not already loaded
+        loadMarkerClusterer().then(resolve).catch(resolve) // Don't fail if clusterer fails
         return
       }
       const existing = document.querySelector('script[src*="maps.googleapis.com"]')
       if (existing) {
         if (window.google && window.google.maps) {
-          resolve()
+          loadMarkerClusterer().then(resolve).catch(resolve)
         } else {
-          existing.addEventListener('load', () => resolve())
+          existing.addEventListener('load', () => {
+            loadMarkerClusterer().then(resolve).catch(resolve)
+          })
         }
         return
       }
@@ -492,11 +612,41 @@ export default function CanvassMapPage() {
       script.defer = true
       script.onload = () => {
         clearTimeout(timeout)
-        resolve()
+        // Load MarkerClusterer after Google Maps
+        loadMarkerClusterer().then(resolve).catch(resolve)
       }
       script.onerror = () => {
         clearTimeout(timeout)
         reject(new Error('Failed to load map'))
+      }
+      document.head.appendChild(script)
+    })
+  }
+  
+  const loadMarkerClusterer = (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (window.markerClusterer) {
+        resolve()
+        return
+      }
+      
+      const existing = document.querySelector('script[src*="markerclusterer"]')
+      if (existing) {
+        if (window.markerClusterer) {
+          resolve()
+        } else {
+          existing.addEventListener('load', () => resolve())
+        }
+        return
+      }
+      
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js'
+      script.async = true
+      script.onload = () => resolve()
+      script.onerror = () => {
+        console.warn('MarkerClusterer failed to load - clustering disabled')
+        resolve() // Don't fail, just disable clustering
       }
       document.head.appendChild(script)
     })
@@ -517,31 +667,36 @@ export default function CanvassMapPage() {
     // Clear existing markers
     Object.values(markersRef.current).forEach((marker) => marker.setMap(null))
     markersRef.current = {}
+    
+    // Clear existing cluster
+    if (markerClusterRef.current) {
+      markerClusterRef.current.clearMarkers()
+    }
 
     console.log('Rendering', leads.length, 'markers')
 
+    const markers: any[] = []
+    
     leads.forEach((lead) => {
       if (lead.lat == null || lead.lng == null) {
-        console.log('Skipping lead without lat/lng:', lead.id)
         return
       }
       
       const color = getDispositionColor(lead.canvass_disposition)
-      console.log('Marker for lead', lead.id, '- disposition:', lead.canvass_disposition, '- color:', color)
       
       // Create round bubble marker
       const marker = new window.google.maps.Marker({
         position: { lat: Number(lead.lat), lng: Number(lead.lng) },
-        map: mapRef.current,
         icon: {
           path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 12,
+          scale: 10,
           strokeColor: '#ffffff',
           strokeWeight: 2,
           fillColor: color,
           fillOpacity: 1,
         },
         title: lead.homeowner_name || lead.address_text || 'Lead',
+        optimized: true, // Enable marker optimization
       })
 
       marker.addListener('click', () => {
@@ -549,7 +704,44 @@ export default function CanvassMapPage() {
       })
 
       markersRef.current[lead.id] = marker
+      markers.push(marker)
     })
+    
+    // Use MarkerClusterer for performance with many markers
+    if (window.markerClusterer && markers.length > 50) {
+      markerClusterRef.current = new window.markerClusterer.MarkerClusterer({
+        map: mapRef.current,
+        markers,
+        renderer: {
+          render: ({ count, position }: { count: number; position: any }) => {
+            return new window.google.maps.Marker({
+              position,
+              icon: {
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: Math.min(20 + Math.log2(count) * 3, 35),
+                strokeColor: '#ffffff',
+                strokeWeight: 2,
+                fillColor: '#4f46e5',
+                fillOpacity: 0.9,
+              },
+              label: {
+                text: String(count),
+                color: '#ffffff',
+                fontSize: '12px',
+                fontWeight: 'bold',
+              },
+              zIndex: 1000000 + count,
+            })
+          },
+        },
+        algorithmOptions: {
+          maxZoom: 17, // Stop clustering at zoom 17+
+        },
+      })
+    } else {
+      // For fewer markers, add directly to map (no clustering)
+      markers.forEach(marker => marker.setMap(mapRef.current))
+    }
   }
 
   const openInfoWindow = (marker: any, lead: Lead & { owner?: { id: string; full_name: string } }) => {
@@ -1462,14 +1654,87 @@ export default function CanvassMapPage() {
               {/* Bottom controls */}
               {mapStatus === 'loaded' && (
                 <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-10">
+                  {/* Cache/Settings button */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowCacheMenu(!showCacheMenu)}
+                      className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
+                      title="Cache settings"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </button>
+                    {showCacheMenu && (
+                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg shadow-xl border min-w-[220px] z-50">
+                        <div className="p-3 border-b">
+                          <p className="text-xs font-medium text-gray-500">Cache Status</p>
+                          <p className="text-sm text-gray-900 mt-1">
+                            {cacheInfo.count > 0 ? (
+                              <>
+                                {cacheInfo.count} leads cached
+                                {cacheInfo.cachedAt && (
+                                  <span className="text-gray-500 ml-1">
+                                    ({Math.round((Date.now() - cacheInfo.cachedAt) / 60000)}m ago)
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              'No cached data'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            await loadData(true)
+                            setShowCacheMenu(false)
+                            setStatusMessage('Data refreshed from server')
+                            setTimeout(() => setStatusMessage(null), 2000)
+                          }}
+                          className="w-full px-4 py-3 text-left text-sm text-gray-900 hover:bg-gray-50 flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Refresh Data
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setClearingCache(true)
+                            try {
+                              await clearAllCache()
+                              setCacheInfo({ cachedAt: null, count: 0 })
+                              setStatusMessage('Cache cleared')
+                              setShowCacheMenu(false)
+                            } catch (e) {
+                              setStatusMessage('Failed to clear cache')
+                            } finally {
+                              setClearingCache(false)
+                              setTimeout(() => setStatusMessage(null), 2000)
+                            }
+                          }}
+                          disabled={clearingCache}
+                          className="w-full px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          {clearingCache ? 'Clearing...' : 'Clear Cache'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* My Location button - prominent arrow design */}
                   <button
                     onClick={centerOnUser}
-                    className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
-                    title="Center on my location"
+                    className="w-14 h-14 bg-indigo-600 rounded-full shadow-lg flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95"
+                    title="Snap to my location"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
+                      {/* Navigation arrow pointing up */}
+                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" />
                     </svg>
                   </button>
                 </div>
