@@ -34,8 +34,8 @@ const STORE_NAME = 'pending_pins'
 const LEADS_STORE = 'cached_leads'
 const CACHE_META_STORE = 'cache_meta'
 
-// Cache expiry time - 1 hour
-const CACHE_EXPIRY_MS = 60 * 60 * 1000
+// Cache expiry time - 5 minutes (only used for offline mode)
+const CACHE_EXPIRY_MS = 5 * 60 * 1000
 
 // Default disposition config with colors and categories
 // These can be customized by admin in Settings > Canvass Dispositions
@@ -675,83 +675,116 @@ export default function CanvassMapPage() {
   }
 
   const renderMarkers = () => {
-    // Clear existing markers
-    Object.values(markersRef.current).forEach((marker) => marker.setMap(null))
-    markersRef.current = {}
+    if (!mapRef.current || !window.google) return
     
-    // Clear existing cluster
-    if (markerClusterRef.current) {
-      markerClusterRef.current.clearMarkers()
-    }
-
-    console.log('Rendering', leads.length, 'markers')
-
-    const markers: any[] = []
+    // Track which lead IDs we've processed
+    const currentLeadIds = new Set<string>()
+    const newMarkers: any[] = []
+    let markersChanged = false
     
     leads.forEach((lead) => {
-      if (lead.lat == null || lead.lng == null) {
-        return
-      }
+      if (lead.lat == null || lead.lng == null) return
       
+      currentLeadIds.add(lead.id)
       const color = getDispositionColor(lead.canvass_disposition)
+      const existingMarker = markersRef.current[lead.id]
       
-      // Create round bubble marker
-      const marker = new window.google.maps.Marker({
-        position: { lat: Number(lead.lat), lng: Number(lead.lng) },
-        icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          strokeColor: '#ffffff',
-          strokeWeight: 2,
-          fillColor: color,
-          fillOpacity: 1,
-        },
-        title: lead.homeowner_name || lead.address_text || 'Lead',
-        optimized: true, // Enable marker optimization
-      })
+      if (existingMarker) {
+        // Update existing marker if color changed
+        const currentIcon = existingMarker.getIcon()
+        if (currentIcon?.fillColor !== color) {
+          existingMarker.setIcon({
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            strokeColor: '#ffffff',
+            strokeWeight: 2,
+            fillColor: color,
+            fillOpacity: 1,
+          })
+        }
+        newMarkers.push(existingMarker)
+      } else {
+        // Create new marker
+        const marker = new window.google.maps.Marker({
+          position: { lat: Number(lead.lat), lng: Number(lead.lng) },
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            strokeColor: '#ffffff',
+            strokeWeight: 2,
+            fillColor: color,
+            fillOpacity: 1,
+          },
+          title: lead.homeowner_name || lead.address_text || 'Lead',
+          optimized: true,
+        })
 
-      marker.addListener('click', () => {
-        openInfoWindow(marker, lead)
-      })
+        marker.addListener('click', () => {
+          openInfoWindow(marker, lead)
+        })
 
-      markersRef.current[lead.id] = marker
-      markers.push(marker)
+        markersRef.current[lead.id] = marker
+        newMarkers.push(marker)
+        markersChanged = true
+      }
     })
     
-    // Use MarkerClusterer for performance with many markers
-    if (window.markerClusterer && markers.length > 50) {
-      markerClusterRef.current = new window.markerClusterer.MarkerClusterer({
-        map: mapRef.current,
-        markers,
-        renderer: {
-          render: ({ count, position }: { count: number; position: any }) => {
-            return new window.google.maps.Marker({
-              position,
-              icon: {
-                path: window.google.maps.SymbolPath.CIRCLE,
-                scale: Math.min(20 + Math.log2(count) * 3, 35),
-                strokeColor: '#ffffff',
-                strokeWeight: 2,
-                fillColor: '#4f46e5',
-                fillOpacity: 0.9,
-              },
-              label: {
-                text: String(count),
-                color: '#ffffff',
-                fontSize: '12px',
-                fontWeight: 'bold',
-              },
-              zIndex: 1000000 + count,
-            })
+    // Remove markers for leads that no longer exist
+    Object.keys(markersRef.current).forEach((leadId) => {
+      if (!currentLeadIds.has(leadId)) {
+        markersRef.current[leadId].setMap(null)
+        delete markersRef.current[leadId]
+        markersChanged = true
+      }
+    })
+    
+    // Only rebuild cluster if markers were added/removed
+    if (markersChanged || !markerClusterRef.current) {
+      // Clear existing cluster
+      if (markerClusterRef.current) {
+        markerClusterRef.current.clearMarkers()
+        markerClusterRef.current = null
+      }
+      
+      // Use MarkerClusterer for performance with many markers
+      if (window.markerClusterer && newMarkers.length > 50) {
+        markerClusterRef.current = new window.markerClusterer.MarkerClusterer({
+          map: mapRef.current,
+          markers: newMarkers,
+          renderer: {
+            render: ({ count, position }: { count: number; position: any }) => {
+              return new window.google.maps.Marker({
+                position,
+                icon: {
+                  path: window.google.maps.SymbolPath.CIRCLE,
+                  scale: Math.min(20 + Math.log2(count) * 3, 35),
+                  strokeColor: '#ffffff',
+                  strokeWeight: 2,
+                  fillColor: '#4f46e5',
+                  fillOpacity: 0.9,
+                },
+                label: {
+                  text: String(count),
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                },
+                zIndex: 1000000 + count,
+              })
+            },
           },
-        },
-        algorithmOptions: {
-          maxZoom: 17, // Stop clustering at zoom 17+
-        },
-      })
-    } else {
-      // For fewer markers, add directly to map (no clustering)
-      markers.forEach(marker => marker.setMap(mapRef.current))
+          algorithmOptions: {
+            maxZoom: 17,
+          },
+        })
+      } else {
+        // For fewer markers, add directly to map
+        newMarkers.forEach(marker => {
+          if (!marker.getMap()) {
+            marker.setMap(mapRef.current)
+          }
+        })
+      }
     }
   }
 
