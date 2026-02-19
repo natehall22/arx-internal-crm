@@ -46,6 +46,7 @@ const defaultDispositionOptions = [
   { id: 'go_back', label: 'Go Back', category: 'Contact', color: '#3b82f6', active: true },
   { id: 'hot_lead', label: 'Hot Lead', category: 'Contact', color: '#22c55e', active: true },
   { id: 'not_interested', label: 'Not Interested', category: 'Closed', color: '#6b7280', active: true },
+  { id: 'inspection_scheduled', label: 'Inspection Scheduled', category: 'Scheduled', color: '#8b5cf6', active: true },
 ]
 
 const defaultForm: LeadFormState = {
@@ -212,12 +213,20 @@ export default function CanvassMapPage() {
   const [inspectionDuration, setInspectionDuration] = useState<number>(60)
 
   // Get disposition color - uses current dispositionOptions state
-  const getDispositionColor = (disposition?: CanvassDisposition | string | null): string => {
+  // Also checks lead status for inspection scheduled
+  const getDispositionColor = (disposition?: CanvassDisposition | string | null, status?: string | null): string => {
+    // If lead has inspection scheduled, show purple regardless of disposition
+    if (status === 'inspection' || status === 'inspection_scheduled') {
+      return '#8b5cf6' // Purple for scheduled inspections
+    }
     const opt = dispositionOptions.find(o => o.id === disposition)
     return opt?.color || '#a855f7' // Purple for new/unknown
   }
 
-  const getDispositionLabel = (disposition?: CanvassDisposition | string | null): string => {
+  const getDispositionLabel = (disposition?: CanvassDisposition | string | null, status?: string | null): string => {
+    if (status === 'inspection' || status === 'inspection_scheduled') {
+      return 'Inspection Scheduled'
+    }
     const opt = dispositionOptions.find(o => o.id === disposition)
     return opt?.label || 'New'
   }
@@ -686,7 +695,7 @@ export default function CanvassMapPage() {
       if (lead.lat == null || lead.lng == null) return
       
       currentLeadIds.add(lead.id)
-      const color = getDispositionColor(lead.canvass_disposition)
+      const color = getDispositionColor(lead.canvass_disposition, lead.status)
       const existingMarker = markersRef.current[lead.id]
       
       if (existingMarker) {
@@ -791,8 +800,8 @@ export default function CanvassMapPage() {
   const openInfoWindow = (marker: any, lead: Lead & { owner?: { id: string; full_name: string } }) => {
     if (!infoWindowRef.current) return
 
-    const color = getDispositionColor(lead.canvass_disposition)
-    const label = getDispositionLabel(lead.canvass_disposition)
+    const color = getDispositionColor(lead.canvass_disposition, lead.status)
+    const label = getDispositionLabel(lead.canvass_disposition, lead.status)
     const category = getDispositionCategory(lead.canvass_disposition)
     const ownerName = (lead as any).owner?.full_name || 'Unknown'
     const createdDate = lead.created_at ? new Date(lead.created_at).toLocaleDateString() : ''

@@ -353,6 +353,7 @@ export async function POST(request: Request) {
 
     if (scheduleInspection) {
       leadPayload.status = 'inspection'
+      leadPayload.canvass_disposition = 'inspection_scheduled' // Update disposition for map color
       leadPayload.inspection_scheduled_at = new Date().toISOString()
       // NOTE: We no longer change lead.owner_user_id to the closer
       // The lead owner stays as the setter (who knocked the door)
