@@ -1598,15 +1598,17 @@ export default function CanvassMapPage() {
                     title="Reset to North"
                   >
                     <svg 
-                      className="w-5 h-5 transition-transform duration-200" 
+                      className="w-6 h-6 transition-transform duration-200" 
                       style={{ transform: `rotate(${-mapHeading}deg)` }}
                       viewBox="0 0 24 24" 
-                      fill="none" 
-                      stroke="currentColor"
+                      fill="none"
                     >
-                      <path d="M12 2L12 12" strokeWidth={2.5} strokeLinecap="round" stroke="#ef4444" />
-                      <path d="M12 12L12 22" strokeWidth={2.5} strokeLinecap="round" stroke="currentColor" />
-                      <text x="12" y="6" textAnchor="middle" fontSize="6" fill="#ef4444" fontWeight="bold">N</text>
+                      {/* Compass diamond - North half (red) */}
+                      <path d="M12 2L15 12L12 14L9 12L12 2Z" fill="#ef4444" />
+                      {/* Compass diamond - South half (gray) */}
+                      <path d="M12 22L9 12L12 10L15 12L12 22Z" fill="#6b7280" />
+                      {/* Center dot */}
+                      <circle cx="12" cy="12" r="1.5" fill="#374151" />
                     </svg>
                   </button>
                   
