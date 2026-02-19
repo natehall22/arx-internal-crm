@@ -284,6 +284,15 @@ export async function POST(request: Request) {
     
     const scheduleInspection = Boolean(body.schedule_inspection)
     
+    console.log('Canvass lead API called:', {
+      scheduleInspection,
+      closerUserId,
+      teamIdForRoundRobin,
+      inspection_scheduled_for: body.inspection_scheduled_for,
+      leadId,
+      userId: profile.id,
+    })
+    
     // Parse inspection time - the client sends local time (e.g., "2026-02-17T09:00")
     // We store UTC in the database but need local time for Google Calendar API
     // Assume Eastern timezone (UTC-5, or UTC-4 during DST)
@@ -706,7 +715,7 @@ export async function POST(request: Request) {
       })
     }
 
-    return NextResponse.json({
+    const result = {
       lead_id: leadRow.id,
       opportunity_id: opportunityId,
       assigned_closer: assignedCloserName,
@@ -716,7 +725,11 @@ export async function POST(request: Request) {
       setter_calendar_synced: setterCalendarSynced,
       setter_calendar_error: setterCalendarError,
       google_event_id: googleEventId,
-    })
+    }
+    
+    console.log('Canvass lead API result:', result)
+    
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Canvass lead API error:', error)
     return NextResponse.json({ 

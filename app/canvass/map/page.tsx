@@ -453,21 +453,26 @@ export default function CanvassMapPage() {
   }, [hasPin, formState.lat, formState.lng, formState.lead_id])
 
   const loadData = async (forceRefresh = false) => {
-    // Try to load leads from cache first for instant display (while we fetch fresh data)
-    let useCachedLeadsOnly = false
-    if (!forceRefresh) {
-      const cached = await getCachedLeads()
-      if (cached.leads.length > 0 && cached.cachedAt) {
-        const cacheAge = Date.now() - cached.cachedAt
-        console.log('Loading leads from cache:', cached.leads.length, 'leads, age:', Math.round(cacheAge / 1000), 's')
-        setLeads(cached.leads)
-        setCacheInfo({ cachedAt: cached.cachedAt, count: cached.leads.length })
-        
-        // If offline and cache is fresh, use cached leads only
-        if (!navigator.onLine && cacheAge < CACHE_EXPIRY_MS) {
-          setLoading(false)
-          useCachedLeadsOnly = true
-        }
+    // Try to load leads from cache first for instant display
+    const cached = await getCachedLeads()
+    if (cached.leads.length > 0 && cached.cachedAt) {
+      const cacheAge = Date.now() - cached.cachedAt
+      console.log('Loading leads from cache:', cached.leads.length, 'leads, age:', Math.round(cacheAge / 1000), 's')
+      setLeads(cached.leads)
+      setCacheInfo({ cachedAt: cached.cachedAt, count: cached.leads.length })
+      setLoading(false) // Show cached data immediately
+      
+      // If offline, stop here
+      if (!navigator.onLine) {
+        return
+      }
+      
+      // If cache is fresh and not forcing refresh, don't fetch from server
+      if (!forceRefresh && cacheAge < CACHE_EXPIRY_MS) {
+        console.log('Using cached leads (fresh)')
+        // Still fetch users/teams in background
+        fetchUsersAndTeams()
+        return
       }
     }
     
@@ -476,12 +481,31 @@ export default function CanvassMapPage() {
       return
     }
     
-    // Always fetch from server to get users/teams (cache only stores leads)
+    // Fetch fresh data from server
+    await fetchAllData()
+    setLoading(false)
+  }
+  
+  // Fetch just users and teams (for dropdown updates)
+  const fetchUsersAndTeams = async () => {
+    try {
+      const response = await fetch('/api/canvass/data?usersOnly=true')
+      if (response.ok) {
+        const data = await response.json()
+        setClosers((data.users || []) as UserOption[])
+        setTeams((data.teams || []) as TeamOption[])
+      }
+    } catch (err) {
+      console.error('Error fetching users/teams:', err)
+    }
+  }
+  
+  // Fetch all data from server
+  const fetchAllData = async () => {
     try {
       const response = await fetch('/api/canvass/data')
       if (!response.ok) {
         console.error('Failed to load canvass data')
-        setLoading(false)
         return
       }
       
@@ -491,9 +515,6 @@ export default function CanvassMapPage() {
         leads: data.leads?.length,
         users: data.users?.length,
         teams: data.teams?.length,
-        inspectionDuration: data.inspectionDuration,
-        usersData: data.users,
-        teamsData: data.teams,
       })
       
       setCurrentUserRole(data.currentUserRole || '')
@@ -518,8 +539,6 @@ export default function CanvassMapPage() {
     } catch (err) {
       console.error('Error loading canvass data:', err)
     }
-    
-    setLoading(false)
   }
 
   const initializeMap = async () => {
@@ -1046,6 +1065,16 @@ export default function CanvassMapPage() {
     }
 
     setStatusMessage('Saving...')
+    
+    // Log what we're sending for debugging
+    console.log('Submitting lead:', {
+      schedule_inspection: formState.schedule_inspection,
+      inspection_scheduled_for: formState.inspection_scheduled_for,
+      closer_user_id: formState.closer_user_id,
+      homeowner_name: formState.homeowner_name,
+      address_text: formState.address_text,
+    })
+    
     const res = await fetch('/api/canvass/lead', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1053,6 +1082,16 @@ export default function CanvassMapPage() {
     })
 
     if (!res.ok) {
+      // Try to get error message from response
+      let errorMsg = 'Save failed'
+      try {
+        const errorData = await res.json()
+        errorMsg = errorData.error || errorMsg
+        console.error('Lead save error:', errorData)
+      } catch (e) {
+        console.error('Lead save failed with status:', res.status)
+      }
+      
       const cachedPin: CachedPin = {
         ...formState,
         cached_at: Date.now(),
@@ -1060,7 +1099,7 @@ export default function CanvassMapPage() {
       }
       await savePinOffline(cachedPin)
       setPendingCount(prev => prev + 1)
-      setStatusMessage('Save failed. Cached for later.')
+      setStatusMessage(`${errorMsg}. Cached for later.`)
       return
     }
 
@@ -1710,11 +1749,15 @@ export default function CanvassMapPage() {
                             setClearingCache(true)
                             try {
                               await clearAllCache()
+                              setLeads([]) // Clear displayed leads
                               setCacheInfo({ cachedAt: null, count: 0 })
-                              setStatusMessage('Cache cleared')
+                              setStatusMessage('Cache cleared - refreshing...')
                               setShowCacheMenu(false)
+                              // Fetch fresh data after clearing
+                              await fetchAllData()
+                              setStatusMessage('Data refreshed')
                             } catch (e) {
-                              setStatusMessage('Failed')
+                              setStatusMessage('Failed to clear cache')
                             } finally {
                               setClearingCache(false)
                               setTimeout(() => setStatusMessage(null), 2000)
@@ -1723,7 +1766,7 @@ export default function CanvassMapPage() {
                           disabled={clearingCache}
                           className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
                         >
-                          Clear Cache
+                          {clearingCache ? 'Clearing...' : 'Clear Cache & Reload'}
                         </button>
                       </div>
                     )}
