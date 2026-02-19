@@ -46,7 +46,19 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (appointmentError || !appointment) {
-      return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
+      // Appointment was deleted - mark the prompt as completed so it doesn't keep showing
+      console.log(`Appointment ${appointment_id} not found - marking prompt as completed`)
+      await supabase
+        .from('pending_status_prompts')
+        .update({ completed: true })
+        .eq('appointment_id', appointment_id)
+      
+      // Return success so the UI can move on
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Appointment no longer exists - prompt dismissed',
+        skipped: true 
+      })
     }
 
     // Create status update record
