@@ -190,9 +190,14 @@ export async function GET(request: NextRequest) {
           console.log(`Team availability: ${closer.user?.full_name} has ${busySlots.length} Google Calendar busy slots`)
         } catch (error) {
           console.error(`Failed to get free/busy for ${closer.user?.full_name}:`, error)
-          // Mark as fully busy if we can't check
+          // Mark as fully busy if we can't check their calendar
           busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
         }
+      } else {
+        // Token refresh failed or no token - mark as fully busy to be safe
+        // This prevents scheduling with someone whose calendar we can't verify
+        console.log(`Team availability: ${closer.user?.full_name} has no valid token - marking as fully busy`)
+        busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
       }
       
       // Add database appointments for this closer that aren't already in Google Calendar
