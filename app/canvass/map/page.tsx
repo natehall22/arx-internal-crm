@@ -532,8 +532,10 @@ export default function CanvassMapPage() {
       streetViewControl: false,
       mapTypeControl: false,
       fullscreenControl: false,
-      zoomControl: true,
-      rotateControl: false, // We'll add our own compass button
+      zoomControl: false,
+      rotateControl: false,
+      scaleControl: false,
+      keyboardShortcuts: false,
       gestureHandling: 'greedy',
       // Enable rotation and tilt gestures (requires vector map via mapId)
       ...(googleMapId && {
