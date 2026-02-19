@@ -1123,12 +1123,19 @@ export default function DashboardClient({
                       <p className="text-sm text-gray-600 mb-3">Hit these sales thresholds to earn bonus commissions:</p>
                       <div className="space-y-2">
                         {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                          const isSmallNumber = tier.min_volume < 1000
+                          // Detect if this is a sales-count tier (small min) vs dollar-volume tier
+                          const isSalesCount = tier.min_volume < 1000
+                          // For sales count tiers, find the next tier's min to determine the max
+                          const nextTier = compPlanDetails.volume_bonuses[idx + 1]
+                          const displayMax = isSalesCount && tier.max_volume && tier.max_volume > 100
+                            ? (nextTier ? nextTier.min_volume - 1 : null) // Use next tier's min - 1, or null for infinity
+                            : tier.max_volume
+                          
                           return (
                             <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
                               <span className="text-gray-700">
-                                {isSmallNumber 
-                                  ? `${tier.min_volume} - ${tier.max_volume ? tier.max_volume : '∞'} sales`
+                                {isSalesCount 
+                                  ? `${tier.min_volume}${displayMax ? ` - ${displayMax}` : '+'} sales`
                                   : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
                                 }
                               </span>
@@ -1286,12 +1293,22 @@ export default function DashboardClient({
                   
                   // Check for volume bonuses
                   if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
-                    for (const tier of compPlanDetails.volume_bonuses) {
-                      // Determine if this is a sales-count tier (small numbers) or dollar-volume tier
-                      const isSmallNumber = tier.min_volume < 1000
-                      const compareValue = isSmallNumber ? calcJobsClosed : monthlyVolume
+                    const bonuses = compPlanDetails.volume_bonuses
+                    for (let i = 0; i < bonuses.length; i++) {
+                      const tier = bonuses[i]
+                      const nextTier = bonuses[i + 1]
                       
-                      if (compareValue >= tier.min_volume && (!tier.max_volume || compareValue <= tier.max_volume)) {
+                      // Determine if this is a sales-count tier (small numbers) or dollar-volume tier
+                      const isSalesCount = tier.min_volume < 1000
+                      
+                      // For sales count tiers with unreasonably large max, use next tier's min - 1
+                      const effectiveMax = isSalesCount && tier.max_volume && tier.max_volume > 100
+                        ? (nextTier ? nextTier.min_volume - 1 : null)
+                        : tier.max_volume
+                      
+                      const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
+                      
+                      if (compareValue >= tier.min_volume && (!effectiveMax || compareValue <= effectiveMax)) {
                         if (tier.bonus_type === 'percentage') {
                           baseRate += tier.bonus_value
                         }
@@ -1342,15 +1359,22 @@ export default function DashboardClient({
                   <h4 className="font-semibold text-gray-900 mb-3">Commission Tiers</h4>
                   <div className="space-y-2">
                     {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                      const isSmallNumber = tier.min_volume < 1000
-                      const isActive = isSmallNumber 
-                        ? calcJobsClosed >= tier.min_volume && (!tier.max_volume || calcJobsClosed <= tier.max_volume)
+                      const isSalesCount = tier.min_volume < 1000
+                      // For sales count tiers, find the next tier's min to determine the effective max
+                      const nextTier = compPlanDetails.volume_bonuses[idx + 1]
+                      const effectiveMax = isSalesCount && tier.max_volume && tier.max_volume > 100
+                        ? (nextTier ? nextTier.min_volume - 1 : null)
+                        : tier.max_volume
+                      
+                      const isActive = isSalesCount 
+                        ? calcJobsClosed >= tier.min_volume && (!effectiveMax || calcJobsClosed <= effectiveMax)
                         : (calcAvgSalePrice * calcJobsClosed) >= tier.min_volume && (!tier.max_volume || (calcAvgSalePrice * calcJobsClosed) <= tier.max_volume)
+                      
                       return (
                         <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${isActive ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
                           <span className={isActive ? 'text-green-800 font-medium' : 'text-gray-700'}>
-                            {isSmallNumber 
-                              ? `${tier.min_volume} - ${tier.max_volume ? tier.max_volume : '∞'} sales`
+                            {isSalesCount 
+                              ? `${tier.min_volume}${effectiveMax ? ` - ${effectiveMax}` : '+'} sales`
                               : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
                             }
                           </span>
