@@ -232,6 +232,12 @@ export async function POST(request: NextRequest) {
         body: `Inspection completed: ${outcome}${notes ? ` - ${notes}` : ''}`,
       })
 
+    // Mark the pending status prompt as completed
+    await supabase
+      .from('pending_status_prompts')
+      .update({ completed: true })
+      .eq('appointment_id', appointment_id)
+
     return NextResponse.json({ 
       success: true, 
       status_update: statusUpdate,

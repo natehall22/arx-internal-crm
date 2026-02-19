@@ -248,9 +248,14 @@ export default function DashboardClient({
           p => p.id !== activePrompt.id && !dismissedPrompts.includes(p.id)
         )
         setActivePrompt(remainingPrompts.length > 0 ? remainingPrompts[0] : null)
+      } else {
+        // API returned an error - throw to show error in the card
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to save status')
       }
     } catch (error) {
       console.error('Failed to submit status:', error)
+      throw error // Re-throw so InspectionStatusCard can show the error
     }
   }
 
