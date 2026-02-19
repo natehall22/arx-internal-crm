@@ -300,10 +300,17 @@ export async function POST(request: NextRequest) {
         tableName = 'leads'
     }
 
-    // Fetch raw data
+    // Fetch raw data with appropriate joins based on data source
+    let selectFields = '*'
+    
+    // For appointments, join with leads to get homeowner info
+    if (dataSource === 'appointments') {
+      selectFields = '*, leads(homeowner_name, phone, email)'
+    }
+    
     let query = supabase
       .from(tableName)
-      .select('*')
+      .select(selectFields)
       .eq('org_id', profile.org_id)
       .gte('created_at', dateFilter)
 
@@ -319,10 +326,72 @@ export async function POST(request: NextRequest) {
     }
 
     const { data: rawData, error: dataError } = await query
-
+    
     if (dataError) {
       console.error('Data fetch error:', dataError)
       return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 })
+    }
+    
+    // Flatten joined data for appointments
+    let processedData = rawData
+    if (dataSource === 'appointments' && rawData) {
+      processedData = rawData.map((r: any) => ({
+        ...r,
+        homeowner_name: r.leads?.homeowner_name || r.homeowner_name,
+        phone: r.leads?.phone || r.phone,
+        email: r.leads?.email || r.email,
+      }))
+    }
+    
+    // Helper function to format records based on data source
+    const formatRecord = (r: any, source: string) => {
+      let name = ''
+      let address = ''
+      
+      switch (source) {
+        case 'leads':
+        case 'canvass_activity':
+          name = r.homeowner_name || ''
+          address = r.address_text || r.address || ''
+          break
+        case 'opportunities':
+          name = r.customer_name || r.homeowner_name || ''
+          address = r.address_text || r.address || ''
+          break
+        case 'appointments':
+          name = r.homeowner_name || r.customer_name || ''
+          address = r.address_text || ''
+          break
+        case 'projects':
+          name = r.customer_name || r.name || ''
+          address = r.address_text || r.address || ''
+          break
+        default:
+          name = r.name || r.homeowner_name || r.customer_name || r.full_name || ''
+          address = r.address_text || r.address || ''
+      }
+      
+      // If still no name, use address as name
+      if (!name && address) {
+        name = address
+        address = ''
+      }
+      
+      // Last resort fallback
+      if (!name) {
+        name = `Record ${r.id?.slice(0, 8) || 'Unknown'}`
+      }
+      
+      return {
+        id: r.id,
+        name,
+        address,
+        status: r.status || r.canvass_disposition || r.outcome,
+        created_at: r.created_at,
+        scheduled_at: r.scheduled_at || r.scheduled_for,
+        phone: r.phone,
+        email: r.email,
+      }
     }
 
     // Helper to format disposition labels
@@ -359,10 +428,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Process data based on groupBy and aggregation
-    if (groupBy && rawData) {
+    if (groupBy && processedData) {
       const grouped: Record<string, any[]> = {}
       
-      rawData.forEach((row: any) => {
+      processedData.forEach((row: any) => {
         const key = row[groupBy] || 'Unknown'
         
         // Skip admin users if setting is disabled and we're grouping by user
@@ -399,16 +468,7 @@ export async function POST(request: NextRequest) {
           label,
           value,
           count: rows.length,
-          records: rows.map(r => ({
-            id: r.id,
-            name: r.name || r.full_name || r.address || r.title || `Record ${r.id?.slice(0, 8)}`,
-            address: r.address,
-            status: r.status || r.canvass_disposition || r.outcome,
-            created_at: r.created_at,
-            scheduled_at: r.scheduled_at,
-            phone: r.phone,
-            email: r.email,
-          })),
+          records: rows.map(r => formatRecord(r, dataSource)),
         }
       }).sort((a, b) => b.value - a.value)
     } else {
@@ -416,18 +476,9 @@ export async function POST(request: NextRequest) {
       data = [{
         key: 'total',
         label: 'Total',
-        value: rawData?.length || 0,
-        count: rawData?.length || 0,
-        records: (rawData || []).map((r: any) => ({
-          id: r.id,
-          name: r.name || r.full_name || r.address || r.title || `Record ${r.id?.slice(0, 8)}`,
-          address: r.address,
-          status: r.status || r.canvass_disposition || r.outcome,
-          created_at: r.created_at,
-          scheduled_at: r.scheduled_at,
-          phone: r.phone,
-          email: r.email,
-        })),
+        value: processedData?.length || 0,
+        count: processedData?.length || 0,
+        records: (processedData || []).map((r: any) => formatRecord(r, dataSource)),
       }]
     }
 
