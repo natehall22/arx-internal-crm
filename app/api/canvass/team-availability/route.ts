@@ -152,22 +152,58 @@ export async function GET(request: NextRequest) {
     // Get busy slots for ALL closers with calendars
     const allCloserBusySlots: Map<string, { start: string; end: string }[]> = new Map()
 
+    // First, get all scheduled appointments from database for all closers
+    const { data: dbAppointments } = await adminClient
+      .from('scheduled_appointments')
+      .select('closer_user_id, scheduled_for, duration_minutes')
+      .in('closer_user_id', closerUserIds)
+      .gte('scheduled_for', dayStartUTC.toISOString())
+      .lte('scheduled_for', dayEndUTC.toISOString())
+      .in('status', ['scheduled', 'confirmed'])
+
+    console.log(`Team availability: Found ${dbAppointments?.length || 0} appointments in database`)
+
     for (const closer of closersWithCalendars) {
       const tokenData = tokens?.find(t => t.user_id === closer.user_id)
       const accessToken = await getValidAccessToken(adminClient, closer.user_id, tokenData)
       
+      let busySlots: { start: string; end: string }[] = []
+      
       if (accessToken) {
         try {
           // Use UTC times for Google Calendar API
-          const busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
-          allCloserBusySlots.set(closer.user_id, busySlots)
-          console.log(`Team availability: ${closer.user?.full_name} has ${busySlots.length} busy slots:`, JSON.stringify(busySlots))
+          busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
+          console.log(`Team availability: ${closer.user?.full_name} has ${busySlots.length} Google Calendar busy slots`)
         } catch (error) {
           console.error(`Failed to get free/busy for ${closer.user?.full_name}:`, error)
           // Mark as fully busy if we can't check
-          allCloserBusySlots.set(closer.user_id, [{ start: dayStart.toISOString(), end: dayEnd.toISOString() }])
+          busySlots = [{ start: dayStart.toISOString(), end: dayEnd.toISOString() }]
         }
       }
+      
+      // Add database appointments for this closer that aren't already in Google Calendar
+      const closerDbAppts = dbAppointments?.filter(a => a.closer_user_id === closer.user_id) || []
+      for (const appt of closerDbAppts) {
+        const apptStart = new Date(appt.scheduled_for)
+        const apptEnd = new Date(apptStart.getTime() + (appt.duration_minutes || 60) * 60 * 1000)
+        
+        // Check if this slot already exists in busySlots (from Google Calendar)
+        const alreadyInBusy = busySlots.some(busy => {
+          const busyStart = new Date(busy.start)
+          // Consider it a duplicate if times are within 5 minutes
+          return Math.abs(busyStart.getTime() - apptStart.getTime()) < 5 * 60 * 1000
+        })
+        
+        if (!alreadyInBusy) {
+          busySlots.push({
+            start: apptStart.toISOString(),
+            end: apptEnd.toISOString(),
+          })
+        }
+      }
+      
+      allCloserBusySlots.set(closer.user_id, busySlots)
+      console.log(`Team availability: ${closer.user?.full_name} total busy slots: ${busySlots.length}`)
     }
 
     // Generate 15-minute time slots

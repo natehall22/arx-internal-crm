@@ -210,12 +210,48 @@ export async function GET(request: NextRequest) {
       try {
         // Use UTC times for Google Calendar API
         busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
-        console.log(`Availability: ${closerId} has ${busySlots.length} busy slots:`, JSON.stringify(busySlots))
+        console.log(`Availability: ${closerId} has ${busySlots.length} Google Calendar busy slots:`, JSON.stringify(busySlots))
       } catch (error: any) {
         console.error('Failed to get free/busy:', error?.message || error)
       }
     } else {
       console.log(`Availability: No calendar token found for ${closerId}`)
+    }
+
+    // Also check scheduled_appointments table for appointments that may not be synced to calendar
+    // This ensures we don't double-book even if calendar sync failed
+    const { data: dbAppointments } = await adminClient
+      .from('scheduled_appointments')
+      .select('scheduled_for, duration_minutes')
+      .eq('closer_user_id', closerId)
+      .gte('scheduled_for', dayStartUTC.toISOString())
+      .lte('scheduled_for', dayEndUTC.toISOString())
+      .in('status', ['scheduled', 'confirmed'])
+
+    if (dbAppointments && dbAppointments.length > 0) {
+      console.log(`Availability: Found ${dbAppointments.length} appointments in database for ${closerId}`)
+      
+      // Add database appointments to busy slots
+      for (const appt of dbAppointments) {
+        const apptStart = new Date(appt.scheduled_for)
+        const apptEnd = new Date(apptStart.getTime() + (appt.duration_minutes || 60) * 60 * 1000)
+        
+        // Check if this slot already exists in busySlots (from Google Calendar)
+        const alreadyInBusy = busySlots.some(busy => {
+          const busyStart = new Date(busy.start)
+          const busyEnd = new Date(busy.end)
+          // Consider it a duplicate if times overlap significantly
+          return Math.abs(busyStart.getTime() - apptStart.getTime()) < 5 * 60 * 1000
+        })
+        
+        if (!alreadyInBusy) {
+          busySlots.push({
+            start: apptStart.toISOString(),
+            end: apptEnd.toISOString(),
+          })
+          console.log(`Availability: Added DB appointment to busy slots: ${apptStart.toISOString()} - ${apptEnd.toISOString()}`)
+        }
+      }
     }
 
     // Generate 15-minute time slots
