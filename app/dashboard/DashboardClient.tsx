@@ -6,7 +6,6 @@ import InspectionStatusCard from '@/components/InspectionStatusCard'
 import CommissionWidget from '@/components/CommissionWidget'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
-import { createClientBrowser } from '@/lib/supabase/client'
 import type { InspectionOutcome } from '@/lib/types/database'
 
 interface HybridComponent {
@@ -138,99 +137,28 @@ export default function DashboardClient({
     }
   }
 
-  const loadCompPlanDetails = async (retryCount = 0) => {
-    console.log('loadCompPlanDetails: Starting... (attempt', retryCount + 1, ')')
+  const loadCompPlanDetails = async () => {
+    console.log('loadCompPlanDetails: Starting via API...')
     try {
-      const supabase = createClientBrowser()
+      const res = await fetch('/api/user/comp-plan')
       
-      // Try getSession first
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session?.user) {
-        // Retry up to 3 times with a delay
-        if (retryCount < 3) {
-          console.log('loadCompPlanDetails: No session yet, retrying in 500ms...')
-          setTimeout(() => loadCompPlanDetails(retryCount + 1), 500)
-          return
-        }
-        console.log('loadCompPlanDetails: No session after retries')
+      if (!res.ok) {
+        console.error('Comp plan API error:', res.status)
         setHasCompPlan(false)
         return
       }
       
-      console.log('loadCompPlanDetails: User found:', session.user.id)
-      await loadCompPlanDetailsWithUser(supabase, session.user.id)
-    } catch (err) {
-      console.error('Error in loadCompPlanDetails:', err)
-      setHasCompPlan(false)
-    }
-  }
-  
-  const loadCompPlanDetailsWithUser = async (supabase: ReturnType<typeof createClientBrowser>, userId: string) => {
-    try {
-      console.log('loadCompPlanDetailsWithUser: Fetching for user:', userId)
-
-      // Get active comp plan assignment directly - no need for profile query
-      const { data: userCompPlan, error } = await supabase
-        .from('user_comp_plans')
-        .select('*, comp_plans(*)')
-        .eq('user_id', userId)
-        .order('effective_from', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      console.log('loadCompPlanDetailsWithUser: Query result:', { userCompPlan, error, userId })
-
-      if (error) {
-        console.error('Error fetching comp plan:', error)
-        setHasCompPlan(false)
-        return
-      }
-
-      // Check if assignment exists and is currently active
-      if (userCompPlan?.comp_plans) {
-        // Parse dates - effective_from is a DATE (not datetime), so compare dates only
-        const now = new Date()
-        const todayStr = now.toISOString().split('T')[0] // YYYY-MM-DD
-        const effectiveFromStr = userCompPlan.effective_from // Already YYYY-MM-DD from DB
-        const effectiveToStr = userCompPlan.effective_to
-        
-        // Plan is active if: effective_from <= today AND (no end date OR end date >= today)
-        // Be lenient - if there's an assignment, consider it active unless explicitly expired
-        const isActive = !effectiveToStr || effectiveToStr >= todayStr
-        
-        console.log('Plan active check:', { effectiveFromStr, effectiveToStr, todayStr, isActive })
-        
-        if (isActive) {
-          const plan = userCompPlan.comp_plans as any
-          console.log('Full comp plan data:', plan)
-          console.log('Readme field:', plan.readme)
-          setCompPlanDetails({
-            id: plan.id,
-            name: plan.name,
-            plan_type: plan.plan_type || 'percentage',
-            base_percentage: plan.base_percentage,
-            flat_rate: plan.flat_rate,
-            flat_amount: plan.flat_amount,
-            hourly_rate: plan.hourly_rate,
-            unit_rate: plan.unit_rate,
-            unit_type: plan.unit_type,
-            hybrid_components: plan.hybrid_components || null,
-            volume_bonuses: plan.volume_bonuses || [],
-            team_overrides: plan.team_overrides || [],
-            readme: plan.readme,
-          })
-          setHasCompPlan(true)
-          console.log('Comp plan loaded successfully:', plan.name, 'with readme:', !!plan.readme)
-          return
-        } else {
-          console.log('Comp plan assignment found but not active yet or expired')
-        }
+      const data = await res.json()
+      console.log('Comp plan API response:', data)
+      
+      if (data.hasCompPlan && data.compPlan) {
+        setCompPlanDetails(data.compPlan)
+        setHasCompPlan(true)
+        console.log('Comp plan loaded successfully:', data.compPlan.name, 'with readme:', !!data.compPlan.readme)
       } else {
-        console.log('No comp plan assignment found for user')
+        console.log('No comp plan found:', data.reason || 'not assigned')
+        setHasCompPlan(false)
       }
-      
-      setHasCompPlan(false)
     } catch (err) {
       console.error('Error loading comp plan:', err)
       setHasCompPlan(false)
