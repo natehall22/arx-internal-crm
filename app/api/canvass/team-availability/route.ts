@@ -281,6 +281,12 @@ export async function GET(request: NextRequest) {
       // Convert UTC slot time to local time for display
       const localSlotTime = new Date(currentSlotUTC.getTime() - tzOffsetHours * 60 * 60 * 1000)
       
+      // Log slots between 2 PM and 4 PM local time for debugging
+      const localHour = localSlotTime.getUTCHours()
+      if (localHour >= 14 && localHour < 16) {
+        console.log(`Team availability slot ${localSlotTime.getUTCHours()}:${String(localSlotTime.getUTCMinutes()).padStart(2,'0')} (UTC: ${currentSlotUTC.toISOString()}): ${availableCloserCount} closers available`)
+      }
+      
       // Format time for display (e.g., "9:00 AM")
       const hours = localSlotTime.getUTCHours()
       const minutes = localSlotTime.getUTCMinutes()
