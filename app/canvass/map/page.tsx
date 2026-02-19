@@ -444,19 +444,20 @@ export default function CanvassMapPage() {
   }, [hasPin, formState.lat, formState.lng, formState.lead_id])
 
   const loadData = async (forceRefresh = false) => {
-    // Try to load from cache first for instant display
+    // Try to load leads from cache first for instant display (while we fetch fresh data)
+    let useCachedLeadsOnly = false
     if (!forceRefresh) {
       const cached = await getCachedLeads()
       if (cached.leads.length > 0 && cached.cachedAt) {
         const cacheAge = Date.now() - cached.cachedAt
-        console.log('Loading from cache:', cached.leads.length, 'leads, age:', Math.round(cacheAge / 1000), 's')
+        console.log('Loading leads from cache:', cached.leads.length, 'leads, age:', Math.round(cacheAge / 1000), 's')
         setLeads(cached.leads)
         setCacheInfo({ cachedAt: cached.cachedAt, count: cached.leads.length })
-        setLoading(false)
         
-        // If cache is still fresh and we're offline, don't fetch
-        if (!navigator.onLine || cacheAge < CACHE_EXPIRY_MS) {
-          return
+        // If offline and cache is fresh, use cached leads only
+        if (!navigator.onLine && cacheAge < CACHE_EXPIRY_MS) {
+          setLoading(false)
+          useCachedLeadsOnly = true
         }
       }
     }
@@ -466,6 +467,7 @@ export default function CanvassMapPage() {
       return
     }
     
+    // Always fetch from server to get users/teams (cache only stores leads)
     try {
       const response = await fetch('/api/canvass/data')
       if (!response.ok) {
