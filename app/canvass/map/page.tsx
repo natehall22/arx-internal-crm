@@ -1037,7 +1037,7 @@ export default function CanvassMapPage() {
     setFormState(defaultForm)
     setShowForm(false)
     setAvailabilityStatus(null)
-    await loadData()
+    await loadData(true) // Force refresh to show new pin
     setTimeout(() => setStatusMessage(null), 3000)
   }
 

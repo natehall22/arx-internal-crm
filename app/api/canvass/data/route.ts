@@ -132,7 +132,9 @@ export async function GET(request: NextRequest) {
           .select('id')
           .eq('org_id', profile.org_id)
           .eq('team_id', profile.team_id)
-        visibleUserIds = teamUsers?.map(u => u.id) || [user.id]
+        const teamIds = teamUsers?.map(u => u.id) || []
+        // Always include current user's leads
+        visibleUserIds = Array.from(new Set([user.id, ...teamIds]))
       } else {
         visibleUserIds = [user.id] // No team, fall back to own
       }
@@ -144,7 +146,9 @@ export async function GET(request: NextRequest) {
           .select('id')
           .eq('org_id', profile.org_id)
           .eq('region_id', profile.region_id)
-        visibleUserIds = regionUsers?.map(u => u.id) || [user.id]
+        const regionIds = regionUsers?.map(u => u.id) || []
+        // Always include current user's leads
+        visibleUserIds = Array.from(new Set([user.id, ...regionIds]))
       } else if (profile.team_id) {
         // Get region from team
         const { data: team } = await adminClient
@@ -159,7 +163,9 @@ export async function GET(request: NextRequest) {
             .select('id')
             .eq('org_id', profile.org_id)
             .eq('region_id', team.region_id)
-          visibleUserIds = regionUsers?.map(u => u.id) || [user.id]
+          const regionIds = regionUsers?.map(u => u.id) || []
+          // Always include current user's leads
+          visibleUserIds = Array.from(new Set([user.id, ...regionIds]))
         } else {
           visibleUserIds = [user.id]
         }
