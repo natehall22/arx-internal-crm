@@ -69,7 +69,16 @@ export async function POST(request: NextRequest) {
 
     if (statusError) {
       console.error('Status update error:', statusError)
-      return NextResponse.json({ error: 'Failed to create status update' }, { status: 500 })
+      console.error('Status update details:', {
+        org_id: profile.org_id,
+        appointment_id,
+        opportunity_id: appointment.opportunity_id,
+        lead_id: appointment.lead_id,
+        closer_user_id: user.id,
+        setter_user_id: appointment.canvasser_user_id,
+        outcome,
+      })
+      return NextResponse.json({ error: `Failed to create status update: ${statusError.message}` }, { status: 500 })
     }
 
     // Update appointment status
