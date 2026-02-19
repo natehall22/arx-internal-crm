@@ -46,7 +46,7 @@ const defaultDispositionOptions = [
   { id: 'go_back', label: 'Go Back', category: 'Contact', color: '#3b82f6', active: true },
   { id: 'hot_lead', label: 'Hot Lead', category: 'Contact', color: '#22c55e', active: true },
   { id: 'not_interested', label: 'Not Interested', category: 'Closed', color: '#6b7280', active: true },
-  { id: 'inspection_scheduled', label: 'Inspection Scheduled', category: 'Scheduled', color: '#8b5cf6', active: true },
+  // Note: 'Inspection Scheduled' is shown based on lead.status='inspection', not as a disposition
 ]
 
 const defaultForm: LeadFormState = {
