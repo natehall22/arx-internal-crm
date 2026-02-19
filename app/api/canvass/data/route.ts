@@ -199,12 +199,11 @@ export async function GET(request: NextRequest) {
     // Filter to sales roles and users who have can_receive_appointments = true (or null for backwards compat)
     const { data: users, error: usersError } = await adminClient
       .from('users')
-      .select('id, full_name, role, can_receive_appointments')
+      .select('id, full_name, role, can_receive_appointments, active')
       .eq('org_id', profile.org_id)
-      .eq('active', true)
       .order('full_name', { ascending: true })
     
-    console.log('Users query result:', { count: users?.length, usersError, orgId: profile.org_id })
+    console.log('Users query result:', { count: users?.length, usersError, orgId: profile.org_id, users: users?.map(u => ({ name: u.full_name, active: u.active })) })
 
     // Show all active users unless they have explicitly opted out via can_receive_appointments = false
     // Debug logging

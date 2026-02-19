@@ -154,7 +154,8 @@ export async function POST(request: NextRequest) {
         .from('notifications')
         .insert({
           org_id: profile.org_id,
-          user_id: appointment.canvasser_user_id,
+          recipient_user_id: appointment.canvasser_user_id,
+          actor_user_id: user.id,
           type: 'inspection_outcome',
           title: `Inspection Result: ${outcomeLabels[outcome]} - ${customerName}`,
           body: notificationBody,
@@ -179,7 +180,8 @@ export async function POST(request: NextRequest) {
         for (const manager of setterManagers || []) {
           await supabase.from('notifications').insert({
             org_id: profile.org_id,
-            user_id: manager.id,
+            recipient_user_id: manager.id,
+            actor_user_id: user.id,
             type: 'inspection_outcome',
             title: `Team Inspection Result: ${outcomeLabels[outcome]}`,
             body: `${customerName} - Setter: ${appointment.canvasser_user_id ? 'Team member' : 'N/A'}, Closer: ${profile.full_name || 'Rep'}`,
@@ -208,7 +210,8 @@ export async function POST(request: NextRequest) {
         // Check if we already notified this manager (as setter's manager)
         await supabase.from('notifications').insert({
           org_id: profile.org_id,
-          user_id: manager.id,
+          recipient_user_id: manager.id,
+          actor_user_id: user.id,
           type: 'inspection_outcome',
           title: `Team Inspection Result: ${outcomeLabels[outcome]}`,
           body: `${customerName} - Closer: ${profile.full_name || 'Rep'}`,
