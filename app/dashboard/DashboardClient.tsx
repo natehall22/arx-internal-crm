@@ -1287,7 +1287,11 @@ export default function DashboardClient({
                   // Check for volume bonuses
                   if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
                     for (const tier of compPlanDetails.volume_bonuses) {
-                      if (monthlyVolume >= tier.min_volume && (!tier.max_volume || monthlyVolume <= tier.max_volume)) {
+                      // Determine if this is a sales-count tier (small numbers) or dollar-volume tier
+                      const isSmallNumber = tier.min_volume < 1000
+                      const compareValue = isSmallNumber ? calcJobsClosed : monthlyVolume
+                      
+                      if (compareValue >= tier.min_volume && (!tier.max_volume || compareValue <= tier.max_volume)) {
                         if (tier.bonus_type === 'percentage') {
                           baseRate += tier.bonus_value
                         }
