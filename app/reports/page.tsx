@@ -777,7 +777,9 @@ export default function ReportsPage() {
 function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () => void }) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<any[]>([])
+  const [dataSource, setDataSource] = useState<string>('')
   const [deleting, setDeleting] = useState(false)
+  const [drillDownItem, setDrillDownItem] = useState<any>(null)
 
   useEffect(() => {
     executeReport()
@@ -794,6 +796,7 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
       if (res.ok) {
         const result = await res.json()
         setData(result.data || [])
+        setDataSource(result.dataSource || report.data_source)
       }
     } catch (error) {
       console.error('Failed to execute report:', error)
@@ -836,103 +839,249 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
     }
   }
 
+  const getRecordLink = (record: any) => {
+    switch (dataSource) {
+      case 'leads':
+      case 'canvass_activity':
+        return `/leads/${record.id}`
+      case 'opportunities':
+        return `/opportunities/${record.id}`
+      case 'projects':
+        return `/projects/${record.id}`
+      case 'appointments':
+        return `/schedule?appointment=${record.id}`
+      default:
+        return null
+    }
+  }
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return ''
+    return new Date(dateStr).toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    })
+  }
+
+  const formatStatus = (status: string) => {
+    if (!status) return ''
+    return status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  }
+
   const maxValue = Math.max(...data.map(d => d.value), 1)
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-      <div className="p-4 border-b">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{getReportTypeIcon(report.report_type)}</span>
-            <div>
-              <h3 className="font-semibold text-gray-900">{report.name}</h3>
-              {report.description && (
-                <p className="text-xs text-gray-500 mt-0.5">{report.description}</p>
+    <>
+      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <div className="p-4 border-b">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">{getReportTypeIcon(report.report_type)}</span>
+              <div>
+                <h3 className="font-semibold text-gray-900">{report.name}</h3>
+                {report.description && (
+                  <p className="text-xs text-gray-500 mt-0.5">{report.description}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Link
+                href={`/reports/builder?edit=${report.id}`}
+                className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </Link>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="p-1.5 text-gray-400 hover:text-red-600 rounded disabled:opacity-50"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+            <span className="capitalize">{report.data_source}</span>
+            <span>•</span>
+            <span>{report.config?.dateRange || '30d'}</span>
+            {report.is_public && (
+              <>
+                <span>•</span>
+                <span className="text-green-600">Public</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4">
+          {loading ? (
+            <div className="h-32 flex items-center justify-center text-gray-400">
+              Loading...
+            </div>
+          ) : report.report_type === 'metric_card' ? (
+            <button 
+              onClick={() => data[0]?.records?.length > 0 && setDrillDownItem(data[0])}
+              className="w-full text-center py-4 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer"
+            >
+              <p className="text-4xl font-bold text-gray-900">
+                {data[0]?.value?.toLocaleString() || 0}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">{data[0]?.label || 'Total'}</p>
+              {data[0]?.records?.length > 0 && (
+                <p className="text-xs text-indigo-600 mt-2">Click to view details →</p>
+              )}
+            </button>
+          ) : report.report_type === 'bar_chart' ? (
+            <div className="space-y-2">
+              {data.slice(0, 5).map((item, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => item.records?.length > 0 && setDrillDownItem(item)}
+                  className="w-full text-left hover:bg-gray-50 rounded p-1 -m-1 transition-colors cursor-pointer"
+                >
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-600 truncate">{item.label}</span>
+                    <span className="font-medium text-gray-900 flex items-center gap-1">
+                      {item.value}
+                      {item.records?.length > 0 && (
+                        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      )}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full"
+                      style={{ width: `${(item.value / maxValue) * 100}%` }}
+                    />
+                  </div>
+                </button>
+              ))}
+              {data.length > 5 && (
+                <p className="text-xs text-gray-400 text-center pt-2">
+                  +{data.length - 5} more
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {data.slice(0, 6).map((item, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => item.records?.length > 0 && setDrillDownItem(item)}
+                  className="w-full flex justify-between text-sm py-1.5 px-1 -mx-1 border-b last:border-0 hover:bg-gray-50 rounded transition-colors cursor-pointer"
+                >
+                  <span className="text-gray-600">{item.label}</span>
+                  <span className="font-medium text-gray-900 flex items-center gap-1">
+                    {item.value}
+                    {item.records?.length > 0 && (
+                      <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 py-2 bg-gray-50 border-t text-xs text-gray-500">
+          Created by {report.creator?.full_name || 'Unknown'}
+        </div>
+      </div>
+
+      {/* Drill-down Modal */}
+      {drillDownItem && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setDrillDownItem(null)}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b flex items-center justify-between bg-gray-50">
+              <div>
+                <h3 className="font-semibold text-gray-900">{drillDownItem.label}</h3>
+                <p className="text-sm text-gray-500">{drillDownItem.count} records</p>
+              </div>
+              <button 
+                onClick={() => setDrillDownItem(null)}
+                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="overflow-y-auto flex-1">
+              {drillDownItem.records?.length > 0 ? (
+                <table className="w-full">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name/Address</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {drillDownItem.records.map((record: any) => {
+                      const link = getRecordLink(record)
+                      return (
+                        <tr key={record.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-gray-900 text-sm">{record.name}</div>
+                            {record.address && record.name !== record.address && (
+                              <div className="text-xs text-gray-500">{record.address}</div>
+                            )}
+                            {record.phone && (
+                              <div className="text-xs text-gray-500">{record.phone}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
+                              {formatStatus(record.status)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500">
+                            {formatDate(record.scheduled_at || record.created_at)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {link ? (
+                              <Link
+                                href={link}
+                                className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                              >
+                                View →
+                              </Link>
+                            ) : (
+                              <span className="text-gray-400 text-sm">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  No records to display
+                </div>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1">
-            <Link
-              href={`/reports/builder?edit=${report.id}`}
-              className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-            </Link>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="p-1.5 text-gray-400 hover:text-red-600 rounded disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          </div>
         </div>
-        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-          <span className="capitalize">{report.data_source}</span>
-          <span>•</span>
-          <span>{report.config?.dateRange || '30d'}</span>
-          {report.is_public && (
-            <>
-              <span>•</span>
-              <span className="text-green-600">Public</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="p-4">
-        {loading ? (
-          <div className="h-32 flex items-center justify-center text-gray-400">
-            Loading...
-          </div>
-        ) : report.report_type === 'metric_card' ? (
-          <div className="text-center py-4">
-            <p className="text-4xl font-bold text-gray-900">
-              {data[0]?.value?.toLocaleString() || 0}
-            </p>
-            <p className="text-sm text-gray-500 mt-1">{data[0]?.label || 'Total'}</p>
-          </div>
-        ) : report.report_type === 'bar_chart' ? (
-          <div className="space-y-2">
-            {data.slice(0, 5).map((item, idx) => (
-              <div key={idx}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600 truncate">{item.label}</span>
-                  <span className="font-medium text-gray-900">{item.value}</span>
-                </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-indigo-500 rounded-full"
-                    style={{ width: `${(item.value / maxValue) * 100}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-            {data.length > 5 && (
-              <p className="text-xs text-gray-400 text-center pt-2">
-                +{data.length - 5} more
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {data.slice(0, 6).map((item, idx) => (
-              <div key={idx} className="flex justify-between text-sm py-1 border-b last:border-0">
-                <span className="text-gray-600">{item.label}</span>
-                <span className="font-medium text-gray-900">{item.value}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="px-4 py-2 bg-gray-50 border-t text-xs text-gray-500">
-        Created by {report.creator?.full_name || 'Unknown'}
-      </div>
-    </div>
+      )}
+    </>
   )
 }

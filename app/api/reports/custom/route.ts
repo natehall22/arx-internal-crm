@@ -395,23 +395,46 @@ export async function POST(request: NextRequest) {
         }
 
         return {
+          key,
           label,
           value,
           count: rows.length,
+          records: rows.map(r => ({
+            id: r.id,
+            name: r.name || r.full_name || r.address || r.title || `Record ${r.id?.slice(0, 8)}`,
+            address: r.address,
+            status: r.status || r.canvass_disposition || r.outcome,
+            created_at: r.created_at,
+            scheduled_at: r.scheduled_at,
+            phone: r.phone,
+            email: r.email,
+          })),
         }
       }).sort((a, b) => b.value - a.value)
     } else {
-      // No grouping - return total
+      // No grouping - return total with all records
       data = [{
+        key: 'total',
         label: 'Total',
         value: rawData?.length || 0,
         count: rawData?.length || 0,
+        records: (rawData || []).map((r: any) => ({
+          id: r.id,
+          name: r.name || r.full_name || r.address || r.title || `Record ${r.id?.slice(0, 8)}`,
+          address: r.address,
+          status: r.status || r.canvass_disposition || r.outcome,
+          created_at: r.created_at,
+          scheduled_at: r.scheduled_at,
+          phone: r.phone,
+          email: r.email,
+        })),
       }]
     }
 
     return NextResponse.json({ 
       report,
       data,
+      dataSource,
       generated_at: new Date().toISOString(),
     })
 
