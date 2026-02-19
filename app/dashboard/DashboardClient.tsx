@@ -196,12 +196,15 @@ export default function DashboardClient({
         const effectiveToStr = userCompPlan.effective_to
         
         // Plan is active if: effective_from <= today AND (no end date OR end date >= today)
-        const isActive = effectiveFromStr <= todayStr && (!effectiveToStr || effectiveToStr >= todayStr)
+        // Be lenient - if there's an assignment, consider it active unless explicitly expired
+        const isActive = !effectiveToStr || effectiveToStr >= todayStr
         
         console.log('Plan active check:', { effectiveFromStr, effectiveToStr, todayStr, isActive })
         
         if (isActive) {
           const plan = userCompPlan.comp_plans as any
+          console.log('Full comp plan data:', plan)
+          console.log('Readme field:', plan.readme)
           setCompPlanDetails({
             id: plan.id,
             name: plan.name,
@@ -218,8 +221,10 @@ export default function DashboardClient({
             readme: plan.readme,
           })
           setHasCompPlan(true)
-          console.log('Comp plan loaded successfully:', plan.name)
+          console.log('Comp plan loaded successfully:', plan.name, 'with readme:', !!plan.readme)
           return
+        } else {
+          console.log('Comp plan assignment found but not active yet or expired')
         }
       } else {
         console.log('No comp plan assignment found for user')
@@ -238,14 +243,10 @@ export default function DashboardClient({
       if (res.ok) {
         const data = await res.json()
         setWeeklyPay(data.weeklyTotal || 0)
-        if (hasCompPlan === null) {
-          setHasCompPlan(data.hasCompPlan ?? true)
-        }
       }
     } catch (error) {
       console.error('Failed to load weekly pay:', error)
       setWeeklyPay(0)
-      setHasCompPlan(false)
     }
   }
 
