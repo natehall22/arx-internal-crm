@@ -2,11 +2,15 @@
 -- Changes CASCADE to SET NULL for user references in important tables
 
 -- Fix scheduled_appointments - preserve appointments when user deleted
+-- Uses closer_user_id and canvasser_user_id, not user_id
 ALTER TABLE scheduled_appointments 
-  DROP CONSTRAINT IF EXISTS scheduled_appointments_user_id_fkey;
+  DROP CONSTRAINT IF EXISTS scheduled_appointments_closer_user_id_fkey;
 ALTER TABLE scheduled_appointments 
-  ADD CONSTRAINT scheduled_appointments_user_id_fkey 
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+  ADD CONSTRAINT scheduled_appointments_closer_user_id_fkey 
+  FOREIGN KEY (closer_user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Make closer_user_id nullable
+ALTER TABLE scheduled_appointments ALTER COLUMN closer_user_id DROP NOT NULL;
 
 -- Fix notes - preserve notes when user deleted  
 ALTER TABLE notes 
@@ -29,6 +33,9 @@ ALTER TABLE inspection_status_updates
   ADD CONSTRAINT inspection_status_updates_closer_user_id_fkey 
   FOREIGN KEY (closer_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
+-- Make closer_user_id nullable in inspection_status_updates
+ALTER TABLE inspection_status_updates ALTER COLUMN closer_user_id DROP NOT NULL;
+
 -- Fix commissions - preserve commission records when user deleted
 ALTER TABLE commissions 
   DROP CONSTRAINT IF EXISTS commissions_user_id_fkey;
@@ -43,12 +50,31 @@ ALTER TABLE user_comp_plans
   ADD CONSTRAINT user_comp_plans_user_id_fkey 
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
 
--- Make user_id nullable in tables that need it
-ALTER TABLE scheduled_appointments ALTER COLUMN user_id DROP NOT NULL;
-ALTER TABLE notes ALTER COLUMN user_id DROP NOT NULL;
-ALTER TABLE activities ALTER COLUMN user_id DROP NOT NULL;
-ALTER TABLE commissions ALTER COLUMN user_id DROP NOT NULL;
-ALTER TABLE user_comp_plans ALTER COLUMN user_id DROP NOT NULL;
+-- Make user_id nullable in tables that need it (if they exist and have the column)
+DO $$ 
+BEGIN
+  -- notes
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notes' AND column_name = 'user_id') THEN
+    ALTER TABLE notes ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+  
+  -- activities
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'activities' AND column_name = 'user_id') THEN
+    ALTER TABLE activities ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+  
+  -- commissions
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'commissions' AND column_name = 'user_id') THEN
+    ALTER TABLE commissions ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+  
+  -- user_comp_plans
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_comp_plans' AND column_name = 'user_id') THEN
+    ALTER TABLE user_comp_plans ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
 
 -- Add deleted_user_name column to preserve the name after deletion
 ALTER TABLE scheduled_appointments ADD COLUMN IF NOT EXISTS deleted_user_name TEXT;
@@ -61,10 +87,10 @@ ALTER TABLE inspection_status_updates ADD COLUMN IF NOT EXISTS deleted_user_name
 CREATE OR REPLACE FUNCTION preserve_user_name_on_delete()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Update scheduled_appointments
+  -- Update scheduled_appointments (uses closer_user_id)
   UPDATE scheduled_appointments 
   SET deleted_user_name = (SELECT full_name FROM users WHERE id = OLD.id)
-  WHERE user_id = OLD.id AND deleted_user_name IS NULL;
+  WHERE closer_user_id = OLD.id AND deleted_user_name IS NULL;
   
   -- Update notes
   UPDATE notes 
