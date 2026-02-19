@@ -505,19 +505,41 @@ export async function POST(request: Request) {
           console.error('Opportunity creation error:', oppError)
         }
         opportunityId = createdOpportunity?.id ?? null
+      }
 
-        // Update appointment with opportunity_id
-        if (appointmentId && opportunityId) {
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-          const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-          if (supabaseUrl && supabaseServiceKey) {
-            const serviceClient = createServiceClient(supabaseUrl, supabaseServiceKey)
-            await serviceClient
-              .from('scheduled_appointments')
-              .update({ opportunity_id: opportunityId })
-              .eq('id', appointmentId)
-          }
+      // Create scheduled_appointments record if not already created by round-robin
+      // This ensures appointments are tracked even when closer is manually selected
+      if (!appointmentId && closerUserId && inspectionScheduledFor) {
+        const { data: createdAppointment, error: apptError } = await supabase
+          .from('scheduled_appointments')
+          .insert({
+            org_id: profile.org_id,
+            lead_id: leadRow.id,
+            opportunity_id: opportunityId,
+            closer_user_id: closerUserId,
+            canvasser_user_id: profile.id,
+            scheduled_for: inspectionScheduledFor,
+            duration_minutes: inspectionDuration,
+            status: 'scheduled',
+            address_text: leadRow.address_text,
+          })
+          .select('id')
+          .single()
+
+        if (apptError) {
+          console.error('Appointment creation error:', apptError)
+        } else {
+          appointmentId = createdAppointment?.id ?? null
+          console.log('Created scheduled appointment:', appointmentId)
         }
+      }
+
+      // Update appointment with opportunity_id if round-robin created it without one
+      if (appointmentId && opportunityId) {
+        await supabase
+          .from('scheduled_appointments')
+          .update({ opportunity_id: opportunityId })
+          .eq('id', appointmentId)
       }
     }
 
