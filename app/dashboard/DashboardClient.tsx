@@ -1120,18 +1120,24 @@ export default function DashboardClient({
                   {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
                     <div className="bg-gray-50 rounded-xl p-4">
                       <h4 className="font-semibold text-gray-900 mb-3">Volume Bonuses</h4>
-                      <p className="text-sm text-gray-600 mb-3">Hit these thresholds to earn bonus commissions:</p>
+                      <p className="text-sm text-gray-600 mb-3">Hit these sales thresholds to earn bonus commissions:</p>
                       <div className="space-y-2">
-                        {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                            <span className="text-gray-700">
-                              ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
-                            </span>
-                            <span className="font-semibold text-green-600">
-                              {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
-                            </span>
-                          </div>
-                        ))}
+                        {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
+                          const isSmallNumber = tier.min_volume < 1000
+                          return (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                              <span className="text-gray-700">
+                                {isSmallNumber 
+                                  ? `${tier.min_volume} - ${tier.max_volume ? tier.max_volume : '∞'} sales`
+                                  : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
+                                }
+                              </span>
+                              <span className="font-semibold text-green-600">
+                                {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
+                              </span>
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )}
@@ -1332,12 +1338,17 @@ export default function DashboardClient({
                   <h4 className="font-semibold text-gray-900 mb-3">Commission Tiers</h4>
                   <div className="space-y-2">
                     {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                      const monthlyVolume = calcAvgSalePrice * calcJobsClosed
-                      const isActive = monthlyVolume >= tier.min_volume && (!tier.max_volume || monthlyVolume <= tier.max_volume)
+                      const isSmallNumber = tier.min_volume < 1000
+                      const isActive = isSmallNumber 
+                        ? calcJobsClosed >= tier.min_volume && (!tier.max_volume || calcJobsClosed <= tier.max_volume)
+                        : (calcAvgSalePrice * calcJobsClosed) >= tier.min_volume && (!tier.max_volume || (calcAvgSalePrice * calcJobsClosed) <= tier.max_volume)
                       return (
                         <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${isActive ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
                           <span className={isActive ? 'text-green-800 font-medium' : 'text-gray-700'}>
-                            ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
+                            {isSmallNumber 
+                              ? `${tier.min_volume} - ${tier.max_volume ? tier.max_volume : '∞'} sales`
+                              : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
+                            }
                           </span>
                           <span className={`font-semibold ${isActive ? 'text-green-600' : 'text-gray-500'}`}>
                             {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
