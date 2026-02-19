@@ -476,7 +476,14 @@ export default function CanvassMapPage() {
       
       const data = await response.json()
       
-      console.log('Canvass data loaded from server:', data.leads?.length, 'leads', 'inspectionDuration:', data.inspectionDuration)
+      console.log('Canvass data loaded from server:', {
+        leads: data.leads?.length,
+        users: data.users?.length,
+        teams: data.teams?.length,
+        inspectionDuration: data.inspectionDuration,
+        usersData: data.users,
+        teamsData: data.teams,
+      })
       
       setCurrentUserRole(data.currentUserRole || '')
       setLeads(data.leads || [])
