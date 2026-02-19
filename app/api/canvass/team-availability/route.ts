@@ -131,10 +131,9 @@ export async function GET(request: NextRequest) {
     const [startHour, startMin] = workingHoursStart.split(':').map(Number)
     const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
     
-    // Determine timezone offset based on the timezone string
-    const now = new Date()
-    const monthNum = now.getMonth() + 1
-    const isDST = monthNum >= 3 && monthNum <= 11 // Rough DST check (March-November)
+    // Determine timezone offset based on the TARGET date (not current date)
+    // DST in US is roughly second Sunday of March to first Sunday of November
+    const isDST = month >= 3 && month <= 10 // Rough DST check for target date
     
     let tzOffsetHours = 5 // Default to Eastern Standard Time
     if (timezone === 'America/New_York' || timezone === 'America/Detroit' || timezone === 'US/Eastern') {
@@ -170,6 +169,13 @@ export async function GET(request: NextRequest) {
       .in('status', ['scheduled', 'confirmed'])
 
     console.log(`Team availability: Found ${dbAppointments?.length || 0} appointments in database`)
+    if (dbAppointments && dbAppointments.length > 0) {
+      console.log(`Team availability: DB appointments:`, dbAppointments.map(a => ({
+        closer: a.closer_user_id,
+        time: a.scheduled_for,
+        duration: a.duration_minutes
+      })))
+    }
 
     for (const closer of closersWithCalendars) {
       const tokenData = tokens?.find(t => t.user_id === closer.user_id)
@@ -211,7 +217,8 @@ export async function GET(request: NextRequest) {
       }
       
       allCloserBusySlots.set(closer.user_id, busySlots)
-      console.log(`Team availability: ${closer.user?.full_name} total busy slots: ${busySlots.length}`)
+      console.log(`Team availability: ${closer.user?.full_name} total busy slots: ${busySlots.length}`, 
+        busySlots.length > 0 ? busySlots.map(s => `${s.start} - ${s.end}`) : [])
     }
 
     // Generate 15-minute time slots

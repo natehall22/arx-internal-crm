@@ -173,12 +173,9 @@ export async function GET(request: NextRequest) {
     const [startHour, startMin] = workingHoursStart.split(':').map(Number)
     const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
     
-    // Determine timezone offset based on the timezone string
-    // For now, handle common US timezones. February is in Standard Time.
-    // TODO: Use a proper timezone library for DST handling
-    const now = new Date()
-    const monthNum = now.getMonth() + 1
-    const isDST = monthNum >= 3 && monthNum <= 11 // Rough DST check (March-November)
+    // Determine timezone offset based on the TARGET date (not current date)
+    // DST in US is roughly second Sunday of March to first Sunday of November
+    const isDST = month >= 3 && month <= 10 // Rough DST check for target date
     
     let tzOffsetHours = 5 // Default to Eastern Standard Time
     if (timezone === 'America/New_York' || timezone === 'America/Detroit' || timezone === 'US/Eastern') {
