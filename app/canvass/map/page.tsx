@@ -1538,16 +1538,16 @@ export default function CanvassMapPage() {
                 </div>
               )}
 
-              {/* Map controls */}
+              {/* Map controls - all on right side */}
               {mapStatus === 'loaded' && (
                 <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
                   {/* Address search button */}
                   <button
                     onClick={() => setShowAddressSearch(!showAddressSearch)}
-                    className="w-12 h-12 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
+                    className="w-11 h-11 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
                     title="Search address"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                   </button>
@@ -1556,10 +1556,10 @@ export default function CanvassMapPage() {
                   <div className="relative">
                     <button
                       onClick={() => setShowMapTypeMenu(!showMapTypeMenu)}
-                      className="w-12 h-12 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
+                      className="w-11 h-11 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
                       title="Map type"
                     >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                       </svg>
                     </button>
@@ -1592,34 +1592,87 @@ export default function CanvassMapPage() {
                         mapRef.current.setTilt(0)
                       }
                     }}
-                    className="w-12 h-12 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
+                    className="w-11 h-11 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-700 active:bg-gray-100"
                     title="Reset to North"
                   >
                     <svg 
-                      className="w-6 h-6 transition-transform duration-200" 
+                      className="w-5 h-5 transition-transform duration-200" 
                       style={{ transform: `rotate(${-mapHeading}deg)` }}
                       viewBox="0 0 24 24" 
                       fill="none" 
                       stroke="currentColor"
                     >
-                      {/* Compass needle - red for north */}
-                      <path 
-                        d="M12 2L12 12" 
-                        strokeWidth={2.5} 
-                        strokeLinecap="round"
-                        stroke="#ef4444"
-                      />
-                      {/* South part of needle */}
-                      <path 
-                        d="M12 12L12 22" 
-                        strokeWidth={2.5} 
-                        strokeLinecap="round"
-                        stroke="currentColor"
-                      />
-                      {/* N indicator */}
+                      <path d="M12 2L12 12" strokeWidth={2.5} strokeLinecap="round" stroke="#ef4444" />
+                      <path d="M12 12L12 22" strokeWidth={2.5} strokeLinecap="round" stroke="currentColor" />
                       <text x="12" y="6" textAnchor="middle" fontSize="6" fill="#ef4444" fontWeight="bold">N</text>
                     </svg>
                   </button>
+                  
+                  {/* My Location button */}
+                  <button
+                    onClick={centerOnUser}
+                    className="w-11 h-11 bg-indigo-600 rounded-lg shadow-lg flex items-center justify-center text-white active:bg-indigo-700"
+                    title="My location"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" />
+                    </svg>
+                  </button>
+                  
+                  {/* Cache/Settings button */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowCacheMenu(!showCacheMenu)}
+                      className="w-11 h-11 bg-white rounded-lg shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
+                      title="Settings"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </button>
+                    {showCacheMenu && (
+                      <div className="absolute top-0 right-full mr-2 bg-white rounded-lg shadow-xl border min-w-[200px] z-50">
+                        <div className="p-3 border-b">
+                          <p className="text-xs font-medium text-gray-500">Cache</p>
+                          <p className="text-sm text-gray-900">
+                            {cacheInfo.count > 0 ? `${cacheInfo.count} leads` : 'Empty'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            await loadData(true)
+                            setShowCacheMenu(false)
+                            setStatusMessage('Refreshed')
+                            setTimeout(() => setStatusMessage(null), 2000)
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm text-gray-900 hover:bg-gray-50"
+                        >
+                          Refresh Data
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setClearingCache(true)
+                            try {
+                              await clearAllCache()
+                              setCacheInfo({ cachedAt: null, count: 0 })
+                              setStatusMessage('Cache cleared')
+                              setShowCacheMenu(false)
+                            } catch (e) {
+                              setStatusMessage('Failed')
+                            } finally {
+                              setClearingCache(false)
+                              setTimeout(() => setStatusMessage(null), 2000)
+                            }
+                          }}
+                          disabled={clearingCache}
+                          className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+                        >
+                          Clear Cache
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               
@@ -1651,179 +1704,6 @@ export default function CanvassMapPage() {
                 </div>
               )}
 
-              {/* Bottom controls - positioned above mobile nav */}
-              {mapStatus === 'loaded' && (
-                <>
-                  {/* My Location button - prominent, always visible */}
-                  {/* Mobile version with safe area */}
-                  <button
-                    onClick={centerOnUser}
-                    className="lg:hidden absolute right-4 w-14 h-14 bg-indigo-600 rounded-full shadow-xl flex items-center justify-center text-white active:bg-indigo-700 transition-transform active:scale-95 border-2 border-white z-20"
-                    style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 130px)' }}
-                    title="Snap to my location"
-                  >
-                    <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" />
-                    </svg>
-                  </button>
-                  {/* Desktop version */}
-                  <button
-                    onClick={centerOnUser}
-                    className="hidden lg:flex absolute right-4 bottom-4 w-14 h-14 bg-indigo-600 rounded-full shadow-xl items-center justify-center text-white hover:bg-indigo-700 transition-transform active:scale-95 border-2 border-white z-20"
-                    title="Snap to my location"
-                  >
-                    <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" />
-                    </svg>
-                  </button>
-                  
-                  {/* Cache/Settings button - Mobile */}
-                  <div 
-                    className="lg:hidden absolute right-4 z-20"
-                    style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 200px)' }}
-                  >
-                    <button
-                      onClick={() => setShowCacheMenu(!showCacheMenu)}
-                      className="w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
-                      title="Cache settings"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    </button>
-                    {showCacheMenu && (
-                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg shadow-xl border min-w-[220px] z-50">
-                        <div className="p-3 border-b">
-                          <p className="text-xs font-medium text-gray-500">Cache Status</p>
-                          <p className="text-sm text-gray-900 mt-1">
-                            {cacheInfo.count > 0 ? (
-                              <>
-                                {cacheInfo.count} leads cached
-                                {cacheInfo.cachedAt && (
-                                  <span className="text-gray-500 ml-1">
-                                    ({Math.round((Date.now() - cacheInfo.cachedAt) / 60000)}m ago)
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              'No cached data'
-                            )}
-                          </p>
-                        </div>
-                        <button
-                          onClick={async () => {
-                            await loadData(true)
-                            setShowCacheMenu(false)
-                            setStatusMessage('Data refreshed from server')
-                            setTimeout(() => setStatusMessage(null), 2000)
-                          }}
-                          className="w-full px-4 py-3 text-left text-sm text-gray-900 hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          Refresh Data
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setClearingCache(true)
-                            try {
-                              await clearAllCache()
-                              setCacheInfo({ cachedAt: null, count: 0 })
-                              setStatusMessage('Cache cleared')
-                              setShowCacheMenu(false)
-                            } catch (e) {
-                              setStatusMessage('Failed to clear cache')
-                            } finally {
-                              setClearingCache(false)
-                              setTimeout(() => setStatusMessage(null), 2000)
-                            }
-                          }}
-                          disabled={clearingCache}
-                          className="w-full px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-50"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                          {clearingCache ? 'Clearing...' : 'Clear Cache'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {/* Cache/Settings button - Desktop */}
-                  <div className="hidden lg:block absolute right-4 bottom-20 z-20">
-                    <button
-                      onClick={() => setShowCacheMenu(!showCacheMenu)}
-                      className="w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-500 active:bg-gray-100"
-                      title="Cache settings"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    </button>
-                    {showCacheMenu && (
-                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg shadow-xl border min-w-[220px] z-50">
-                        <div className="p-3 border-b">
-                          <p className="text-xs font-medium text-gray-500">Cache Status</p>
-                          <p className="text-sm text-gray-900 mt-1">
-                            {cacheInfo.count > 0 ? (
-                              <>
-                                {cacheInfo.count} leads cached
-                                {cacheInfo.cachedAt && (
-                                  <span className="text-gray-500 ml-1">
-                                    ({Math.round((Date.now() - cacheInfo.cachedAt) / 60000)}m ago)
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              'No cached data'
-                            )}
-                          </p>
-                        </div>
-                        <button
-                          onClick={async () => {
-                            await loadData(true)
-                            setShowCacheMenu(false)
-                            setStatusMessage('Data refreshed from server')
-                            setTimeout(() => setStatusMessage(null), 2000)
-                          }}
-                          className="w-full px-4 py-3 text-left text-sm text-gray-900 hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          Refresh Data
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setClearingCache(true)
-                            try {
-                              await clearAllCache()
-                              setCacheInfo({ cachedAt: null, count: 0 })
-                              setStatusMessage('Cache cleared')
-                              setShowCacheMenu(false)
-                            } catch (e) {
-                              setStatusMessage('Failed to clear cache')
-                            } finally {
-                              setClearingCache(false)
-                              setTimeout(() => setStatusMessage(null), 2000)
-                            }
-                          }}
-                          disabled={clearingCache}
-                          className="w-full px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-50"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                          {clearingCache ? 'Clearing...' : 'Clear Cache'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
 
               {/* Legend - desktop only */}
               {mapStatus === 'loaded' && (
@@ -2458,49 +2338,42 @@ export default function CanvassMapPage() {
           </>
         )}
 
-        {/* Tap hint - centered above nav */}
+        {/* Tap hint */}
         {!showForm && mapStatus === 'loaded' && (
-          <div className="lg:hidden absolute left-1/2 -translate-x-1/2 z-10 pointer-events-none" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 70px)' }}>
-            <div className="bg-black/80 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-lg backdrop-blur-sm">
-              Tap anywhere to drop a pin
-            </div>
-          </div>
-        )}
-        {!showForm && mapStatus === 'loaded' && (
-          <div className="hidden lg:block absolute bottom-8 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-            <div className="bg-black/80 text-white px-6 py-3 rounded-full text-sm font-medium shadow-lg backdrop-blur-sm">
-              Tap anywhere to drop a pin
+          <div className="absolute bottom-20 lg:bottom-8 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+            <div className="bg-black/80 text-white px-5 py-2 rounded-full text-xs font-medium shadow-lg">
+              Tap to drop pin
             </div>
           </div>
         )}
 
-        {/* Mobile bottom nav - with proper safe area */}
-        <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white border-t z-30" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-          <div className="flex items-center justify-around py-2">
-            <a href="/dashboard" className="flex flex-col items-center gap-0.5 px-3 py-1 text-gray-500">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* Mobile bottom nav */}
+        <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white border-t z-30 pb-safe">
+          <div className="flex items-center justify-around h-14">
+            <a href="/dashboard" className="flex flex-col items-center justify-center flex-1 h-full text-gray-500">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
               </svg>
-              <span className="text-[10px]">Home</span>
+              <span className="text-[10px] mt-0.5">Home</span>
             </a>
-            <a href="/canvass/map" className="flex flex-col items-center gap-0.5 px-3 py-1 text-indigo-600">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <a href="/canvass/map" className="flex flex-col items-center justify-center flex-1 h-full text-indigo-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              <span className="text-[10px] font-medium">Canvass</span>
+              <span className="text-[10px] mt-0.5 font-medium">Canvass</span>
             </a>
-            <a href="/calendar" className="flex flex-col items-center gap-0.5 px-3 py-1 text-gray-500">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <a href="/calendar" className="flex flex-col items-center justify-center flex-1 h-full text-gray-500">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <span className="text-[10px]">Calendar</span>
+              <span className="text-[10px] mt-0.5">Calendar</span>
             </a>
-            <a href="/reports" className="flex flex-col items-center gap-0.5 px-3 py-1 text-gray-500">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <a href="/reports" className="flex flex-col items-center justify-center flex-1 h-full text-gray-500">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
-              <span className="text-[10px]">Reports</span>
+              <span className="text-[10px] mt-0.5">Reports</span>
             </a>
           </div>
         </div>
