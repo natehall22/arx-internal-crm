@@ -381,8 +381,22 @@ export default function UsersPage() {
   }
 
   const handleDeleteUser = async (user: UserWithDetails) => {
-    if (!confirm(`Are you sure you want to permanently delete ${user.full_name || 'this user'}? This action cannot be undone.`)) return
-    if (!confirm(`This will delete all data associated with this user. Type "DELETE" to confirm.`)) return
+    const confirmMsg = `⚠️ WARNING: Permanently delete ${user.full_name || 'this user'}?\n\n` +
+      `This will:\n` +
+      `• Remove the user's login access\n` +
+      `• Delete their commission records\n` +
+      `• Delete their comp plan assignments\n\n` +
+      `Their leads, opportunities, and jobs will be preserved but unassigned.\n\n` +
+      `💡 TIP: Consider DEACTIVATING instead to preserve all history.\n\n` +
+      `Type "DELETE" in the next prompt to confirm permanent deletion.`
+    
+    if (!confirm(confirmMsg)) return
+    
+    const typed = prompt('Type DELETE to confirm permanent deletion:')
+    if (typed !== 'DELETE') {
+      alert('Deletion cancelled - text did not match.')
+      return
+    }
 
     try {
       const response = await fetch(`/api/admin/users?id=${user.id}`, {
