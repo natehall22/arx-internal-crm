@@ -204,24 +204,18 @@ export async function GET(request: NextRequest) {
       .eq('active', true)
       .order('full_name', { ascending: true })
 
-    // Filter to only users who can receive appointments
-    // Include most roles by default - only exclude operations/support unless explicitly enabled
-    const appointmentEligibleRoles = ['sales_rep', 'rep', 'closer', 'sales_manager', 'regional_manager', 'admin', 'setter', 'canvasser']
-    
+    // Show all active users unless they have explicitly opted out via can_receive_appointments = false
     // Debug logging
     console.log('All users before filtering:', users?.map(u => ({ 
       name: u.full_name, 
       role: u.role, 
-      can_receive: u.can_receive_appointments,
-      can_receive_type: typeof u.can_receive_appointments
+      can_receive: u.can_receive_appointments
     })))
     
     const filteredUsers = (users || []).filter(u => {
-      // If can_receive_appointments is explicitly set, use that
-      if (u.can_receive_appointments === false) return false
-      if (u.can_receive_appointments === true) return true
-      // Default: include most roles, exclude operations/support
-      return appointmentEligibleRoles.includes(u.role)
+      // Only exclude if explicitly set to false
+      // Include everyone else (true, null, undefined)
+      return u.can_receive_appointments !== false
     })
     
     console.log('Filtered users for closer selection:', filteredUsers.map(u => u.full_name))
