@@ -231,11 +231,15 @@ export default function DashboardClient({
     setterFeedback: string
   }) => {
     try {
+      // Use the appointment ID from the scheduled_appointments object
+      const appointmentId = activePrompt.scheduled_appointments?.id || activePrompt.appointment_id
+      console.log('Submitting status for appointment:', appointmentId, 'prompt:', activePrompt)
+      
       const res = await fetch('/api/inspections/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          appointment_id: activePrompt.appointment_id,
+          appointment_id: appointmentId,
           outcome: data.outcome,
           notes: data.notes,
           setter_feedback: data.setterFeedback,
