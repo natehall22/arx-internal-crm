@@ -870,6 +870,60 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
     return status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   }
 
+  const exportToCSV = (records: any[], filename: string) => {
+    if (!records || records.length === 0) return
+    
+    // Define CSV headers
+    const headers = ['Name', 'Address', 'Phone', 'Email', 'Status', 'Date']
+    
+    // Convert records to CSV rows
+    const rows = records.map(record => [
+      record.name || '',
+      record.address || '',
+      record.phone || '',
+      record.email || '',
+      formatStatus(record.status) || '',
+      record.scheduled_at || record.created_at 
+        ? new Date(record.scheduled_at || record.created_at).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          })
+        : ''
+    ])
+    
+    // Escape CSV values
+    const escapeCSV = (value: string) => {
+      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`
+      }
+      return value
+    }
+    
+    // Build CSV content
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(escapeCSV).join(','))
+    ].join('\n')
+    
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `${filename.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const exportAllData = () => {
+    // Combine all records from all groups
+    const allRecords = data.flatMap(item => item.records || [])
+    exportToCSV(allRecords, `${report.name}_all`)
+  }
+
   const maxValue = Math.max(...data.map(d => d.value), 1)
 
   return (
@@ -887,9 +941,20 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
               </div>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                onClick={exportAllData}
+                disabled={loading || data.length === 0}
+                className="p-1.5 text-gray-400 hover:text-green-600 rounded disabled:opacity-50"
+                title="Export to Excel"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </button>
               <Link
                 href={`/reports/builder?edit=${report.id}`}
                 className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
+                title="Edit Report"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -899,6 +964,7 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
                 onClick={handleDelete}
                 disabled={deleting}
                 className="p-1.5 text-gray-400 hover:text-red-600 rounded disabled:opacity-50"
+                title="Delete Report"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1013,14 +1079,26 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
                 <h3 className="font-semibold text-gray-900">{drillDownItem.label}</h3>
                 <p className="text-sm text-gray-500">{drillDownItem.count} records</p>
               </div>
-              <button 
-                onClick={() => setDrillDownItem(null)}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => exportToCSV(drillDownItem.records, `${report.name}_${drillDownItem.label}`)}
+                  disabled={!drillDownItem.records?.length}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Export
+                </button>
+                <button 
+                  onClick={() => setDrillDownItem(null)}
+                  className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
             
             <div className="overflow-y-auto flex-1">
