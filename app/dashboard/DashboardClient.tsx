@@ -1400,25 +1400,42 @@ export default function DashboardClient({
                     const monthlyVolume = calcAvgSalePrice * calcJobsClosed
                     let baseRate = compPlanDetails.base_percentage || 0
                     
-                    // Check for volume bonuses
+                    // Debug: log the volume bonuses data
+                    console.log('Calculator debug:', {
+                      calcJobsClosed,
+                      monthlyVolume,
+                      baseRate,
+                      volume_bonuses: compPlanDetails.volume_bonuses
+                    })
+                    
+                    // Check for volume bonuses - these are cumulative tiers
+                    // e.g., 9+ sales gets first bonus, 14+ sales gets first AND second bonus
                     if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
                       const bonuses = compPlanDetails.volume_bonuses
                       for (let i = 0; i < bonuses.length; i++) {
                         const tier = bonuses[i]
-                        const nextTier = bonuses[i + 1]
                         const isSalesCount = tier.min_volume < 1000
-                        const effectiveMax = isSalesCount && tier.max_volume && tier.max_volume > 100
-                          ? (nextTier ? nextTier.min_volume - 1 : null)
-                          : tier.max_volume
                         const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
                         
-                        if (compareValue >= tier.min_volume && (!effectiveMax || compareValue <= effectiveMax)) {
+                        console.log(`Tier ${i}:`, { 
+                          min: tier.min_volume, 
+                          isSalesCount, 
+                          compareValue, 
+                          meetsThreshold: compareValue >= tier.min_volume,
+                          bonus: tier.bonus_value
+                        })
+                        
+                        // For cumulative bonuses: just check if we meet the minimum threshold
+                        // Each tier's bonus is added if we meet or exceed its min_volume
+                        if (compareValue >= tier.min_volume) {
                           if (tier.bonus_type === 'percentage') {
                             baseRate += tier.bonus_value
                           }
                         }
                       }
                     }
+                    
+                    console.log('Final rate:', baseRate)
                     
                     monthlyEarnings = monthlyVolume * (baseRate / 100)
                     displayRows = [
