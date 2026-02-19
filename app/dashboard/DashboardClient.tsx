@@ -103,8 +103,11 @@ export default function DashboardClient({
   const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
   const [showCompPlanModal, setShowCompPlanModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
+  // Calculator inputs - dynamic based on plan type
   const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
   const [calcJobsClosed, setCalcJobsClosed] = useState(4)
+  const [calcHoursWorked, setCalcHoursWorked] = useState(40)
+  const [calcUnits, setCalcUnits] = useState(25)
 
   useEffect(() => {
     loadDashboardReports()
@@ -456,7 +459,7 @@ export default function DashboardClient({
               My Comp Plan
             </button>
             
-            {compPlanDetails && !['hourly', 'unit_based', 'hybrid'].includes(compPlanDetails.plan_type) && (
+            {compPlanDetails && compPlanDetails.plan_type !== 'hybrid' && (
               <button 
                 onClick={() => setShowCalculatorModal(true)}
                 className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm font-medium"
@@ -1236,115 +1239,219 @@ export default function DashboardClient({
             </div>
             
             <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-              {/* Calculator Inputs */}
+              {/* Dynamic Calculator Inputs based on plan type */}
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price</label>
-                  <input
-                    type="number"
-                    value={calcAvgSalePrice}
-                    onChange={(e) => setCalcAvgSalePrice(Number(e.target.value))}
-                    className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
-                  />
-                  <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
-                    {[8000, 10000, 13500, 18000, 25000].map(price => (
-                      <button
-                        key={price}
-                        onClick={() => setCalcAvgSalePrice(price)}
-                        className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                      >
-                        ${(price/1000).toFixed(0)}k
-                      </button>
-                    ))}
+                {/* Hourly plans - hours input */}
+                {compPlanDetails.plan_type === 'hourly' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Hours Worked per Week</label>
+                    <input
+                      type="number"
+                      value={calcHoursWorked}
+                      onChange={(e) => setCalcHoursWorked(Number(e.target.value))}
+                      className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                    />
+                    <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                      {[20, 30, 40, 50, 60].map(hrs => (
+                        <button
+                          key={hrs}
+                          onClick={() => setCalcHoursWorked(hrs)}
+                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcHoursWorked === hrs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                        >
+                          {hrs}hrs
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Jobs Closed per Month</label>
-                  <input
-                    type="number"
-                    value={calcJobsClosed}
-                    onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
-                    className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
-                  />
-                  <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
-                    {[2, 4, 6, 8, 10, 12].map(jobs => (
-                      <button
-                        key={jobs}
-                        onClick={() => setCalcJobsClosed(jobs)}
-                        className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                      >
-                        {jobs}
-                      </button>
-                    ))}
+                )}
+
+                {/* Unit-based plans - units input */}
+                {compPlanDetails.plan_type === 'unit_based' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {compPlanDetails.unit_type === 'square' ? 'Squares per Month' :
+                       compPlanDetails.unit_type === 'kw' ? 'kW Installed per Month' :
+                       compPlanDetails.unit_type === 'panel' ? 'Panels per Month' :
+                       compPlanDetails.unit_type === 'linear_foot' ? 'Linear Feet per Month' :
+                       `${compPlanDetails.unit_type || 'Units'} per Month`}
+                    </label>
+                    <input
+                      type="number"
+                      value={calcUnits}
+                      onChange={(e) => setCalcUnits(Number(e.target.value))}
+                      className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                    />
+                    <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                      {[10, 20, 30, 50, 75, 100].map(u => (
+                        <button
+                          key={u}
+                          onClick={() => setCalcUnits(u)}
+                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcUnits === u ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Flat rate plans - just jobs */}
+                {compPlanDetails.plan_type === 'flat_rate' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Jobs Closed per Month</label>
+                    <input
+                      type="number"
+                      value={calcJobsClosed}
+                      onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
+                      className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                    />
+                    <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                      {[2, 4, 6, 8, 10, 12, 15, 20].map(jobs => (
+                        <button
+                          key={jobs}
+                          onClick={() => setCalcJobsClosed(jobs)}
+                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                        >
+                          {jobs}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Percentage/tiered plans - sale price + jobs */}
+                {['percentage', 'tiered'].includes(compPlanDetails.plan_type) && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price</label>
+                      <input
+                        type="number"
+                        value={calcAvgSalePrice}
+                        onChange={(e) => setCalcAvgSalePrice(Number(e.target.value))}
+                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                      />
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                        {[8000, 10000, 13500, 18000, 25000].map(price => (
+                          <button
+                            key={price}
+                            onClick={() => setCalcAvgSalePrice(price)}
+                            className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                          >
+                            ${(price/1000).toFixed(0)}k
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Sales Closed per Month</label>
+                      <input
+                        type="number"
+                        value={calcJobsClosed}
+                        onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
+                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                      />
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                        {[2, 4, 6, 8, 10, 12, 15, 20].map(jobs => (
+                          <button
+                            key={jobs}
+                            onClick={() => setCalcJobsClosed(jobs)}
+                            className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                          >
+                            {jobs}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               
-              {/* Results */}
+              {/* Results - dynamic based on plan type */}
               <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 sm:p-6 border border-green-100">
                 <h4 className="font-semibold text-green-900 mb-3 sm:mb-4 text-sm sm:text-base">Estimated Earnings</h4>
                 
                 {(() => {
-                  const monthlyVolume = calcAvgSalePrice * calcJobsClosed
-                  let baseRate = compPlanDetails.base_percentage || 0
+                  let monthlyEarnings = 0
+                  let displayRows: { label: string; value: string }[] = []
                   
-                  // Check for volume bonuses
-                  if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
-                    const bonuses = compPlanDetails.volume_bonuses
-                    for (let i = 0; i < bonuses.length; i++) {
-                      const tier = bonuses[i]
-                      const nextTier = bonuses[i + 1]
-                      
-                      // Determine if this is a sales-count tier (small numbers) or dollar-volume tier
-                      const isSalesCount = tier.min_volume < 1000
-                      
-                      // For sales count tiers with unreasonably large max, use next tier's min - 1
-                      const effectiveMax = isSalesCount && tier.max_volume && tier.max_volume > 100
-                        ? (nextTier ? nextTier.min_volume - 1 : null)
-                        : tier.max_volume
-                      
-                      const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
-                      
-                      if (compareValue >= tier.min_volume && (!effectiveMax || compareValue <= effectiveMax)) {
-                        if (tier.bonus_type === 'percentage') {
-                          baseRate += tier.bonus_value
+                  if (compPlanDetails.plan_type === 'hourly') {
+                    const weeklyPay = calcHoursWorked * (compPlanDetails.hourly_rate || 0)
+                    monthlyEarnings = weeklyPay * 4.33 // Average weeks per month
+                    displayRows = [
+                      { label: 'Hours/Week', value: `${calcHoursWorked}` },
+                      { label: 'Hourly Rate', value: `$${compPlanDetails.hourly_rate?.toLocaleString() || 0}/hr` },
+                      { label: 'Weekly Pay', value: `$${weeklyPay.toLocaleString()}` },
+                    ]
+                  } else if (compPlanDetails.plan_type === 'unit_based') {
+                    monthlyEarnings = calcUnits * (compPlanDetails.unit_rate || 0)
+                    displayRows = [
+                      { label: `${compPlanDetails.unit_type || 'Units'}/Month`, value: `${calcUnits}` },
+                      { label: 'Rate per Unit', value: `$${compPlanDetails.unit_rate?.toLocaleString() || 0}` },
+                    ]
+                  } else if (compPlanDetails.plan_type === 'flat_rate') {
+                    monthlyEarnings = calcJobsClosed * (compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0)
+                    displayRows = [
+                      { label: 'Jobs/Month', value: `${calcJobsClosed}` },
+                      { label: 'Rate per Job', value: `$${(compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0).toLocaleString()}` },
+                    ]
+                  } else {
+                    // Percentage or tiered
+                    const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                    let baseRate = compPlanDetails.base_percentage || 0
+                    
+                    // Check for volume bonuses
+                    if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
+                      const bonuses = compPlanDetails.volume_bonuses
+                      for (let i = 0; i < bonuses.length; i++) {
+                        const tier = bonuses[i]
+                        const nextTier = bonuses[i + 1]
+                        const isSalesCount = tier.min_volume < 1000
+                        const effectiveMax = isSalesCount && tier.max_volume && tier.max_volume > 100
+                          ? (nextTier ? nextTier.min_volume - 1 : null)
+                          : tier.max_volume
+                        const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
+                        
+                        if (compareValue >= tier.min_volume && (!effectiveMax || compareValue <= effectiveMax)) {
+                          if (tier.bonus_type === 'percentage') {
+                            baseRate += tier.bonus_value
+                          }
                         }
                       }
                     }
+                    
+                    monthlyEarnings = monthlyVolume * (baseRate / 100)
+                    displayRows = [
+                      { label: 'Sales/Month', value: `${calcJobsClosed}` },
+                      { label: 'Avg Sale Price', value: `$${calcAvgSalePrice.toLocaleString()}` },
+                      { label: 'Monthly Volume', value: `$${monthlyVolume.toLocaleString()}` },
+                      { label: 'Commission Rate', value: `${baseRate}%` },
+                    ]
                   }
-                  
-                  const monthlyCommission = compPlanDetails.plan_type === 'flat_rate' 
-                    ? (compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0) * calcJobsClosed
-                    : monthlyVolume * (baseRate / 100)
                   
                   return (
                     <div className="space-y-2 sm:space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600 text-sm">Monthly Volume</span>
-                        <span className="font-semibold text-gray-900 text-sm">${monthlyVolume.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600 text-sm">Commission Rate</span>
-                        <span className="font-semibold text-gray-900 text-sm">
-                          {compPlanDetails.plan_type === 'flat_rate' 
-                            ? `$${(compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0).toLocaleString()}/job`
-                            : `${baseRate}%`}
-                        </span>
-                      </div>
+                      {displayRows.map((row, idx) => (
+                        <div key={idx} className="flex justify-between items-center">
+                          <span className="text-gray-600 text-sm">{row.label}</span>
+                          <span className="font-semibold text-gray-900 text-sm">{row.value}</span>
+                        </div>
+                      ))}
                       <div className="border-t pt-2 sm:pt-3">
                         <div className="flex justify-between items-center">
-                          <span className="text-gray-700 font-medium text-sm">Monthly Commission</span>
-                          <span className="text-xl sm:text-2xl font-bold text-green-600">${monthlyCommission.toLocaleString()}</span>
+                          <span className="text-gray-700 font-medium text-sm">Monthly Earnings</span>
+                          <span className="text-xl sm:text-2xl font-bold text-green-600">${Math.round(monthlyEarnings).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center mt-2">
                           <span className="text-gray-600 text-sm">Annual (x12)</span>
-                          <span className="font-semibold text-green-700 text-sm">${(monthlyCommission * 12).toLocaleString()}</span>
+                          <span className="font-semibold text-green-700 text-sm">${Math.round(monthlyEarnings * 12).toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between items-center mt-1">
-                          <span className="text-gray-600 text-sm">Per Job</span>
-                          <span className="font-semibold text-green-700 text-sm">${calcJobsClosed > 0 ? (monthlyCommission / calcJobsClosed).toLocaleString() : 0}</span>
-                        </div>
+                        {compPlanDetails.plan_type !== 'hourly' && calcJobsClosed > 0 && (
+                          <div className="flex justify-between items-center mt-1">
+                            <span className="text-gray-600 text-sm">Per Job</span>
+                            <span className="font-semibold text-green-700 text-sm">${Math.round(monthlyEarnings / calcJobsClosed).toLocaleString()}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
