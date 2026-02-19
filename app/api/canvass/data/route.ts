@@ -197,12 +197,14 @@ export async function GET(request: NextRequest) {
 
     // Get users for closer selection - only users who can receive appointments
     // Filter to sales roles and users who have can_receive_appointments = true (or null for backwards compat)
-    const { data: users } = await adminClient
+    const { data: users, error: usersError } = await adminClient
       .from('users')
       .select('id, full_name, role, can_receive_appointments')
       .eq('org_id', profile.org_id)
       .eq('active', true)
       .order('full_name', { ascending: true })
+    
+    console.log('Users query result:', { count: users?.length, usersError, orgId: profile.org_id })
 
     // Show all active users unless they have explicitly opted out via can_receive_appointments = false
     // Debug logging
@@ -231,11 +233,13 @@ export async function GET(request: NextRequest) {
     }))
     
     // Get teams for round-robin option
-    const { data: teams } = await adminClient
+    const { data: teams, error: teamsError } = await adminClient
       .from('teams')
       .select('id, name')
       .eq('org_id', profile.org_id)
       .order('name', { ascending: true })
+    
+    console.log('Teams query result:', { teams, teamsError, orgId: profile.org_id })
 
     // Get inspection appointment type duration
     const { data: appointmentTypes } = await adminClient
@@ -246,6 +250,13 @@ export async function GET(request: NextRequest) {
     // Find inspection type duration (default to 60 if not found)
     const inspectionType = appointmentTypes?.find(t => t.name?.toLowerCase() === 'inspection')
     const inspectionDuration = inspectionType?.duration_minutes || 60
+
+    console.log('Canvass data response:', {
+      leadsCount: leads?.length || 0,
+      usersCount: usersWithCalendarStatus?.length || 0,
+      teamsCount: teams?.length || 0,
+      filteredUsersCount: filteredUsers?.length || 0,
+    })
 
     return NextResponse.json({
       leads: leads || [],
