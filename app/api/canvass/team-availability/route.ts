@@ -131,22 +131,30 @@ export async function GET(request: NextRequest) {
     const [startHour, startMin] = workingHoursStart.split(':').map(Number)
     const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
     
-    // Create dates using local time components (server local time)
-    // These will be used to generate slot display times
-    const dayStart = new Date(year, month - 1, day, startHour, startMin, 0)
-    const dayEnd = new Date(year, month - 1, day, endHour, endMin, 0)
+    // Determine timezone offset based on the timezone string
+    const now = new Date()
+    const monthNum = now.getMonth() + 1
+    const isDST = monthNum >= 3 && monthNum <= 11 // Rough DST check (March-November)
     
-    // For Google Calendar API, we need to convert local time to UTC
-    // Eastern Time is UTC-5 (or UTC-4 during DST)
-    // To convert 8 AM Eastern to UTC: 8 + 5 = 13:00 UTC
-    // TODO: Use proper timezone library for accurate conversion
-    const tzOffsetHours = 5 // Eastern is UTC-5, so add 5 to get UTC
+    let tzOffsetHours = 5 // Default to Eastern Standard Time
+    if (timezone === 'America/New_York' || timezone === 'America/Detroit' || timezone === 'US/Eastern') {
+      tzOffsetHours = isDST ? 4 : 5
+    } else if (timezone === 'America/Chicago' || timezone === 'US/Central') {
+      tzOffsetHours = isDST ? 5 : 6
+    } else if (timezone === 'America/Denver' || timezone === 'US/Mountain') {
+      tzOffsetHours = isDST ? 6 : 7
+    } else if (timezone === 'America/Los_Angeles' || timezone === 'US/Pacific') {
+      tzOffsetHours = isDST ? 7 : 8
+    } else if (timezone === 'America/Phoenix') {
+      tzOffsetHours = 7 // Arizona doesn't observe DST
+    }
+    
+    console.log(`Team availability: Using timezone ${timezone}, offset ${tzOffsetHours} hours (isDST: ${isDST})`)
     
     // Create UTC times for Google Calendar API query
     const dayStartUTC = new Date(Date.UTC(year, month - 1, day, startHour + tzOffsetHours, startMin, 0))
     const dayEndUTC = new Date(Date.UTC(year, month - 1, day, endHour + tzOffsetHours, endMin, 0))
     
-    console.log(`Team availability: Date range - Local: ${dayStart.toISOString()} to ${dayEnd.toISOString()}`)
     console.log(`Team availability: Date range - UTC for API: ${dayStartUTC.toISOString()} to ${dayEndUTC.toISOString()}`)
 
     // Get busy slots for ALL closers with calendars
@@ -177,7 +185,7 @@ export async function GET(request: NextRequest) {
         } catch (error) {
           console.error(`Failed to get free/busy for ${closer.user?.full_name}:`, error)
           // Mark as fully busy if we can't check
-          busySlots = [{ start: dayStart.toISOString(), end: dayEnd.toISOString() }]
+          busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
         }
       }
       
@@ -210,32 +218,27 @@ export async function GET(request: NextRequest) {
     const slots: { time: string; available: boolean; display: string; availableClosers?: number }[] = []
     const slotInterval = 15 * 60 * 1000 // 15 minutes
     
-    // For "now" comparison, we need current time in Eastern
-    // Server is UTC, so we subtract 5 hours to get Eastern time
+    // Current time in UTC
     const nowUTC = new Date()
-    const nowEastern = new Date(nowUTC.getTime() - tzOffsetHours * 60 * 60 * 1000)
     
-    console.log(`Team availability: Now UTC=${nowUTC.toISOString()}, Now Eastern=${nowEastern.toISOString()}`)
-    console.log(`Team availability: Day start=${dayStart.toISOString()}, Day end=${dayEnd.toISOString()}`)
+    // Generate slots starting from dayStartUTC
+    let currentSlotUTC = new Date(dayStartUTC)
+    const dayEndUTCTime = dayEndUTC.getTime()
     
-    // dayStart/dayEnd are in "fake local" time (8:00 means 8:00 AM Eastern, stored as if UTC)
-    // We iterate through these for display purposes
-    let currentSlot = new Date(dayStart)
+    console.log(`Team availability: Now UTC=${nowUTC.toISOString()}`)
+    console.log(`Team availability: Generating slots from ${dayStartUTC.toISOString()} to ${dayEndUTC.toISOString()}`)
     
-    while (currentSlot.getTime() + durationMinutes * 60 * 1000 <= dayEnd.getTime()) {
-      const slotEnd = new Date(currentSlot.getTime() + durationMinutes * 60 * 1000)
+    while (currentSlotUTC.getTime() + durationMinutes * 60 * 1000 <= dayEndUTCTime) {
+      const slotEndUTC = new Date(currentSlotUTC.getTime() + durationMinutes * 60 * 1000)
       
-      // Skip slots in the past (compare Eastern times)
-      // currentSlot is "fake UTC" representing Eastern time, so compare with nowEastern
-      if (currentSlot <= nowEastern) {
-        currentSlot = new Date(currentSlot.getTime() + slotInterval)
+      // Skip slots in the past
+      if (currentSlotUTC <= nowUTC) {
+        currentSlotUTC = new Date(currentSlotUTC.getTime() + slotInterval)
         continue
       }
       
-      // For conflict detection with Google Calendar, convert slot times to real UTC
-      // Add tzOffsetHours to convert Eastern to UTC
-      const slotStartUTC = new Date(currentSlot.getTime() + tzOffsetHours * 60 * 60 * 1000)
-      const slotEndUTC = new Date(slotEnd.getTime() + tzOffsetHours * 60 * 60 * 1000)
+      // Slot times are already in UTC
+      const slotStartUTC = currentSlotUTC
       
       // Check how many closers are available at this slot
       let availableCloserCount = 0
@@ -268,21 +271,24 @@ export async function GET(request: NextRequest) {
         }
       }
       
+      // Convert UTC slot time to local time for display
+      const localSlotTime = new Date(currentSlotUTC.getTime() - tzOffsetHours * 60 * 60 * 1000)
+      
       // Format time for display (e.g., "9:00 AM")
-      const hours = currentSlot.getHours()
-      const minutes = currentSlot.getMinutes()
+      const hours = localSlotTime.getUTCHours()
+      const minutes = localSlotTime.getUTCMinutes()
       const ampm = hours >= 12 ? 'PM' : 'AM'
       const displayHours = hours % 12 || 12
       const displayMinutes = minutes.toString().padStart(2, '0')
       const display = `${displayHours}:${displayMinutes} ${ampm}`
       
       // Format as local time string (YYYY-MM-DDTHH:MM)
-      const year = currentSlot.getFullYear()
-      const month = String(currentSlot.getMonth() + 1).padStart(2, '0')
-      const day = String(currentSlot.getDate()).padStart(2, '0')
+      const localYear = localSlotTime.getUTCFullYear()
+      const localMonth = String(localSlotTime.getUTCMonth() + 1).padStart(2, '0')
+      const localDay = String(localSlotTime.getUTCDate()).padStart(2, '0')
       const hourStr = String(hours).padStart(2, '0')
       const minStr = String(minutes).padStart(2, '0')
-      const timeValue = `${year}-${month}-${day}T${hourStr}:${minStr}`
+      const timeValue = `${localYear}-${localMonth}-${localDay}T${hourStr}:${minStr}`
       
       slots.push({
         time: timeValue,
@@ -291,7 +297,7 @@ export async function GET(request: NextRequest) {
         availableClosers: availableCloserCount,
       })
       
-      currentSlot = new Date(currentSlot.getTime() + slotInterval)
+      currentSlotUTC = new Date(currentSlotUTC.getTime() + slotInterval)
     }
 
     // Include debug info about buffers
