@@ -1225,7 +1225,17 @@ export default function DashboardClient({
           >
             <div className="p-4 sm:p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Comp Calculator</h2>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold text-gray-900">{compPlanDetails.name} Calculator</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {compPlanDetails.plan_type === 'hourly' ? 'Hourly Rate' :
+                     compPlanDetails.plan_type === 'unit_based' ? 'Per Unit' :
+                     compPlanDetails.plan_type === 'flat_rate' ? 'Flat Rate per Job' :
+                     compPlanDetails.plan_type === 'tiered' ? 'Tiered Commission' :
+                     compPlanDetails.plan_type === 'hybrid' ? 'Hybrid' :
+                     'Percentage Commission'}
+                  </p>
+                </div>
                 <button 
                   type="button"
                   onClick={() => setShowCalculatorModal(false)}
@@ -1399,14 +1409,7 @@ export default function DashboardClient({
                     // Percentage or tiered
                     const monthlyVolume = calcAvgSalePrice * calcJobsClosed
                     let baseRate = compPlanDetails.base_percentage || 0
-                    
-                    // Debug: log the volume bonuses data
-                    console.log('Calculator debug:', {
-                      calcJobsClosed,
-                      monthlyVolume,
-                      baseRate,
-                      volume_bonuses: compPlanDetails.volume_bonuses
-                    })
+                    let appliedBonuses: string[] = []
                     
                     // Check for volume bonuses - these are cumulative tiers
                     // e.g., 9+ sales gets first bonus, 14+ sales gets first AND second bonus
@@ -1417,33 +1420,27 @@ export default function DashboardClient({
                         const isSalesCount = tier.min_volume < 1000
                         const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
                         
-                        console.log(`Tier ${i}:`, { 
-                          min: tier.min_volume, 
-                          isSalesCount, 
-                          compareValue, 
-                          meetsThreshold: compareValue >= tier.min_volume,
-                          bonus: tier.bonus_value
-                        })
-                        
                         // For cumulative bonuses: just check if we meet the minimum threshold
-                        // Each tier's bonus is added if we meet or exceed its min_volume
                         if (compareValue >= tier.min_volume) {
                           if (tier.bonus_type === 'percentage') {
                             baseRate += tier.bonus_value
+                            appliedBonuses.push(`+${tier.bonus_value}% (${tier.min_volume}+ ${isSalesCount ? 'sales' : 'volume'})`)
                           }
                         }
                       }
                     }
-                    
-                    console.log('Final rate:', baseRate)
                     
                     monthlyEarnings = monthlyVolume * (baseRate / 100)
                     displayRows = [
                       { label: 'Sales/Month', value: `${calcJobsClosed}` },
                       { label: 'Avg Sale Price', value: `$${calcAvgSalePrice.toLocaleString()}` },
                       { label: 'Monthly Volume', value: `$${monthlyVolume.toLocaleString()}` },
-                      { label: 'Commission Rate', value: `${baseRate}%` },
+                      { label: 'Base Rate', value: `${compPlanDetails.base_percentage || 0}%` },
                     ]
+                    if (appliedBonuses.length > 0) {
+                      displayRows.push({ label: 'Bonuses', value: appliedBonuses.join(', ') })
+                    }
+                    displayRows.push({ label: 'Total Rate', value: `${baseRate}%` })
                   }
                   
                   return (
