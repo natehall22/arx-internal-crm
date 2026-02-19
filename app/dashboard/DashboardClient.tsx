@@ -27,6 +27,9 @@ interface CompPlanDetails {
   unit_type: string | null
   hybrid_components: HybridComponent[] | null
   volume_bonuses: any[]
+  is_manager_plan: boolean
+  personal_sales_enabled: boolean
+  team_override_enabled: boolean
   team_overrides: any[]
   readme?: string
 }
@@ -108,6 +111,8 @@ export default function DashboardClient({
   const [calcJobsClosed, setCalcJobsClosed] = useState(4)
   const [calcHoursWorked, setCalcHoursWorked] = useState(40)
   const [calcUnits, setCalcUnits] = useState(25)
+  const [calcTeamSales, setCalcTeamSales] = useState(20)
+  const [calcTeamAvgPrice, setCalcTeamAvgPrice] = useState(13500)
 
   useEffect(() => {
     loadDashboardReports()
@@ -1332,47 +1337,103 @@ export default function DashboardClient({
                 {/* Percentage/tiered plans - sale price + jobs */}
                 {['percentage', 'tiered'].includes(compPlanDetails.plan_type) && (
                   <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price</label>
-                      <input
-                        type="number"
-                        value={calcAvgSalePrice}
-                        onChange={(e) => setCalcAvgSalePrice(Number(e.target.value))}
-                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
-                      />
-                      <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
-                        {[8000, 10000, 13500, 18000, 25000].map(price => (
-                          <button
-                            key={price}
-                            onClick={() => setCalcAvgSalePrice(price)}
-                            className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                          >
-                            ${(price/1000).toFixed(0)}k
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    {/* Personal sales section - show for non-managers OR managers with personal sales enabled */}
+                    {(!compPlanDetails.is_manager_plan || compPlanDetails.personal_sales_enabled) && (
+                      <>
+                        {compPlanDetails.is_manager_plan && (
+                          <h5 className="text-sm font-semibold text-gray-800 border-b pb-1">Your Personal Sales</h5>
+                        )}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price</label>
+                          <input
+                            type="number"
+                            value={calcAvgSalePrice}
+                            onChange={(e) => setCalcAvgSalePrice(Number(e.target.value))}
+                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                          />
+                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                            {[8000, 10000, 13500, 18000, 25000].map(price => (
+                              <button
+                                key={price}
+                                onClick={() => setCalcAvgSalePrice(price)}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                              >
+                                ${(price/1000).toFixed(0)}k
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Your Sales per Month</label>
+                          <input
+                            type="number"
+                            value={calcJobsClosed}
+                            onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
+                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                          />
+                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                            {[2, 4, 6, 8, 10, 12, 15, 20].map(jobs => (
+                              <button
+                                key={jobs}
+                                onClick={() => setCalcJobsClosed(jobs)}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                              >
+                                {jobs}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
                     
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Sales Closed per Month</label>
-                      <input
-                        type="number"
-                        value={calcJobsClosed}
-                        onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
-                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
-                      />
-                      <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
-                        {[2, 4, 6, 8, 10, 12, 15, 20].map(jobs => (
-                          <button
-                            key={jobs}
-                            onClick={() => setCalcJobsClosed(jobs)}
-                            className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                          >
-                            {jobs}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    {/* Team sales section - only for managers with team overrides enabled */}
+                    {compPlanDetails.is_manager_plan && compPlanDetails.team_override_enabled && (
+                      <>
+                        <h5 className="text-sm font-semibold text-gray-800 border-b pb-1 mt-4">Team Sales (Override)</h5>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Team Avg Sale Price</label>
+                          <input
+                            type="number"
+                            value={calcTeamAvgPrice}
+                            onChange={(e) => setCalcTeamAvgPrice(Number(e.target.value))}
+                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                          />
+                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                            {[8000, 10000, 13500, 18000, 25000].map(price => (
+                              <button
+                                key={price}
+                                onClick={() => setCalcTeamAvgPrice(price)}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamAvgPrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                              >
+                                ${(price/1000).toFixed(0)}k
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Team Sales per Month</label>
+                          <input
+                            type="number"
+                            value={calcTeamSales}
+                            onChange={(e) => setCalcTeamSales(Number(e.target.value))}
+                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                          />
+                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
+                            {[10, 20, 30, 40, 50, 75, 100].map(sales => (
+                              <button
+                                key={sales}
+                                onClick={() => setCalcTeamSales(sales)}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamSales === sales ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                              >
+                                {sales}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -1407,40 +1468,106 @@ export default function DashboardClient({
                     ]
                   } else {
                     // Percentage or tiered
-                    const monthlyVolume = calcAvgSalePrice * calcJobsClosed
-                    let baseRate = compPlanDetails.base_percentage || 0
-                    let appliedBonuses: string[] = []
+                    let personalEarnings = 0
+                    let teamOverrideEarnings = 0
                     
-                    // Check for volume bonuses - these are cumulative tiers
-                    // e.g., 9+ sales gets first bonus, 14+ sales gets first AND second bonus
-                    if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
-                      const bonuses = compPlanDetails.volume_bonuses
-                      for (let i = 0; i < bonuses.length; i++) {
-                        const tier = bonuses[i]
-                        const isSalesCount = tier.min_volume < 1000
-                        const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
-                        
-                        // For cumulative bonuses: just check if we meet the minimum threshold
-                        if (compareValue >= tier.min_volume) {
-                          if (tier.bonus_type === 'percentage') {
-                            baseRate += tier.bonus_value
-                            appliedBonuses.push(`+${tier.bonus_value}% (${tier.min_volume}+ ${isSalesCount ? 'sales' : 'volume'})`)
+                    // Calculate personal sales earnings (if applicable)
+                    if (!compPlanDetails.is_manager_plan || compPlanDetails.personal_sales_enabled) {
+                      const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                      let baseRate = compPlanDetails.base_percentage || 0
+                      let appliedBonuses: string[] = []
+                      
+                      // Check for volume bonuses
+                      if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
+                        const bonuses = compPlanDetails.volume_bonuses
+                        for (let i = 0; i < bonuses.length; i++) {
+                          const tier = bonuses[i]
+                          const isSalesCount = tier.min_volume < 1000
+                          const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
+                          
+                          if (compareValue >= tier.min_volume) {
+                            if (tier.bonus_type === 'percentage') {
+                              baseRate += tier.bonus_value
+                              appliedBonuses.push(`+${tier.bonus_value}%`)
+                            }
                           }
                         }
                       }
+                      
+                      personalEarnings = monthlyVolume * (baseRate / 100)
+                      
+                      if (compPlanDetails.is_manager_plan) {
+                        displayRows.push({ label: '— Your Sales —', value: '' })
+                      }
+                      displayRows.push({ label: 'Your Sales/Month', value: `${calcJobsClosed}` })
+                      displayRows.push({ label: 'Avg Sale Price', value: `$${calcAvgSalePrice.toLocaleString()}` })
+                      displayRows.push({ label: 'Your Volume', value: `$${monthlyVolume.toLocaleString()}` })
+                      displayRows.push({ label: 'Commission Rate', value: `${baseRate}%${appliedBonuses.length > 0 ? ` (${appliedBonuses.join(' ')})` : ''}` })
+                      displayRows.push({ label: 'Personal Earnings', value: `$${Math.round(personalEarnings).toLocaleString()}` })
                     }
                     
-                    monthlyEarnings = monthlyVolume * (baseRate / 100)
-                    displayRows = [
-                      { label: 'Sales/Month', value: `${calcJobsClosed}` },
-                      { label: 'Avg Sale Price', value: `$${calcAvgSalePrice.toLocaleString()}` },
-                      { label: 'Monthly Volume', value: `$${monthlyVolume.toLocaleString()}` },
-                      { label: 'Base Rate', value: `${compPlanDetails.base_percentage || 0}%` },
-                    ]
-                    if (appliedBonuses.length > 0) {
-                      displayRows.push({ label: 'Bonuses', value: appliedBonuses.join(', ') })
+                    // Calculate team override earnings (for managers)
+                    if (compPlanDetails.is_manager_plan && compPlanDetails.team_override_enabled && compPlanDetails.team_overrides?.length > 0) {
+                      const teamVolume = calcTeamAvgPrice * calcTeamSales
+                      
+                      // Find applicable override tier
+                      let overrideRate = 0
+                      let overrideType = 'percentage'
+                      const sortedOverrides = [...compPlanDetails.team_overrides].sort((a: any, b: any) => (b.min_team_volume || 0) - (a.min_team_volume || 0))
+                      
+                      for (const tier of sortedOverrides) {
+                        if (teamVolume >= (tier.min_team_volume || 0)) {
+                          overrideRate = tier.override_value || 0
+                          overrideType = tier.override_type || 'percentage'
+                          break
+                        }
+                      }
+                      
+                      if (overrideType === 'percentage') {
+                        teamOverrideEarnings = teamVolume * (overrideRate / 100)
+                      } else {
+                        // Flat amount per sale
+                        teamOverrideEarnings = calcTeamSales * overrideRate
+                      }
+                      
+                      displayRows.push({ label: '— Team Override —', value: '' })
+                      displayRows.push({ label: 'Team Sales/Month', value: `${calcTeamSales}` })
+                      displayRows.push({ label: 'Team Avg Price', value: `$${calcTeamAvgPrice.toLocaleString()}` })
+                      displayRows.push({ label: 'Team Volume', value: `$${teamVolume.toLocaleString()}` })
+                      displayRows.push({ label: 'Override Rate', value: overrideType === 'percentage' ? `${overrideRate}%` : `$${overrideRate}/sale` })
+                      displayRows.push({ label: 'Override Earnings', value: `$${Math.round(teamOverrideEarnings).toLocaleString()}` })
                     }
-                    displayRows.push({ label: 'Total Rate', value: `${baseRate}%` })
+                    
+                    monthlyEarnings = personalEarnings + teamOverrideEarnings
+                    
+                    // For non-managers, show simpler display
+                    if (!compPlanDetails.is_manager_plan) {
+                      const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                      let baseRate = compPlanDetails.base_percentage || 0
+                      let appliedBonuses: string[] = []
+                      
+                      if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
+                        for (const tier of compPlanDetails.volume_bonuses) {
+                          const isSalesCount = tier.min_volume < 1000
+                          const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
+                          if (compareValue >= tier.min_volume && tier.bonus_type === 'percentage') {
+                            baseRate += tier.bonus_value
+                            appliedBonuses.push(`+${tier.bonus_value}%`)
+                          }
+                        }
+                      }
+                      
+                      displayRows = [
+                        { label: 'Sales/Month', value: `${calcJobsClosed}` },
+                        { label: 'Avg Sale Price', value: `$${calcAvgSalePrice.toLocaleString()}` },
+                        { label: 'Monthly Volume', value: `$${monthlyVolume.toLocaleString()}` },
+                        { label: 'Base Rate', value: `${compPlanDetails.base_percentage || 0}%` },
+                      ]
+                      if (appliedBonuses.length > 0) {
+                        displayRows.push({ label: 'Bonuses', value: appliedBonuses.join(', ') })
+                      }
+                      displayRows.push({ label: 'Total Rate', value: `${baseRate}%` })
+                    }
                   }
                   
                   return (
