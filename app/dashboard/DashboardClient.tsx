@@ -997,16 +997,16 @@ export default function DashboardClient({
       {/* Comp Plan Modal */}
       {showCompPlanModal && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4"
           onClick={() => setShowCompPlanModal(false)}
         >
           <div 
-            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
+            <div className="p-4 sm:p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900">My Compensation Plan</h2>
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">My Compensation Plan</h2>
                 <button 
                   type="button"
                   onClick={() => setShowCompPlanModal(false)}
@@ -1019,7 +1019,7 @@ export default function DashboardClient({
               </div>
             </div>
             
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               {!hasCompPlan || !compPlanDetails ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1031,32 +1031,32 @@ export default function DashboardClient({
                   <p className="text-gray-500">Contact your manager to get a compensation plan assigned to your account.</p>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-6">
                   {/* Plan Name & Type */}
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-4 text-white">
-                    <p className="text-indigo-100 text-sm">Your Plan</p>
-                    <h3 className="text-2xl font-bold">{compPlanDetails.name}</h3>
-                    <p className="text-indigo-200 text-sm mt-1 capitalize">{compPlanDetails.plan_type.replace('_', ' ')} Plan</p>
+                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-3 sm:p-4 text-white">
+                    <p className="text-indigo-100 text-xs sm:text-sm">Your Plan</p>
+                    <h3 className="text-xl sm:text-2xl font-bold">{compPlanDetails.name}</h3>
+                    <p className="text-indigo-200 text-xs sm:text-sm mt-1 capitalize">{compPlanDetails.plan_type.replace('_', ' ')} Plan</p>
                   </div>
                   
                   {/* Base Rate - varies by plan type */}
-                  <div className="bg-gray-50 rounded-xl p-4">
-                    <h4 className="font-semibold text-gray-900 mb-2">
+                  <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+                    <h4 className="font-semibold text-gray-900 mb-2 text-sm sm:text-base">
                       {compPlanDetails.plan_type === 'hourly' ? 'Hourly Rate' : 
                        compPlanDetails.plan_type === 'unit_based' ? 'Per Unit Rate' :
                        compPlanDetails.plan_type === 'hybrid' ? 'Compensation Components' :
                        'Base Commission Rate'}
                     </h4>
                     {compPlanDetails.plan_type === 'hourly' ? (
-                      <p className="text-2xl font-bold text-green-600">${compPlanDetails.hourly_rate?.toLocaleString() || 0}/hour</p>
+                      <p className="text-xl sm:text-2xl font-bold text-green-600">${compPlanDetails.hourly_rate?.toLocaleString() || 0}/hour</p>
                     ) : compPlanDetails.plan_type === 'flat_rate' ? (
-                      <p className="text-2xl font-bold text-green-600">${(compPlanDetails.flat_rate || compPlanDetails.flat_amount)?.toLocaleString() || 0} per job</p>
+                      <p className="text-xl sm:text-2xl font-bold text-green-600">${(compPlanDetails.flat_rate || compPlanDetails.flat_amount)?.toLocaleString() || 0} per job</p>
                     ) : compPlanDetails.plan_type === 'unit_based' ? (
                       <div>
-                        <p className="text-2xl font-bold text-green-600">
+                        <p className="text-xl sm:text-2xl font-bold text-green-600">
                           ${compPlanDetails.unit_rate?.toLocaleString() || 0} per {compPlanDetails.unit_type || 'unit'}
                         </p>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-xs sm:text-sm text-gray-500 mt-1">
                           {compPlanDetails.unit_type === 'square' && 'Roofing squares (100 sq ft each)'}
                           {compPlanDetails.unit_type === 'kw' && 'Kilowatts of solar installed'}
                           {compPlanDetails.unit_type === 'linear_foot' && 'Linear feet of material'}
@@ -1066,13 +1066,13 @@ export default function DashboardClient({
                     ) : compPlanDetails.plan_type === 'hybrid' && compPlanDetails.hybrid_components ? (
                       <div className="space-y-2">
                         {compPlanDetails.hybrid_components.map((comp, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border">
+                          <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border text-sm">
                             <span className="text-gray-700 capitalize">
                               {comp.type === 'hourly' ? 'Hourly Rate' :
                                comp.type === 'percentage' ? 'Commission' :
                                comp.type === 'flat_per_job' ? 'Per Job' :
                                `Per ${comp.unit_type || 'Unit'}`}
-                              {comp.description && <span className="text-gray-500 text-sm ml-1">({comp.description})</span>}
+                              {comp.description && <span className="text-gray-500 text-xs ml-1">({comp.description})</span>}
                             </span>
                             <span className="font-semibold text-green-600">
                               {comp.type === 'hourly' ? `$${comp.rate}/hr` :
@@ -1084,7 +1084,7 @@ export default function DashboardClient({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-2xl font-bold text-green-600">{compPlanDetails.base_percentage || 0}% of sale</p>
+                      <p className="text-xl sm:text-2xl font-bold text-green-600">{compPlanDetails.base_percentage || 0}% of sale</p>
                     )}
                   </div>
                   
@@ -1118,28 +1118,26 @@ export default function DashboardClient({
                   
                   {/* Volume Bonuses */}
                   {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <h4 className="font-semibold text-gray-900 mb-3">Volume Bonuses</h4>
-                      <p className="text-sm text-gray-600 mb-3">Hit these sales thresholds to earn bonus commissions:</p>
+                    <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Volume Bonuses</h4>
+                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Hit these sales thresholds to earn bonus commissions:</p>
                       <div className="space-y-2">
                         {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                          // Detect if this is a sales-count tier (small min) vs dollar-volume tier
                           const isSalesCount = tier.min_volume < 1000
-                          // For sales count tiers, find the next tier's min to determine the max
                           const nextTier = compPlanDetails.volume_bonuses[idx + 1]
                           const displayMax = isSalesCount && tier.max_volume && tier.max_volume > 100
-                            ? (nextTier ? nextTier.min_volume - 1 : null) // Use next tier's min - 1, or null for infinity
+                            ? (nextTier ? nextTier.min_volume - 1 : null)
                             : tier.max_volume
                           
                           return (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                              <span className="text-gray-700">
+                            <div key={idx} className="flex items-center justify-between p-2 sm:p-3 bg-white rounded-lg border">
+                              <span className="text-gray-700 text-sm">
                                 {isSalesCount 
                                   ? `${tier.min_volume}${displayMax ? ` - ${displayMax}` : '+'} sales`
                                   : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
                                 }
                               </span>
-                              <span className="font-semibold text-green-600">
+                              <span className="font-semibold text-green-600 text-sm">
                                 {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
                               </span>
                             </div>
@@ -1151,16 +1149,16 @@ export default function DashboardClient({
                   
                   {/* Team Overrides (for managers) */}
                   {compPlanDetails.team_overrides && compPlanDetails.team_overrides.length > 0 && (
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <h4 className="font-semibold text-gray-900 mb-3">Team Override Bonuses</h4>
-                      <p className="text-sm text-gray-600 mb-3">Earn overrides on your team's sales:</p>
+                    <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Team Override Bonuses</h4>
+                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Earn overrides on your team's sales:</p>
                       <div className="space-y-2">
                         {compPlanDetails.team_overrides.map((tier: any, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                            <span className="text-gray-700">
-                              Team Volume: ${tier.min_team_volume?.toLocaleString() || 0}+
+                          <div key={idx} className="flex items-center justify-between p-2 sm:p-3 bg-white rounded-lg border">
+                            <span className="text-gray-700 text-sm">
+                              Team: ${tier.min_team_volume?.toLocaleString() || 0}+
                             </span>
-                            <span className="font-semibold text-blue-600">
+                            <span className="font-semibold text-blue-600 text-sm">
                               {tier.override_type === 'percentage' ? `${tier.override_value}%` : `$${tier.override_value}`}
                             </span>
                           </div>
@@ -1171,16 +1169,16 @@ export default function DashboardClient({
                   
                   {/* Custom Readme */}
                   {compPlanDetails.readme && (
-                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-                      <h4 className="font-semibold text-blue-900 mb-2">Additional Details</h4>
-                      <div className="text-sm text-blue-800 whitespace-pre-wrap">{compPlanDetails.readme}</div>
+                    <div className="bg-blue-50 rounded-xl p-3 sm:p-4 border border-blue-100">
+                      <h4 className="font-semibold text-blue-900 mb-2 text-sm sm:text-base">Additional Details</h4>
+                      <div className="text-xs sm:text-sm text-blue-800 whitespace-pre-wrap">{compPlanDetails.readme}</div>
                     </div>
                   )}
                   
                   {/* Tips */}
-                  <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
-                    <h4 className="font-semibold text-amber-900 mb-2">Tips</h4>
-                    <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
+                  <div className="bg-amber-50 rounded-xl p-3 sm:p-4 border border-amber-100">
+                    <h4 className="font-semibold text-amber-900 mb-2 text-sm sm:text-base">Tips</h4>
+                    <ul className="text-xs sm:text-sm text-amber-800 space-y-1 list-disc list-inside">
                       {compPlanDetails.plan_type === 'hourly' ? (
                         <>
                           <li>Log your hours accurately and on time</li>
@@ -1215,16 +1213,16 @@ export default function DashboardClient({
       {/* Comp Calculator Modal */}
       {showCalculatorModal && compPlanDetails && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4"
           onClick={() => setShowCalculatorModal(false)}
         >
           <div 
-            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
+            <div className="p-4 sm:p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900">Comp Calculator</h2>
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Comp Calculator</h2>
                 <button 
                   type="button"
                   onClick={() => setShowCalculatorModal(false)}
@@ -1237,7 +1235,7 @@ export default function DashboardClient({
               </div>
             </div>
             
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
               {/* Calculator Inputs */}
               <div className="space-y-4">
                 <div>
@@ -1246,14 +1244,14 @@ export default function DashboardClient({
                     type="number"
                     value={calcAvgSalePrice}
                     onChange={(e) => setCalcAvgSalePrice(Number(e.target.value))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                   />
-                  <div className="flex gap-2 mt-2">
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                     {[8000, 10000, 13500, 18000, 25000].map(price => (
                       <button
                         key={price}
                         onClick={() => setCalcAvgSalePrice(price)}
-                        className={`px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                        className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                       >
                         ${(price/1000).toFixed(0)}k
                       </button>
@@ -1267,14 +1265,14 @@ export default function DashboardClient({
                     type="number"
                     value={calcJobsClosed}
                     onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                   />
-                  <div className="flex gap-2 mt-2">
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                     {[2, 4, 6, 8, 10, 12].map(jobs => (
                       <button
                         key={jobs}
                         onClick={() => setCalcJobsClosed(jobs)}
-                        className={`px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                        className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                       >
                         {jobs}
                       </button>
@@ -1284,8 +1282,8 @@ export default function DashboardClient({
               </div>
               
               {/* Results */}
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-100">
-                <h4 className="font-semibold text-green-900 mb-4">Estimated Earnings</h4>
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 sm:p-6 border border-green-100">
+                <h4 className="font-semibold text-green-900 mb-3 sm:mb-4 text-sm sm:text-base">Estimated Earnings</h4>
                 
                 {(() => {
                   const monthlyVolume = calcAvgSalePrice * calcJobsClosed
@@ -1321,31 +1319,31 @@ export default function DashboardClient({
                     : monthlyVolume * (baseRate / 100)
                   
                   return (
-                    <div className="space-y-3">
+                    <div className="space-y-2 sm:space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Monthly Volume</span>
-                        <span className="font-semibold text-gray-900">${monthlyVolume.toLocaleString()}</span>
+                        <span className="text-gray-600 text-sm">Monthly Volume</span>
+                        <span className="font-semibold text-gray-900 text-sm">${monthlyVolume.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Commission Rate</span>
-                        <span className="font-semibold text-gray-900">
+                        <span className="text-gray-600 text-sm">Commission Rate</span>
+                        <span className="font-semibold text-gray-900 text-sm">
                           {compPlanDetails.plan_type === 'flat_rate' 
                             ? `$${(compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0).toLocaleString()}/job`
                             : `${baseRate}%`}
                         </span>
                       </div>
-                      <div className="border-t pt-3">
+                      <div className="border-t pt-2 sm:pt-3">
                         <div className="flex justify-between items-center">
-                          <span className="text-gray-700 font-medium">Monthly Commission</span>
-                          <span className="text-2xl font-bold text-green-600">${monthlyCommission.toLocaleString()}</span>
+                          <span className="text-gray-700 font-medium text-sm">Monthly Commission</span>
+                          <span className="text-xl sm:text-2xl font-bold text-green-600">${monthlyCommission.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center mt-2">
-                          <span className="text-gray-600">Annual (x12)</span>
-                          <span className="font-semibold text-green-700">${(monthlyCommission * 12).toLocaleString()}</span>
+                          <span className="text-gray-600 text-sm">Annual (x12)</span>
+                          <span className="font-semibold text-green-700 text-sm">${(monthlyCommission * 12).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center mt-1">
-                          <span className="text-gray-600">Per Job</span>
-                          <span className="font-semibold text-green-700">${calcJobsClosed > 0 ? (monthlyCommission / calcJobsClosed).toLocaleString() : 0}</span>
+                          <span className="text-gray-600 text-sm">Per Job</span>
+                          <span className="font-semibold text-green-700 text-sm">${calcJobsClosed > 0 ? (monthlyCommission / calcJobsClosed).toLocaleString() : 0}</span>
                         </div>
                       </div>
                     </div>
@@ -1355,12 +1353,11 @@ export default function DashboardClient({
               
               {/* Volume Tiers */}
               {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Commission Tiers</h4>
+                <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+                  <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Commission Tiers</h4>
                   <div className="space-y-2">
                     {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
                       const isSalesCount = tier.min_volume < 1000
-                      // For sales count tiers, find the next tier's min to determine the effective max
                       const nextTier = compPlanDetails.volume_bonuses[idx + 1]
                       const effectiveMax = isSalesCount && tier.max_volume && tier.max_volume > 100
                         ? (nextTier ? nextTier.min_volume - 1 : null)
@@ -1371,14 +1368,14 @@ export default function DashboardClient({
                         : (calcAvgSalePrice * calcJobsClosed) >= tier.min_volume && (!tier.max_volume || (calcAvgSalePrice * calcJobsClosed) <= tier.max_volume)
                       
                       return (
-                        <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${isActive ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
-                          <span className={isActive ? 'text-green-800 font-medium' : 'text-gray-700'}>
+                        <div key={idx} className={`flex items-center justify-between p-2 sm:p-3 rounded-lg border ${isActive ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+                          <span className={`text-sm ${isActive ? 'text-green-800 font-medium' : 'text-gray-700'}`}>
                             {isSalesCount 
                               ? `${tier.min_volume}${effectiveMax ? ` - ${effectiveMax}` : '+'} sales`
                               : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
                             }
                           </span>
-                          <span className={`font-semibold ${isActive ? 'text-green-600' : 'text-gray-500'}`}>
+                          <span className={`text-sm font-semibold ${isActive ? 'text-green-600' : 'text-gray-500'}`}>
                             {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
                             {isActive && ' ✓'}
                           </span>
