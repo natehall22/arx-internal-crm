@@ -144,6 +144,27 @@ export default function ProposalDetailPage() {
     setSending(false)
   }
 
+  // Helper to convert image URL to base64 for PDF rendering
+  const imageUrlToBase64 = async (url: string): Promise<string | null> => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        console.error('Failed to fetch image:', response.status)
+        return null
+      }
+      const blob = await response.blob()
+      return new Promise((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.onerror = () => resolve(null)
+        reader.readAsDataURL(blob)
+      })
+    } catch (error) {
+      console.error('Error converting image to base64:', error)
+      return null
+    }
+  }
+
   const generatePDF = async () => {
     if (!proposal) return
     setGenerating(true)
@@ -160,6 +181,17 @@ export default function ProposalDetailPage() {
           : undefined
       }
 
+      // Convert image to base64 for reliable PDF embedding
+      let imageForPdf: string | undefined = undefined
+      if (propertyImageUrl) {
+        const base64Image = await imageUrlToBase64(propertyImageUrl)
+        if (base64Image) {
+          imageForPdf = base64Image
+        } else {
+          console.warn('Could not load property image for PDF, skipping image')
+        }
+      }
+
       // Prepare data for PDF
       const pdfData = {
         proposal: {
@@ -171,7 +203,7 @@ export default function ProposalDetailPage() {
         measurement,
         company,
         rep,
-        satelliteImageUrl: propertyImageUrl,
+        satelliteImageUrl: imageForPdf,
       }
 
       // Generate PDF blob
@@ -230,7 +262,9 @@ export default function ProposalDetailPage() {
       }
 
       const { cover_image_url } = await response.json()
-      setProposal(prev => prev ? { ...prev, cover_image_url } : null)
+      // Add cache-busting parameter to force browser to load new image
+      const cacheBustedUrl = `${cover_image_url}?t=${Date.now()}`
+      setProposal(prev => prev ? { ...prev, cover_image_url: cacheBustedUrl } : null)
       setShowImageModal(false)
     } catch (err) {
       console.error('Error uploading image:', err)
@@ -451,6 +485,7 @@ export default function ProposalDetailPage() {
                 {proposal.cover_image_url ? (
                   <>
                     <img
+                      key={proposal.cover_image_url}
                       src={proposal.cover_image_url}
                       alt={`Property at ${proposal.customer_address}`}
                       className="w-full h-64 object-cover"

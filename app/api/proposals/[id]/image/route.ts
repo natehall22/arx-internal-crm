@@ -165,12 +165,13 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to upload image' }, { status: 500 })
     }
 
-    // Get public URL
+    // Get public URL with cache-busting timestamp
     const { data: urlData } = adminClient.storage
       .from('files')
       .getPublicUrl(filePath)
 
-    const imageUrl = urlData.publicUrl
+    // Add cache-busting parameter to prevent browser caching issues
+    const imageUrl = `${urlData.publicUrl}?t=${timestamp}`
 
     // Update proposal with cover image URL
     const { error: updateError } = await adminClient
