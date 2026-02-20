@@ -86,14 +86,20 @@ const styles = StyleSheet.create({
     margin: 30,
   },
   coverLogo: {
-    marginBottom: 20,
+    marginBottom: 30,
+    alignItems: 'center',
+  },
+  coverLogoImage: {
+    maxWidth: 180,
+    maxHeight: 60,
+    objectFit: 'contain',
   },
   coverLogoText: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'Helvetica-Bold',
-    color: '#64748b',
+    color: '#1e293b',
     textTransform: 'uppercase',
-    letterSpacing: 3,
+    letterSpacing: 2,
   },
   coverTitle: {
     fontSize: 36,
@@ -473,9 +479,13 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
       {/* Cover Page - Printer Friendly */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.coverPage}>
-          {/* Company Name */}
+          {/* Company Logo or Name */}
           <View style={styles.coverLogo}>
-            <Text style={styles.coverLogoText}>{company?.name || 'Your Company'}</Text>
+            {company?.logo_url ? (
+              <Image src={company.logo_url} style={styles.coverLogoImage} />
+            ) : (
+              <Text style={styles.coverLogoText}>{company?.name || 'Your Company'}</Text>
+            )}
           </View>
           
           <Text style={styles.coverTitle}>ROOFING PROPOSAL</Text>

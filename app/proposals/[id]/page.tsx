@@ -183,7 +183,7 @@ export default function ProposalDetailPage() {
           : undefined
       }
 
-      // Convert image to base64 for reliable PDF embedding
+      // Convert property image to base64 for reliable PDF embedding
       let imageForPdf: string | undefined = undefined
       if (propertyImageUrl) {
         const base64Image = await imageUrlToBase64(propertyImageUrl)
@@ -191,6 +191,15 @@ export default function ProposalDetailPage() {
           imageForPdf = base64Image
         } else {
           console.warn('Could not load property image for PDF, skipping image')
+        }
+      }
+
+      // Convert company logo to base64 if it exists
+      let companyForPdf = company ? { ...company } : undefined
+      if (company?.logo_url) {
+        const logoBase64 = await imageUrlToBase64(company.logo_url)
+        if (logoBase64 && companyForPdf) {
+          companyForPdf.logo_url = logoBase64
         }
       }
 
@@ -203,7 +212,7 @@ export default function ProposalDetailPage() {
         },
         lineItems,
         measurement,
-        company,
+        company: companyForPdf,
         rep,
         satelliteImageUrl: imageForPdf,
       }
