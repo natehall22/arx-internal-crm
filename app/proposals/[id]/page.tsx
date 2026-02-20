@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { pdf } from '@react-pdf/renderer'
 import ProposalPDF from '@/components/ProposalPDF'
+import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 
 interface Proposal {
   id: string
@@ -71,6 +72,7 @@ export default function ProposalDetailPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [showImageModal, setShowImageModal] = useState(false)
   const [imageUrlInput, setImageUrlInput] = useState('')
+  const [showSatelliteEditor, setShowSatelliteEditor] = useState(false)
 
   useEffect(() => {
     loadProposal()
@@ -297,6 +299,37 @@ export default function ProposalDetailPage() {
     } catch (err) {
       console.error('Error saving image URL:', err)
       alert('Failed to save image URL')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleSatelliteEditorSave = async (imageBlob: Blob) => {
+    if (!proposal) return
+    setUploadingImage(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('image', imageBlob, 'satellite-crop.jpg')
+
+      const response = await fetch(`/api/proposals/${proposalId}/image`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        alert(`Failed to save image: ${data.error}`)
+        return
+      }
+
+      const { cover_image_url } = await response.json()
+      setProposal(prev => prev ? { ...prev, cover_image_url } : null)
+      setShowSatelliteEditor(false)
+      setShowImageModal(false)
+    } catch (err) {
+      console.error('Error saving satellite image:', err)
+      alert('Failed to save image')
     } finally {
       setUploadingImage(false)
     }
@@ -749,12 +782,18 @@ export default function ProposalDetailPage() {
 
       {/* Image Upload Modal */}
       {showImageModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full my-8">
             <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">Property Image</h2>
+              <h2 className="text-xl font-bold text-gray-900">
+                {showSatelliteEditor ? 'Adjust Satellite View' : 'Property Image'}
+              </h2>
               <button
-                onClick={() => { setShowImageModal(false); setImageUrlInput(''); }}
+                onClick={() => { 
+                  setShowImageModal(false)
+                  setImageUrlInput('')
+                  setShowSatelliteEditor(false)
+                }}
                 className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -763,104 +802,144 @@ export default function ProposalDetailPage() {
               </button>
             </div>
             <div className="p-6">
-              <p className="text-gray-600 mb-6">
-                Upload a photo of the property to display on the proposal PDF. This helps customers identify the correct property.
-              </p>
+              {showSatelliteEditor ? (
+                <SatelliteImageEditor
+                  address={proposal.customer_address}
+                  apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
+                  onSave={handleSatelliteEditorSave}
+                  onCancel={() => setShowSatelliteEditor(false)}
+                />
+              ) : (
+                <>
+                  <p className="text-gray-600 mb-6">
+                    Choose how to set the property image for this proposal.
+                  </p>
 
-              {/* File Upload */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-indigo-400 transition-colors">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,image/webp"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleImageUpload(file)
-                    }}
-                    className="hidden"
-                    id="property-image-upload"
-                    disabled={uploadingImage}
-                  />
-                  <label
-                    htmlFor="property-image-upload"
-                    className="cursor-pointer"
-                  >
-                    {uploadingImage ? (
-                      <div className="flex flex-col items-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2" />
-                        <span className="text-gray-500">Uploading...</span>
-                      </div>
-                    ) : (
-                      <>
-                        <svg className="w-10 h-10 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  {/* Satellite Editor Option */}
+                  {proposal.customer_address && (
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Adjust Satellite View</label>
+                      <button
+                        onClick={() => setShowSatelliteEditor(true)}
+                        className="w-full border-2 border-dashed border-indigo-300 rounded-xl p-6 text-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors group"
+                      >
+                        <svg className="w-10 h-10 text-indigo-400 mx-auto mb-2 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                         </svg>
-                        <p className="text-indigo-600 font-medium">Click to upload</p>
-                        <p className="text-xs text-gray-500 mt-1">PNG, JPG, WEBP up to 5MB</p>
-                      </>
-                    )}
-                  </label>
-                </div>
-              </div>
+                        <p className="text-indigo-600 font-medium group-hover:text-indigo-700">Pan & Zoom Satellite Image</p>
+                        <p className="text-xs text-gray-500 mt-1">Adjust the view to show the correct building</p>
+                      </button>
+                    </div>
+                  )}
 
-              {/* Divider */}
-              <div className="relative mb-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">or</span>
-                </div>
-              </div>
-
-              {/* URL Input */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Image URL</label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={imageUrlInput}
-                    onChange={(e) => setImageUrlInput(e.target.value)}
-                    placeholder="https://example.com/property-photo.jpg"
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    disabled={uploadingImage}
-                  />
-                  <button
-                    onClick={handleImageUrlSave}
-                    disabled={!imageUrlInput.trim() || uploadingImage}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Save
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Paste a direct link to an image (must be publicly accessible)
-                </p>
-              </div>
-
-              {/* Current Image Preview */}
-              {proposal.cover_image_url && (
-                <div className="mt-6 pt-6 border-t">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Image</label>
-                  <div className="rounded-lg overflow-hidden border border-gray-200">
-                    <img
-                      src={proposal.cover_image_url}
-                      alt="Current property"
-                      className="w-full h-40 object-cover"
-                    />
+                  {/* Divider */}
+                  <div className="relative mb-6">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-300" />
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                      <span className="px-2 bg-white text-gray-500">or upload your own</span>
+                    </div>
                   </div>
-                </div>
+
+                  {/* File Upload */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-indigo-400 transition-colors">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleImageUpload(file)
+                        }}
+                        className="hidden"
+                        id="property-image-upload"
+                        disabled={uploadingImage}
+                      />
+                      <label
+                        htmlFor="property-image-upload"
+                        className="cursor-pointer"
+                      >
+                        {uploadingImage ? (
+                          <div className="flex flex-col items-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2" />
+                            <span className="text-gray-500">Uploading...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <svg className="w-10 h-10 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <p className="text-indigo-600 font-medium">Click to upload</p>
+                            <p className="text-xs text-gray-500 mt-1">PNG, JPG, WEBP up to 5MB</p>
+                          </>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="relative mb-6">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-300" />
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                      <span className="px-2 bg-white text-gray-500">or paste URL</span>
+                    </div>
+                  </div>
+
+                  {/* URL Input */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Image URL</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={imageUrlInput}
+                        onChange={(e) => setImageUrlInput(e.target.value)}
+                        placeholder="https://example.com/property-photo.jpg"
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        disabled={uploadingImage}
+                      />
+                      <button
+                        onClick={handleImageUrlSave}
+                        disabled={!imageUrlInput.trim() || uploadingImage}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Save
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Paste a direct link to an image (must be publicly accessible)
+                    </p>
+                  </div>
+
+                  {/* Current Image Preview */}
+                  {proposal.cover_image_url && (
+                    <div className="mt-6 pt-6 border-t">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Current Image</label>
+                      <div className="rounded-lg overflow-hidden border border-gray-200">
+                        <img
+                          src={proposal.cover_image_url}
+                          alt="Current property"
+                          className="w-full h-40 object-cover"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
-            <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-3">
-              <button
-                onClick={() => { setShowImageModal(false); setImageUrlInput(''); }}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-            </div>
+            {!showSatelliteEditor && (
+              <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-3">
+                <button
+                  onClick={() => { setShowImageModal(false); setImageUrlInput(''); }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
