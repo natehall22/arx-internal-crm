@@ -47,19 +47,23 @@ export default function Nav() {
         if (profile?.org_id) {
           const { data: org, error: orgError } = await supabase
             .from('orgs')
-            .select('name, logo_url, settings')
+            .select('*')
             .eq('id', profile.org_id)
             .single()
           
-          console.log('Nav: Loaded org data:', { org, orgError })
+          console.log('Nav: Full org data:', JSON.stringify(org, null, 2))
+          console.log('Nav: Org error:', orgError)
           
           if (org) {
             if (org.name) {
+              console.log('Nav: Setting company name to:', org.name)
               setCompanyName(org.name)
             }
             // Check for logo_url in column or settings
-            const logoUrl = org.logo_url || org.settings?.logo_url
-            console.log('Nav: Logo URL from DB:', logoUrl)
+            const logoUrl = org.logo_url || (org.settings as any)?.logo_url
+            console.log('Nav: logo_url column:', org.logo_url)
+            console.log('Nav: settings.logo_url:', (org.settings as any)?.logo_url)
+            console.log('Nav: Final logoUrl:', logoUrl)
             if (logoUrl) {
               // Add cache-busting timestamp for logo
               const logoWithCacheBust = logoUrl.includes('?') 
@@ -68,6 +72,7 @@ export default function Nav() {
               console.log('Nav: Setting logo with cache bust:', logoWithCacheBust)
               setCompanyLogo(logoWithCacheBust)
             } else {
+              console.log('Nav: No logo URL found, setting to null')
               setCompanyLogo(null)
             }
           }
