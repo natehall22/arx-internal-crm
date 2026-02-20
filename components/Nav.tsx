@@ -46,6 +46,7 @@ export default function Nav() {
 
         // Load org info for company name and logo
         if (profile?.org_id) {
+          // Add cache-busting to ensure fresh data
           const { data: org } = await supabase
             .from('orgs')
             .select('name, logo_url, settings')
@@ -59,7 +60,13 @@ export default function Nav() {
             // Check for logo_url in column or settings
             const logoUrl = org.logo_url || org.settings?.logo_url
             if (logoUrl) {
-              setCompanyLogo(logoUrl)
+              // Add cache-busting timestamp for logo
+              const logoWithCacheBust = logoUrl.includes('?') 
+                ? `${logoUrl}&_t=${Date.now()}` 
+                : `${logoUrl}?_t=${Date.now()}`
+              setCompanyLogo(logoWithCacheBust)
+            } else {
+              setCompanyLogo(null)
             }
           }
         }
@@ -87,6 +94,50 @@ export default function Nav() {
     
     loadUserRoleAndPermissions()
   }, [])
+
+  // Re-fetch org data when navigating away from settings (to pick up changes)
+  useEffect(() => {
+    const fetchOrgData = async () => {
+      if (!supabaseRef.current) return
+      
+      const { data: { user } } = await supabaseRef.current.auth.getUser()
+      if (!user) return
+
+      const { data: profile } = await supabaseRef.current
+        .from('users')
+        .select('org_id')
+        .eq('id', user.id)
+        .single()
+
+      if (profile?.org_id) {
+        const { data: org } = await supabaseRef.current
+          .from('orgs')
+          .select('name, logo_url, settings')
+          .eq('id', profile.org_id)
+          .single()
+        
+        if (org) {
+          if (org.name) {
+            setCompanyName(org.name)
+          }
+          const logoUrl = org.logo_url || org.settings?.logo_url
+          if (logoUrl) {
+            const logoWithCacheBust = logoUrl.includes('?') 
+              ? `${logoUrl}&_t=${Date.now()}` 
+              : `${logoUrl}?_t=${Date.now()}`
+            setCompanyLogo(logoWithCacheBust)
+          } else {
+            setCompanyLogo(null)
+          }
+        }
+      }
+    }
+
+    // Only re-fetch when navigating away from settings
+    if (!pathname.includes('/settings') && !pathname.includes('/admin')) {
+      fetchOrgData()
+    }
+  }, [pathname])
 
   const handleLogout = async () => {
     try {
