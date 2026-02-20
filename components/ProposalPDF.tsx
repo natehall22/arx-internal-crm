@@ -74,57 +74,83 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     backgroundColor: '#ffffff',
   },
-  // Cover Page
+  // Cover Page - Printer friendly (white background, minimal ink)
   coverPage: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
-    padding: 40,
+    backgroundColor: '#ffffff',
+    padding: 50,
+    borderWidth: 3,
+    borderColor: '#1e293b',
+    margin: 30,
+  },
+  coverLogo: {
+    marginBottom: 20,
+  },
+  coverLogoText: {
+    fontSize: 14,
+    fontFamily: 'Helvetica-Bold',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 3,
   },
   coverTitle: {
-    fontSize: 42,
+    fontSize: 36,
     fontFamily: 'Helvetica-Bold',
-    color: '#ffffff',
-    marginBottom: 20,
+    color: '#1e293b',
+    marginBottom: 8,
     textAlign: 'center',
   },
   coverSubtitle: {
-    fontSize: 18,
-    color: '#94a3b8',
-    marginBottom: 40,
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 50,
     textAlign: 'center',
   },
+  coverDivider: {
+    width: 80,
+    height: 3,
+    backgroundColor: '#3b82f6',
+    marginBottom: 50,
+  },
   coverCustomer: {
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: 'Helvetica-Bold',
-    color: '#ffffff',
+    color: '#1e293b',
     marginBottom: 8,
     textAlign: 'center',
   },
   coverAddress: {
-    fontSize: 14,
-    color: '#94a3b8',
+    fontSize: 12,
+    color: '#64748b',
     textAlign: 'center',
+    marginBottom: 50,
   },
   coverPrice: {
-    marginTop: 60,
-    padding: 30,
-    backgroundColor: '#334155',
-    borderRadius: 12,
+    padding: 25,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
     alignItems: 'center',
+    backgroundColor: '#f8fafc',
   },
   coverPriceLabel: {
-    fontSize: 12,
-    color: '#94a3b8',
+    fontSize: 11,
+    color: '#64748b',
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 2,
   },
   coverPriceValue: {
-    fontSize: 48,
+    fontSize: 42,
     fontFamily: 'Helvetica-Bold',
-    color: '#22c55e',
+    color: '#1e293b',
+  },
+  coverDate: {
+    marginTop: 40,
+    fontSize: 10,
+    color: '#94a3b8',
   },
   // Header
   header: {
@@ -444,19 +470,34 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
 
   return (
     <Document>
-      {/* Cover Page */}
+      {/* Cover Page - Printer Friendly */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.coverPage}>
+          {/* Company Name */}
+          <View style={styles.coverLogo}>
+            <Text style={styles.coverLogoText}>{company?.name || 'Your Company'}</Text>
+          </View>
+          
           <Text style={styles.coverTitle}>ROOFING PROPOSAL</Text>
           <Text style={styles.coverSubtitle}>Professional Roofing Services</Text>
           
+          {/* Decorative divider */}
+          <View style={styles.coverDivider} />
+          
+          {/* Customer Info */}
           <Text style={styles.coverCustomer}>{proposal.customer_name}</Text>
           <Text style={styles.coverAddress}>{proposal.customer_address}</Text>
           
+          {/* Price Box */}
           <View style={styles.coverPrice}>
             <Text style={styles.coverPriceLabel}>Your Investment</Text>
             <Text style={styles.coverPriceValue}>{formatCurrency(proposal.total)}</Text>
           </View>
+          
+          {/* Date */}
+          <Text style={styles.coverDate}>
+            Proposal Date: {formatDate(proposal.created_at)}
+          </Text>
         </View>
       </Page>
 
