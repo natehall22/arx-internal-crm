@@ -2,7 +2,6 @@
 
 import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -46,12 +45,13 @@ export default function Nav() {
 
         // Load org info for company name and logo
         if (profile?.org_id) {
-          // Add cache-busting to ensure fresh data
-          const { data: org } = await supabase
+          const { data: org, error: orgError } = await supabase
             .from('orgs')
             .select('name, logo_url, settings')
             .eq('id', profile.org_id)
             .single()
+          
+          console.log('Nav: Loaded org data:', { org, orgError })
           
           if (org) {
             if (org.name) {
@@ -59,11 +59,13 @@ export default function Nav() {
             }
             // Check for logo_url in column or settings
             const logoUrl = org.logo_url || org.settings?.logo_url
+            console.log('Nav: Logo URL from DB:', logoUrl)
             if (logoUrl) {
               // Add cache-busting timestamp for logo
               const logoWithCacheBust = logoUrl.includes('?') 
                 ? `${logoUrl}&_t=${Date.now()}` 
                 : `${logoUrl}?_t=${Date.now()}`
+              console.log('Nav: Setting logo with cache bust:', logoWithCacheBust)
               setCompanyLogo(logoWithCacheBust)
             } else {
               setCompanyLogo(null)
@@ -203,15 +205,15 @@ export default function Nav() {
           <div className="flex-shrink-0">
             <Link href={isOpsOnly ? '/ops/dashboard' : '/dashboard'} className="flex items-center gap-2 text-xl font-bold whitespace-nowrap">
               {companyLogo ? (
-                <div className="relative w-8 h-8 rounded overflow-hidden bg-white/10">
-                  <Image
-                    src={companyLogo}
-                    alt={companyName}
-                    fill
-                    className="object-contain"
-                    unoptimized
-                  />
-                </div>
+                <img
+                  src={companyLogo}
+                  alt={companyName}
+                  className="w-8 h-8 rounded object-contain bg-white/10"
+                  onError={(e) => {
+                    console.error('Logo failed to load:', companyLogo)
+                    setCompanyLogo(null)
+                  }}
+                />
               ) : null}
               <span className="hidden sm:inline">{companyName}</span>
               {/* Show abbreviated name on very small screens if no logo */}
