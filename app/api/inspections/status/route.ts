@@ -175,7 +175,16 @@ export async function POST(request: NextRequest) {
 
     // Notify setter - always notify when feedback is submitted (unless closer is the setter)
     if (appointment.canvasser_user_id && appointment.canvasser_user_id !== user.id) {
-      await supabase
+      console.log('Creating notification for setter:', appointment.canvasser_user_id)
+      console.log('Notification data:', {
+        org_id: profile.org_id,
+        recipient_user_id: appointment.canvasser_user_id,
+        actor_user_id: user.id,
+        type: 'inspection_outcome',
+        title: `Inspection Result: ${outcomeLabels[outcome]} - ${customerName}`,
+      })
+      
+      const { error: notificationError } = await supabase
         .from('notifications')
         .insert({
           org_id: profile.org_id,
@@ -186,6 +195,12 @@ export async function POST(request: NextRequest) {
           body: notificationBody,
           data: notificationData,
         })
+      
+      if (notificationError) {
+        console.error('Failed to create setter notification:', notificationError)
+      } else {
+        console.log('Setter notification created successfully')
+      }
       
       // Get setter's manager and notify them
       const { data: setter } = await supabase

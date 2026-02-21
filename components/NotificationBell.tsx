@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import type { Notification } from '@/lib/types/database'
 
 export default function NotificationBell() {
@@ -120,14 +121,23 @@ export default function NotificationBell() {
         <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border z-[100] overflow-hidden">
           <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
             <h3 className="font-semibold text-gray-900">Notifications</h3>
-            {unreadCount > 0 && (
-              <button
-                onClick={() => markAsRead()}
-                className="text-sm text-indigo-600 hover:text-indigo-700"
+            <div className="flex items-center gap-3">
+              {unreadCount > 0 && (
+                <button
+                  onClick={() => markAsRead()}
+                  className="text-sm text-indigo-600 hover:text-indigo-700"
+                >
+                  Mark all read
+                </button>
+              )}
+              <Link
+                href="/notifications"
+                className="text-sm text-gray-500 hover:text-gray-700"
+                onClick={() => setIsOpen(false)}
               >
-                Mark all read
-              </button>
-            )}
+                View all
+              </Link>
+            </div>
           </div>
 
           <div className="max-h-96 overflow-y-auto">
