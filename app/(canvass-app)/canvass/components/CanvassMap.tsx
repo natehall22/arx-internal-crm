@@ -10,6 +10,9 @@ declare const google: any
 // Union type for both pin formats
 type AnyPin = CanvassPin | ViewportPin
 
+// Bounds type for viewport mode (google.maps.LatLngBounds at runtime)
+type MapBounds = any
+
 interface Props {
   pins: AnyPin[]
   currentPosition: { lat: number; lng: number } | null
@@ -17,7 +20,7 @@ interface Props {
   onPinClick: (pin: AnyPin) => void
   onAddressSelect?: (lat: number, lng: number, address: string) => void
   // Viewport mode props
-  onBoundsChanged?: (bounds: google.maps.LatLngBounds, zoom: number) => void
+  onBoundsChanged?: (bounds: MapBounds, zoom: number) => void
   isViewportMode?: boolean
   viewportLoading?: boolean
   totalPinsLoaded?: number

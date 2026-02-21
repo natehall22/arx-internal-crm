@@ -29,10 +29,5 @@ CREATE INDEX IF NOT EXISTS idx_leads_owner_geo
 ON leads (owner_user_id, lat, lng) 
 WHERE lat IS NOT NULL AND lng IS NOT NULL;
 
--- Same indexes for jobs table (if needed for job pins on map)
-CREATE INDEX IF NOT EXISTS idx_jobs_lat_lng_org 
-ON jobs (org_id, lat, lng) 
-WHERE lat IS NOT NULL AND lng IS NOT NULL;
-
 -- Add comment explaining the indexes
 COMMENT ON INDEX idx_leads_lat_lng_org IS 'Primary index for viewport-based map loading. Supports bounding box queries with org scoping.';

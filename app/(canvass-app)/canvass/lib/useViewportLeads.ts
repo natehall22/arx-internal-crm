@@ -49,8 +49,11 @@ const DEBOUNCE_MS = 250
 const MIN_ZOOM_FOR_FETCH = 10
 const TILE_PRECISION = 3  // Decimal places for tile keys (lower = larger tiles)
 
+// Bounds type (google.maps.LatLngBounds at runtime)
+type MapBounds = any
+
 // Generate tile key from bounds and zoom
-function getTileKey(bounds: google.maps.LatLngBounds, zoom: number): string {
+function getTileKey(bounds: MapBounds, zoom: number): string {
   const ne = bounds.getNorthEast()
   const sw = bounds.getSouthWest()
   const zoomBucket = Math.floor(zoom / 2) * 2  // Bucket: 10, 12, 14, 16, 18, 20
@@ -83,7 +86,7 @@ interface UseViewportLeadsReturn {
   error: string | null
   hasMore: boolean
   totalLoaded: number
-  fetchForBounds: (bounds: google.maps.LatLngBounds, zoom: number) => void
+  fetchForBounds: (bounds: MapBounds, zoom: number) => void
   getPinDetails: (id: string) => Promise<FullPinData | null>
   clearCache: () => void
   // Disposition filter
@@ -130,7 +133,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     }
   }, [])
 
-  const fetchForBounds = useCallback((bounds: google.maps.LatLngBounds, zoom: number) => {
+  const fetchForBounds = useCallback((bounds: MapBounds, zoom: number) => {
     // Clear pending debounce
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)

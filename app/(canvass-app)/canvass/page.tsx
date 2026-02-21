@@ -16,6 +16,9 @@ type MapDataMode = 'ALL_LEADS' | 'VIEWPORT'
 // Declare google as a global variable for TypeScript
 declare const google: any
 
+// Bounds type (google.maps.LatLngBounds at runtime)
+type MapBounds = any
+
 export type CanvassPin = {
   id: string
   lat: number
@@ -180,7 +183,7 @@ export default function CanvassPage() {
   }
 
   // Handler for map bounds change (viewport mode only)
-  const handleBoundsChanged = useCallback((bounds: google.maps.LatLngBounds, zoom: number) => {
+  const handleBoundsChanged = useCallback((bounds: MapBounds, zoom: number) => {
     if (mapDataMode === 'VIEWPORT') {
       fetchForBounds(bounds, zoom)
     }
