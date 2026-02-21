@@ -106,7 +106,9 @@ export async function POST(
 
     // Get the form data
     const formData = await request.formData()
-    const file = formData.get('image') as File
+    const file = formData.get('image') as File || formData.get('file') as File
+    const imageType = formData.get('type') as string || 'property' // 'property' or 'inspection'
+    const imageIndex = formData.get('index') as string || '0'
     
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
@@ -127,28 +129,32 @@ export async function POST(
       }, { status: 400 })
     }
 
-    // Generate file path
+    // Generate file path based on type
     const fileExt = file.name.split('.').pop() || 'jpg'
     const timestamp = Date.now()
-    const filePath = `proposals/${profile.org_id}/${params.id}/property-${timestamp}.${fileExt}`
+    const filePath = imageType === 'inspection'
+      ? `proposals/${profile.org_id}/${params.id}/inspection-${imageIndex}-${timestamp}.${fileExt}`
+      : `proposals/${profile.org_id}/${params.id}/property-${timestamp}.${fileExt}`
 
     // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
-    // Delete old property image if exists
-    const { data: existingFiles } = await adminClient.storage
-      .from('files')
-      .list(`proposals/${profile.org_id}/${params.id}`, {
-        search: 'property-'
-      })
+    // For property images, delete old ones first
+    if (imageType === 'property') {
+      const { data: existingFiles } = await adminClient.storage
+        .from('files')
+        .list(`proposals/${profile.org_id}/${params.id}`, {
+          search: 'property-'
+        })
 
-    if (existingFiles && existingFiles.length > 0) {
-      const oldFiles = existingFiles.filter(f => f.name.startsWith('property-'))
-      for (const oldFile of oldFiles) {
-        await adminClient.storage
-          .from('files')
-          .remove([`proposals/${profile.org_id}/${params.id}/${oldFile.name}`])
+      if (existingFiles && existingFiles.length > 0) {
+        const oldFiles = existingFiles.filter(f => f.name.startsWith('property-'))
+        for (const oldFile of oldFiles) {
+          await adminClient.storage
+            .from('files')
+            .remove([`proposals/${profile.org_id}/${params.id}/${oldFile.name}`])
+        }
       }
     }
 
@@ -173,20 +179,30 @@ export async function POST(
     // Add cache-busting parameter to prevent browser caching issues
     const imageUrl = `${urlData.publicUrl}?t=${timestamp}`
 
-    // Update proposal with cover image URL
-    const { error: updateError } = await adminClient
-      .from('proposals')
-      .update({ cover_image_url: imageUrl })
-      .eq('id', params.id)
+    // For property images, update proposal with cover image URL
+    if (imageType === 'property') {
+      const { error: updateError } = await adminClient
+        .from('proposals')
+        .update({ cover_image_url: imageUrl })
+        .eq('id', params.id)
 
-    if (updateError) {
-      console.error('Update error:', updateError)
-      return NextResponse.json({ error: 'Failed to update proposal' }, { status: 500 })
+      if (updateError) {
+        console.error('Update error:', updateError)
+        return NextResponse.json({ error: 'Failed to update proposal' }, { status: 500 })
+      }
+
+      return NextResponse.json({ 
+        success: true,
+        cover_image_url: imageUrl,
+      })
     }
 
+    // For inspection photos, just return the URL
     return NextResponse.json({ 
       success: true,
-      cover_image_url: imageUrl,
+      url: imageUrl,
+      type: imageType,
+      index: imageIndex,
     })
   } catch (error) {
     console.error('Image upload error:', error)

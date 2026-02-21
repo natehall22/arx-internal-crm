@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { pdf } from '@react-pdf/renderer'
 import ProposalPDF from '@/components/ProposalPDF'
+import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 
 interface Proposal {
@@ -73,6 +74,24 @@ export default function ProposalDetailPage() {
   const [showImageModal, setShowImageModal] = useState(false)
   const [imageUrlInput, setImageUrlInput] = useState('')
   const [showSatelliteEditor, setShowSatelliteEditor] = useState(false)
+  
+  // New PDF v2 options
+  const [showPdfOptions, setShowPdfOptions] = useState(false)
+  const [pdfTheme, setPdfTheme] = useState<'dark' | 'print'>('print')
+  const [useNewPdf, setUseNewPdf] = useState(true)
+  
+  // Financing options
+  const [financingType, setFinancingType] = useState<'cash' | 'financed'>('cash')
+  const [financingTermMonths, setFinancingTermMonths] = useState(60)
+  const [financingInterestRate, setFinancingInterestRate] = useState(9.99)
+  
+  // Inspection photos
+  const [inspectionPhotos, setInspectionPhotos] = useState<string[]>([])
+  const [uploadingInspectionPhoto, setUploadingInspectionPhoto] = useState(false)
+  
+  // Inspection notes
+  const [inspectionNotes, setInspectionNotes] = useState<string[]>([])
+  const [newInspectionNote, setNewInspectionNote] = useState('')
 
   useEffect(() => {
     loadProposal()
@@ -224,8 +243,68 @@ export default function ProposalDetailPage() {
       }
       console.log('PDF Generation - Full PDF data:', pdfData)
 
-      // Generate PDF blob
-      const blob = await pdf(<ProposalPDF data={pdfData} />).toBlob()
+      // Generate PDF blob - use new or old PDF based on toggle
+      let blob: Blob
+      if (useNewPdf) {
+        // Calculate monthly payment if financing
+        let monthlyPayment: number | undefined
+        if (financingType === 'financed' && financingTermMonths > 0) {
+          const principal = proposal.total
+          const monthlyRate = financingInterestRate / 100 / 12
+          if (monthlyRate > 0) {
+            monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)
+          } else {
+            monthlyPayment = principal / financingTermMonths
+          }
+        }
+
+        // Convert inspection photos to base64
+        const inspectionPhotosBase64: string[] = []
+        for (const photoUrl of inspectionPhotos) {
+          const base64 = await imageUrlToBase64(photoUrl)
+          if (base64) inspectionPhotosBase64.push(base64)
+        }
+
+        const pdfDataV2 = {
+          proposal: {
+            id: proposal.id,
+            proposal_number: proposal.proposal_number,
+            customer_name: proposal.customer_name,
+            customer_email: proposal.customer_email,
+            customer_phone: proposal.customer_phone,
+            customer_address: proposal.customer_address,
+            title: proposal.title,
+            status: proposal.status,
+            subtotal: proposal.subtotal,
+            discount_amount: proposal.discount_amount,
+            discount_percent: proposal.discount_percent,
+            tax_rate: proposal.tax_rate,
+            tax_amount: proposal.tax_amount,
+            total: proposal.total,
+            scope_of_work: proposal.scope_of_work,
+            created_at: proposal.created_at,
+          },
+          lineItems,
+          measurement,
+          company: companyForPdf,
+          rep,
+          financing: {
+            enabled: financingType === 'financed',
+            type: financingType,
+            term_months: financingTermMonths,
+            interest_rate: financingInterestRate,
+            monthly_payment: monthlyPayment,
+          },
+          photos: {
+            property: imageForPdf,
+            inspection: inspectionPhotosBase64.length > 0 ? inspectionPhotosBase64 : undefined,
+          },
+          inspectionNotes: inspectionNotes.length > 0 ? inspectionNotes : undefined,
+        }
+        blob = await pdf(<ProposalPDFv2 data={pdfDataV2} theme={pdfTheme} />).toBlob()
+      } else {
+        blob = await pdf(<ProposalPDF data={pdfData} />).toBlob()
+      }
       
       // Create filename
       const filename = `${proposal.proposal_number}_${proposal.customer_name.replace(/\s+/g, '_')}.pdf`
@@ -451,25 +530,174 @@ export default function ProposalDetailPage() {
                 View PDF
               </a>
             )}
-            <button
-              onClick={generatePDF}
-              disabled={generating}
-              className="px-4 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2"
-            >
-              {generating ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  {proposal.pdf_url ? 'Regenerate PDF' : 'Generate PDF'}
-                </>
+            <div className="relative">
+              <button
+                onClick={() => setShowPdfOptions(!showPdfOptions)}
+                className="px-4 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                PDF Options
+                <svg className={`w-4 h-4 transition-transform ${showPdfOptions ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {/* PDF Options Dropdown */}
+              {showPdfOptions && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50 p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">PDF Generation Options</h4>
+                  
+                  {/* Theme Toggle */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Theme</label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setPdfTheme('print')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                          pdfTheme === 'print' 
+                            ? 'bg-gray-900 text-white' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        Print (Light)
+                      </button>
+                      <button
+                        onClick={() => setPdfTheme('dark')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                          pdfTheme === 'dark' 
+                            ? 'bg-gray-900 text-white' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        Dark (iPad)
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {pdfTheme === 'print' ? 'Ink-friendly for printing' : 'Luxury dark theme for presentations'}
+                    </p>
+                  </div>
+                  
+                  {/* Financing Options */}
+                  <div className="mb-4 pt-3 border-t">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Payment Type</label>
+                    <div className="flex gap-2 mb-2">
+                      <button
+                        onClick={() => setFinancingType('cash')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                          financingType === 'cash' 
+                            ? 'bg-green-600 text-white' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        Cash
+                      </button>
+                      <button
+                        onClick={() => setFinancingType('financed')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                          financingType === 'financed' 
+                            ? 'bg-blue-600 text-white' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        Financed
+                      </button>
+                    </div>
+                    
+                    {financingType === 'financed' && (
+                      <div className="space-y-2 mt-3 p-3 bg-blue-50 rounded-lg">
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <label className="block text-xs text-gray-600 mb-1">Term (months)</label>
+                            <select
+                              value={financingTermMonths}
+                              onChange={(e) => setFinancingTermMonths(Number(e.target.value))}
+                              className="w-full px-2 py-1.5 border rounded text-sm"
+                            >
+                              <option value={36}>36 months</option>
+                              <option value={48}>48 months</option>
+                              <option value={60}>60 months</option>
+                              <option value={72}>72 months</option>
+                              <option value={84}>84 months</option>
+                              <option value={120}>120 months</option>
+                              <option value={144}>144 months</option>
+                              <option value={180}>180 months</option>
+                            </select>
+                          </div>
+                          <div className="flex-1">
+                            <label className="block text-xs text-gray-600 mb-1">APR %</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={financingInterestRate}
+                              onChange={(e) => setFinancingInterestRate(Number(e.target.value))}
+                              className="w-full px-2 py-1.5 border rounded text-sm"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-blue-700">
+                          Est. ${(() => {
+                            const principal = proposal.total
+                            const monthlyRate = financingInterestRate / 100 / 12
+                            if (monthlyRate > 0) {
+                              return (principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)).toFixed(2)
+                            }
+                            return (principal / financingTermMonths).toFixed(2)
+                          })()}/month
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Use New PDF Toggle */}
+                  <div className="mb-4 pt-3 border-t">
+                    <label className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Use New PDF Design</span>
+                      <button
+                        onClick={() => setUseNewPdf(!useNewPdf)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          useNewPdf ? 'bg-indigo-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            useNewPdf ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {useNewPdf ? '6-page ARX branded proposal' : 'Legacy 2-page proposal'}
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      setShowPdfOptions(false)
+                      generatePDF()
+                    }}
+                    disabled={generating}
+                    className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {generating ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Generate PDF
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
-            </button>
+            </div>
             {proposal.status === 'draft' && (
               <button
                 onClick={sendProposal}
@@ -662,6 +890,162 @@ export default function ProposalDetailPage() {
                 <p className="text-gray-900 whitespace-pre-wrap">{proposal.scope_of_work}</p>
               </div>
             )}
+
+            {/* Inspection Notes */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold text-gray-900">Inspection Notes</h3>
+                <span className="text-sm text-gray-500">{inspectionNotes.length} note{inspectionNotes.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="border rounded-xl p-4 bg-gray-50">
+                {inspectionNotes.length > 0 && (
+                  <ul className="space-y-2 mb-4">
+                    {inspectionNotes.map((note, index) => (
+                      <li key={index} className="flex items-start gap-2 bg-white p-3 rounded-lg border">
+                        <span className="text-amber-500 mt-0.5">•</span>
+                        <span className="flex-1 text-gray-700">{note}</span>
+                        <button
+                          onClick={() => setInspectionNotes(prev => prev.filter((_, i) => i !== index))}
+                          className="text-gray-400 hover:text-red-500"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newInspectionNote}
+                    onChange={(e) => setNewInspectionNote(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && newInspectionNote.trim()) {
+                        setInspectionNotes(prev => [...prev, newInspectionNote.trim()])
+                        setNewInspectionNote('')
+                      }
+                    }}
+                    placeholder="Add inspection finding (e.g., 'Missing shingles on north slope')"
+                    className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                  />
+                  <button
+                    onClick={() => {
+                      if (newInspectionNote.trim()) {
+                        setInspectionNotes(prev => [...prev, newInspectionNote.trim()])
+                        setNewInspectionNote('')
+                      }
+                    }}
+                    disabled={!newInspectionNote.trim()}
+                    className="px-4 py-2 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Add
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  These notes will appear in the "Inspection Findings" section of the PDF.
+                </p>
+              </div>
+            </div>
+
+            {/* Inspection Photos */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold text-gray-900">Inspection Photos</h3>
+                <span className="text-sm text-gray-500">{inspectionPhotos.length}/6 photos</span>
+              </div>
+              <div className="border rounded-xl p-4 bg-gray-50">
+                {inspectionPhotos.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    {inspectionPhotos.map((photo, index) => (
+                      <div key={index} className="relative group aspect-video rounded-lg overflow-hidden border">
+                        <img src={photo} alt={`Inspection photo ${index + 1}`} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <button
+                            onClick={() => setInspectionPhotos(prev => prev.filter((_, i) => i !== index))}
+                            className="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/50 text-white text-xs rounded">
+                          {index + 1}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-gray-500">
+                    <svg className="w-10 h-10 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <p className="text-sm">No inspection photos added yet</p>
+                  </div>
+                )}
+                
+                {inspectionPhotos.length < 6 && (
+                  <div className="flex items-center gap-2">
+                    <label className="flex-1">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploadingInspectionPhoto}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          
+                          setUploadingInspectionPhoto(true)
+                          try {
+                            const formData = new FormData()
+                            formData.append('file', file)
+                            formData.append('type', 'inspection')
+                            formData.append('index', String(inspectionPhotos.length))
+                            
+                            const response = await fetch(`/api/proposals/${proposalId}/image`, {
+                              method: 'POST',
+                              body: formData,
+                            })
+                            
+                            if (response.ok) {
+                              const data = await response.json()
+                              setInspectionPhotos(prev => [...prev, data.url])
+                            } else {
+                              alert('Failed to upload photo')
+                            }
+                          } catch (err) {
+                            console.error('Upload error:', err)
+                            alert('Failed to upload photo')
+                          }
+                          setUploadingInspectionPhoto(false)
+                          e.target.value = ''
+                        }}
+                      />
+                      <div className={`flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition ${uploadingInspectionPhoto ? 'opacity-50 cursor-wait' : ''}`}>
+                        {uploadingInspectionPhoto ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600" />
+                            <span className="text-sm text-gray-600">Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                            <span className="text-sm text-gray-600">Add Photo</span>
+                          </>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                )}
+                
+                <p className="text-xs text-gray-500 mt-2">
+                  Add up to 6 inspection photos. These will appear on a dedicated page in the PDF if any are added.
+                </p>
+              </div>
+            </div>
 
             {/* Line Items (Admin Only) */}
             {userRole === 'admin' && lineItems.length > 0 && (
