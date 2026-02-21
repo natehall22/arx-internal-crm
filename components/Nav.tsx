@@ -181,7 +181,7 @@ export default function Nav() {
     { href: '/opportunities', label: 'Opportunities', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/ops', label: 'Job Board', roles: ['admin', 'regional_manager', 'operations', 'manager', 'owner'] },
-    { href: '/canvass/map', label: 'Canvass' },
+    { href: '/canvass', label: 'Canvass' },
     { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations', 'owner'], permission: 'pricebook:view' },
     { href: '/customers', label: 'Customers', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/reports', label: 'Reports', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },

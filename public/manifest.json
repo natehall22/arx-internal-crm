@@ -2,7 +2,7 @@
   "name": "ARX CRM - Canvassing",
   "short_name": "ARX",
   "description": "ARX Internal CRM - Door-to-door canvassing with offline support",
-  "start_url": "/canvass/map",
+  "start_url": "/canvass",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",

@@ -6,7 +6,7 @@ const MAP_TILE_CACHE = 'arx-map-tiles-v1'
 // Static assets to cache immediately
 const STATIC_ASSETS = [
   '/',
-  '/canvass/map',
+  '/canvass',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -97,8 +97,8 @@ self.addEventListener('fetch', (event) => {
           if (cachedResponse) {
             return cachedResponse
           }
-          // Return the cached canvass map page as fallback
-          return caches.match('/canvass/map')
+          // Return the cached canvass page as fallback
+          return caches.match('/canvass')
         })
       })
     )

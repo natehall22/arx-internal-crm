@@ -24,6 +24,7 @@ interface Props {
   isViewportMode?: boolean
   viewportLoading?: boolean
   totalPinsLoaded?: number
+  onRefreshArea?: () => void
   // Disposition filter
   dispositionFilter?: string | null
   onDispositionFilterChange?: (d: string | null) => void
@@ -78,6 +79,7 @@ export default function CanvassMap({
   isViewportMode,
   viewportLoading,
   totalPinsLoaded,
+  onRefreshArea,
   dispositionFilter,
   onDispositionFilterChange,
 }: Props) {
@@ -525,7 +527,7 @@ export default function CanvassMap({
         </div>
       )}
 
-      {/* Viewport mode status bar */}
+      {/* Viewport mode status bar - UX CLARITY */}
       {isViewportMode && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 flex items-center gap-2 z-10">
           {viewportLoading ? (
@@ -534,18 +536,30 @@ export default function CanvassMap({
               <span className="text-sm text-gray-600">Loading pins...</span>
             </div>
           ) : (
-            <div className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              </svg>
-              <span>{totalPinsLoaded?.toLocaleString() || pins.length.toLocaleString()} pins</span>
-              {currentZoom < 10 && <span className="opacity-75">• Zoom in for more</span>}
-            </div>
+            <>
+              <div className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                </svg>
+                <span>{totalPinsLoaded?.toLocaleString() || pins.length.toLocaleString()} pins in area</span>
+                {currentZoom < 10 && <span className="opacity-75">• Zoom in for more</span>}
+                {dispositionFilter && <span className="opacity-75">• Filtered</span>}
+              </div>
+              {onRefreshArea && (
+                <button
+                  onClick={onRefreshArea}
+                  className="bg-white text-gray-700 text-xs px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 hover:bg-gray-50 active:bg-gray-100"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Refresh
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
     </div>
   )
 }
-
-// Note: Window.markerClusterer is declared in /app/canvass/map/page.tsx

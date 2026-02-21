@@ -169,14 +169,30 @@ export function useViewportLeads(): UseViewportLeadsReturn {
         const ne = bounds.getNorthEast()
         const sw = bounds.getSouthWest()
         
-        // Build query params
+        // BOUNDS ACCURACY: Add padding buffer to avoid edge dropouts
+        // This ensures pins near viewport edges are included
+        const latPad = (ne.lat() - sw.lat()) * 0.10
+        const lngPad = (ne.lng() - sw.lng()) * 0.10
+        
+        const minLat = sw.lat() - latPad
+        const maxLat = ne.lat() + latPad
+        const minLng = sw.lng() - lngPad
+        const maxLng = ne.lng() + lngPad
+        
+        // Build query params with padded bounds
         const params = new URLSearchParams({
-          minLat: sw.lat().toString(),
-          maxLat: ne.lat().toString(),
-          minLng: sw.lng().toString(),
-          maxLng: ne.lng().toString(),
+          minLat: minLat.toString(),
+          maxLat: maxLat.toString(),
+          minLng: minLng.toString(),
+          maxLng: maxLng.toString(),
           zoom: zoom.toString(),
         })
+        
+        // ANTIMERIDIAN HANDLING: Check if viewport crosses dateline
+        // If minLng > maxLng, the viewport spans across the antimeridian (rare but handled)
+        if (minLng > maxLng) {
+          params.set('crossesAntimeridian', 'true')
+        }
 
         if (dispositionFilter) {
           params.set('disposition', dispositionFilter)
@@ -214,19 +230,33 @@ export function useViewportLeads(): UseViewportLeadsReturn {
         fetchedTilesRef.current.add(fullTileKey)
         saveFetchedTiles()
 
-        // Merge new pins
+        // DEDUP/MERGE: Merge new pins by ID (upsert pattern)
+        // This prevents duplicate pins from overlapping fetches
+        // Latest data wins if a pin is returned multiple times
         setState(prev => {
           const newPins = new Map(prev.pins)
           
           for (const pin of data.pins || []) {
+            // Upsert: replace existing entry or add new one
             newPins.set(pin.id, pin)
+          }
+
+          // DEV LOGGING: Diagnostic info for viewport mode
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Viewport]', {
+              tileKey: fullTileKey,
+              returned: data.pins?.length || 0,
+              storeSize: newPins.size,
+              truncated: data.truncated || false,
+              hasMore: data.hasMore || false,
+            })
           }
 
           return {
             ...prev,
             pins: newPins,
             loading: false,
-            hasMore: data.hasMore || false,
+            hasMore: data.hasMore || data.truncated || false,
             totalLoaded: newPins.size,
             error: null,
           }

@@ -12,6 +12,14 @@ import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLea
 // Map data mode type - matches settings
 type MapDataMode = 'ALL_LEADS' | 'VIEWPORT'
 
+// Global type declarations for Google Maps and MarkerClusterer
+declare global {
+  interface Window {
+    google?: any
+    markerClusterer?: any
+  }
+}
+
 // Declare google as a global variable for TypeScript
 declare const google: any
 
@@ -443,6 +451,7 @@ export default function CanvassPage() {
             isViewportMode={mapDataMode === 'VIEWPORT'}
             viewportLoading={viewportLoading || loadingPinDetails}
             totalPinsLoaded={viewportTotalLoaded}
+            onRefreshArea={mapDataMode === 'VIEWPORT' ? clearViewportCache : undefined}
             dispositionFilter={dispositionFilter}
             onDispositionFilterChange={setDispositionFilter}
           />

@@ -233,12 +233,16 @@ export async function GET(request: NextRequest) {
       t: lead.created_at,          // Timestamp for sorting
     }))
 
+    // SERVER-SIDE LIMIT: Return truncated flag if we hit the limit
+    const truncated = pins.length >= limit
+
     return NextResponse.json({
       pins,
       count: pins.length,
       limit,
       zoom,
-      hasMore: pins.length >= limit,
+      hasMore: truncated,
+      truncated, // Explicit flag for client to show "zoom in for more" message
     })
 
   } catch (err) {
