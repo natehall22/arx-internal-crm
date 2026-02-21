@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type { CanvassPin } from '../page'
 
 interface Props {
@@ -53,10 +53,7 @@ export default function LeadModal({
     disposition: '',
     notes: '',
   })
-  const [showCamera, setShowCamera] = useState(false)
-  const [photos, setPhotos] = useState<string[]>([])
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
+  const [showComingSoon, setShowComingSoon] = useState(false)
   
   // Scheduling state
   const [showScheduling, setShowScheduling] = useState(false)
@@ -164,45 +161,9 @@ export default function LeadModal({
     }
   }
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-      }
-      setShowCamera(true)
-    } catch (err) {
-      console.error('Camera error:', err)
-      alert('Unable to access camera')
-    }
-  }
-
-  const capturePhoto = () => {
-    if (!videoRef.current) return
-
-    const canvas = document.createElement('canvas')
-    canvas.width = videoRef.current.videoWidth
-    canvas.height = videoRef.current.videoHeight
-    const ctx = canvas.getContext('2d')
-    ctx?.drawImage(videoRef.current, 0, 0)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-    setPhotos(prev => [...prev, dataUrl])
-    stopCamera()
-  }
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
-      streamRef.current = null
-    }
-    setShowCamera(false)
-  }
-
-  const removePhoto = (index: number) => {
-    setPhotos(prev => prev.filter((_, i) => i !== index))
+  const handlePhotoClick = () => {
+    setShowComingSoon(true)
+    setTimeout(() => setShowComingSoon(false), 2000)
   }
 
   // Generate next 7 days for date selection
@@ -239,32 +200,6 @@ export default function LeadModal({
             </svg>
           </button>
         </div>
-
-        {/* Camera View */}
-        {showCamera && (
-          <div className="relative bg-black">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              className="w-full h-64 object-cover"
-            />
-            <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4">
-              <button
-                onClick={stopCamera}
-                className="w-12 h-12 bg-gray-600 text-white rounded-full"
-              >
-                <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-              <button
-                onClick={capturePhoto}
-                className="w-16 h-16 bg-white rounded-full border-4 border-gray-300"
-              />
-            </div>
-          </div>
-        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
@@ -504,35 +439,24 @@ export default function LeadModal({
                 Photos
               </label>
               <div className="flex gap-2 flex-wrap">
-                {photos.map((photo, index) => (
-                  <div key={index} className="relative w-20 h-20">
-                    <img
-                      src={photo}
-                      alt={`Photo ${index + 1}`}
-                      className="w-full h-full object-cover rounded-lg"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(index)}
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {!showCamera && (
-                  <button
-                    type="button"
-                    onClick={startCamera}
-                    className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 hover:border-gray-400 hover:text-gray-500"
-                  >
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handlePhotoClick}
+                  className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 hover:border-gray-400 hover:text-gray-500 relative"
+                >
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </button>
               </div>
+              
+              {/* Coming Soon Toast */}
+              {showComingSoon && (
+                <div className="mt-2 bg-indigo-100 text-indigo-800 text-sm px-3 py-2 rounded-lg animate-pulse">
+                  Photo uploads coming soon!
+                </div>
+              )}
             </div>
           </div>
 
