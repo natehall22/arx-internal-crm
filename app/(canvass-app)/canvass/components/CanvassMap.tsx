@@ -113,16 +113,20 @@ export default function CanvassMap({
       setMapLoaded(true)
 
       // Load MarkerClusterer for viewport mode
-      if (isViewportMode && !window.markerClusterer) {
+      if (isViewportMode && !(window as any).markerClusterer) {
         await new Promise<void>((resolve) => {
           const script = document.createElement('script')
           script.src = 'https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js'
           script.async = true
           script.onload = () => {
-            window.markerClusterer = true
+            // The library sets window.markerClusterer automatically
+            console.log('MarkerClusterer loaded:', (window as any).markerClusterer)
             resolve()
           }
-          script.onerror = () => resolve() // Continue without clustering if it fails
+          script.onerror = () => {
+            console.warn('Failed to load MarkerClusterer')
+            resolve()
+          }
           document.head.appendChild(script)
         })
       }
@@ -265,16 +269,19 @@ export default function CanvassMap({
     }
 
     // Update clusterer if in viewport mode
-    if (isViewportMode && clustererLoaded && window.markerClusterer) {
+    if (isViewportMode && clustererLoaded && (window as any).markerClusterer) {
       if (markerClustererRef.current) {
         markerClustererRef.current.clearMarkers()
         markerClustererRef.current.addMarkers(markersForClusterer)
       } else if (markersForClusterer.length > 0) {
         // Initialize clusterer
         try {
-          const { MarkerClusterer } = window as any
-          if (MarkerClusterer) {
-            markerClustererRef.current = new MarkerClusterer({
+          // The UMD build exposes markerClusterer on window
+          const windowAny = window as any
+          const MarkerClustererClass = windowAny.markerClusterer?.MarkerClusterer || windowAny.MarkerClusterer
+          
+          if (MarkerClustererClass) {
+            markerClustererRef.current = new MarkerClustererClass({
               map: mapInstanceRef.current,
               markers: markersForClusterer,
               renderer: {
@@ -303,9 +310,12 @@ export default function CanvassMap({
                 },
               },
             })
+            console.log('MarkerClusterer initialized with', markersForClusterer.length, 'markers')
+          } else {
+            console.warn('MarkerClusterer class not found on window')
           }
         } catch (e) {
-          console.warn('MarkerClusterer not available, using individual markers')
+          console.warn('MarkerClusterer not available, using individual markers', e)
           // Fall back to individual markers
           markersForClusterer.forEach(m => m.setMap(mapInstanceRef.current))
         }
