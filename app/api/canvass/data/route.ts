@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     
     const { data: profileData, error: profileError } = await adminClient
       .from('users')
-      .select('role, org_id, team_id, region_id, canvass_pin_visibility')
+      .select('role, org_id, team_id, region_id, canvass_pin_visibility, full_name')
       .eq('id', user.id)
       .single()
 
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       // If canvass_pin_visibility column doesn't exist, try without it
       const { data: fallbackProfile } = await adminClient
         .from('users')
-        .select('role, org_id, team_id, region_id')
+        .select('role, org_id, team_id, region_id, full_name')
         .eq('id', user.id)
         .single()
       
@@ -262,6 +262,9 @@ export async function GET(request: NextRequest) {
       users: usersWithCalendarStatus,
       teams: teams || [],
       currentUserRole: profile.role,
+      currentUserId: user.id,
+      currentUserName: profile.full_name || user.email,
+      orgId: profile.org_id,
       orgSettings: org?.settings || {},
       pinVisibility: visibility,
       inspectionDuration,

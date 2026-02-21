@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
 import CanvassMap from './components/CanvassMap'
 import CanvassNav from './components/CanvassNav'
 import LeadModal from './components/LeadModal'
@@ -103,98 +102,80 @@ export default function CanvassPage() {
 
   const loadData = async () => {
     try {
-      const supabase = createClientBrowser()
+      // Use API call instead of client-side Supabase (cookie compatibility)
+      const response = await fetch('/api/canvass/data')
       
-      // Get current user - middleware already handles auth redirect
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-      
-      // If no user, try session as fallback
-      let userId = user?.id
-      if (!userId) {
-        const { data: { session } } = await supabase.auth.getSession()
-        userId = session?.user?.id
-      }
-      
-      if (!userId) {
-        console.log('No user found, redirecting to login')
-        window.location.href = '/login?next=/canvass'
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.location.href = '/login?next=/canvass'
+          return
+        }
+        console.error('Failed to load canvass data:', response.status)
+        setLoading(false)
         return
       }
 
-      const { data: profileData, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single()
+      const data = await response.json()
+      
+      // Set profile from API response
+      setProfile({
+        id: data.currentUserId,
+        full_name: data.currentUserName,
+        role: data.currentUserRole,
+        org_id: data.orgId,
+      })
 
-      if (profileError) {
-        console.error('Error loading profile:', profileError)
-      }
-
-      setProfile(profileData)
-
-    // Check current map data mode from settings (default is VIEWPORT)
-    const savedSettings = localStorage.getItem('canvass-settings')
-    let currentMode: MapDataMode = 'VIEWPORT' // Default to viewport for scale
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings)
-        if (parsed.mapDataMode === 'ALL_LEADS') {
-          currentMode = 'ALL_LEADS'
+      // Check current map data mode from settings (default is VIEWPORT)
+      const savedSettings = localStorage.getItem('canvass-settings')
+      let currentMode: MapDataMode = 'VIEWPORT' // Default to viewport for scale
+      if (savedSettings) {
+        try {
+          const parsed = JSON.parse(savedSettings)
+          if (parsed.mapDataMode === 'ALL_LEADS') {
+            currentMode = 'ALL_LEADS'
+          }
+        } catch (e) {
+          // Ignore parse errors, use default (VIEWPORT)
         }
-      } catch (e) {
-        // Ignore parse errors, use default (VIEWPORT)
       }
-    }
 
-    // In VIEWPORT mode, skip loading all leads - they'll load via viewport
-    if (currentMode === 'VIEWPORT') {
-      // Just load pending offline leads
+      // In VIEWPORT mode, skip loading all leads - they'll load via viewport
+      if (currentMode === 'VIEWPORT') {
+        // Just load pending offline leads
+        const offlinePins: CanvassPin[] = pendingLeads.map(lead => ({
+          ...lead,
+          synced: false,
+        }))
+        setPins(offlinePins)
+        setLoading(false)
+        return
+      }
+
+      // ALL_LEADS mode: Use leads from API response
+      const serverPins: CanvassPin[] = (data.leads || []).map((lead: any) => ({
+        id: lead.id,
+        lat: parseFloat(lead.lat),
+        lng: parseFloat(lead.lng),
+        homeowner_name: lead.homeowner_name,
+        address_text: lead.address_text,
+        phone: lead.phone,
+        email: lead.email,
+        status: lead.status,
+        disposition: lead.canvass_disposition,
+        notes: lead.notes,
+        created_at: lead.created_at,
+        synced: true,
+        owner_user_id: lead.owner_user_id,
+      }))
+
+      // Merge with pending offline leads
       const offlinePins: CanvassPin[] = pendingLeads.map(lead => ({
         ...lead,
         synced: false,
       }))
-      setPins(offlinePins)
+
+      setPins([...offlinePins, ...serverPins])
       setLoading(false)
-      return
-    }
-
-    // ALL_LEADS mode (default): Load pins for today (or recent)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const { data: leadsData } = await supabase
-      .from('leads')
-      .select('*')
-      .eq('org_id', profileData?.org_id)
-      .gte('created_at', today.toISOString())
-      .not('lat', 'is', null)
-      .order('created_at', { ascending: false })
-
-    const serverPins: CanvassPin[] = (leadsData || []).map(lead => ({
-      id: lead.id,
-      lat: parseFloat(lead.lat),
-      lng: parseFloat(lead.lng),
-      homeowner_name: lead.homeowner_name,
-      address_text: lead.address_text,
-      phone: lead.phone,
-      email: lead.email,
-      status: lead.status,
-      disposition: lead.canvass_disposition,
-      notes: lead.notes,
-      created_at: lead.created_at,
-      synced: true,
-      owner_user_id: lead.owner_user_id,
-    }))
-
-    // Merge with pending offline leads
-    const offlinePins: CanvassPin[] = pendingLeads.map(lead => ({
-      ...lead,
-      synced: false,
-    }))
-
-    setPins([...offlinePins, ...serverPins])
-    setLoading(false)
     } catch (error) {
       console.error('Error in loadData:', error)
       setLoading(false)

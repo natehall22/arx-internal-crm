@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
 import Link from 'next/link'
 
 export default function CanvassSettingsPage() {
@@ -23,31 +22,31 @@ export default function CanvassSettingsPage() {
   }, [])
 
   const loadProfile = async () => {
-    const supabase = createClientBrowser()
-    
-    // Get current user - middleware already handles auth redirect
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    // If no user, try session as fallback
-    let userId = user?.id
-    if (!userId) {
-      const { data: { session } } = await supabase.auth.getSession()
-      userId = session?.user?.id
-    }
-    
-    if (!userId) {
-      window.location.href = '/login?next=/canvass/settings'
-      return
-    }
+    try {
+      const response = await fetch('/api/canvass/data?usersOnly=true')
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.location.href = '/login?next=/canvass/settings'
+          return
+        }
+        console.error('Failed to load profile:', response.status)
+        setLoading(false)
+        return
+      }
 
-    const { data: profileData } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-
-    setProfile(profileData)
-    setLoading(false)
+      const data = await response.json()
+      setProfile({
+        id: data.currentUserId,
+        full_name: data.currentUserName,
+        role: data.currentUserRole,
+        org_id: data.orgId,
+      })
+      setLoading(false)
+    } catch (error) {
+      console.error('Error loading profile:', error)
+      setLoading(false)
+    }
   }
 
   const loadSettings = () => {
@@ -64,8 +63,7 @@ export default function CanvassSettingsPage() {
   }
 
   const handleLogout = async () => {
-    const supabase = createClientBrowser()
-    await supabase.auth.signOut()
+    await fetch('/api/auth/logout', { method: 'POST' })
     window.location.href = '/login'
   }
 
