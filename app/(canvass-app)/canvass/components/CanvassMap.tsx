@@ -151,6 +151,8 @@ export default function CanvassMap({
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
+      tilt: 0, // Keep overhead view, disable 45-degree tilt
+      rotateControl: false,
     })
 
     // Click listener
