@@ -514,9 +514,4 @@ export default function CanvassMap({
   )
 }
 
-// Extend window for markerClusterer flag
-declare global {
-  interface Window {
-    markerClusterer?: boolean
-  }
-}
+// Note: Window.markerClusterer is declared in /app/canvass/map/page.tsx
