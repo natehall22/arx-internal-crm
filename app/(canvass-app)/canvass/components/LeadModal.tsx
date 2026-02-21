@@ -540,7 +540,7 @@ export default function LeadModal({
           <div className="p-4 border-t bg-gray-50 safe-area-bottom">
             <button
               type="submit"
-              disabled={showScheduling && canSchedule && !selectedTime}
+              disabled={showScheduling && canSchedule && !selectedTime ? true : false}
               className={`w-full py-4 rounded-xl font-semibold text-lg ${
                 showScheduling && canSchedule && !selectedTime
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
