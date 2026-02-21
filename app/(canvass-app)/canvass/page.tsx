@@ -285,7 +285,7 @@ export default function CanvassPage() {
               phone: leadData.phone,
               email: leadData.email,
               address_text: leadData.address_text,
-              notes: leadData.notes,
+              canvass_notes: leadData.notes,
               canvass_disposition: leadData.disposition,
               // Scheduling fields
               schedule_inspection: leadData.schedule_inspection,
@@ -349,7 +349,7 @@ export default function CanvassPage() {
               phone: leadData.phone,
               email: leadData.email,
               canvass_disposition: leadData.disposition,
-              notes: leadData.notes,
+              canvass_notes: leadData.notes,
               source: 'canvass',
               // Scheduling fields
               schedule_inspection: leadData.schedule_inspection,
