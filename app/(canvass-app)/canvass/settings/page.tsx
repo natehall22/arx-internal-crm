@@ -27,7 +27,7 @@ export default function CanvassSettingsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     
     if (!user) {
-      window.location.href = '/login?redirect=/canvass/settings'
+      window.location.href = '/login?next=/canvass/settings'
       return
     }
 
