@@ -246,21 +246,25 @@ export default function CanvassPage() {
 
   const handleSaveLead = async (leadData: Partial<CanvassPin>) => {
     if (selectedPin) {
-      // Update existing pin
+      // Update existing pin via API
       if (isOnline && selectedPin.synced) {
-        const supabase = createClientBrowser()
-        await supabase
-          .from('leads')
-          .update({
-            homeowner_name: leadData.homeowner_name,
-            phone: leadData.phone,
-            email: leadData.email,
-            address_text: leadData.address_text,
-            notes: leadData.notes,
-            canvass_disposition: leadData.disposition,
-            status: leadData.status,
+        try {
+          await fetch('/api/canvass/lead', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              lead_id: selectedPin.id,
+              homeowner_name: leadData.homeowner_name,
+              phone: leadData.phone,
+              email: leadData.email,
+              address_text: leadData.address_text,
+              notes: leadData.notes,
+              canvass_disposition: leadData.disposition,
+            }),
           })
-          .eq('id', selectedPin.id)
+        } catch (error) {
+          console.error('Failed to update lead:', error)
+        }
       }
       
       setPins(pins.map(p => 
@@ -285,31 +289,33 @@ export default function CanvassPage() {
       }
 
       if (isOnline) {
-        // Save directly to server
-        const supabase = createClientBrowser()
-        const { data, error } = await supabase
-          .from('leads')
-          .insert({
-            org_id: profile?.org_id,
-            owner_user_id: profile?.id,
-            lat: newPinLocation.lat,
-            lng: newPinLocation.lng,
-            homeowner_name: leadData.homeowner_name,
-            address_text: leadData.address_text,
-            phone: leadData.phone,
-            email: leadData.email,
-            status: 'new',
-            canvass_disposition: leadData.disposition,
-            notes: leadData.notes,
-            source: 'canvass',
-            channel: 'outbound',
+        // Save directly to server via API
+        try {
+          const response = await fetch('/api/canvass/lead', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              lat: newPinLocation.lat,
+              lng: newPinLocation.lng,
+              homeowner_name: leadData.homeowner_name,
+              address_text: leadData.address_text,
+              phone: leadData.phone,
+              email: leadData.email,
+              canvass_disposition: leadData.disposition,
+              notes: leadData.notes,
+              source: 'canvass',
+            }),
           })
-          .select()
-          .single()
 
-        if (data) {
-          newPin.id = data.id
-          newPin.synced = true
+          if (response.ok) {
+            const data = await response.json()
+            if (data.lead_id) {
+              newPin.id = data.lead_id
+              newPin.synced = true
+            }
+          }
+        } catch (error) {
+          console.error('Failed to create lead:', error)
         }
       } else {
         // Save to offline store
