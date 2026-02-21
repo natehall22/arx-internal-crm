@@ -102,34 +102,36 @@ export default function CanvassPage() {
   }, [isOnline, pendingLeads.length])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-    
-    // Get current user - middleware already handles auth redirect
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    // If no user, the middleware should have redirected, but handle edge case
-    if (!user) {
-      // Try to get user from session as fallback
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) {
+    try {
+      const supabase = createClientBrowser()
+      
+      // Get current user - middleware already handles auth redirect
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      
+      // If no user, try session as fallback
+      let userId = user?.id
+      if (!userId) {
+        const { data: { session } } = await supabase.auth.getSession()
+        userId = session?.user?.id
+      }
+      
+      if (!userId) {
+        console.log('No user found, redirecting to login')
         window.location.href = '/login?next=/canvass'
         return
       }
-    }
 
-    const userId = user?.id || (await supabase.auth.getSession()).data.session?.user?.id
-    if (!userId) {
-      window.location.href = '/login?next=/canvass'
-      return
-    }
+      const { data: profileData, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single()
 
-    const { data: profileData } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
+      if (profileError) {
+        console.error('Error loading profile:', profileError)
+      }
 
-    setProfile(profileData)
+      setProfile(profileData)
 
     // Check current map data mode from settings (default is VIEWPORT)
     const savedSettings = localStorage.getItem('canvass-settings')
@@ -193,6 +195,10 @@ export default function CanvassPage() {
 
     setPins([...offlinePins, ...serverPins])
     setLoading(false)
+    } catch (error) {
+      console.error('Error in loadData:', error)
+      setLoading(false)
+    }
   }
 
   // Handler for map bounds change (viewport mode only)
