@@ -94,6 +94,7 @@ export default function CanvassMap({
   const [searchValue, setSearchValue] = useState('')
   const [showFilterMenu, setShowFilterMenu] = useState(false)
   const [currentZoom, setCurrentZoom] = useState(17)
+  const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>('hybrid')
 
   // Load Google Maps script with marker clusterer
   useEffect(() => {
@@ -140,18 +141,12 @@ export default function CanvassMap({
     mapInstanceRef.current = new google.maps.Map(mapRef.current, {
       center: defaultCenter,
       zoom: currentPosition ? 17 : 4,
+      mapTypeId: 'hybrid', // Satellite with labels
       disableDefaultUI: true,
       zoomControl: true,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
-      styles: [
-        {
-          featureType: 'poi',
-          elementType: 'labels',
-          stylers: [{ visibility: 'off' }],
-        },
-      ],
     })
 
     // Click listener
@@ -206,6 +201,13 @@ export default function CanvassMap({
       mapInstanceRef.current.setZoom(17)
     }
   }, [currentPosition])
+
+  // Update map type when changed
+  useEffect(() => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setMapTypeId(mapType)
+    }
+  }, [mapType])
 
   // Update pin markers - optimized for large datasets
   useEffect(() => {
@@ -371,18 +373,38 @@ export default function CanvassMap({
     <div className="relative h-full w-full">
       <div ref={mapRef} className="h-full w-full" />
       
-      {/* Center on user button */}
-      {currentPosition && (
+      {/* Map controls - left side */}
+      <div className="absolute bottom-24 left-4 flex flex-col gap-2 z-10">
+        {/* Map type toggle */}
         <button
-          onClick={handleCenterOnUser}
-          className="absolute bottom-24 left-4 w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+          onClick={() => setMapType(mapType === 'hybrid' ? 'roadmap' : 'hybrid')}
+          className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+          title={mapType === 'hybrid' ? 'Switch to Road Map' : 'Switch to Satellite'}
         >
-          <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+          {mapType === 'hybrid' ? (
+            <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+          ) : (
+            <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          )}
         </button>
-      )}
+        
+        {/* Center on user button */}
+        {currentPosition && (
+          <button
+            onClick={handleCenterOnUser}
+            className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+          >
+            <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+        )}
+      </div>
 
       {/* Address Search */}
       <div className="absolute top-4 left-4 z-10">
