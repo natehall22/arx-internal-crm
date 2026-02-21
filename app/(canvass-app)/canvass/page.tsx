@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClientBrowser } from '@/lib/supabase/client'
 import CanvassMap from './components/CanvassMap'
 import CanvassNav from './components/CanvassNav'
@@ -8,6 +8,13 @@ import LeadModal from './components/LeadModal'
 import SyncStatus from './components/SyncStatus'
 import { useOfflineStore } from './lib/offlineStore'
 import { useGeolocation } from './lib/useGeolocation'
+import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLeads'
+
+// Map data mode type - matches settings
+type MapDataMode = 'ALL_LEADS' | 'VIEWPORT'
+
+// Declare google as a global variable for TypeScript
+declare const google: any
 
 export type CanvassPin = {
   id: string
@@ -25,6 +32,9 @@ export type CanvassPin = {
   owner_user_id?: string
 }
 
+// Union type for display
+type DisplayPin = CanvassPin | ViewportPin
+
 export default function CanvassPage() {
   const [pins, setPins] = useState<CanvassPin[]>([])
   const [selectedPin, setSelectedPin] = useState<CanvassPin | null>(null)
@@ -35,8 +45,42 @@ export default function CanvassPage() {
   const [profile, setProfile] = useState<any>(null)
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map')
   
+  // Map data mode - default to VIEWPORT for scale (Spotio/Terros style)
+  const [mapDataMode, setMapDataMode] = useState<MapDataMode>('VIEWPORT')
+  
   const { position, error: geoError, requestPermission } = useGeolocation()
   const { pendingLeads, addLead, syncLeads, isOnline } = useOfflineStore()
+  
+  // Viewport mode hook - only active when mapDataMode === 'VIEWPORT'
+  const { 
+    pins: viewportPins, 
+    loading: viewportLoading, 
+    totalLoaded: viewportTotalLoaded,
+    fetchForBounds,
+    getPinDetails,
+    clearCache: clearViewportCache,
+    dispositionFilter,
+    setDispositionFilter,
+  } = useViewportLeads()
+  
+  // State for loading pin details (viewport mode)
+  const [loadingPinDetails, setLoadingPinDetails] = useState(false)
+
+  // Load settings on mount to determine map data mode
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('canvass-settings')
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings)
+        // Only switch to ALL_LEADS if explicitly set (VIEWPORT is default)
+        if (parsed.mapDataMode === 'ALL_LEADS') {
+          setMapDataMode('ALL_LEADS')
+        }
+      } catch (e) {
+        // Ignore parse errors, use default (VIEWPORT)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     loadData()
@@ -71,7 +115,33 @@ export default function CanvassPage() {
 
     setProfile(profileData)
 
-    // Load pins for today (or recent)
+    // Check current map data mode from settings (default is VIEWPORT)
+    const savedSettings = localStorage.getItem('canvass-settings')
+    let currentMode: MapDataMode = 'VIEWPORT' // Default to viewport for scale
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings)
+        if (parsed.mapDataMode === 'ALL_LEADS') {
+          currentMode = 'ALL_LEADS'
+        }
+      } catch (e) {
+        // Ignore parse errors, use default (VIEWPORT)
+      }
+    }
+
+    // In VIEWPORT mode, skip loading all leads - they'll load via viewport
+    if (currentMode === 'VIEWPORT') {
+      // Just load pending offline leads
+      const offlinePins: CanvassPin[] = pendingLeads.map(lead => ({
+        ...lead,
+        synced: false,
+      }))
+      setPins(offlinePins)
+      setLoading(false)
+      return
+    }
+
+    // ALL_LEADS mode (default): Load pins for today (or recent)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
@@ -109,6 +179,18 @@ export default function CanvassPage() {
     setLoading(false)
   }
 
+  // Handler for map bounds change (viewport mode only)
+  const handleBoundsChanged = useCallback((bounds: google.maps.LatLngBounds, zoom: number) => {
+    if (mapDataMode === 'VIEWPORT') {
+      fetchForBounds(bounds, zoom)
+    }
+  }, [mapDataMode, fetchForBounds])
+
+  // Merge viewport pins with local pins when in viewport mode
+  const displayPins: DisplayPin[] = mapDataMode === 'VIEWPORT'
+    ? [...pendingLeads.map(lead => ({ ...lead, synced: false } as CanvassPin)), ...viewportPins]
+    : pins
+
   const handleMapClick = (lat: number, lng: number) => {
     setNewPinLocation({ lat, lng })
     setSelectedPin(null)
@@ -123,10 +205,40 @@ export default function CanvassPage() {
     setShowLeadModal(true)
   }
 
-  const handlePinClick = (pin: CanvassPin) => {
-    setSelectedPin(pin)
+  const handlePinClick = async (pin: DisplayPin) => {
     setNewPinLocation(null)
-    setShowLeadModal(true)
+    
+    // If it's a viewport pin (minimal data), fetch full details
+    if ('d' in pin && !('homeowner_name' in pin)) {
+      setLoadingPinDetails(true)
+      const details = await getPinDetails(pin.id)
+      setLoadingPinDetails(false)
+      
+      if (details) {
+        // Convert to CanvassPin format
+        const fullPin: CanvassPin = {
+          id: details.id,
+          lat: details.lat,
+          lng: details.lng,
+          homeowner_name: details.homeowner_name,
+          address_text: details.address_text,
+          phone: details.phone,
+          email: details.email,
+          status: details.status,
+          disposition: details.canvass_disposition,
+          notes: details.notes,
+          created_at: details.created_at,
+          synced: true,
+          owner_user_id: details.owner_user_id,
+        }
+        setSelectedPin(fullPin)
+        setShowLeadModal(true)
+      }
+    } else {
+      // It's already a full CanvassPin
+      setSelectedPin(pin as CanvassPin)
+      setShowLeadModal(true)
+    }
   }
 
   const handleSaveLead = async (leadData: Partial<CanvassPin>) => {
@@ -249,16 +361,22 @@ export default function CanvassPage() {
       <main className="flex-1 relative overflow-hidden">
         {viewMode === 'map' ? (
           <CanvassMap
-            pins={pins}
+            pins={displayPins}
             currentPosition={position}
             onMapClick={handleMapClick}
             onPinClick={handlePinClick}
             onAddressSelect={handleAddressSelect}
+            onBoundsChanged={mapDataMode === 'VIEWPORT' ? handleBoundsChanged : undefined}
+            isViewportMode={mapDataMode === 'VIEWPORT'}
+            viewportLoading={viewportLoading || loadingPinDetails}
+            totalPinsLoaded={viewportTotalLoaded}
+            dispositionFilter={dispositionFilter}
+            onDispositionFilterChange={setDispositionFilter}
           />
         ) : (
           <div className="h-full overflow-y-auto p-4 pb-24">
             <div className="space-y-3">
-              {pins.length === 0 ? (
+              {displayPins.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -267,43 +385,53 @@ export default function CanvassPage() {
                   <p className="text-sm">Tap the map to drop your first pin</p>
                 </div>
               ) : (
-                pins.map(pin => (
-                  <button
-                    key={pin.id}
-                    onClick={() => handlePinClick(pin)}
-                    className="w-full bg-white rounded-xl p-4 shadow-sm border text-left"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-medium text-gray-900">
-                            {pin.homeowner_name || 'Unknown'}
-                          </h3>
-                          {!pin.synced && (
-                            <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">
-                              Pending
-                            </span>
+                displayPins.map(pin => {
+                  // Handle both CanvassPin and ViewportPin formats
+                  const isViewportPin = 'd' in pin
+                  const disposition = isViewportPin ? (pin as ViewportPin).d : (pin as CanvassPin).disposition
+                  const homeownerName = isViewportPin ? null : (pin as CanvassPin).homeowner_name
+                  const addressText = isViewportPin ? null : (pin as CanvassPin).address_text
+                  const phone = isViewportPin ? null : (pin as CanvassPin).phone
+                  const synced = isViewportPin ? true : (pin as CanvassPin).synced
+                  
+                  return (
+                    <button
+                      key={pin.id}
+                      onClick={() => handlePinClick(pin)}
+                      className="w-full bg-white rounded-xl p-4 shadow-sm border text-left"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-medium text-gray-900">
+                              {homeownerName || 'Tap to view'}
+                            </h3>
+                            {!synced && (
+                              <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">
+                                Pending
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-500 mt-0.5">
+                            {addressText || `${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`}
+                          </p>
+                          {phone && (
+                            <p className="text-sm text-gray-500">{phone}</p>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500 mt-0.5">
-                          {pin.address_text || `${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`}
-                        </p>
-                        {pin.phone && (
-                          <p className="text-sm text-gray-500">{pin.phone}</p>
-                        )}
+                        <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                          disposition === 'hot_lead' ? 'bg-red-100 text-red-700' :
+                          disposition === 'go_back' ? 'bg-yellow-100 text-yellow-700' :
+                          disposition === 'not_home' ? 'bg-gray-100 text-gray-600' :
+                          disposition === 'not_interested' ? 'bg-gray-100 text-gray-600' :
+                          'bg-blue-100 text-blue-700'
+                        }`}>
+                          {disposition?.replace('_', ' ') || 'New'}
+                        </span>
                       </div>
-                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                        pin.disposition === 'hot_lead' ? 'bg-red-100 text-red-700' :
-                        pin.disposition === 'go_back' ? 'bg-yellow-100 text-yellow-700' :
-                        pin.disposition === 'not_home' ? 'bg-gray-100 text-gray-600' :
-                        pin.disposition === 'not_interested' ? 'bg-gray-100 text-gray-600' :
-                        'bg-blue-100 text-blue-700'
-                      }`}>
-                        {pin.disposition?.replace('_', ' ') || 'New'}
-                      </span>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  )
+                })
               )}
             </div>
           </div>
@@ -324,10 +452,11 @@ export default function CanvassPage() {
       <CanvassNav 
         viewMode={viewMode} 
         onViewModeChange={setViewMode}
-        todayCount={pins.filter(p => {
+        todayCount={displayPins.filter(p => {
           const today = new Date()
           today.setHours(0, 0, 0, 0)
-          return new Date(p.created_at) >= today
+          const createdAt = 't' in p ? p.t : (p as CanvassPin).created_at
+          return new Date(createdAt) >= today
         }).length}
       />
 
