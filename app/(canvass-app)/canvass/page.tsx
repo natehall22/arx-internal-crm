@@ -519,10 +519,10 @@ export default function CanvassPage() {
           </div>
         )}
 
-        {/* Floating Action Button */}
+        {/* Floating Action Button - Add new lead (left side, above map controls) */}
         <button
           onClick={handleDropPinAtLocation}
-          className="absolute bottom-24 right-4 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+          className="absolute bottom-52 left-4 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform z-10"
         >
           <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
