@@ -104,8 +104,21 @@ export default function CanvassPage() {
   const loadData = async () => {
     const supabase = createClientBrowser()
     
+    // Get current user - middleware already handles auth redirect
     const { data: { user } } = await supabase.auth.getUser()
+    
+    // If no user, the middleware should have redirected, but handle edge case
     if (!user) {
+      // Try to get user from session as fallback
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) {
+        window.location.href = '/login?next=/canvass'
+        return
+      }
+    }
+
+    const userId = user?.id || (await supabase.auth.getSession()).data.session?.user?.id
+    if (!userId) {
       window.location.href = '/login?next=/canvass'
       return
     }
@@ -113,7 +126,7 @@ export default function CanvassPage() {
     const { data: profileData } = await supabase
       .from('users')
       .select('*')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
 
     setProfile(profileData)
