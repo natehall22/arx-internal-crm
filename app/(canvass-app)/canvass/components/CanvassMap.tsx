@@ -216,12 +216,12 @@ export default function CanvassMap({
     const existingIds = new Set(currentMarkers.keys())
 
     // Remove markers that are no longer in pins
-    for (const [id, marker] of currentMarkers) {
+    currentMarkers.forEach((marker, id) => {
       if (!newPinIds.has(id)) {
         marker.setMap(null)
         currentMarkers.delete(id)
       }
-    }
+    })
 
     // Add or update markers
     const markersForClusterer: any[] = []
