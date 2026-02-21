@@ -314,7 +314,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { id, role, custom_role_id, team_id, region_id, manager_user_id, active, canvass_pin_visibility, show_in_reports, can_receive_appointments } = body
+  const { id, email, phone, full_name, role, custom_role_id, team_id, region_id, manager_user_id, active, canvass_pin_visibility, show_in_reports, can_receive_appointments } = body
 
   if (!id) {
     return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
@@ -323,7 +323,7 @@ export async function PUT(request: NextRequest) {
   // Verify target user is in same org
   const { data: targetUser } = await adminClient
     .from('users')
-    .select('org_id')
+    .select('org_id, email')
     .eq('id', id)
     .single()
 
@@ -331,7 +331,41 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 
+  // Handle email change - requires updating Supabase Auth
+  if (email && email !== targetUser.email) {
+    // Only admins can change email addresses
+    if (!['owner', 'admin'].includes(profile.role)) {
+      return NextResponse.json({ error: 'Only admins can change email addresses' }, { status: 403 })
+    }
+
+    // Check if email is already in use
+    const { data: existingUser } = await adminClient
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .neq('id', id)
+      .single()
+
+    if (existingUser) {
+      return NextResponse.json({ error: 'Email address is already in use' }, { status: 400 })
+    }
+
+    // Update email in Supabase Auth
+    const { error: authUpdateError } = await adminClient.auth.admin.updateUserById(id, {
+      email: email,
+      email_confirm: true,
+    })
+
+    if (authUpdateError) {
+      console.error('Auth email update error:', authUpdateError)
+      return NextResponse.json({ error: `Failed to update email: ${authUpdateError.message}` }, { status: 500 })
+    }
+  }
+
   const updateData: Record<string, unknown> = {}
+  if (email !== undefined) updateData.email = email
+  if (phone !== undefined) updateData.phone = phone || null
+  if (full_name !== undefined) updateData.full_name = full_name
   if (role !== undefined) updateData.role = role
   if (custom_role_id !== undefined) updateData.custom_role_id = custom_role_id || null
   if (team_id !== undefined) updateData.team_id = team_id || null

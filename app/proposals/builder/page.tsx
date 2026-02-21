@@ -362,10 +362,10 @@ export default function ProposalBuilderPage() {
     }
   }
 
-  // Check if an item needs quantity input (for "each", "sheet", "bundle" type items)
+  // Check if an item needs quantity input (for "each", "sheet", "bundle", "linear foot" type items)
   const needsQuantityInput = (unit: string): boolean => {
     const unitLower = unit?.toLowerCase() || ''
-    return ['each', 'sheet', 'sheets', 'bundle', 'bundles', 'roll', 'rolls', 'piece', 'pieces', 'unit', 'units'].includes(unitLower)
+    return ['each', 'sheet', 'sheets', 'bundle', 'bundles', 'roll', 'rolls', 'piece', 'pieces', 'unit', 'units', 'lf', 'linear foot', 'linear feet'].includes(unitLower)
   }
 
   const addLineItem = (item: PricebookItem, quantity?: number) => {
@@ -1764,13 +1764,25 @@ export default function ProposalBuilderPage() {
           </div>
         )}
 
-        {/* Quantity Input Modal - for "each" type items */}
+        {/* Quantity Input Modal - for "each" and "linear foot" type items */}
         {quantityModalItem && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
               <div className="p-6 border-b">
-                <h2 className="text-xl font-bold text-gray-900">Enter Quantity</h2>
-                <p className="text-gray-500 text-sm mt-1">How many {getUnitLabel(quantityModalItem.unit)} do you need?</p>
+                <h2 className="text-xl font-bold text-gray-900">
+                  {quantityModalItem.unit?.toLowerCase() === 'lf' || 
+                   quantityModalItem.unit?.toLowerCase() === 'linear foot' || 
+                   quantityModalItem.unit?.toLowerCase() === 'linear feet'
+                    ? 'Enter Total Linear Feet'
+                    : 'Enter Quantity'}
+                </h2>
+                <p className="text-gray-500 text-sm mt-1">
+                  {quantityModalItem.unit?.toLowerCase() === 'lf' || 
+                   quantityModalItem.unit?.toLowerCase() === 'linear foot' || 
+                   quantityModalItem.unit?.toLowerCase() === 'linear feet'
+                    ? 'Enter the total linear feet needed'
+                    : `How many ${getUnitLabel(quantityModalItem.unit)} do you need?`}
+                </p>
               </div>
               <div className="p-6">
                 <div className="mb-6">
@@ -1810,9 +1822,14 @@ export default function ProposalBuilderPage() {
                     </button>
                   </div>
 
-                  {/* Quick quantity buttons */}
-                  <div className="flex gap-2 mt-3">
-                    {[1, 2, 4, 6, 8, 10, 12, 16, 20].map((qty) => (
+                  {/* Quick quantity buttons - different presets for linear foot vs other units */}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {(quantityModalItem.unit?.toLowerCase() === 'lf' || 
+                      quantityModalItem.unit?.toLowerCase() === 'linear foot' || 
+                      quantityModalItem.unit?.toLowerCase() === 'linear feet'
+                      ? [10, 25, 50, 75, 100, 150, 200, 250, 300]
+                      : [1, 2, 4, 6, 8, 10, 12, 16, 20]
+                    ).map((qty) => (
                       <button
                         key={qty}
                         onClick={() => setQuantityModalValue(qty)}

@@ -195,13 +195,19 @@ export default function ProposalDetailPage() {
       }
 
       // Convert company logo to base64 if it exists
+      console.log('PDF Generation - Company data:', company)
       let companyForPdf = company ? { ...company } : undefined
       if (company?.logo_url) {
+        console.log('PDF Generation - Fetching logo from:', company.logo_url)
         const logoBase64 = await imageUrlToBase64(company.logo_url)
         if (logoBase64 && companyForPdf) {
+          console.log('PDF Generation - Logo converted to base64 successfully')
           companyForPdf.logo_url = logoBase64
+        } else {
+          console.log('PDF Generation - Failed to convert logo to base64')
         }
       }
+      console.log('PDF Generation - Company for PDF:', companyForPdf)
 
       // Prepare data for PDF
       const pdfData = {
@@ -216,6 +222,7 @@ export default function ProposalDetailPage() {
         rep,
         satelliteImageUrl: imageForPdf,
       }
+      console.log('PDF Generation - Full PDF data:', pdfData)
 
       // Generate PDF blob
       const blob = await pdf(<ProposalPDF data={pdfData} />).toBlob()

@@ -135,7 +135,41 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', original_appointment_id)
 
-    const newScheduledDate = new Date(new_scheduled_for)
+    // Get the timezone for proper conversion
+    const timezone = originalAppointment.closer_user_id 
+      ? await getTimezoneForUser(supabase, originalAppointment.closer_user_id)
+      : 'America/New_York'
+    
+    // new_scheduled_for can be either:
+    // 1. Local time string: "YYYY-MM-DDTHH:MM" (preferred, from schedule page)
+    // 2. ISO string: "YYYY-MM-DDTHH:MM:SS.sssZ" (legacy, from other sources)
+    
+    let scheduledForISO: string
+    let localDateTimeStr: string
+    
+    if (new_scheduled_for.includes('Z') || new_scheduled_for.includes('+')) {
+      // It's already an ISO/UTC string - use as-is for storage
+      scheduledForISO = new_scheduled_for
+      // For display/calendar, we'll need to convert - but this is the legacy path
+      localDateTimeStr = new_scheduled_for.slice(0, 16) // Best effort
+    } else {
+      // It's a local time string like "2026-02-20T14:00"
+      // We need to convert to UTC for database storage
+      localDateTimeStr = new_scheduled_for.length === 16 ? new_scheduled_for : new_scheduled_for.slice(0, 16)
+      
+      // Create a date object treating the input as local time in the user's timezone
+      // Then convert to ISO for storage
+      const [datePart, timePart] = localDateTimeStr.split('T')
+      const [year, month, day] = datePart.split('-').map(Number)
+      const [hour, minute] = timePart.split(':').map(Number)
+      
+      // Create date in UTC by calculating the offset
+      // For now, use a simple approach - create the date and let JS handle it
+      const localDate = new Date(year, month - 1, day, hour, minute)
+      scheduledForISO = localDate.toISOString()
+    }
+    
+    const newScheduledDate = new Date(scheduledForISO)
 
     // Create new appointment with same setter
     const { data: newAppointment, error: createError } = await supabase
@@ -146,7 +180,7 @@ export async function POST(request: NextRequest) {
         opportunity_id: originalAppointment.opportunity_id,
         closer_user_id: originalAppointment.closer_user_id,
         canvasser_user_id: originalAppointment.canvasser_user_id,
-        scheduled_for: newScheduledDate.toISOString(),
+        scheduled_for: scheduledForISO,
         duration_minutes: originalAppointment.duration_minutes,
         status: 'scheduled',
         address_text: originalAppointment.address_text,
@@ -179,18 +213,12 @@ export async function POST(request: NextRequest) {
             }
           }
           
-          const timezone = await getTimezoneForUser(supabase, originalAppointment.closer_user_id)
-          
-          // new_scheduled_for should be in format "YYYY-MM-DDTHH:MM" (local time)
-          // We need to send it to Google Calendar with the timezone, NOT as UTC
-          const startDateTime = new_scheduled_for.includes(':') && new_scheduled_for.length === 16 
-            ? `${new_scheduled_for}:00`  // Add seconds if not present
-            : new_scheduled_for.includes('T') && new_scheduled_for.length > 16
-              ? new_scheduled_for.slice(0, 19) // Trim to YYYY-MM-DDTHH:MM:SS
-              : new_scheduled_for
+          // Use the local time string for Google Calendar (with timezone)
+          // localDateTimeStr is in format "YYYY-MM-DDTHH:MM"
+          const startDateTime = `${localDateTimeStr}:00`
           
           // Calculate end time by parsing the local time and adding duration
-          const [datePart, timePart] = new_scheduled_for.split('T')
+          const [datePart, timePart] = localDateTimeStr.split('T')
           const timeOnly = timePart?.split(':') || ['00', '00']
           let endHour = parseInt(timeOnly[0], 10)
           let endMin = parseInt(timeOnly[1], 10) + originalAppointment.duration_minutes

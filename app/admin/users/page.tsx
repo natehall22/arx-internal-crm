@@ -83,6 +83,10 @@ export default function UsersPage() {
   const [formCanvassVisibility, setFormCanvassVisibility] = useState<'own' | 'team' | 'region' | 'org'>('org')
   const [formShowInReports, setFormShowInReports] = useState(true)
   const [formCanReceiveAppointments, setFormCanReceiveAppointments] = useState<boolean | null>(null)
+  const [formEmail, setFormEmail] = useState('')
+  const [formPhone, setFormPhone] = useState('')
+  const [formFullName, setFormFullName] = useState('')
+  const [sendingReset, setSendingReset] = useState(false)
   // Create user form fields
   const [createEmail, setCreateEmail] = useState('')
   const [createFullName, setCreateFullName] = useState('')
@@ -311,6 +315,9 @@ export default function UsersPage() {
     setFormCanvassVisibility((user as any).canvass_pin_visibility || 'org')
     setFormShowInReports((user as any).show_in_reports !== false) // Default true if not set
     setFormCanReceiveAppointments((user as any).can_receive_appointments ?? null)
+    setFormEmail(user.email || '')
+    setFormPhone((user as any).phone || '')
+    setFormFullName(user.full_name || '')
     setError(null)
     await loadUserPermissions(user.id)
   }
@@ -327,6 +334,9 @@ export default function UsersPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: editingUser.id,
+          email: formEmail !== editingUser.email ? formEmail : undefined,
+          phone: formPhone,
+          full_name: formFullName !== editingUser.full_name ? formFullName : undefined,
           role: formRole,
           custom_role_id: formCustomRoleId || null,
           team_id: formTeamId || null,
@@ -1269,13 +1279,21 @@ export default function UsersPage() {
         {editingUser && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                Edit User
-              </h2>
-              
-              <div className="mb-4">
-                <p className="font-medium text-gray-900">{editingUser.full_name}</p>
-                <p className="text-sm text-gray-500">{editingUser.email}</p>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Edit User
+                </h2>
+                <button
+                  onClick={() => {
+                    setEditingUser(null)
+                    setUserPermissions([])
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
 
               {error && (
@@ -1285,6 +1303,93 @@ export default function UsersPage() {
               )}
 
               <div className="space-y-4 mb-6">
+                {/* Basic Info Section */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-gray-700 mb-3">Basic Information</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Full Name
+                      </label>
+                      <input
+                        type="text"
+                        value={formFullName}
+                        onChange={(e) => setFormFullName(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={formEmail}
+                        onChange={(e) => setFormEmail(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                      {formEmail !== editingUser.email && (
+                        <p className="mt-1 text-xs text-amber-600">
+                          Changing email will update their login credentials
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={formPhone}
+                        onChange={(e) => setFormPhone(e.target.value)}
+                        placeholder="(555) 123-4567"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Password Reset Section */}
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-700">Password Reset</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">Send a password reset email to this user</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Send a password reset email to ${formEmail}?`)) return
+                        setSendingReset(true)
+                        try {
+                          const response = await fetch('/api/admin/users', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              userId: editingUser.id,
+                              action: 'reset_password',
+                            }),
+                          })
+                          const data = await response.json()
+                          if (response.ok) {
+                            alert(`Password reset email sent to ${formEmail}`)
+                          } else {
+                            alert(data.error || 'Failed to send reset email')
+                          }
+                        } catch {
+                          alert('Failed to send reset email')
+                        }
+                        setSendingReset(false)
+                      }}
+                      disabled={sendingReset}
+                      className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      {sendingReset ? 'Sending...' : 'Send Reset'}
+                    </button>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Custom Role (Recommended)

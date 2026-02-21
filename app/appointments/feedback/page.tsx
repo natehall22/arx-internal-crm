@@ -98,15 +98,16 @@ export default function AppointmentFeedbackPage() {
 
     try {
       if (outcome === 'reschedule') {
-        // Handle reschedule
-        const newScheduledFor = new Date(`${rescheduleDate}T${rescheduleTime}`)
+        // Handle reschedule - send local time string directly
+        // Format: "YYYY-MM-DDTHH:MM" (local time, not UTC)
+        const localDateTime = `${rescheduleDate}T${rescheduleTime}`
         
         const response = await fetch('/api/inspections/reschedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             original_appointment_id: appointmentId,
-            new_scheduled_for: newScheduledFor.toISOString(),
+            new_scheduled_for: localDateTime,
             notes: feedbackNotes || 'Rescheduled via feedback form',
           }),
         })

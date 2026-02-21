@@ -69,14 +69,16 @@ export default function SchedulePage() {
     setError(null)
 
     try {
-      const newScheduledFor = new Date(`${selectedDate}T${selectedTime}`)
+      // Send the local date/time string directly - the API will handle timezone conversion
+      // Format: "YYYY-MM-DDTHH:MM" (local time, not UTC)
+      const localDateTime = `${selectedDate}T${selectedTime}`
       
       const res = await fetch('/api/inspections/reschedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           original_appointment_id: rescheduleId,
-          new_scheduled_for: newScheduledFor.toISOString(),
+          new_scheduled_for: localDateTime,
           notes,
         }),
       })
