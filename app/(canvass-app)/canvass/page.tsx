@@ -47,6 +47,11 @@ export default function CanvassPage() {
   const [profile, setProfile] = useState<any>(null)
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map')
   
+  // Users and teams for scheduling
+  const [users, setUsers] = useState<Array<{ id: string; full_name: string; has_calendar?: boolean }>>([])
+  const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([])
+  const [inspectionDuration, setInspectionDuration] = useState(60)
+  
   // Map data mode - default to VIEWPORT for scale (Spotio/Terros style)
   const [mapDataMode, setMapDataMode] = useState<MapDataMode>('VIEWPORT')
   
@@ -124,6 +129,24 @@ export default function CanvassPage() {
         role: data.currentUserRole,
         org_id: data.orgId,
       })
+      
+      // Store users and teams for scheduling
+      if (data.users) {
+        setUsers(data.users.map((u: any) => ({
+          id: u.id,
+          full_name: u.full_name,
+          has_calendar: u.has_calendar,
+        })))
+      }
+      if (data.teams) {
+        setTeams(data.teams.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+        })))
+      }
+      if (data.inspectionDuration) {
+        setInspectionDuration(data.inspectionDuration)
+      }
 
       // Check current map data mode from settings (default is VIEWPORT)
       const savedSettings = localStorage.getItem('canvass-settings')
@@ -244,12 +267,16 @@ export default function CanvassPage() {
     }
   }
 
-  const handleSaveLead = async (leadData: Partial<CanvassPin>) => {
+  const handleSaveLead = async (leadData: Partial<CanvassPin> & {
+    schedule_inspection?: boolean
+    closer_user_id?: string
+    inspection_scheduled_for?: string
+  }) => {
     if (selectedPin) {
       // Update existing pin via API
       if (isOnline && selectedPin.synced) {
         try {
-          await fetch('/api/canvass/lead', {
+          const response = await fetch('/api/canvass/lead', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -260,15 +287,35 @@ export default function CanvassPage() {
               address_text: leadData.address_text,
               notes: leadData.notes,
               canvass_disposition: leadData.disposition,
+              // Scheduling fields
+              schedule_inspection: leadData.schedule_inspection,
+              closer_user_id: leadData.closer_user_id,
+              inspection_scheduled_for: leadData.inspection_scheduled_for,
             }),
           })
+          
+          if (response.ok) {
+            const data = await response.json()
+            if (data.calendar_synced) {
+              console.log('Calendar synced successfully')
+            }
+            if (data.opportunity_id) {
+              console.log('Opportunity created:', data.opportunity_id)
+            }
+          }
         } catch (error) {
           console.error('Failed to update lead:', error)
         }
       }
       
+      // Update local state
+      const updatedPin = { ...selectedPin, ...leadData }
+      if (leadData.schedule_inspection) {
+        updatedPin.status = 'inspection'
+        updatedPin.disposition = 'scheduled'
+      }
       setPins(pins.map(p => 
-        p.id === selectedPin.id ? { ...p, ...leadData } : p
+        p.id === selectedPin.id ? updatedPin : p
       ))
     } else if (newPinLocation) {
       // Create new pin
@@ -280,8 +327,8 @@ export default function CanvassPage() {
         address_text: leadData.address_text,
         phone: leadData.phone,
         email: leadData.email,
-        status: 'new',
-        disposition: leadData.disposition,
+        status: leadData.schedule_inspection ? 'inspection' : 'new',
+        disposition: leadData.schedule_inspection ? 'scheduled' : leadData.disposition,
         notes: leadData.notes,
         created_at: new Date().toISOString(),
         synced: false,
@@ -304,6 +351,10 @@ export default function CanvassPage() {
               canvass_disposition: leadData.disposition,
               notes: leadData.notes,
               source: 'canvass',
+              // Scheduling fields
+              schedule_inspection: leadData.schedule_inspection,
+              closer_user_id: leadData.closer_user_id,
+              inspection_scheduled_for: leadData.inspection_scheduled_for,
             }),
           })
 
@@ -313,12 +364,19 @@ export default function CanvassPage() {
               newPin.id = data.lead_id
               newPin.synced = true
             }
+            if (data.schedule_inspection || data.opportunity_id) {
+              newPin.status = 'inspection'
+              newPin.disposition = 'scheduled'
+            }
+            if (data.calendar_synced) {
+              console.log('Calendar synced successfully')
+            }
           }
         } catch (error) {
           console.error('Failed to create lead:', error)
         }
       } else {
-        // Save to offline store
+        // Save to offline store (scheduling not available offline)
         addLead(newPin)
       }
 
@@ -328,6 +386,12 @@ export default function CanvassPage() {
     setShowLeadModal(false)
     setSelectedPin(null)
     setNewPinLocation(null)
+    setPrefillAddress('')
+    
+    // Refresh viewport data if in viewport mode
+    if (mapDataMode === 'VIEWPORT') {
+      clearViewportCache()
+    }
   }
 
   const handleDropPinAtLocation = () => {
@@ -482,6 +546,10 @@ export default function CanvassPage() {
             setNewPinLocation(null)
             setPrefillAddress('')
           }}
+          users={users}
+          teams={teams}
+          inspectionDuration={inspectionDuration}
+          isOnline={isOnline}
         />
       )}
     </div>
