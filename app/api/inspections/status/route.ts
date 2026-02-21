@@ -112,8 +112,10 @@ export async function POST(request: NextRequest) {
       // If sale, update opportunity status to won
       if (outcome === 'sale') {
         opportunityUpdate.status = 'won'
-      } else if (outcome === 'said_no' || outcome === 'failed_credit') {
+      } else if (outcome === 'said_no' || outcome === 'failed_credit' || outcome === 'no_problems_found') {
         opportunityUpdate.status = 'lost'
+      } else if (outcome === 'moving_to_close') {
+        opportunityUpdate.status = 'negotiation'
       }
 
       await supabase
@@ -135,6 +137,8 @@ export async function POST(request: NextRequest) {
       not_home: 'Not Home',
       failed_credit: 'Failed Credit',
       rescheduled: 'Rescheduled',
+      no_problems_found: 'No Problems Found',
+      moving_to_close: 'Moving to Close',
     }
 
     const customerName = appointment.leads?.homeowner_name || 'Customer'

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 
-type FeedbackOutcome = 'no_show' | 'reschedule' | 'said_no' | 'moving_forward'
+type FeedbackOutcome = 'not_home' | 'rescheduled' | 'moving_to_close' | 'no_problems_found'
 
 interface Appointment {
   id: string
@@ -42,6 +42,11 @@ export default function AppointmentFeedbackPage() {
   const [showReschedule, setShowReschedule] = useState(false)
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
+  
+  // Moving to close state (schedule close appointment)
+  const [showCloseSchedule, setShowCloseSchedule] = useState(false)
+  const [closeDate, setCloseDate] = useState('')
+  const [closeTime, setCloseTime] = useState('')
 
   useEffect(() => {
     if (appointmentId) {
@@ -75,11 +80,8 @@ export default function AppointmentFeedbackPage() {
 
   const handleOutcomeChange = (newOutcome: FeedbackOutcome) => {
     setOutcome(newOutcome)
-    if (newOutcome === 'reschedule') {
-      setShowReschedule(true)
-    } else {
-      setShowReschedule(false)
-    }
+    setShowReschedule(newOutcome === 'rescheduled')
+    setShowCloseSchedule(newOutcome === 'moving_to_close')
   }
 
   const handleSubmit = async () => {
@@ -88,8 +90,13 @@ export default function AppointmentFeedbackPage() {
       return
     }
 
-    if (outcome === 'reschedule' && (!rescheduleDate || !rescheduleTime)) {
+    if (outcome === 'rescheduled' && (!rescheduleDate || !rescheduleTime)) {
       setError('Please select a new date and time for the reschedule')
+      return
+    }
+
+    if (outcome === 'moving_to_close' && (!closeDate || !closeTime)) {
+      setError('Please select a date and time for the close appointment')
       return
     }
 
@@ -97,9 +104,8 @@ export default function AppointmentFeedbackPage() {
     setError(null)
 
     try {
-      if (outcome === 'reschedule') {
+      if (outcome === 'rescheduled') {
         // Handle reschedule - send local time string directly
-        // Format: "YYYY-MM-DDTHH:MM" (local time, not UTC)
         const localDateTime = `${rescheduleDate}T${rescheduleTime}`
         
         const response = await fetch('/api/inspections/reschedule', {
@@ -119,21 +125,52 @@ export default function AppointmentFeedbackPage() {
 
         setSuccess(true)
         setTimeout(() => router.push('/dashboard'), 2000)
-      } else {
-        // Handle other outcomes
-        const outcomeMap: Record<FeedbackOutcome, string> = {
-          no_show: 'not_home',
-          said_no: 'said_no',
-          moving_forward: 'sale',
-          reschedule: 'rescheduled',
+      } else if (outcome === 'moving_to_close') {
+        // First submit the inspection outcome
+        const statusResponse = await fetch('/api/inspections/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appointment_id: appointmentId,
+            outcome: 'moving_to_close',
+            notes: feedbackNotes,
+            setter_feedback: feedbackNotes,
+          }),
+        })
+
+        if (!statusResponse.ok) {
+          const data = await statusResponse.json()
+          throw new Error(data.error || 'Failed to submit feedback')
         }
 
+        // Then schedule the close appointment
+        const localDateTime = `${closeDate}T${closeTime}`
+        
+        const scheduleResponse = await fetch('/api/inspections/schedule-close', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            original_appointment_id: appointmentId,
+            scheduled_for: localDateTime,
+            notes: feedbackNotes || 'Close appointment scheduled from inspection',
+          }),
+        })
+
+        if (!scheduleResponse.ok) {
+          const data = await scheduleResponse.json()
+          throw new Error(data.error || 'Failed to schedule close appointment')
+        }
+
+        setSuccess(true)
+        setTimeout(() => router.push('/dashboard'), 2000)
+      } else {
+        // Handle other outcomes (not_home, no_problems_found)
         const response = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             appointment_id: appointmentId,
-            outcome: outcomeMap[outcome],
+            outcome: outcome,
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
           }),
@@ -262,98 +299,102 @@ export default function AppointmentFeedbackPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">What was the outcome?</h2>
           
           <div className="grid grid-cols-2 gap-3 mb-6">
+            {/* Not Home */}
             <button
               type="button"
-              onClick={() => handleOutcomeChange('no_show')}
+              onClick={() => handleOutcomeChange('not_home')}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'no_show'
+                outcome === 'not_home'
                   ? 'border-red-500 bg-red-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'no_show' ? 'bg-red-100' : 'bg-gray-100'
+                  outcome === 'not_home' ? 'bg-red-100' : 'bg-gray-100'
                 }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'no_show' ? 'text-red-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  <svg className={`w-5 h-5 ${outcome === 'not_home' ? 'text-red-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                   </svg>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">No Show</p>
-                  <p className="text-xs text-gray-500">Customer wasn't home</p>
+                  <p className="font-semibold text-gray-900">Not Home</p>
+                  <p className="text-xs text-gray-500">Customer wasn't there</p>
                 </div>
               </div>
             </button>
 
+            {/* Rescheduled */}
             <button
               type="button"
-              onClick={() => handleOutcomeChange('reschedule')}
+              onClick={() => handleOutcomeChange('rescheduled')}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'reschedule'
+                outcome === 'rescheduled'
                   ? 'border-amber-500 bg-amber-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'reschedule' ? 'bg-amber-100' : 'bg-gray-100'
+                  outcome === 'rescheduled' ? 'bg-amber-100' : 'bg-gray-100'
                 }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'reschedule' ? 'text-amber-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-5 h-5 ${outcome === 'rescheduled' ? 'text-amber-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">Reschedule</p>
-                  <p className="text-xs text-gray-500">Need to reschedule</p>
+                  <p className="font-semibold text-gray-900">Rescheduled</p>
+                  <p className="text-xs text-gray-500">Need to reschedule inspection</p>
                 </div>
               </div>
             </button>
 
+            {/* Moving to Close */}
             <button
               type="button"
-              onClick={() => handleOutcomeChange('said_no')}
+              onClick={() => handleOutcomeChange('moving_to_close')}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'said_no'
-                  ? 'border-gray-500 bg-gray-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'said_no' ? 'bg-gray-200' : 'bg-gray-100'
-                }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'said_no' ? 'text-gray-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Said No</p>
-                  <p className="text-xs text-gray-500">Not interested</p>
-                </div>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('moving_forward')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'moving_forward'
+                outcome === 'moving_to_close'
                   ? 'border-green-500 bg-green-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'moving_forward' ? 'bg-green-100' : 'bg-gray-100'
+                  outcome === 'moving_to_close' ? 'bg-green-100' : 'bg-gray-100'
                 }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'moving_forward' ? 'text-green-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <svg className={`w-5 h-5 ${outcome === 'moving_to_close' ? 'text-green-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">Moving Forward</p>
-                  <p className="text-xs text-gray-500">Proceeding with sale</p>
+                  <p className="font-semibold text-gray-900">Moving to Close</p>
+                  <p className="text-xs text-gray-500">Schedule close appointment</p>
+                </div>
+              </div>
+            </button>
+
+            {/* No Problems Found */}
+            <button
+              type="button"
+              onClick={() => handleOutcomeChange('no_problems_found')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                outcome === 'no_problems_found'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  outcome === 'no_problems_found' ? 'bg-blue-100' : 'bg-gray-100'
+                }`}>
+                  <svg className={`w-5 h-5 ${outcome === 'no_problems_found' ? 'text-blue-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">No Problems Found</p>
+                  <p className="text-xs text-gray-500">Roof is in good condition</p>
                 </div>
               </div>
             </button>
@@ -362,7 +403,7 @@ export default function AppointmentFeedbackPage() {
           {/* Reschedule Date/Time */}
           {showReschedule && (
             <div className="mb-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
-              <h3 className="font-medium text-amber-800 mb-3">Select New Date & Time</h3>
+              <h3 className="font-medium text-amber-800 mb-3">Select New Inspection Date & Time</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
@@ -381,6 +422,35 @@ export default function AppointmentFeedbackPage() {
                     value={rescheduleTime}
                     onChange={(e) => setRescheduleTime(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Schedule Close Appointment */}
+          {showCloseSchedule && (
+            <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+              <h3 className="font-medium text-green-800 mb-3">Schedule Close Appointment</h3>
+              <p className="text-sm text-green-700 mb-3">Select when you'll return to close the deal</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={closeDate}
+                    onChange={(e) => setCloseDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={closeTime}
+                    onChange={(e) => setCloseTime(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
                   />
                 </div>
               </div>
