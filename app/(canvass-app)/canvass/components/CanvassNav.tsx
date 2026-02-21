@@ -40,7 +40,7 @@ export default function CanvassNav({ viewMode, onViewModeChange, todayCount }: P
         </button>
 
         <a
-          href="/canvass/stats"
+          href="/dashboard"
           className="flex flex-col items-center py-2 px-6 rounded-xl text-gray-500"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

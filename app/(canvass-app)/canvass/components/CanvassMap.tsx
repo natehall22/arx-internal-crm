@@ -97,6 +97,7 @@ export default function CanvassMap({
   const [showFilterMenu, setShowFilterMenu] = useState(false)
   const [currentZoom, setCurrentZoom] = useState(17)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>('hybrid')
+  const [mapHeading, setMapHeading] = useState(0) // Track map rotation for compass
 
   // Load Google Maps script with marker clusterer
   useEffect(() => {
@@ -153,8 +154,8 @@ export default function CanvassMap({
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
-      tilt: 0, // Keep overhead view, disable 45-degree tilt
-      rotateControl: false,
+      rotateControl: true, // Enable rotation with two fingers
+      gestureHandling: 'greedy', // Allow single finger pan (no two-finger requirement)
     })
 
     // Click listener
@@ -182,7 +183,22 @@ export default function CanvassMap({
         }
       })
     }
+
+    // Track heading changes for compass
+    mapInstanceRef.current.addListener('heading_changed', () => {
+      const heading = mapInstanceRef.current?.getHeading() || 0
+      setMapHeading(heading)
+    })
   }, [mapLoaded, currentPosition, onBoundsChanged])
+
+  // Reset map to north-facing
+  const handleResetHeading = () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setHeading(0)
+      mapInstanceRef.current.setTilt(0)
+      setMapHeading(0)
+    }
+  }
 
   // Update user position marker
   useEffect(() => {
@@ -428,6 +444,25 @@ export default function CanvassMap({
             <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+        )}
+        
+        {/* Compass - reset to north (only show when rotated) */}
+        {mapHeading !== 0 && (
+          <button
+            onClick={handleResetHeading}
+            className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+            title="Reset to North"
+          >
+            <svg 
+              className="w-6 h-6 text-red-500" 
+              viewBox="0 0 24 24" 
+              fill="currentColor"
+              style={{ transform: `rotate(${-mapHeading}deg)` }}
+            >
+              <path d="M12 2L8 10h8L12 2z" fill="currentColor" />
+              <path d="M12 22l4-8H8l4 8z" fill="#9CA3AF" />
             </svg>
           </button>
         )}
