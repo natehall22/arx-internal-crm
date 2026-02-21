@@ -376,39 +376,73 @@ const createStyles = (theme: Theme) => {
       lineHeight: 1.5,
     },
 
-    // ========== PROCESS STEPS ==========
-    processStep: {
+    // ========== PROCESS STEPS (Full Page Layout) ==========
+    processPageContent: {
+      flex: 1,
+      padding: s.xl,
+      paddingBottom: 60,
+    },
+    processGrid: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: s.md,
+      marginTop: s.lg,
+    },
+    processCard: {
+      width: '48%',
+      backgroundColor: c.cardBg,
+      borderRadius: r.lg,
+      padding: s.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      minHeight: 140,
+    },
+    processCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
       marginBottom: s.md,
-      alignItems: 'flex-start',
     },
     stepNumber: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       backgroundColor: c.gold,
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: s.md,
     },
     stepNumberText: {
-      fontSize: f.md,
+      fontSize: f.xl,
       fontFamily: 'Helvetica-Bold',
       color: theme === 'dark' ? '#0F1012' : '#FFFFFF',
     },
-    stepContent: {
-      flex: 1,
-    },
     stepTitle: {
-      fontSize: f.md,
+      fontSize: f.lg,
       fontFamily: 'Helvetica-Bold',
       color: c.text,
-      marginBottom: 2,
+      flex: 1,
     },
     stepDescription: {
+      fontSize: f.base,
+      color: c.textMuted,
+      lineHeight: 1.6,
+    },
+    processTagline: {
+      textAlign: 'center',
+      marginTop: s.xl,
+      paddingTop: s.lg,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+    },
+    processTaglineText: {
+      fontSize: f.lg,
+      fontFamily: 'Helvetica-Bold',
+      color: c.gold,
+      marginBottom: s.xs,
+    },
+    processTaglineSubtext: {
       fontSize: f.sm,
       color: c.textMuted,
-      lineHeight: 1.4,
     },
 
     // ========== WARRANTY / WHY US ==========
@@ -964,26 +998,37 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
       )}
 
       {/* ================================================================
-          PAGE 4/5: THE PROCESS
+          PAGE 4/5: THE PROCESS (Full Page Marketing Layout)
           ================================================================ */}
       <Page size="LETTER" style={styles.page}>
-        <View style={styles.pageContent}>
+        <View style={styles.processPageContent}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>The Process</Text>
-            <Text style={styles.sectionSubtitle}>How we complete your roofing project</Text>
+            <Text style={styles.sectionSubtitle}>Your roof replacement from start to finish</Text>
           </View>
 
-          {processSteps.map((step, index) => (
-            <View key={index} style={styles.processStep}>
-              <View style={styles.stepNumber}>
-                <Text style={styles.stepNumberText}>{index + 1}</Text>
-              </View>
-              <View style={styles.stepContent}>
-                <Text style={styles.stepTitle}>{step.title}</Text>
+          {/* 2x3 Grid of Process Cards */}
+          <View style={styles.processGrid}>
+            {processSteps.map((step, index) => (
+              <View key={index} style={styles.processCard}>
+                <View style={styles.processCardHeader}>
+                  <View style={styles.stepNumber}>
+                    <Text style={styles.stepNumberText}>{index + 1}</Text>
+                  </View>
+                  <Text style={styles.stepTitle}>{step.title}</Text>
+                </View>
                 <Text style={styles.stepDescription}>{step.description}</Text>
               </View>
-            </View>
-          ))}
+            ))}
+          </View>
+
+          {/* Bottom Tagline */}
+          <View style={styles.processTagline}>
+            <Text style={styles.processTaglineText}>Professional Service, Start to Finish</Text>
+            <Text style={styles.processTaglineSubtext}>
+              Every project follows our proven process to ensure quality results and complete satisfaction.
+            </Text>
+          </View>
         </View>
 
         <View style={styles.footer}>
