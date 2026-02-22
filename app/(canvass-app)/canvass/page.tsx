@@ -74,6 +74,7 @@ export default function CanvassPage() {
     fetchForBounds,
     getPinDetails,
     clearCache: clearViewportCache,
+    addPin: addViewportPin,
     dispositionFilter,
     setDispositionFilter,
   } = useViewportLeads()
@@ -388,18 +389,29 @@ export default function CanvassPage() {
         addLead(newPin)
       }
 
-      setPins([newPin, ...pins])
+      // In viewport mode, add the pin directly to the viewport state
+      // In all_leads mode, add to local pins state
+      if (mapDataMode === 'VIEWPORT') {
+        // Convert to ViewportPin format and add to viewport state
+        const viewportPin = {
+          id: newPin.id,
+          lat: newPin.lat,
+          lng: newPin.lng,
+          d: newPin.disposition || null,
+          s: newPin.status,
+          o: newPin.owner_user_id || null,
+          t: newPin.created_at,
+        }
+        addViewportPin(viewportPin)
+      } else {
+        setPins([newPin, ...pins])
+      }
     }
 
     setShowLeadModal(false)
     setSelectedPin(null)
     setNewPinLocation(null)
     setPrefillAddress('')
-    
-    // Refresh viewport data if in viewport mode
-    if (mapDataMode === 'VIEWPORT') {
-      clearViewportCache()
-    }
   }
 
   const handleDropPinAtLocation = () => {

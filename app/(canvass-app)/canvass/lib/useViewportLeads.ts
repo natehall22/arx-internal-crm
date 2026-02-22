@@ -89,6 +89,7 @@ interface UseViewportLeadsReturn {
   fetchForBounds: (bounds: MapBounds, zoom: number) => void
   getPinDetails: (id: string) => Promise<FullPinData | null>
   clearCache: () => void
+  addPin: (pin: ViewportPin) => void  // Add a newly created pin to the display
   // Disposition filter
   dispositionFilter: string | null
   setDispositionFilter: (d: string | null) => void
@@ -337,6 +338,19 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     }
   }, [])
 
+  // Add a newly created pin directly to the state (without refetching)
+  const addPin = useCallback((pin: ViewportPin) => {
+    setState(prev => {
+      const newPins = new Map(prev.pins)
+      newPins.set(pin.id, pin)
+      return {
+        ...prev,
+        pins: newPins,
+        totalLoaded: newPins.size,
+      }
+    })
+  }, [])
+
   // Clear cache when disposition filter changes
   useEffect(() => {
     // Don't clear on initial mount
@@ -355,6 +369,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     fetchForBounds,
     getPinDetails,
     clearCache,
+    addPin,
     dispositionFilter,
     setDispositionFilter,
   }
