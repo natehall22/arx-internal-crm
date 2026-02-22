@@ -96,7 +96,21 @@ export default async function DashboardPage() {
       leadsQuery = leadsQuery.eq('owner_user_id', profile.id)
     }
   }
-  const { data: allLeads } = await leadsQuery
+  const { data: allLeads, error: leadsError } = await leadsQuery
+  
+  // Debug logging - remove after fixing
+  console.log('Dashboard leads query:', {
+    orgId: profile.org_id,
+    isAdmin,
+    totalLeads: allLeads?.length || 0,
+    leadsError: leadsError?.message,
+    sampleLeads: allLeads?.slice(0, 3).map(l => ({
+      id: l.id,
+      owner: l.owner_user_id,
+      created: l.created_at,
+      disposition: l.canvass_disposition
+    }))
+  })
 
   let oppsQuery = supabase
     .from('opportunities')
@@ -194,6 +208,13 @@ export default async function DashboardPage() {
     }
     
     const { data: members } = await membersQuery
+    
+    // Debug logging - remove after fixing
+    console.log('Dashboard members:', {
+      membersCount: members?.length,
+      memberIds: members?.map(m => ({ id: m.id, name: m.full_name })),
+      startOfWeek: startOfWeek.toISOString(),
+    })
     
     // Contact dispositions - where rep actually talked to someone
     const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
