@@ -144,22 +144,34 @@ export default function CanvassMap({
     if (!mapLoaded || !mapRef.current || mapInstanceRef.current) return
 
     const defaultCenter = currentPosition || { lat: 39.8283, lng: -98.5795 }
+    
+    // Map ID enables vector maps with two-finger rotation/tilt gestures
+    const googleMapId = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID || 'f9f9a6138b2fd7e46c477374'
 
     mapInstanceRef.current = new google.maps.Map(mapRef.current, {
       center: defaultCenter,
-      zoom: currentPosition ? 18 : 4, // Zoom 18+ needed for rotation/tilt
+      zoom: currentPosition ? 18 : 4,
       mapTypeId: 'hybrid', // Satellite with labels
       disableDefaultUI: true,
       zoomControl: false,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
-      rotateControl: true, // Show rotation control
-      tiltControl: true, // Enable tilt control
+      rotateControl: false,
+      scaleControl: false,
       gestureHandling: 'greedy', // Allow single finger pan
-      heading: 0, // Initial heading (north)
-      tilt: 0, // Initial tilt
-    })
+      heading: 0,
+      tilt: 0,
+      // Enable rotation and tilt gestures (requires vector map via mapId)
+      ...(googleMapId && {
+        mapId: googleMapId,
+        headingInteractionEnabled: true,
+        tiltInteractionEnabled: true,
+      }),
+      maxZoom: 20,
+      minZoom: 10,
+      clickableIcons: false,
+    } as google.maps.MapOptions)
 
     // Click listener
     mapInstanceRef.current.addListener('click', (e: any) => {
