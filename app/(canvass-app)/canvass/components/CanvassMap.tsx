@@ -150,7 +150,7 @@ export default function CanvassMap({
       zoom: currentPosition ? 18 : 4, // Zoom 18+ needed for rotation/tilt
       mapTypeId: 'hybrid', // Satellite with labels
       disableDefaultUI: true,
-      zoomControl: true,
+      zoomControl: false,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
