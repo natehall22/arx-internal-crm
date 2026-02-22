@@ -163,10 +163,12 @@ export default async function DashboardPage() {
   const { data: recentActivities } = await activityQuery
 
   // Calculate week start date first (used for filtering)
+  // Use UTC to avoid timezone issues - start of week is Sunday 00:00:00 UTC
   const now = new Date()
+  const dayOfWeek = now.getUTCDay() // 0 = Sunday, 6 = Saturday
   const startOfWeek = new Date(now)
-  startOfWeek.setDate(now.getDate() - now.getDay())
-  startOfWeek.setHours(0, 0, 0, 0)
+  startOfWeek.setUTCDate(now.getUTCDate() - dayOfWeek)
+  startOfWeek.setUTCHours(0, 0, 0, 0)
 
   // Debug: Log all leads info BEFORE team member filtering
   const allLeadsThisWeek = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
