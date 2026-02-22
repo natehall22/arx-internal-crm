@@ -87,6 +87,7 @@ export default function CanvassMap({
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<Map<string, any>>(new Map())
   const markerClustererRef = useRef<any>(null)
+  const clusteredPinIdsRef = useRef<Set<string>>(new Set()) // Track which pins are in clusterer
   const userMarkerRef = useRef<any>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<any>(null)
@@ -306,8 +307,21 @@ export default function CanvassMap({
     // Update clusterer if in viewport mode
     if (isViewportMode && clustererLoaded && (window as any).markerClusterer) {
       if (markerClustererRef.current) {
-        markerClustererRef.current.clearMarkers()
-        markerClustererRef.current.addMarkers(markersForClusterer)
+        // Only add NEW markers that aren't already in the clusterer
+        const newMarkersToAdd: any[] = []
+        for (const pin of pins) {
+          if (!clusteredPinIdsRef.current.has(pin.id)) {
+            const marker = currentMarkers.get(pin.id)
+            if (marker) {
+              newMarkersToAdd.push(marker)
+              clusteredPinIdsRef.current.add(pin.id)
+            }
+          }
+        }
+        
+        if (newMarkersToAdd.length > 0) {
+          markerClustererRef.current.addMarkers(newMarkersToAdd)
+        }
       } else if (markersForClusterer.length > 0) {
         // Initialize clusterer
         try {
@@ -345,6 +359,8 @@ export default function CanvassMap({
                 },
               },
             })
+            // Track which pins are now in the clusterer
+            pins.forEach(p => clusteredPinIdsRef.current.add(p.id))
             console.log('MarkerClusterer initialized with', markersForClusterer.length, 'markers')
           } else {
             console.warn('MarkerClusterer class not found on window')

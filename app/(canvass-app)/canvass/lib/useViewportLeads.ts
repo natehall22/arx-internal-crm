@@ -45,7 +45,7 @@ export interface FullPinData {
 
 // Cache configuration
 const CACHE_PREFIX = 'cvp_v2:'  // Canvass Viewport v2
-const DEBOUNCE_MS = 250
+const DEBOUNCE_MS = 400  // Increased to reduce flicker during pan/zoom
 const MIN_ZOOM_FOR_FETCH = 10
 const TILE_PRECISION = 3  // Decimal places for tile keys (lower = larger tiles)
 
