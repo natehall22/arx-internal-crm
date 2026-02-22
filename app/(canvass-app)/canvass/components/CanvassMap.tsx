@@ -453,56 +453,21 @@ export default function CanvassMap({
         
       </div>
       
-      {/* Compass/Rotation control - right side */}
-      <div className="absolute bottom-24 right-4 flex flex-col items-center gap-1 z-10">
-        {/* Rotate left */}
-        <button
-          onClick={() => {
-            if (mapInstanceRef.current) {
-              const newHeading = (mapHeading - 45 + 360) % 360
-              mapInstanceRef.current.setHeading(newHeading)
-              setMapHeading(newHeading)
-            }
-          }}
-          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center"
-          title="Rotate left"
-        >
-          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-          </svg>
-        </button>
-        
-        {/* Compass - tap to reset north */}
+      {/* Compass - tap to reset north (right side) */}
+      <div className="absolute bottom-24 right-4 z-10">
         <button
           onClick={handleResetHeading}
-          className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+          className="w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center"
           title="Reset to North"
         >
           <svg 
-            className="w-7 h-7" 
+            className="w-6 h-6" 
             viewBox="0 0 24 24" 
             fill="currentColor"
             style={{ transform: `rotate(${-mapHeading}deg)`, transition: 'transform 0.3s ease' }}
           >
             <path d="M12 2L8 10h8L12 2z" fill="#EF4444" />
             <path d="M12 22l4-8H8l4 8z" fill="#9CA3AF" />
-          </svg>
-        </button>
-        
-        {/* Rotate right */}
-        <button
-          onClick={() => {
-            if (mapInstanceRef.current) {
-              const newHeading = (mapHeading + 45) % 360
-              mapInstanceRef.current.setHeading(newHeading)
-              setMapHeading(newHeading)
-            }
-          }}
-          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center"
-          title="Rotate right"
-        >
-          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
           </svg>
         </button>
       </div>
