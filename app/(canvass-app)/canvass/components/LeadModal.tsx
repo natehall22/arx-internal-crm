@@ -321,7 +321,7 @@ export default function LeadModal({
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-xl">📅</span>
-                    <span className="font-medium">Schedule Inspection</span>
+                    <span className="font-medium text-gray-900">Schedule Inspection</span>
                   </div>
                   <div className={`w-12 h-7 rounded-full transition-colors ${showScheduling ? 'bg-green-500' : 'bg-gray-300'}`}>
                     <div className={`w-5 h-5 bg-white rounded-full mt-1 transition-transform ${showScheduling ? 'translate-x-6' : 'translate-x-1'}`} />

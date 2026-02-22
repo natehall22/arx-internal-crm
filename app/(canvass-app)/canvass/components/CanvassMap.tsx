@@ -564,7 +564,7 @@ export default function CanvassMap({
                     }`}
                   >
                     <span className={`w-3 h-3 rounded-full ${d.color}`}></span>
-                    <span className="text-sm">{d.label}</span>
+                    <span className="text-sm text-gray-900">{d.label}</span>
                   </button>
                 ))}
               </div>
