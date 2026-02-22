@@ -63,41 +63,63 @@ function getAdminClient() {
 }
 
 function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date } {
+  // Use Eastern Time offset (UTC-5, or UTC-4 during DST)
+  // This ensures consistent date boundaries for US Eastern timezone
+  const ET_OFFSET_HOURS = 5 // Standard time offset (adjust for DST if needed)
+  
   const now = new Date()
-  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000) // Tomorrow to include all of today
-  let start = new Date(now)
+  // Convert to Eastern Time by subtracting offset
+  const nowET = new Date(now.getTime() - ET_OFFSET_HOURS * 60 * 60 * 1000)
+  
+  let start: Date
+  let end: Date
 
   switch (timeframe) {
     case 'today':
-      // Start of today in local time
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-      end.setTime(start.getTime() + 24 * 60 * 60 * 1000) // End of today
+      // Start of today in ET
+      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate(), ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'yesterday':
-      // Start of yesterday
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0)
-      end.setTime(start.getTime() + 24 * 60 * 60 * 1000) // End of yesterday
+      // Start of yesterday in ET
+      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - 1, ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'week':
-      start.setDate(now.getDate() - now.getDay())
-      start.setHours(0, 0, 0, 0)
+      // Start of this week (Sunday) in ET
+      const dayOfWeek = nowET.getUTCDay()
+      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - dayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(now.getTime() + 24 * 60 * 60 * 1000) // Through end of today
+      break
+    case 'last_week':
+      // Start of last week (Sunday) in ET
+      const currentDayOfWeek = nowET.getUTCDay()
+      const startOfThisWeek = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - currentDayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
+      start = new Date(startOfThisWeek.getTime() - 7 * 24 * 60 * 60 * 1000) // Go back 7 days
+      end = startOfThisWeek // End at start of this week
       break
     case 'month':
-      start = new Date(now.getFullYear(), now.getMonth(), 1)
+      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'quarter':
-      const quarter = Math.floor(now.getMonth() / 3)
-      start = new Date(now.getFullYear(), quarter * 3, 1)
+      const quarter = Math.floor(nowET.getUTCMonth() / 3)
+      start = new Date(Date.UTC(nowET.getUTCFullYear(), quarter * 3, 1, ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'year':
-      start = new Date(now.getFullYear(), 0, 1)
+      start = new Date(Date.UTC(nowET.getUTCFullYear(), 0, 1, ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'all':
-      start = new Date(2020, 0, 1) // Far back enough
+      start = new Date(Date.UTC(2020, 0, 1, ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
     default:
-      start.setDate(now.getDate() - now.getDay())
-      start.setHours(0, 0, 0, 0)
+      // Default to this week
+      const defaultDayOfWeek = nowET.getUTCDay()
+      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - defaultDayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
+      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
   }
 
   return { start, end }
