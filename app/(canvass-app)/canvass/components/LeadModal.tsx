@@ -206,7 +206,7 @@ export default function LeadModal({
           <div className="p-4 space-y-4">
             {/* Quick Disposition Buttons */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-900 mb-2">
                 Disposition
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -222,7 +222,7 @@ export default function LeadModal({
                     }`}
                   >
                     <span className="text-2xl block mb-1">{d.icon}</span>
-                    <span className="text-xs font-medium">{d.label}</span>
+                    <span className="text-xs font-medium text-gray-900">{d.label}</span>
                   </button>
                 ))}
               </div>
@@ -230,7 +230,7 @@ export default function LeadModal({
 
             {/* Contact Info */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-900 mb-1">
                 Homeowner Name {showScheduling && <span className="text-red-500">*</span>}
               </label>
               <input
@@ -243,7 +243,7 @@ export default function LeadModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-900 mb-1">
                 Phone {showScheduling && <span className="text-red-500">*</span>}
               </label>
               <input
@@ -256,7 +256,7 @@ export default function LeadModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-900 mb-1">
                 Email
               </label>
               <input
@@ -269,7 +269,7 @@ export default function LeadModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-900 mb-1">
                 Address {showScheduling && <span className="text-red-500">*</span>}
               </label>
               <input
@@ -282,7 +282,7 @@ export default function LeadModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-900 mb-1">
                 Notes
               </label>
               <textarea
@@ -326,7 +326,7 @@ export default function LeadModal({
               <div className="space-y-4 bg-gray-50 -mx-4 px-4 py-4">
                 {/* Closer Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-900 mb-2">
                     Assign To
                   </label>
                   <select
@@ -359,7 +359,7 @@ export default function LeadModal({
                 {/* Date Selection */}
                 {selectedCloser && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
                       Date
                     </label>
                     <div className="flex gap-2 overflow-x-auto pb-2">
@@ -384,7 +384,7 @@ export default function LeadModal({
                 {/* Time Slots */}
                 {selectedDate && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
                       Time ({closerTimezone.replace('America/', '').replace('_', ' ')})
                     </label>
                     {loadingSlots ? (
@@ -435,7 +435,7 @@ export default function LeadModal({
 
             {/* Photos */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-900 mb-2">
                 Photos
               </label>
               <div className="flex gap-2 flex-wrap">
