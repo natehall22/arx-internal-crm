@@ -97,20 +97,6 @@ export default async function DashboardPage() {
     }
   }
   const { data: allLeads, error: leadsError } = await leadsQuery
-  
-  // Debug logging - remove after fixing
-  console.log('Dashboard leads query:', {
-    orgId: profile.org_id,
-    isAdmin,
-    totalLeads: allLeads?.length || 0,
-    leadsError: leadsError?.message,
-    sampleLeads: allLeads?.slice(0, 3).map(l => ({
-      id: l.id,
-      owner: l.owner_user_id,
-      created: l.created_at,
-      disposition: l.canvass_disposition
-    }))
-  })
 
   let oppsQuery = supabase
     .from('opportunities')
@@ -210,10 +196,26 @@ export default async function DashboardPage() {
     const { data: members } = await membersQuery
     
     // Debug logging - remove after fixing
-    console.log('Dashboard members:', {
+    const memberIdSet = new Set(members?.map(m => m.id) || [])
+    const leadsWithMatchingOwner = allLeads?.filter(l => l.owner_user_id && memberIdSet.has(l.owner_user_id)) || []
+    const leadsThisWeekWithOwner = leadsWithMatchingOwner.filter(l => new Date(l.created_at) >= startOfWeek)
+    const thisWeekAllLeads = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
+    
+    console.log('Dashboard stats debug:', {
+      totalLeads: allLeads?.length || 0,
+      thisWeekAllLeads: thisWeekAllLeads.length,
       membersCount: members?.length,
-      memberIds: members?.map(m => ({ id: m.id, name: m.full_name })),
+      leadsWithMatchingOwner: leadsWithMatchingOwner.length,
+      leadsThisWeekWithOwner: leadsThisWeekWithOwner.length,
+      leadsWithNoOwner: allLeads?.filter(l => !l.owner_user_id).length || 0,
       startOfWeek: startOfWeek.toISOString(),
+      sampleThisWeek: thisWeekAllLeads.slice(0, 3).map(l => ({
+        id: l.id?.slice(0, 8),
+        owner: l.owner_user_id?.slice(0, 8),
+        source: l.source,
+        created: l.created_at,
+      })),
+      memberIds: members?.slice(0, 4).map(m => ({ id: m.id?.slice(0, 8), name: m.full_name })),
     })
     
     // Contact dispositions - where rep actually talked to someone
