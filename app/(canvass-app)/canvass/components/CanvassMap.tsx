@@ -147,15 +147,18 @@ export default function CanvassMap({
 
     mapInstanceRef.current = new google.maps.Map(mapRef.current, {
       center: defaultCenter,
-      zoom: currentPosition ? 17 : 4,
+      zoom: currentPosition ? 18 : 4, // Zoom 18+ needed for rotation/tilt
       mapTypeId: 'hybrid', // Satellite with labels
       disableDefaultUI: true,
       zoomControl: true,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
-      rotateControl: true, // Enable rotation with two fingers
-      gestureHandling: 'greedy', // Allow single finger pan (no two-finger requirement)
+      rotateControl: true, // Show rotation control
+      tiltControl: true, // Enable tilt control
+      gestureHandling: 'greedy', // Allow single finger pan
+      heading: 0, // Initial heading (north)
+      tilt: 0, // Initial tilt
     })
 
     // Click listener
@@ -448,24 +451,60 @@ export default function CanvassMap({
           </button>
         )}
         
-        {/* Compass - reset to north (only show when rotated) */}
-        {mapHeading !== 0 && (
-          <button
-            onClick={handleResetHeading}
-            className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
-            title="Reset to North"
+      </div>
+      
+      {/* Compass/Rotation control - right side */}
+      <div className="absolute bottom-24 right-4 flex flex-col items-center gap-1 z-10">
+        {/* Rotate left */}
+        <button
+          onClick={() => {
+            if (mapInstanceRef.current) {
+              const newHeading = (mapHeading - 45 + 360) % 360
+              mapInstanceRef.current.setHeading(newHeading)
+              setMapHeading(newHeading)
+            }
+          }}
+          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center"
+          title="Rotate left"
+        >
+          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+          </svg>
+        </button>
+        
+        {/* Compass - tap to reset north */}
+        <button
+          onClick={handleResetHeading}
+          className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+          title="Reset to North"
+        >
+          <svg 
+            className="w-7 h-7" 
+            viewBox="0 0 24 24" 
+            fill="currentColor"
+            style={{ transform: `rotate(${-mapHeading}deg)`, transition: 'transform 0.3s ease' }}
           >
-            <svg 
-              className="w-6 h-6 text-red-500" 
-              viewBox="0 0 24 24" 
-              fill="currentColor"
-              style={{ transform: `rotate(${-mapHeading}deg)` }}
-            >
-              <path d="M12 2L8 10h8L12 2z" fill="currentColor" />
-              <path d="M12 22l4-8H8l4 8z" fill="#9CA3AF" />
-            </svg>
-          </button>
-        )}
+            <path d="M12 2L8 10h8L12 2z" fill="#EF4444" />
+            <path d="M12 22l4-8H8l4 8z" fill="#9CA3AF" />
+          </svg>
+        </button>
+        
+        {/* Rotate right */}
+        <button
+          onClick={() => {
+            if (mapInstanceRef.current) {
+              const newHeading = (mapHeading + 45) % 360
+              mapInstanceRef.current.setHeading(newHeading)
+              setMapHeading(newHeading)
+            }
+          }}
+          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center"
+          title="Rotate right"
+        >
+          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
+          </svg>
+        </button>
       </div>
 
       {/* Address Search */}
