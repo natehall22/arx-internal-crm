@@ -168,6 +168,25 @@ export default async function DashboardPage() {
   startOfWeek.setDate(now.getDate() - now.getDay())
   startOfWeek.setHours(0, 0, 0, 0)
 
+  // Debug: Log all leads info BEFORE team member filtering
+  const allLeadsThisWeek = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
+  console.log('Dashboard ALL leads debug:', {
+    totalLeadsInDb: allLeads?.length || 0,
+    leadsThisWeek: allLeadsThisWeek.length,
+    startOfWeek: startOfWeek.toISOString(),
+    nowDate: now.toISOString(),
+    isAdmin,
+    isSalesManager,
+    isRegionalManager,
+    sampleLeads: allLeadsThisWeek.slice(0, 5).map(l => ({
+      id: l.id?.slice(0, 8),
+      owner: l.owner_user_id?.slice(0, 8) || 'NULL',
+      source: l.source,
+      disposition: l.canvass_disposition,
+      created: l.created_at,
+    })),
+  })
+
   // Fetch team member stats for managers/admins
   let teamMemberStats: any[] = []
   if (isAdmin || isSalesManager || isRegionalManager) {
