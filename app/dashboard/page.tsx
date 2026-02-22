@@ -170,25 +170,6 @@ export default async function DashboardPage() {
   startOfWeek.setUTCDate(now.getUTCDate() - dayOfWeek)
   startOfWeek.setUTCHours(0, 0, 0, 0)
 
-  // Debug: Log all leads info BEFORE team member filtering
-  const allLeadsThisWeek = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
-  console.log('Dashboard ALL leads debug:', {
-    totalLeadsInDb: allLeads?.length || 0,
-    leadsThisWeek: allLeadsThisWeek.length,
-    startOfWeek: startOfWeek.toISOString(),
-    nowDate: now.toISOString(),
-    isAdmin,
-    isSalesManager,
-    isRegionalManager,
-    sampleLeads: allLeadsThisWeek.slice(0, 5).map(l => ({
-      id: l.id?.slice(0, 8),
-      owner: l.owner_user_id?.slice(0, 8) || 'NULL',
-      source: l.source,
-      disposition: l.canvass_disposition,
-      created: l.created_at,
-    })),
-  })
-
   // Fetch team member stats for managers/admins
   let teamMemberStats: any[] = []
   if (isAdmin || isSalesManager || isRegionalManager) {
@@ -215,29 +196,6 @@ export default async function DashboardPage() {
     }
     
     const { data: members } = await membersQuery
-    
-    // Debug logging - remove after fixing
-    const memberIdSet = new Set(members?.map(m => m.id) || [])
-    const leadsWithMatchingOwner = allLeads?.filter(l => l.owner_user_id && memberIdSet.has(l.owner_user_id)) || []
-    const leadsThisWeekWithOwner = leadsWithMatchingOwner.filter(l => new Date(l.created_at) >= startOfWeek)
-    const thisWeekAllLeads = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
-    
-    console.log('Dashboard stats debug:', {
-      totalLeads: allLeads?.length || 0,
-      thisWeekAllLeads: thisWeekAllLeads.length,
-      membersCount: members?.length,
-      leadsWithMatchingOwner: leadsWithMatchingOwner.length,
-      leadsThisWeekWithOwner: leadsThisWeekWithOwner.length,
-      leadsWithNoOwner: allLeads?.filter(l => !l.owner_user_id).length || 0,
-      startOfWeek: startOfWeek.toISOString(),
-      sampleThisWeek: thisWeekAllLeads.slice(0, 3).map(l => ({
-        id: l.id?.slice(0, 8),
-        owner: l.owner_user_id?.slice(0, 8),
-        source: l.source,
-        created: l.created_at,
-      })),
-      memberIds: members?.slice(0, 4).map(m => ({ id: m.id?.slice(0, 8), name: m.full_name })),
-    })
     
     // Contact dispositions - where rep actually talked to someone
     const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']

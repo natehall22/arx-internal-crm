@@ -738,3 +738,63 @@ export async function POST(request: Request) {
     }, { status: 500 })
   }
 }
+
+// DELETE - Delete a lead/pin
+export async function DELETE(request: Request) {
+  try {
+    const { profile } = await requireAuth()
+    if (!profile) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const leadId = searchParams.get('id')
+
+    if (!leadId) {
+      return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 })
+    }
+
+    const supabase = getAdminClient()
+
+    // First verify the lead exists and belongs to this org
+    const { data: lead, error: fetchError } = await supabase
+      .from('leads')
+      .select('id, org_id, owner_user_id')
+      .eq('id', leadId)
+      .single()
+
+    if (fetchError || !lead) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+    }
+
+    if (lead.org_id !== profile.org_id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    }
+
+    // Only allow deletion by owner or admin
+    const isAdmin = profile.role === 'admin'
+    const isOwner = lead.owner_user_id === profile.id
+    
+    if (!isAdmin && !isOwner) {
+      return NextResponse.json({ error: 'Only the pin owner or admin can delete this pin' }, { status: 403 })
+    }
+
+    // Delete the lead
+    const { error: deleteError } = await supabase
+      .from('leads')
+      .delete()
+      .eq('id', leadId)
+
+    if (deleteError) {
+      console.error('Delete lead error:', deleteError)
+      return NextResponse.json({ error: 'Failed to delete lead' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, deleted_id: leadId })
+  } catch (error) {
+    console.error('Delete lead error:', error)
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to delete lead' 
+    }, { status: 500 })
+  }
+}

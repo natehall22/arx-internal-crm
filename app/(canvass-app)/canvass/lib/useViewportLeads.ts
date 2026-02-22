@@ -90,6 +90,8 @@ interface UseViewportLeadsReturn {
   getPinDetails: (id: string) => Promise<FullPinData | null>
   clearCache: () => void
   addPin: (pin: ViewportPin) => void  // Add a newly created pin to the display
+  updatePin: (pin: ViewportPin) => void  // Update an existing pin
+  removePin: (id: string) => void  // Remove a pin from the display
   // Disposition filter
   dispositionFilter: string | null
   setDispositionFilter: (d: string | null) => void
@@ -351,6 +353,38 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     })
   }, [])
 
+  // Update an existing pin in the state
+  const updatePin = useCallback((pin: ViewportPin) => {
+    setState(prev => {
+      const newPins = new Map(prev.pins)
+      newPins.set(pin.id, pin)
+      // Also clear cached details so they get refetched
+      const newDetails = new Map(prev.pinDetails)
+      newDetails.delete(pin.id)
+      return {
+        ...prev,
+        pins: newPins,
+        pinDetails: newDetails,
+      }
+    })
+  }, [])
+
+  // Remove a pin from the state
+  const removePin = useCallback((id: string) => {
+    setState(prev => {
+      const newPins = new Map(prev.pins)
+      newPins.delete(id)
+      const newDetails = new Map(prev.pinDetails)
+      newDetails.delete(id)
+      return {
+        ...prev,
+        pins: newPins,
+        pinDetails: newDetails,
+        totalLoaded: newPins.size,
+      }
+    })
+  }, [])
+
   // Clear cache when disposition filter changes
   useEffect(() => {
     // Don't clear on initial mount
@@ -370,6 +404,8 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     getPinDetails,
     clearCache,
     addPin,
+    updatePin,
+    removePin,
     dispositionFilter,
     setDispositionFilter,
   }

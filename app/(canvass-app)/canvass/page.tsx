@@ -75,6 +75,8 @@ export default function CanvassPage() {
     getPinDetails,
     clearCache: clearViewportCache,
     addPin: addViewportPin,
+    updatePin: updateViewportPin,
+    removePin: removeViewportPin,
     dispositionFilter,
     setDispositionFilter,
   } = useViewportLeads()
@@ -323,9 +325,25 @@ export default function CanvassPage() {
         updatedPin.status = 'inspection'
         updatedPin.disposition = 'scheduled'
       }
-      setPins(pins.map(p => 
-        p.id === selectedPin.id ? updatedPin : p
-      ))
+      
+      // Update in viewport mode or local pins mode
+      if (mapDataMode === 'VIEWPORT') {
+        // Update the viewport pin with new disposition
+        const viewportPin = {
+          id: selectedPin.id,
+          lat: selectedPin.lat,
+          lng: selectedPin.lng,
+          d: updatedPin.disposition || null,
+          s: updatedPin.status,
+          o: selectedPin.owner_user_id || null,
+          t: selectedPin.created_at,
+        }
+        updateViewportPin(viewportPin)
+      } else {
+        setPins(pins.map(p => 
+          p.id === selectedPin.id ? updatedPin : p
+        ))
+      }
     } else if (newPinLocation) {
       // Create new pin
       const newPin: CanvassPin = {
@@ -419,6 +437,37 @@ export default function CanvassPage() {
       handleMapClick(position.lat, position.lng)
     } else {
       requestPermission()
+    }
+  }
+
+  const handleDeleteLead = async (pinId: string) => {
+    if (!isOnline) {
+      alert('Cannot delete pins while offline')
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/canvass/lead?id=${pinId}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        // Remove from local state
+        if (mapDataMode === 'VIEWPORT') {
+          removeViewportPin(pinId)
+        } else {
+          setPins(pins.filter(p => p.id !== pinId))
+        }
+        
+        setShowLeadModal(false)
+        setSelectedPin(null)
+      } else {
+        const data = await response.json()
+        alert(data.error || 'Failed to delete pin')
+      }
+    } catch (error) {
+      console.error('Failed to delete lead:', error)
+      alert('Failed to delete pin')
     }
   }
 
@@ -561,6 +610,7 @@ export default function CanvassPage() {
           location={newPinLocation}
           prefillAddress={prefillAddress}
           onSave={handleSaveLead}
+          onDelete={selectedPin?.synced ? handleDeleteLead : undefined}
           onClose={() => {
             setShowLeadModal(false)
             setSelectedPin(null)

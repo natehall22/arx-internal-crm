@@ -12,6 +12,7 @@ interface Props {
     closer_user_id?: string
     inspection_scheduled_for?: string
   }) => void
+  onDelete?: (pinId: string) => void
   onClose: () => void
   users?: Array<{ id: string; full_name: string; has_calendar?: boolean }>
   teams?: Array<{ id: string; name: string }>
@@ -39,6 +40,7 @@ export default function LeadModal({
   location, 
   prefillAddress, 
   onSave, 
+  onDelete,
   onClose,
   users = [],
   teams = [],
@@ -54,6 +56,8 @@ export default function LeadModal({
     notes: '',
   })
   const [showComingSoon, setShowComingSoon] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   
   // Scheduling state
   const [showScheduling, setShowScheduling] = useState(false)
@@ -164,6 +168,17 @@ export default function LeadModal({
   const handlePhotoClick = () => {
     setShowComingSoon(true)
     setTimeout(() => setShowComingSoon(false), 2000)
+  }
+
+  const handleDelete = async () => {
+    if (!pin?.id || !onDelete) return
+    setIsDeleting(true)
+    try {
+      await onDelete(pin.id)
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteConfirm(false)
+    }
   }
 
   // Generate next 7 days for date selection
@@ -461,7 +476,7 @@ export default function LeadModal({
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t bg-gray-50 safe-area-bottom">
+          <div className="p-4 border-t bg-gray-50 safe-area-bottom space-y-3">
             <button
               type="submit"
               disabled={showScheduling && canSchedule && !selectedTime ? true : false}
@@ -481,6 +496,42 @@ export default function LeadModal({
                 ? 'Update Pin'
                 : 'Drop Pin'}
             </button>
+            
+            {/* Delete button - only show for existing pins */}
+            {pin && onDelete && !showDeleteConfirm && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full py-3 rounded-xl font-medium text-red-600 border border-red-200 bg-red-50 active:bg-red-100"
+              >
+                Delete Pin
+              </button>
+            )}
+            
+            {/* Delete confirmation */}
+            {showDeleteConfirm && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-sm text-red-800 mb-3">Are you sure you want to delete this pin? This cannot be undone.</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="flex-1 py-2 rounded-lg font-medium text-gray-700 bg-white border border-gray-300 active:bg-gray-100"
+                    disabled={isDeleting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="flex-1 py-2 rounded-lg font-medium text-white bg-red-600 active:bg-red-700 disabled:bg-red-400"
+                  >
+                    {isDeleting ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </form>
       </div>
