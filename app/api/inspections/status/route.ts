@@ -320,8 +320,7 @@ export async function GET(request: NextRequest) {
         *,
         scheduled_appointments(
           *,
-          leads(homeowner_name, address_text),
-          opportunities(id)
+          leads(homeowner_name, address_text)
         )
       `)
       .eq('completed', false)
