@@ -463,13 +463,10 @@ export default function CanvassMap({
           </button>
         )}
         
-      </div>
-      
-      {/* Compass - tap to reset north (right side) */}
-      <div className="absolute bottom-24 right-4 z-10">
+        {/* Compass - tap to reset north */}
         <button
           onClick={handleResetHeading}
-          className="w-11 h-11 bg-white rounded-full shadow-lg flex items-center justify-center"
+          className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
           title="Reset to North"
         >
           <svg 
