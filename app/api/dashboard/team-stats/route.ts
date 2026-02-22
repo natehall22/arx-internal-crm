@@ -188,12 +188,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ teamMemberStats: [] })
     }
 
-    // Fetch leads with canvass_disposition (doors knocked) for the time period
+    // Fetch leads for the time period
+    // Count ALL leads as doors knocked (not just ones with canvass_disposition)
+    // This ensures stats work for leads created from any source
     let leadsQuery = supabase
       .from('leads')
-      .select('owner_user_id, canvass_disposition, created_at')
+      .select('owner_user_id, canvass_disposition, source, created_at')
       .eq('org_id', profile.org_id)
-      .not('canvass_disposition', 'is', null)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
 

@@ -208,14 +208,14 @@ export default async function DashboardPage() {
         // Inspections OWNED by this member (closer gets credit for sales)
         const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
         
-        // Count doors knocked - only leads with canvass_disposition (from canvassing app)
+        // Count doors knocked - all leads created this week
         const memberWeekLeads = memberLeads.filter(l => 
-          new Date(l.created_at) >= startOfWeek && l.canvass_disposition
+          new Date(l.created_at) >= startOfWeek
         )
         
         // Count contacts - only dispositions where they talked to someone
         const memberWeekContacts = memberWeekLeads.filter(l => 
-          contactDispositions.includes(l.canvass_disposition || '')
+          l.canvass_disposition && contactDispositions.includes(l.canvass_disposition)
         ).length
         
         // Inspections set this week - credit goes to SETTER
