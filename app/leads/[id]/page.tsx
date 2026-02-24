@@ -812,7 +812,7 @@ export default async function LeadDetailPage({
                     <h3 className="text-sm font-medium text-amber-800">Inspection Flow Not Updated</h3>
                     <p className="text-sm text-amber-700 mt-1">
                       The inspection outcome has not been recorded yet. 
-                      {appointments && appointments.length > 0 && appointments[0].scheduled_for && (
+                      {(appointments && appointments.length > 0 && appointments[0].scheduled_for) ? (
                         <span>
                           {' '}Inspection was scheduled for{' '}
                           {new Date(appointments[0].scheduled_for).toLocaleString('en-US', { 
@@ -821,11 +821,20 @@ export default async function LeadDetailPage({
                             timeZone: 'America/New_York' 
                           })}.
                         </span>
-                      )}
+                      ) : lead.inspection_scheduled_for ? (
+                        <span>
+                          {' '}Inspection was scheduled for{' '}
+                          {new Date(lead.inspection_scheduled_for).toLocaleString('en-US', { 
+                            dateStyle: 'medium', 
+                            timeStyle: 'short',
+                            timeZone: 'America/New_York' 
+                          })}.
+                        </span>
+                      ) : null}
                     </p>
                     <Link
                       href={appointments && appointments.length > 0 
-                        ? `/appointments/feedback?id=${appointments[0].id}` 
+                        ? `/appointments/feedback?id=${appointments[0].id}&lead_id=${params.id}` 
                         : `/appointments/feedback?lead_id=${params.id}`
                       }
                       className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700"

@@ -78,12 +78,24 @@ export default function AppointmentFeedbackPage() {
           router.push('/login')
           return
         }
+        // If appointment not found but we have a lead_id, fall back to loading the lead
+        if (response.status === 404 && leadId) {
+          console.log('Appointment not found, falling back to lead_id:', leadId)
+          await loadLead()
+          return
+        }
         throw new Error('Failed to load appointment')
       }
 
       const data = await response.json()
       setAppointment(data.appointment)
     } catch (err) {
+      // If we have a lead_id, try to fall back to it
+      if (leadId) {
+        console.log('Appointment load failed, falling back to lead_id:', leadId)
+        await loadLead()
+        return
+      }
       setError(err instanceof Error ? err.message : 'Failed to load appointment')
     } finally {
       setLoading(false)
