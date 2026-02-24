@@ -131,17 +131,46 @@ export async function POST(request: NextRequest) {
           .update({ completed: true })
           .eq('appointment_id', appointment_id)
         
-        // Return success so the UI can move on
-        return NextResponse.json({ 
-          success: true, 
-          message: 'Appointment no longer exists - prompt dismissed',
-          skipped: true 
-        })
+        // If we have a lead_id fallback, use that instead of returning early
+        if (directLeadId) {
+          console.log(`Falling back to lead_id: ${directLeadId}`)
+          const { data: leadData, error: leadError } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('id', directLeadId)
+            .eq('org_id', profile.org_id)
+            .single()
+
+          if (leadError || !leadData) {
+            console.log(`Lead ${directLeadId} not found either`)
+            return NextResponse.json({ error: 'Neither appointment nor lead found' }, { status: 404 })
+          }
+          
+          lead = leadData
+
+          // Try to find associated opportunity
+          const { data: opportunityData } = await supabase
+            .from('opportunities')
+            .select('*')
+            .eq('lead_id', directLeadId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          
+          opportunity = opportunityData
+        } else {
+          // No lead_id fallback - return success so the UI can move on
+          return NextResponse.json({ 
+            success: true, 
+            message: 'Appointment no longer exists - prompt dismissed',
+            skipped: true 
+          })
+        }
+      } else {
+        appointment = appointmentData
+        lead = appointmentData.leads
+        opportunity = appointmentData.opportunities
       }
-      
-      appointment = appointmentData
-      lead = appointmentData.leads
-      opportunity = appointmentData.opportunities
     } else if (directLeadId) {
       // Direct lead update without appointment - fetch lead and opportunity
       const { data: leadData, error: leadError } = await supabase
