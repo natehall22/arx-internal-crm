@@ -98,6 +98,8 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const leadIds = searchParams.get('lead_ids')
     const fullData = searchParams.get('full') === 'true'
+    const inspectionOutcome = searchParams.get('inspection_outcome')
+    const searchQuery = searchParams.get('q')
 
     // Build the query - fetch all columns explicitly to avoid join issues
     let query = adminClient
@@ -139,11 +141,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch related data separately to avoid join issues
-    if (fullData && opportunities && opportunities.length > 0) {
+    let enrichedOpportunities = opportunities || []
+    
+    if (fullData && enrichedOpportunities.length > 0) {
       // Get unique IDs for related lookups
-      const ownerIdList = opportunities.map((o: any) => o.owner_user_id).filter(Boolean)
-      const leadIdList = opportunities.map((o: any) => o.lead_id).filter(Boolean)
-      const customerIdList = opportunities.map((o: any) => o.customer_id).filter(Boolean)
+      const oppIdList = enrichedOpportunities.map((o: any) => o.id)
+      const ownerIdList = enrichedOpportunities.map((o: any) => o.owner_user_id).filter(Boolean)
+      const leadIdList = enrichedOpportunities.map((o: any) => o.lead_id).filter(Boolean)
+      const customerIdList = enrichedOpportunities.map((o: any) => o.customer_id).filter(Boolean)
       
       // Fetch owners
       if (ownerIdList.length > 0) {
@@ -155,23 +160,26 @@ export async function GET(request: NextRequest) {
         const ownerMap: Record<string, string> = {}
         ;(owners || []).forEach((u: any) => { ownerMap[u.id] = u.full_name })
         
-        opportunities.forEach((opp: any) => {
+        enrichedOpportunities.forEach((opp: any) => {
           opp.users = opp.owner_user_id ? { full_name: ownerMap[opp.owner_user_id] || null } : null
         })
       }
       
-      // Fetch leads
+      // Fetch leads with phone/email for search
       if (leadIdList.length > 0) {
         const { data: leads } = await adminClient
           .from('leads')
-          .select('id, homeowner_name')
+          .select('id, homeowner_name, phone, email')
           .in('id', leadIdList)
 
-        const leadMap: Record<string, string> = {}
-        ;(leads || []).forEach((l: any) => { leadMap[l.id] = l.homeowner_name })
+        const leadMap: Record<string, any> = {}
+        ;(leads || []).forEach((l: any) => { leadMap[l.id] = l })
         
-        opportunities.forEach((opp: any) => {
-          opp.leads = opp.lead_id ? { homeowner_name: leadMap[opp.lead_id] || null } : null
+        enrichedOpportunities.forEach((opp: any) => {
+          const lead = opp.lead_id ? leadMap[opp.lead_id] : null
+          opp.leads = lead ? { homeowner_name: lead.homeowner_name || null } : null
+          opp.lead_phone = lead?.phone || null
+          opp.lead_email = lead?.email || null
         })
       }
       
@@ -179,19 +187,74 @@ export async function GET(request: NextRequest) {
       if (customerIdList.length > 0) {
         const { data: customers } = await adminClient
           .from('customers')
-          .select('id, name')
+          .select('id, name, phone, email')
           .in('id', customerIdList)
 
-        const customerMap: Record<string, string> = {}
-        ;(customers || []).forEach((c: any) => { customerMap[c.id] = c.name })
+        const customerMap: Record<string, any> = {}
+        ;(customers || []).forEach((c: any) => { customerMap[c.id] = c })
         
-        opportunities.forEach((opp: any) => {
-          opp.customers = opp.customer_id ? { name: customerMap[opp.customer_id] || null } : null
+        enrichedOpportunities.forEach((opp: any) => {
+          const customer = opp.customer_id ? customerMap[opp.customer_id] : null
+          opp.customers = customer ? { name: customer.name || null } : null
+          opp.customer_phone = customer?.phone || null
+          opp.customer_email = customer?.email || null
+        })
+      }
+      
+      // Fetch latest inspection status for each opportunity
+      const { data: inspectionStatuses } = await adminClient
+        .from('inspection_status_updates')
+        .select('opportunity_id, outcome, notes, created_at')
+        .in('opportunity_id', oppIdList)
+        .order('created_at', { ascending: false })
+      
+      // Build map of opportunity_id -> latest inspection outcome
+      const inspectionMap: Record<string, { outcome: string; notes: string | null; created_at: string }> = {}
+      ;(inspectionStatuses || []).forEach((status: any) => {
+        if (status.opportunity_id && !inspectionMap[status.opportunity_id]) {
+          inspectionMap[status.opportunity_id] = {
+            outcome: status.outcome,
+            notes: status.notes,
+            created_at: status.created_at
+          }
+        }
+      })
+      
+      enrichedOpportunities.forEach((opp: any) => {
+        const inspection = inspectionMap[opp.id]
+        opp.inspection_outcome = inspection?.outcome || null
+        opp.inspection_notes = inspection?.notes || null
+        opp.inspection_date = inspection?.created_at || null
+      })
+      
+      // Filter by inspection outcome if specified
+      if (inspectionOutcome) {
+        if (inspectionOutcome === 'none') {
+          enrichedOpportunities = enrichedOpportunities.filter((opp: any) => !opp.inspection_outcome)
+        } else {
+          enrichedOpportunities = enrichedOpportunities.filter((opp: any) => opp.inspection_outcome === inspectionOutcome)
+        }
+      }
+      
+      // Filter by search query if specified
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase()
+        enrichedOpportunities = enrichedOpportunities.filter((opp: any) => {
+          const name = opp.leads?.homeowner_name || opp.customers?.name || ''
+          const address = opp.address_text || ''
+          const phone = opp.lead_phone || opp.customer_phone || ''
+          const email = opp.lead_email || opp.customer_email || ''
+          return (
+            name.toLowerCase().includes(q) ||
+            address.toLowerCase().includes(q) ||
+            phone.includes(q) ||
+            email.toLowerCase().includes(q)
+          )
         })
       }
     }
 
-    return NextResponse.json({ opportunities: opportunities || [] })
+    return NextResponse.json({ opportunities: enrichedOpportunities })
   } catch (error) {
     console.error('Opportunities API error:', error)
     return NextResponse.json({ 
