@@ -256,6 +256,19 @@ export default async function OpportunityDetailPage({
           </div>
         </div>
 
+        {/* Canvass Notes Section */}
+        {opportunity.leads?.canvass_notes && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Canvass Notes</h2>
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{opportunity.leads.canvass_notes}</p>
+              <p className="text-xs text-gray-500 mt-2">
+                Notes from initial canvass visit
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Inspection Feedback Section */}
         {(opportunity.inspection_outcome || (inspectionUpdates && inspectionUpdates.length > 0)) && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
