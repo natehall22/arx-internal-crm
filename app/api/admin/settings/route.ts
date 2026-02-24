@@ -243,6 +243,23 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    if (type === 'inspection_outcomes') {
+      const { error } = await adminClient
+        .from('orgs')
+        .update({
+          settings: {
+            ...currentSettings,
+            inspection_outcomes: data.inspection_outcomes,
+          }
+        })
+        .eq('id', profile.org_id)
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+      return NextResponse.json({ success: true })
+    }
+
     if (type === 'commission') {
       const { error } = await adminClient
         .from('orgs')

@@ -13,6 +13,7 @@ type SettingsSection =
   | 'work-order-fields'
   | 'work-order-workflows'
   | 'canvass-dispositions'
+  | 'inspection-outcomes'
   | 'estimate-settings'
   | 'appointment-settings'
   | 'budgets'
@@ -40,6 +41,17 @@ interface DispositionType {
   category: string
   color: string
   active: boolean
+  sort_order: number
+}
+
+interface InspectionOutcomeType {
+  id: string
+  label: string
+  description: string
+  color: string
+  icon: string
+  active: boolean
+  converts_to_opportunity: boolean
   sort_order: number
 }
 
@@ -144,6 +156,20 @@ export default function AdminSettingsPage() {
   const [editingDisposition, setEditingDisposition] = useState<DispositionType | null>(null)
   const [showAddDisposition, setShowAddDisposition] = useState(false)
   
+  // Inspection Outcomes
+  const [inspectionOutcomes, setInspectionOutcomes] = useState<InspectionOutcomeType[]>([
+    { id: 'sale', label: 'Sale', description: 'Customer signed the contract', color: '#22c55e', icon: '✓', active: true, converts_to_opportunity: true, sort_order: 0 },
+    { id: 'moving_to_close', label: 'Moving to Close', description: 'Customer interested, following up to close', color: '#10b981', icon: '→', active: true, converts_to_opportunity: true, sort_order: 1 },
+    { id: 'insurance_follow_up', label: 'Insurance Follow Up', description: 'Waiting on insurance claim/approval', color: '#8b5cf6', icon: '📋', active: true, converts_to_opportunity: true, sort_order: 2 },
+    { id: 'said_no', label: 'Said No', description: 'Customer declined after presentation', color: '#ef4444', icon: '✗', active: true, converts_to_opportunity: false, sort_order: 3 },
+    { id: 'not_home', label: 'Not Home', description: 'Customer was not present', color: '#f59e0b', icon: '?', active: true, converts_to_opportunity: false, sort_order: 4 },
+    { id: 'no_problems_found', label: 'No Problems Found', description: 'Roof inspection showed no issues', color: '#6b7280', icon: '○', active: true, converts_to_opportunity: false, sort_order: 5 },
+    { id: 'failed_credit', label: 'Failed Credit', description: 'Customer did not qualify for financing', color: '#f97316', icon: '$', active: true, converts_to_opportunity: true, sort_order: 6 },
+    { id: 'rescheduled', label: 'Rescheduled', description: 'Appointment moved to new date', color: '#3b82f6', icon: '↻', active: true, converts_to_opportunity: false, sort_order: 7 },
+  ])
+  const [editingInspectionOutcome, setEditingInspectionOutcome] = useState<InspectionOutcomeType | null>(null)
+  const [showAddInspectionOutcome, setShowAddInspectionOutcome] = useState(false)
+  
   // Appointment types
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([
     { id: 'inspection', name: 'Inspection', duration_minutes: 60, color: '#3b82f6', active: true, description: 'Standard roof inspection' },
@@ -231,6 +257,11 @@ export default function AdminSettingsPage() {
       // Load canvass dispositions from org settings
       if (data.settings?.canvass_dispositions) {
         setDispositions(data.settings.canvass_dispositions)
+      }
+      
+      // Load inspection outcomes from org settings
+      if (data.settings?.inspection_outcomes) {
+        setInspectionOutcomes(data.settings.inspection_outcomes)
       }
       
       // Load commission settings
@@ -403,6 +434,7 @@ export default function AdminSettingsPage() {
         { id: 'work-order-fields', label: 'Work Order Fields' },
         { id: 'work-order-workflows', label: 'Work Order Workflows' },
         { id: 'canvass-dispositions', label: 'Canvass Dispositions' },
+        { id: 'inspection-outcomes', label: 'Inspection Outcomes' },
       ],
     },
     {
@@ -1553,6 +1585,301 @@ export default function AdminSettingsPage() {
                             }
                             setShowAddDisposition(false)
                             setEditingDisposition(null)
+                          }}
+                          className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Inspection Outcomes */}
+          {activeSection === 'inspection-outcomes' && (
+            <div className="max-w-3xl">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Inspection Outcomes</h1>
+                  <p className="text-gray-500 mt-1">Configure the outcomes closers can select after an inspection. Control which outcomes automatically create opportunities.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingInspectionOutcome({
+                      id: `outcome_${Date.now()}`,
+                      label: '',
+                      description: '',
+                      color: '#3b82f6',
+                      icon: '•',
+                      active: true,
+                      converts_to_opportunity: false,
+                      sort_order: inspectionOutcomes.length,
+                    })
+                    setShowAddInspectionOutcome(true)
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+                >
+                  + Add Outcome
+                </button>
+              </div>
+
+              {/* Info Banner */}
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex gap-3">
+                  <svg className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-sm text-blue-700">
+                    <p className="font-medium">How it works:</p>
+                    <p className="mt-1">When a closer submits an inspection result, outcomes marked with &quot;Creates Opportunity&quot; will automatically convert the lead to an opportunity. Other outcomes will keep the lead as-is for follow-up.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Outcomes List */}
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Icon</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Creates Opportunity</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {inspectionOutcomes.sort((a, b) => a.sort_order - b.sort_order).map((outcome) => (
+                      <tr key={outcome.id} className={!outcome.active ? 'bg-gray-50 opacity-60' : ''}>
+                        <td className="px-4 py-3">
+                          <div
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-bold"
+                            style={{ backgroundColor: outcome.color }}
+                          >
+                            {outcome.icon}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-medium text-gray-900">{outcome.label}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-600">{outcome.description}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => {
+                              setInspectionOutcomes(prev => prev.map(o => 
+                                o.id === outcome.id ? { ...o, converts_to_opportunity: !o.converts_to_opportunity } : o
+                              ))
+                            }}
+                            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                              outcome.converts_to_opportunity 
+                                ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                          >
+                            {outcome.converts_to_opportunity ? '✓ Yes' : 'No'}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            outcome.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {outcome.active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => {
+                              setEditingInspectionOutcome(outcome)
+                              setShowAddInspectionOutcome(true)
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-3"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              setInspectionOutcomes(prev => prev.map(o => 
+                                o.id === outcome.id ? { ...o, active: !o.active } : o
+                              ))
+                            }}
+                            className="text-gray-500 hover:text-gray-700 text-sm"
+                          >
+                            {outcome.active ? 'Disable' : 'Enable'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Save Button */}
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      const response = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'inspection_outcomes',
+                          inspection_outcomes: inspectionOutcomes,
+                        }),
+                      })
+                      
+                      if (!response.ok) {
+                        const data = await response.json()
+                        alert(data.error || 'Failed to save inspection outcomes')
+                        return
+                      }
+                      
+                      alert('Inspection outcomes saved!')
+                    } catch (error) {
+                      console.error('Error saving inspection outcomes:', error)
+                      alert('Failed to save inspection outcomes')
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Save Inspection Outcomes'}
+                </button>
+              </div>
+
+              {/* Edit/Add Modal */}
+              {showAddInspectionOutcome && editingInspectionOutcome && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+                    <div className="p-6 border-b">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        {inspectionOutcomes.find(o => o.id === editingInspectionOutcome.id) ? 'Edit Outcome' : 'Add Outcome'}
+                      </h2>
+                    </div>
+                    <div className="p-6 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Label *</label>
+                        <input
+                          type="text"
+                          value={editingInspectionOutcome.label}
+                          onChange={(e) => setEditingInspectionOutcome(prev => prev ? { ...prev, label: e.target.value } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="e.g., Sale, Not Home"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                        <input
+                          type="text"
+                          value={editingInspectionOutcome.description}
+                          onChange={(e) => setEditingInspectionOutcome(prev => prev ? { ...prev, description: e.target.value } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="e.g., Customer signed the contract"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Icon (emoji or symbol)</label>
+                        <input
+                          type="text"
+                          value={editingInspectionOutcome.icon}
+                          onChange={(e) => setEditingInspectionOutcome(prev => prev ? { ...prev, icon: e.target.value.slice(0, 2) } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="✓, ✗, →, ?, etc."
+                          maxLength={2}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {[
+                            '#22c55e', '#10b981', '#14b8a6', '#3b82f6', '#8b5cf6',
+                            '#ec4899', '#ef4444', '#f97316', '#f59e0b', '#6b7280'
+                          ].map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setEditingInspectionOutcome(prev => prev ? { ...prev, color } : null)}
+                              className={`w-10 h-10 rounded-full border-2 ${
+                                editingInspectionOutcome.color === color ? 'border-gray-900 scale-110' : 'border-transparent'
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                        <input
+                          type="checkbox"
+                          id="outcome-converts"
+                          checked={editingInspectionOutcome.converts_to_opportunity}
+                          onChange={(e) => setEditingInspectionOutcome(prev => prev ? { ...prev, converts_to_opportunity: e.target.checked } : null)}
+                          className="w-5 h-5 rounded border-gray-300 text-green-600"
+                        />
+                        <label htmlFor="outcome-converts" className="text-sm text-gray-700">
+                          <span className="font-medium">Creates Opportunity</span>
+                          <p className="text-gray-500 text-xs mt-0.5">When selected, this outcome will automatically convert the lead to an opportunity</p>
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="outcome-active"
+                          checked={editingInspectionOutcome.active}
+                          onChange={(e) => setEditingInspectionOutcome(prev => prev ? { ...prev, active: e.target.checked } : null)}
+                          className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                        />
+                        <label htmlFor="outcome-active" className="text-sm text-gray-700">Active</label>
+                      </div>
+                    </div>
+                    <div className="p-6 border-t flex justify-between">
+                      {inspectionOutcomes.find(o => o.id === editingInspectionOutcome.id) && (
+                        <button
+                          onClick={() => {
+                            if (confirm('Delete this outcome?')) {
+                              setInspectionOutcomes(prev => prev.filter(o => o.id !== editingInspectionOutcome.id))
+                              setShowAddInspectionOutcome(false)
+                              setEditingInspectionOutcome(null)
+                            }
+                          }}
+                          className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          Delete
+                        </button>
+                      )}
+                      <div className="flex gap-3 ml-auto">
+                        <button
+                          onClick={() => {
+                            setShowAddInspectionOutcome(false)
+                            setEditingInspectionOutcome(null)
+                          }}
+                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!editingInspectionOutcome.label) {
+                              alert('Please enter a label')
+                              return
+                            }
+                            const exists = inspectionOutcomes.find(o => o.id === editingInspectionOutcome.id)
+                            if (exists) {
+                              setInspectionOutcomes(prev => prev.map(o => 
+                                o.id === editingInspectionOutcome.id ? editingInspectionOutcome : o
+                              ))
+                            } else {
+                              setInspectionOutcomes(prev => [...prev, editingInspectionOutcome])
+                            }
+                            setShowAddInspectionOutcome(false)
+                            setEditingInspectionOutcome(null)
                           }}
                           className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                         >

@@ -383,46 +383,8 @@ export default async function LeadDetailPage({
     })
 
     if (status === 'inspection') {
-      const { data: existingOpportunity } = await supabase
-        .from('opportunities')
-        .select('id')
-        .eq('lead_id', params.id)
-        .maybeSingle()
-
-      let opportunityId = existingOpportunity?.id ?? null
-      const assignedOwnerId = closerUserId || freshLead.owner_user_id
-      // The setter is the original lead owner (the person who set the appointment)
-      const setterId = freshLead.owner_user_id
-
-      if (!existingOpportunity) {
-        const { data: createdOpportunity } = await supabase
-          .from('opportunities')
-          .insert({
-            org_id: profile.org_id,
-            lead_id: params.id,
-            owner_user_id: assignedOwnerId,
-            setter_user_id: setterId, // Track the setter for comp plans
-            status: 'open',
-            project_type: 'roofing',
-            address_text: freshLead.address_text,
-            lat: freshLead.lat,
-            lng: freshLead.lng,
-            notes: freshLead.notes,
-          })
-          .select('id')
-          .single()
-
-        opportunityId = createdOpportunity?.id ?? null
-
-        await supabase.from('activities').insert({
-          org_id: profile.org_id,
-          lead_id: params.id,
-          user_id: profile.id,
-          type: 'status_change',
-          body: 'Opportunity created from inspection scheduled.',
-        })
-      }
-
+      // Notify managers about the inspection being scheduled
+      // Note: Opportunity is now created when inspection outcome is submitted (if configured)
       const recipients = new Set<string>()
       if (profile.manager_user_id) {
         recipients.add(profile.manager_user_id)
@@ -439,8 +401,6 @@ export default async function LeadDetailPage({
 
       const recipientIds = Array.from(recipients).filter((id) => id !== profile.id)
       if (recipientIds.length > 0) {
-        const linkUrl = opportunityId ? `/opportunities/${opportunityId}` : `/leads/${params.id}`
-        const bodySuffix = opportunityId ? 'Opportunity created.' : 'Lead updated.'
         await supabase.from('notifications').insert(
           recipientIds.map((recipientId) => ({
             org_id: profile.org_id,
@@ -448,8 +408,8 @@ export default async function LeadDetailPage({
             actor_user_id: profile.id,
             type: 'inspection_scheduled',
             title: 'Inspection scheduled',
-            body: `${freshLead.homeowner_name || 'Lead'} moved to Inspection. ${bodySuffix}`,
-            link_url: linkUrl,
+            body: `${freshLead.homeowner_name || 'Lead'} moved to Inspection.`,
+            link_url: `/leads/${params.id}`,
           }))
         )
       }
@@ -710,7 +670,7 @@ export default async function LeadDetailPage({
                 </Link>
               </span>
             ) : (
-              <span>Opportunity will be created automatically when status is set to Inspection.</span>
+              <span>Opportunity will be created based on inspection outcome.</span>
             )}
           </div>
         </div>

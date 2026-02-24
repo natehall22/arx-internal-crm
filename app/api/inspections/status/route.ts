@@ -199,10 +199,61 @@ export async function POST(request: NextRequest) {
       opportunity = opportunityData
     }
 
-    // Create status update record
-    const leadId = appointment?.lead_id || directLeadId
-    const opportunityId = appointment?.opportunity_id || opportunity?.id
+    // Fetch org settings to check if this outcome should create an opportunity
+    const { data: orgData } = await supabase
+      .from('orgs')
+      .select('settings')
+      .eq('id', profile.org_id)
+      .single()
     
+    const inspectionOutcomes = orgData?.settings?.inspection_outcomes || []
+    const outcomeConfig = inspectionOutcomes.find((o: any) => o.id === outcome)
+    const shouldCreateOpportunity = outcomeConfig?.converts_to_opportunity ?? false
+    
+    console.log('Outcome config:', outcomeConfig)
+    console.log('Should create opportunity:', shouldCreateOpportunity)
+
+    const leadId = appointment?.lead_id || directLeadId
+    let opportunityId = appointment?.opportunity_id || opportunity?.id
+    let createdOpportunity = null
+
+    // Create opportunity if outcome is configured to do so and no opportunity exists
+    if (shouldCreateOpportunity && !opportunityId && leadId) {
+      console.log('Creating opportunity from inspection outcome...')
+      
+      const { data: newOpportunity, error: oppError } = await supabase
+        .from('opportunities')
+        .insert({
+          org_id: profile.org_id,
+          lead_id: leadId,
+          customer_id: lead?.customer_id || null,
+          owner_user_id: user.id,
+          status: outcome === 'sale' ? 'won' : outcome === 'moving_to_close' ? 'negotiation' : 'open',
+          source: lead?.source || 'inspection',
+          project_type: 'roofing',
+          inspection_outcome: outcome,
+          inspection_outcome_at: new Date().toISOString(),
+          inspection_notes: notes || null,
+        })
+        .select()
+        .single()
+
+      if (oppError) {
+        console.error('Failed to create opportunity:', oppError)
+      } else {
+        opportunityId = newOpportunity.id
+        createdOpportunity = newOpportunity
+        console.log('Created opportunity:', newOpportunity.id)
+        
+        // Update the lead to link to the new opportunity
+        await supabase
+          .from('leads')
+          .update({ status: 'won' })
+          .eq('id', leadId)
+      }
+    }
+
+    // Create status update record
     const { data: statusUpdate, error: statusError } = await supabase
       .from('inspection_status_updates')
       .insert({
@@ -252,15 +303,15 @@ export async function POST(request: NextRequest) {
         .eq('id', appointment_id)
     }
 
-    // Update opportunity with outcome
-    if (opportunityId) {
+    // Update existing opportunity with outcome (if it existed before or wasn't just created)
+    if (opportunityId && !createdOpportunity) {
       const opportunityUpdate: Record<string, any> = {
         inspection_outcome: outcome,
         inspection_outcome_at: new Date().toISOString(),
         inspection_notes: notes || null,
       }
 
-      // If sale, update opportunity status to won
+      // Update status based on outcome
       if (outcome === 'sale') {
         opportunityUpdate.status = 'won'
       } else if (outcome === 'said_no' || outcome === 'failed_credit' || outcome === 'no_problems_found') {
