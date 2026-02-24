@@ -84,25 +84,26 @@ export default function OpsPage() {
   }, [])
 
   const loadData = async () => {
-    console.log('Job Board: Loading data...')
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-    console.log('Job Board: Session result:', { hasSession: !!session, error: sessionError })
+    // First try to get session - this handles cookie restoration
+    const { data: { session } } = await supabase.auth.getSession()
+    let userId = session?.user?.id
     
-    if (!session?.user) {
-      console.log('Job Board: No session, redirecting to login')
-      router.push('/login')
+    if (!userId) {
+      // Double-check with getUser as fallback
+      const { data: { user: fallbackUser } } = await supabase.auth.getUser()
+      userId = fallbackUser?.id
+    }
+    
+    if (!userId) {
+      router.push('/login?next=/ops')
       return
     }
-    const user = session.user
-    console.log('Job Board: User found:', user.id)
 
     const { data: profile, error: profileError } = await supabase
       .from('users')
       .select('org_id, role')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
-
-    console.log('Job Board: Profile result:', { profile, error: profileError })
 
     if (!profile) {
       console.log('Job Board: No profile found')

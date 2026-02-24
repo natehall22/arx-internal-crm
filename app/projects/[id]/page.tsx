@@ -8,6 +8,7 @@ import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import ReferralsSection from '@/components/ReferralsSection'
 import SendToOpsButton from '@/components/SendToOpsButton'
+import ProjectStatusUpdate from '@/components/ProjectStatusUpdate'
 
 export default async function ProjectDetailPage({
   params,
@@ -178,25 +179,11 @@ export default async function ProjectDetailPage({
             <div>
               <h3 className="text-sm font-medium text-gray-500">Status</h3>
               {['admin', 'operations', 'regional_manager'].includes(profile.role) ? (
-                <form action={updateStatus} className="mt-1 flex items-center gap-2">
-                  <select
-                    name="status"
-                    defaultValue={project.status}
-                    className="text-sm rounded-md border border-gray-300 px-2 py-1"
-                  >
-                    <option value="open">Open</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="on_hold">On Hold</option>
-                    <option value="complete">Complete</option>
-                    <option value="collected">Collected</option>
-                  </select>
-                  <button
-                    type="submit"
-                    className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
-                  >
-                    Update
-                  </button>
-                </form>
+                <ProjectStatusUpdate
+                  projectId={params.id}
+                  currentStatus={project.status}
+                  updateStatusAction={updateStatus}
+                />
               ) : (
                 <p className="mt-1 text-sm text-gray-900 capitalize">
                   {project.status.replace('_', ' ')}

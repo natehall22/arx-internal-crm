@@ -98,21 +98,30 @@ export default function WorkOrderDetailPage() {
   }, [params.id])
 
   const loadWorkOrder = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
+    // First try to get session - this handles cookie restoration
+    const { data: { session } } = await supabase.auth.getSession()
+    let currentUserId = session?.user?.id
+    
+    if (!currentUserId) {
+      // Double-check with getUser as fallback
+      const { data: { user: fallbackUser } } = await supabase.auth.getUser()
+      currentUserId = fallbackUser?.id
+    }
+    
+    if (!currentUserId) {
+      router.push(`/login?next=/work-orders/${params.id}`)
       return
     }
 
     const { data: profile } = await supabase
       .from('users')
       .select('org_id, role')
-      .eq('id', user.id)
+      .eq('id', currentUserId)
       .single()
 
     if (!profile) return
 
-    setUserId(user.id)
+    setUserId(currentUserId)
     setOrgId(profile.org_id)
     setUserRole(profile.role)
 

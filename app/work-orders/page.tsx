@@ -66,16 +66,25 @@ export default function WorkOrdersPage() {
   }, [statusFilter, typeFilter])
 
   const loadWorkOrders = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
+    // First try to get session - this handles cookie restoration
+    const { data: { session } } = await supabase.auth.getSession()
+    let userId = session?.user?.id
+    
+    if (!userId) {
+      // Double-check with getUser as fallback
+      const { data: { user: fallbackUser } } = await supabase.auth.getUser()
+      userId = fallbackUser?.id
+    }
+    
+    if (!userId) {
+      router.push('/login?next=/work-orders')
       return
     }
 
     const { data: profile } = await supabase
       .from('users')
       .select('org_id')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
 
     if (!profile) return

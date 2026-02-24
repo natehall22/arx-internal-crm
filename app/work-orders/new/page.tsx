@@ -71,22 +71,31 @@ export default function NewWorkOrderPage() {
   }, [])
 
   const loadData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
+    // First try to get session - this handles cookie restoration
+    const { data: { session } } = await supabase.auth.getSession()
+    let currentUserId = session?.user?.id
+    
+    if (!currentUserId) {
+      // Double-check with getUser as fallback
+      const { data: { user: fallbackUser } } = await supabase.auth.getUser()
+      currentUserId = fallbackUser?.id
+    }
+    
+    if (!currentUserId) {
+      router.push('/login?next=/work-orders/new')
       return
     }
 
     const { data: profile } = await supabase
       .from('users')
       .select('org_id')
-      .eq('id', user.id)
+      .eq('id', currentUserId)
       .single()
 
     if (!profile) return
 
     setOrgId(profile.org_id)
-    setUserId(user.id)
+    setUserId(currentUserId)
 
     // Load customers, projects, users, and subs in parallel
     const [customersRes, projectsRes, usersRes, subsRes] = await Promise.all([
