@@ -229,6 +229,8 @@ export default function DashboardClient({
     outcome: InspectionOutcome
     notes: string
     setterFeedback: string
+    scheduleFollowUp?: boolean
+    followUpDate?: string
   }) => {
     try {
       // Use the appointment ID from the scheduled_appointments object
@@ -243,6 +245,8 @@ export default function DashboardClient({
           outcome: data.outcome,
           notes: data.notes,
           setter_feedback: data.setterFeedback,
+          schedule_follow_up: data.scheduleFollowUp,
+          follow_up_date: data.followUpDate,
         }),
       })
 

@@ -26,12 +26,16 @@ export async function POST(request: NextRequest) {
       appointment_id, 
       outcome, 
       notes, 
-      setter_feedback 
+      setter_feedback,
+      schedule_follow_up,
+      follow_up_date,
     } = body as {
       appointment_id: string
       outcome: InspectionOutcome
       notes?: string
       setter_feedback?: string
+      schedule_follow_up?: boolean
+      follow_up_date?: string
     }
 
     if (!appointment_id || !outcome) {
@@ -139,6 +143,7 @@ export async function POST(request: NextRequest) {
       rescheduled: 'Rescheduled',
       no_problems_found: 'No Problems Found',
       moving_to_close: 'Moving to Close',
+      insurance_follow_up: 'Insurance Follow Up',
     }
 
     const customerName = appointment.leads?.homeowner_name || 'Customer'
@@ -278,9 +283,43 @@ export async function POST(request: NextRequest) {
       .update({ completed: true })
       .eq('appointment_id', appointment_id)
 
+    // Schedule follow-up if requested
+    let followUpAppointment = null
+    if (schedule_follow_up && follow_up_date) {
+      // Parse the follow-up date/time
+      const followUpDateTime = new Date(follow_up_date)
+      
+      // Create a follow-up appointment
+      const { data: newAppointment, error: followUpError } = await supabase
+        .from('scheduled_appointments')
+        .insert({
+          org_id: profile.org_id,
+          lead_id: appointment.lead_id,
+          opportunity_id: appointment.opportunity_id,
+          closer_user_id: user.id,
+          canvasser_user_id: appointment.canvasser_user_id,
+          scheduled_for: followUpDateTime.toISOString(),
+          duration_minutes: appointment.duration_minutes || 60,
+          address_text: appointment.address_text,
+          status: 'scheduled',
+          notes: `Follow-up from ${outcome}: ${notes || 'No notes'}`,
+          appointment_type: 'follow_up',
+        })
+        .select()
+        .single()
+
+      if (followUpError) {
+        console.error('Failed to create follow-up appointment:', followUpError)
+      } else {
+        followUpAppointment = newAppointment
+        console.log('Created follow-up appointment:', newAppointment.id)
+      }
+    }
+
     return NextResponse.json({ 
       success: true, 
       status_update: statusUpdate,
+      follow_up_appointment: followUpAppointment,
     })
 
   } catch (error) {

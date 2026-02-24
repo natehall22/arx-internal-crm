@@ -15,11 +15,13 @@ interface InspectionStatusCardProps {
     outcome: InspectionOutcome
     notes: string
     setterFeedback: string
+    scheduleFollowUp?: boolean
+    followUpDate?: string
   }) => Promise<void>
   onReschedule: (appointmentId: string) => void
 }
 
-const outcomeOptions: { id: InspectionOutcome; label: string; description: string; color: string; icon: string }[] = [
+const outcomeOptions: { id: InspectionOutcome; label: string; description: string; color: string; icon: string; needsFollowUp?: boolean }[] = [
   { 
     id: 'sale', 
     label: 'Sale', 
@@ -32,7 +34,16 @@ const outcomeOptions: { id: InspectionOutcome; label: string; description: strin
     label: 'Moving to Close', 
     description: 'Customer interested, following up to close',
     color: 'bg-emerald-500',
-    icon: '→'
+    icon: '→',
+    needsFollowUp: true
+  },
+  { 
+    id: 'insurance_follow_up', 
+    label: 'Insurance Follow Up', 
+    description: 'Waiting on insurance claim/approval',
+    color: 'bg-purple-500',
+    icon: '📋',
+    needsFollowUp: true
   },
   { 
     id: 'said_no', 
@@ -46,7 +57,8 @@ const outcomeOptions: { id: InspectionOutcome; label: string; description: strin
     label: 'Not Home', 
     description: 'Customer was not present',
     color: 'bg-amber-500',
-    icon: '?'
+    icon: '?',
+    needsFollowUp: true
   },
   { 
     id: 'no_problems_found', 
@@ -81,6 +93,13 @@ export default function InspectionStatusCard({
   const [setterFeedback, setSetterFeedback] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [scheduleFollowUp, setScheduleFollowUp] = useState(false)
+  const [followUpDate, setFollowUpDate] = useState('')
+  const [followUpTime, setFollowUpTime] = useState('')
+  
+  // Check if selected outcome needs follow-up option
+  const selectedOption = outcomeOptions.find(o => o.id === selectedOutcome)
+  const showFollowUpOption = selectedOption?.needsFollowUp && selectedOutcome !== 'rescheduled'
 
   const handleSubmit = async () => {
     if (!selectedOutcome) {
@@ -98,10 +117,16 @@ export default function InspectionStatusCard({
     setError(null)
 
     try {
+      const followUpDateTime = scheduleFollowUp && followUpDate && followUpTime 
+        ? `${followUpDate}T${followUpTime}` 
+        : undefined
+        
       await onComplete({
         outcome: selectedOutcome,
         notes,
         setterFeedback,
+        scheduleFollowUp: scheduleFollowUp && !!followUpDateTime,
+        followUpDate: followUpDateTime,
       })
     } catch (err) {
       setError('Failed to save status update')
@@ -229,6 +254,58 @@ export default function InspectionStatusCard({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Follow-up Scheduling Option */}
+          {showFollowUpOption && (
+            <div className="px-6 py-4 border-t">
+              <button
+                type="button"
+                onClick={() => setScheduleFollowUp(!scheduleFollowUp)}
+                className={`w-full py-3 px-4 rounded-xl border-2 flex items-center justify-between ${
+                  scheduleFollowUp ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">📅</span>
+                  <span className="font-medium text-gray-900">Schedule Follow-up</span>
+                </div>
+                <div className={`w-12 h-7 rounded-full transition-colors ${scheduleFollowUp ? 'bg-indigo-500' : 'bg-gray-300'}`}>
+                  <div className={`w-5 h-5 bg-white rounded-full mt-1 transition-transform ${scheduleFollowUp ? 'translate-x-6' : 'translate-x-1'}`} />
+                </div>
+              </button>
+              
+              {scheduleFollowUp && (
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Follow-up Date
+                    </label>
+                    <input
+                      type="date"
+                      value={followUpDate}
+                      onChange={(e) => setFollowUpDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Follow-up Time
+                    </label>
+                    <input
+                      type="time"
+                      value={followUpTime}
+                      onChange={(e) => setFollowUpTime(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    This will add a follow-up appointment to your calendar
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

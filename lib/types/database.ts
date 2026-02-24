@@ -119,7 +119,7 @@ export interface UserGoogleToken {
 
 export type AppointmentStatus = 'scheduled' | 'completed' | 'cancelled' | 'no_show'
 
-export type InspectionOutcome = 'not_home' | 'said_no' | 'failed_credit' | 'rescheduled' | 'sale' | 'no_problems_found' | 'moving_to_close'
+export type InspectionOutcome = 'not_home' | 'said_no' | 'failed_credit' | 'rescheduled' | 'sale' | 'no_problems_found' | 'moving_to_close' | 'insurance_follow_up'
 
 export interface InspectionStatusUpdate {
   id: string
