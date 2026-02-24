@@ -70,11 +70,25 @@ export default async function LeadDetailPage({
 
   const { data: opportunity } = await supabase
     .from('opportunities')
-    .select('id, status')
+    .select('id, status, inspection_outcome, inspection_notes, inspection_outcome_at')
     .eq('lead_id', params.id)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  // Fetch inspection status updates for this lead
+  const { data: inspectionUpdates } = await supabase
+    .from('inspection_status_updates')
+    .select('*, closer:users!inspection_status_updates_closer_user_id_fkey(full_name)')
+    .eq('lead_id', params.id)
+    .order('created_at', { ascending: false })
+
+  // Fetch scheduled appointments for this lead to check if inspection was scheduled
+  const { data: appointments } = await supabase
+    .from('scheduled_appointments')
+    .select('id, scheduled_for, status, closer_user_id')
+    .eq('lead_id', params.id)
+    .order('scheduled_for', { ascending: false })
 
   const { data: closers } = await supabase
     .from('users')
@@ -700,6 +714,132 @@ export default async function LeadDetailPage({
             )}
           </div>
         </div>
+
+        {/* Inspection Status Section */}
+        {(lead.status === 'inspection' || (appointments && appointments.length > 0) || (inspectionUpdates && inspectionUpdates.length > 0)) && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Inspection Status</h2>
+            
+            {inspectionUpdates && inspectionUpdates.length > 0 ? (
+              <div className="space-y-4">
+                {/* Latest outcome summary */}
+                <div className="p-4 rounded-lg bg-gray-50 border">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                      inspectionUpdates[0].outcome === 'sale' ? 'bg-green-100 text-green-700' :
+                      inspectionUpdates[0].outcome === 'moving_to_close' ? 'bg-emerald-100 text-emerald-700' :
+                      inspectionUpdates[0].outcome === 'insurance_follow_up' ? 'bg-cyan-100 text-cyan-700' :
+                      inspectionUpdates[0].outcome === 'said_no' ? 'bg-red-100 text-red-700' :
+                      inspectionUpdates[0].outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
+                      inspectionUpdates[0].outcome === 'failed_credit' ? 'bg-orange-100 text-orange-700' :
+                      inspectionUpdates[0].outcome === 'rescheduled' ? 'bg-blue-100 text-blue-700' :
+                      inspectionUpdates[0].outcome === 'no_problems_found' ? 'bg-gray-100 text-gray-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {inspectionUpdates[0].outcome === 'sale' ? '✓ Sale' :
+                       inspectionUpdates[0].outcome === 'moving_to_close' ? 'Moving to Close' :
+                       inspectionUpdates[0].outcome === 'insurance_follow_up' ? 'Insurance Follow Up' :
+                       inspectionUpdates[0].outcome === 'said_no' ? 'Said No' :
+                       inspectionUpdates[0].outcome === 'not_home' ? 'Not Home' :
+                       inspectionUpdates[0].outcome === 'failed_credit' ? 'Failed Credit' :
+                       inspectionUpdates[0].outcome === 'rescheduled' ? 'Rescheduled' :
+                       inspectionUpdates[0].outcome === 'no_problems_found' ? 'No Problems Found' :
+                       inspectionUpdates[0].outcome?.replace('_', ' ')}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {new Date(inspectionUpdates[0].created_at).toLocaleString('en-US', { timeZone: 'America/New_York' })}
+                    </span>
+                  </div>
+                  {inspectionUpdates[0].closer?.full_name && (
+                    <p className="text-sm text-gray-600 mb-2">
+                      Updated by: {inspectionUpdates[0].closer.full_name}
+                    </p>
+                  )}
+                  {inspectionUpdates[0].notes && (
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium">Notes:</span> {inspectionUpdates[0].notes}
+                    </p>
+                  )}
+                  {inspectionUpdates[0].setter_feedback && (
+                    <p className="text-sm text-indigo-700 bg-indigo-50 p-2 rounded mt-2">
+                      <span className="font-medium">Setter Feedback:</span> {inspectionUpdates[0].setter_feedback}
+                    </p>
+                  )}
+                </div>
+
+                {/* History if more than one update */}
+                {inspectionUpdates.length > 1 && (
+                  <details className="mt-4">
+                    <summary className="text-sm font-medium text-gray-500 cursor-pointer hover:text-gray-700">
+                      View history ({inspectionUpdates.length - 1} previous update{inspectionUpdates.length > 2 ? 's' : ''})
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      {inspectionUpdates.slice(1).map((update: any) => (
+                        <div key={update.id} className="p-3 border rounded-lg bg-gray-50">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              update.outcome === 'sale' ? 'bg-green-100 text-green-700' :
+                              update.outcome === 'said_no' ? 'bg-red-100 text-red-700' :
+                              update.outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
+                              update.outcome === 'rescheduled' ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {update.outcome?.replace('_', ' ')}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {new Date(update.created_at).toLocaleString('en-US', { timeZone: 'America/New_York' })}
+                            </span>
+                          </div>
+                          {update.notes && (
+                            <p className="text-sm text-gray-700">{update.notes}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ) : (
+              /* No inspection updates yet */
+              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <svg className="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-medium text-amber-800">Inspection Flow Not Updated</h3>
+                    <p className="text-sm text-amber-700 mt-1">
+                      The inspection outcome has not been recorded yet. 
+                      {appointments && appointments.length > 0 && appointments[0].scheduled_for && (
+                        <span>
+                          {' '}Inspection was scheduled for{' '}
+                          {new Date(appointments[0].scheduled_for).toLocaleString('en-US', { 
+                            dateStyle: 'medium', 
+                            timeStyle: 'short',
+                            timeZone: 'America/New_York' 
+                          })}.
+                        </span>
+                      )}
+                    </p>
+                    {appointments && appointments.length > 0 && (
+                      <Link
+                        href={`/appointments/feedback?id=${appointments[0].id}`}
+                        className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        Update Inspection Status
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white shadow rounded-lg p-6">

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 
-type FeedbackOutcome = 'not_home' | 'rescheduled' | 'moving_to_close' | 'no_problems_found'
+type FeedbackOutcome = 'sale' | 'moving_to_close' | 'insurance_follow_up' | 'said_no' | 'not_home' | 'no_problems_found' | 'failed_credit' | 'rescheduled'
 
 interface Appointment {
   id: string
@@ -299,52 +299,25 @@ export default function AppointmentFeedbackPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">What was the outcome?</h2>
           
           <div className="grid grid-cols-2 gap-3 mb-6">
-            {/* Not Home */}
+            {/* Sale */}
             <button
               type="button"
-              onClick={() => handleOutcomeChange('not_home')}
+              onClick={() => handleOutcomeChange('sale')}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'not_home'
-                  ? 'border-red-500 bg-red-50'
+                outcome === 'sale'
+                  ? 'border-green-500 bg-green-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'not_home' ? 'bg-red-100' : 'bg-gray-100'
+                  outcome === 'sale' ? 'bg-green-500 text-white' : 'bg-gray-100'
                 }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'not_home' ? 'text-red-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                  </svg>
+                  <span className="text-lg font-bold">✓</span>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">Not Home</p>
-                  <p className="text-xs text-gray-500">Customer wasn't there</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Rescheduled */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('rescheduled')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'rescheduled'
-                  ? 'border-amber-500 bg-amber-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'rescheduled' ? 'bg-amber-100' : 'bg-gray-100'
-                }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'rescheduled' ? 'text-amber-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Rescheduled</p>
-                  <p className="text-xs text-gray-500">Need to reschedule inspection</p>
+                  <p className="font-semibold text-gray-900">Sale</p>
+                  <p className="text-xs text-gray-500">Customer signed the contract</p>
                 </div>
               </div>
             </button>
@@ -355,21 +328,88 @@ export default function AppointmentFeedbackPage() {
               onClick={() => handleOutcomeChange('moving_to_close')}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
                 outcome === 'moving_to_close'
-                  ? 'border-green-500 bg-green-50'
+                  ? 'border-emerald-500 bg-emerald-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'moving_to_close' ? 'bg-green-100' : 'bg-gray-100'
+                  outcome === 'moving_to_close' ? 'bg-emerald-500 text-white' : 'bg-gray-100'
                 }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'moving_to_close' ? 'text-green-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <span className="text-lg font-bold">→</span>
                 </div>
                 <div>
                   <p className="font-semibold text-gray-900">Moving to Close</p>
                   <p className="text-xs text-gray-500">Schedule close appointment</p>
+                </div>
+              </div>
+            </button>
+
+            {/* Insurance Follow Up */}
+            <button
+              type="button"
+              onClick={() => handleOutcomeChange('insurance_follow_up')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                outcome === 'insurance_follow_up'
+                  ? 'border-purple-500 bg-purple-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  outcome === 'insurance_follow_up' ? 'bg-purple-500 text-white' : 'bg-gray-100'
+                }`}>
+                  <span className="text-lg">📋</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Insurance Follow Up</p>
+                  <p className="text-xs text-gray-500">Waiting on insurance claim</p>
+                </div>
+              </div>
+            </button>
+
+            {/* Said No */}
+            <button
+              type="button"
+              onClick={() => handleOutcomeChange('said_no')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                outcome === 'said_no'
+                  ? 'border-red-500 bg-red-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  outcome === 'said_no' ? 'bg-red-500 text-white' : 'bg-gray-100'
+                }`}>
+                  <span className="text-lg font-bold">✗</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Said No</p>
+                  <p className="text-xs text-gray-500">Customer declined</p>
+                </div>
+              </div>
+            </button>
+
+            {/* Not Home */}
+            <button
+              type="button"
+              onClick={() => handleOutcomeChange('not_home')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                outcome === 'not_home'
+                  ? 'border-amber-500 bg-amber-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  outcome === 'not_home' ? 'bg-amber-500 text-white' : 'bg-gray-100'
+                }`}>
+                  <span className="text-lg font-bold">?</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Not Home</p>
+                  <p className="text-xs text-gray-500">Customer wasn't there</p>
                 </div>
               </div>
             </button>
@@ -380,21 +420,65 @@ export default function AppointmentFeedbackPage() {
               onClick={() => handleOutcomeChange('no_problems_found')}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
                 outcome === 'no_problems_found'
+                  ? 'border-gray-500 bg-gray-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  outcome === 'no_problems_found' ? 'bg-gray-500 text-white' : 'bg-gray-100'
+                }`}>
+                  <span className="text-lg font-bold">○</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">No Problems Found</p>
+                  <p className="text-xs text-gray-500">Roof is in good condition</p>
+                </div>
+              </div>
+            </button>
+
+            {/* Failed Credit */}
+            <button
+              type="button"
+              onClick={() => handleOutcomeChange('failed_credit')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                outcome === 'failed_credit'
+                  ? 'border-orange-500 bg-orange-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  outcome === 'failed_credit' ? 'bg-orange-500 text-white' : 'bg-gray-100'
+                }`}>
+                  <span className="text-lg font-bold">$</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Failed Credit</p>
+                  <p className="text-xs text-gray-500">Did not qualify for financing</p>
+                </div>
+              </div>
+            </button>
+
+            {/* Rescheduled */}
+            <button
+              type="button"
+              onClick={() => handleOutcomeChange('rescheduled')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                outcome === 'rescheduled'
                   ? 'border-blue-500 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'no_problems_found' ? 'bg-blue-100' : 'bg-gray-100'
+                  outcome === 'rescheduled' ? 'bg-blue-500 text-white' : 'bg-gray-100'
                 }`}>
-                  <svg className={`w-5 h-5 ${outcome === 'no_problems_found' ? 'text-blue-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
+                  <span className="text-lg font-bold">↻</span>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">No Problems Found</p>
-                  <p className="text-xs text-gray-500">Roof is in good condition</p>
+                  <p className="font-semibold text-gray-900">Rescheduled</p>
+                  <p className="text-xs text-gray-500">Moved to new date</p>
                 </div>
               </div>
             </button>
