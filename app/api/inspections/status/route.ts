@@ -84,13 +84,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { 
       appointment_id, 
+      lead_id: directLeadId,
       outcome, 
       notes, 
       setter_feedback,
       schedule_follow_up,
       follow_up_date,
     } = body as {
-      appointment_id: string
+      appointment_id?: string
+      lead_id?: string
       outcome: InspectionOutcome
       notes?: string
       setter_feedback?: string
@@ -98,49 +100,89 @@ export async function POST(request: NextRequest) {
       follow_up_date?: string
     }
 
-    if (!appointment_id || !outcome) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    if ((!appointment_id && !directLeadId) || !outcome) {
+      return NextResponse.json({ error: 'Missing required fields (need appointment_id or lead_id, and outcome)' }, { status: 400 })
     }
 
     console.log('=== INSPECTION STATUS UPDATE ===')
     console.log('Appointment ID:', appointment_id)
+    console.log('Direct Lead ID:', directLeadId)
     console.log('Outcome:', outcome)
     console.log('Notes:', notes)
     console.log('Setter Feedback:', setter_feedback)
 
-    // Get appointment details
-    const { data: appointment, error: appointmentError } = await supabase
-      .from('scheduled_appointments')
-      .select('*, leads(*), opportunities(*)')
-      .eq('id', appointment_id)
-      .single()
+    let appointment: any = null
+    let lead: any = null
+    let opportunity: any = null
 
-    if (appointmentError || !appointment) {
-      // Appointment was deleted - mark the prompt as completed so it doesn't keep showing
-      console.log(`Appointment ${appointment_id} not found - marking prompt as completed`)
-      await supabase
-        .from('pending_status_prompts')
-        .update({ completed: true })
-        .eq('appointment_id', appointment_id)
+    if (appointment_id) {
+      // Get appointment details
+      const { data: appointmentData, error: appointmentError } = await supabase
+        .from('scheduled_appointments')
+        .select('*, leads(*), opportunities(*)')
+        .eq('id', appointment_id)
+        .single()
+
+      if (appointmentError || !appointmentData) {
+        // Appointment was deleted - mark the prompt as completed so it doesn't keep showing
+        console.log(`Appointment ${appointment_id} not found - marking prompt as completed`)
+        await supabase
+          .from('pending_status_prompts')
+          .update({ completed: true })
+          .eq('appointment_id', appointment_id)
+        
+        // Return success so the UI can move on
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Appointment no longer exists - prompt dismissed',
+          skipped: true 
+        })
+      }
       
-      // Return success so the UI can move on
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Appointment no longer exists - prompt dismissed',
-        skipped: true 
-      })
+      appointment = appointmentData
+      lead = appointmentData.leads
+      opportunity = appointmentData.opportunities
+    } else if (directLeadId) {
+      // Direct lead update without appointment - fetch lead and opportunity
+      const { data: leadData, error: leadError } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('id', directLeadId)
+        .eq('org_id', profile.org_id)
+        .single()
+
+      if (leadError || !leadData) {
+        console.log(`Lead ${directLeadId} not found`)
+        return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+      }
+      
+      lead = leadData
+
+      // Try to find associated opportunity
+      const { data: opportunityData } = await supabase
+        .from('opportunities')
+        .select('*')
+        .eq('lead_id', directLeadId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      
+      opportunity = opportunityData
     }
 
     // Create status update record
+    const leadId = appointment?.lead_id || directLeadId
+    const opportunityId = appointment?.opportunity_id || opportunity?.id
+    
     const { data: statusUpdate, error: statusError } = await supabase
       .from('inspection_status_updates')
       .insert({
         org_id: profile.org_id,
-        appointment_id,
-        opportunity_id: appointment.opportunity_id,
-        lead_id: appointment.lead_id,
+        appointment_id: appointment_id || null,
+        opportunity_id: opportunityId || null,
+        lead_id: leadId,
         closer_user_id: user.id,
-        setter_user_id: appointment.canvasser_user_id,
+        setter_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
         outcome,
         notes: notes || null,
         setter_feedback: setter_feedback || null,
@@ -154,11 +196,11 @@ export async function POST(request: NextRequest) {
       console.error('Error:', statusError)
       console.error('Insert data:', {
         org_id: profile.org_id,
-        appointment_id,
-        opportunity_id: appointment.opportunity_id,
-        lead_id: appointment.lead_id,
+        appointment_id: appointment_id || null,
+        opportunity_id: opportunityId || null,
+        lead_id: leadId,
         closer_user_id: user.id,
-        setter_user_id: appointment.canvasser_user_id,
+        setter_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
         outcome,
         notes: notes || null,
         setter_feedback: setter_feedback || null,
@@ -171,16 +213,18 @@ export async function POST(request: NextRequest) {
     console.log('Saved outcome:', statusUpdate?.outcome)
     console.log('Saved notes:', statusUpdate?.notes)
 
-    // Update appointment status
-    await supabase
-      .from('scheduled_appointments')
-      .update({ 
-        status: outcome === 'sale' ? 'completed' : outcome === 'not_home' ? 'no_show' : 'completed'
-      })
-      .eq('id', appointment_id)
+    // Update appointment status if we have one
+    if (appointment_id) {
+      await supabase
+        .from('scheduled_appointments')
+        .update({ 
+          status: outcome === 'sale' ? 'completed' : outcome === 'not_home' ? 'no_show' : 'completed'
+        })
+        .eq('id', appointment_id)
+    }
 
     // Update opportunity with outcome
-    if (appointment.opportunity_id) {
+    if (opportunityId) {
       const opportunityUpdate: Record<string, any> = {
         inspection_outcome: outcome,
         inspection_outcome_at: new Date().toISOString(),
@@ -199,14 +243,16 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('opportunities')
         .update(opportunityUpdate)
-        .eq('id', appointment.opportunity_id)
+        .eq('id', opportunityId)
     }
 
-    // Mark pending prompt as completed
-    await supabase
-      .from('pending_status_prompts')
-      .update({ completed: true })
-      .eq('appointment_id', appointment_id)
+    // Mark pending prompt as completed (if we have an appointment)
+    if (appointment_id) {
+      await supabase
+        .from('pending_status_prompts')
+        .update({ completed: true })
+        .eq('appointment_id', appointment_id)
+    }
 
     // Create notifications for setter, setter's manager, and closer's manager
     const outcomeLabels: Record<InspectionOutcome, string> = {
@@ -220,8 +266,8 @@ export async function POST(request: NextRequest) {
       insurance_follow_up: 'Insurance Follow Up',
     }
 
-    const customerName = appointment.leads?.homeowner_name || 'Customer'
-    const customerAddress = appointment.leads?.address_text || appointment.address_text || ''
+    const customerName = lead?.homeowner_name || 'Customer'
+    const customerAddress = lead?.address_text || appointment?.address_text || ''
     
     // Build comprehensive notification body with all notes for setter
     const notificationParts: string[] = []
@@ -243,9 +289,9 @@ export async function POST(request: NextRequest) {
     const notificationBody = notificationParts.join('\n')
     
     const notificationData = {
-      appointment_id,
-      opportunity_id: appointment.opportunity_id,
-      lead_id: appointment.lead_id,
+      appointment_id: appointment_id || null,
+      opportunity_id: opportunityId || null,
+      lead_id: leadId,
       outcome,
       closer_name: profile.full_name,
       notes: notes || null,
@@ -253,11 +299,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Notify setter - always notify when feedback is submitted (unless closer is the setter)
-    if (appointment.canvasser_user_id && appointment.canvasser_user_id !== user.id) {
-      console.log('Creating notification for setter:', appointment.canvasser_user_id)
+    const setterUserId = appointment?.canvasser_user_id || lead?.owner_user_id
+    if (setterUserId && setterUserId !== user.id) {
+      console.log('Creating notification for setter:', setterUserId)
       console.log('Notification data:', {
         org_id: profile.org_id,
-        recipient_user_id: appointment.canvasser_user_id,
+        recipient_user_id: setterUserId,
         actor_user_id: user.id,
         type: 'inspection_outcome',
         title: `Inspection Result: ${outcomeLabels[outcome]} - ${customerName}`,
@@ -267,7 +314,7 @@ export async function POST(request: NextRequest) {
         .from('notifications')
         .insert({
           org_id: profile.org_id,
-          recipient_user_id: appointment.canvasser_user_id,
+          recipient_user_id: setterUserId,
           actor_user_id: user.id,
           type: 'inspection_outcome',
           title: `Inspection Result: ${outcomeLabels[outcome]} - ${customerName}`,
@@ -282,17 +329,17 @@ export async function POST(request: NextRequest) {
       }
       
       // Get setter's manager and notify them
-      const { data: setter } = await supabase
+      const { data: setterProfile } = await supabase
         .from('users')
         .select('team_id')
-        .eq('id', appointment.canvasser_user_id)
+        .eq('id', setterUserId)
         .single()
       
-      if (setter?.team_id) {
+      if (setterProfile?.team_id) {
         const { data: setterManagers } = await supabase
           .from('users')
           .select('id')
-          .eq('team_id', setter.team_id)
+          .eq('team_id', setterProfile.team_id)
           .in('role', ['sales_manager', 'regional_manager', 'admin'])
           .neq('id', user.id)
         
@@ -303,7 +350,7 @@ export async function POST(request: NextRequest) {
             actor_user_id: user.id,
             type: 'inspection_outcome',
             title: `Team Inspection Result: ${outcomeLabels[outcome]}`,
-            body: `${customerName} - Setter: ${appointment.canvasser_user_id ? 'Team member' : 'N/A'}, Closer: ${profile.full_name || 'Rep'}`,
+            body: `${customerName} - Setter: ${setterUserId ? 'Team member' : 'N/A'}, Closer: ${profile.full_name || 'Rep'}`,
             data: notificationData,
           })
         }
@@ -344,18 +391,20 @@ export async function POST(request: NextRequest) {
       .from('activities')
       .insert({
         org_id: profile.org_id,
-        opportunity_id: appointment.opportunity_id,
-        lead_id: appointment.lead_id,
+        opportunity_id: opportunityId || null,
+        lead_id: leadId,
         user_id: user.id,
         type: 'status_change',
         body: `Inspection completed: ${outcome}${notes ? ` - ${notes}` : ''}`,
       })
 
-    // Mark the pending status prompt as completed
-    await supabase
-      .from('pending_status_prompts')
-      .update({ completed: true })
-      .eq('appointment_id', appointment_id)
+    // Mark the pending status prompt as completed (if we have an appointment)
+    if (appointment_id) {
+      await supabase
+        .from('pending_status_prompts')
+        .update({ completed: true })
+        .eq('appointment_id', appointment_id)
+    }
 
     // Schedule follow-up if requested
     let followUpAppointment = null
@@ -368,13 +417,13 @@ export async function POST(request: NextRequest) {
         .from('scheduled_appointments')
         .insert({
           org_id: profile.org_id,
-          lead_id: appointment.lead_id,
-          opportunity_id: appointment.opportunity_id,
+          lead_id: leadId,
+          opportunity_id: opportunityId || null,
           closer_user_id: user.id,
-          canvasser_user_id: appointment.canvasser_user_id,
+          canvasser_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
           scheduled_for: followUpDateTime.toISOString(),
-          duration_minutes: appointment.duration_minutes || 60,
-          address_text: appointment.address_text,
+          duration_minutes: appointment?.duration_minutes || 60,
+          address_text: appointment?.address_text || lead?.address_text || null,
           status: 'scheduled',
           notes: `Follow-up from ${outcome}: ${notes || 'No notes'}`,
           appointment_type: 'follow_up',

@@ -62,6 +62,58 @@ function getAdminClient() {
   })
 }
 
+// GET - Fetch a single lead
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const leadId = params.id
+    const { client: authClient, accessToken } = getAuthClient(request)
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    // Get user profile for org_id
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    // Get the lead
+    const { data: lead, error: leadError } = await adminClient
+      .from('leads')
+      .select('*')
+      .eq('id', leadId)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (leadError || !lead) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+    }
+
+    return NextResponse.json({ lead })
+  } catch (error) {
+    console.error('Get lead API error:', error)
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to fetch lead' 
+    }, { status: 500 })
+  }
+}
+
 // DELETE - Delete a lead
 export async function DELETE(
   request: NextRequest,

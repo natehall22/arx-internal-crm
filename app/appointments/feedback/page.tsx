@@ -23,14 +23,24 @@ interface Appointment {
   }
 }
 
+interface Lead {
+  id: string
+  homeowner_name: string | null
+  phone: string | null
+  address_text: string | null
+  inspection_scheduled_for: string | null
+}
+
 export default function AppointmentFeedbackPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const appointmentId = searchParams.get('id')
+  const leadId = searchParams.get('lead_id')
 
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [appointment, setAppointment] = useState<Appointment | null>(null)
+  const [lead, setLead] = useState<Lead | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
@@ -51,11 +61,13 @@ export default function AppointmentFeedbackPage() {
   useEffect(() => {
     if (appointmentId) {
       loadAppointment()
+    } else if (leadId) {
+      loadLead()
     } else {
       setLoading(false)
-      setError('No appointment ID provided')
+      setError('No appointment or lead ID provided')
     }
-  }, [appointmentId])
+  }, [appointmentId, leadId])
 
   const loadAppointment = async () => {
     try {
@@ -78,6 +90,27 @@ export default function AppointmentFeedbackPage() {
     }
   }
 
+  const loadLead = async () => {
+    try {
+      const response = await fetch(`/api/leads/${leadId}`)
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/login')
+          return
+        }
+        throw new Error('Failed to load lead')
+      }
+
+      const data = await response.json()
+      setLead(data.lead)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load lead')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleOutcomeChange = (newOutcome: FeedbackOutcome) => {
     setOutcome(newOutcome)
     setShowReschedule(newOutcome === 'rescheduled')
@@ -87,6 +120,12 @@ export default function AppointmentFeedbackPage() {
   const handleSubmit = async () => {
     if (!outcome) {
       setError('Please select an outcome')
+      return
+    }
+
+    // Reschedule only works with appointment ID
+    if (outcome === 'rescheduled' && !appointmentId) {
+      setError('Cannot reschedule without an existing appointment. Please select a different outcome.')
       return
     }
 
@@ -102,6 +141,9 @@ export default function AppointmentFeedbackPage() {
 
     setSubmitting(true)
     setError(null)
+
+    // Determine the redirect path based on whether we came from a lead or appointment
+    const redirectPath = leadId ? `/leads/${leadId}` : '/dashboard'
 
     try {
       if (outcome === 'rescheduled') {
@@ -124,14 +166,15 @@ export default function AppointmentFeedbackPage() {
         }
 
         setSuccess(true)
-        setTimeout(() => router.push('/dashboard'), 2000)
+        setTimeout(() => router.push(redirectPath), 2000)
       } else if (outcome === 'moving_to_close') {
         // First submit the inspection outcome
         const statusResponse = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            appointment_id: appointmentId,
+            appointment_id: appointmentId || undefined,
+            lead_id: leadId || undefined,
             outcome: 'moving_to_close',
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
@@ -143,33 +186,36 @@ export default function AppointmentFeedbackPage() {
           throw new Error(data.error || 'Failed to submit feedback')
         }
 
-        // Then schedule the close appointment
-        const localDateTime = `${closeDate}T${closeTime}`
-        
-        const scheduleResponse = await fetch('/api/inspections/schedule-close', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            original_appointment_id: appointmentId,
-            scheduled_for: localDateTime,
-            notes: feedbackNotes || 'Close appointment scheduled from inspection',
-          }),
-        })
+        // Then schedule the close appointment (only if we have an appointment)
+        if (appointmentId) {
+          const localDateTime = `${closeDate}T${closeTime}`
+          
+          const scheduleResponse = await fetch('/api/inspections/schedule-close', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              original_appointment_id: appointmentId,
+              scheduled_for: localDateTime,
+              notes: feedbackNotes || 'Close appointment scheduled from inspection',
+            }),
+          })
 
-        if (!scheduleResponse.ok) {
-          const data = await scheduleResponse.json()
-          throw new Error(data.error || 'Failed to schedule close appointment')
+          if (!scheduleResponse.ok) {
+            const data = await scheduleResponse.json()
+            throw new Error(data.error || 'Failed to schedule close appointment')
+          }
         }
 
         setSuccess(true)
-        setTimeout(() => router.push('/dashboard'), 2000)
+        setTimeout(() => router.push(redirectPath), 2000)
       } else {
-        // Handle other outcomes (not_home, no_problems_found)
+        // Handle other outcomes (sale, said_no, not_home, no_problems_found, failed_credit, insurance_follow_up)
         const response = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            appointment_id: appointmentId,
+            appointment_id: appointmentId || undefined,
+            lead_id: leadId || undefined,
             outcome: outcome,
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
@@ -182,7 +228,7 @@ export default function AppointmentFeedbackPage() {
         }
 
         setSuccess(true)
-        setTimeout(() => router.push('/dashboard'), 2000)
+        setTimeout(() => router.push(redirectPath), 2000)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit feedback')
@@ -224,13 +270,13 @@ export default function AppointmentFeedbackPage() {
     )
   }
 
-  if (!appointment) {
+  if (!appointment && !lead) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Nav />
         <div className="max-w-2xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
-            <p className="text-red-700">{error || 'Appointment not found'}</p>
+            <p className="text-red-700">{error || 'Appointment or lead not found'}</p>
             <Link href="/dashboard" className="mt-4 inline-block text-indigo-600 hover:text-indigo-800">
               Return to Dashboard
             </Link>
@@ -240,46 +286,69 @@ export default function AppointmentFeedbackPage() {
     )
   }
 
-  const appointmentDate = new Date(appointment.scheduled_for)
+  const appointmentDate = appointment ? new Date(appointment.scheduled_for) : null
+  const inspectionDate = lead?.inspection_scheduled_for ? new Date(lead.inspection_scheduled_for) : null
+  const backLink = leadId ? `/leads/${leadId}` : '/dashboard'
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <Link href="/dashboard" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Dashboard
+          <Link href={backLink} className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+            ← Back
           </Link>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Appointment Feedback</h1>
-          <p className="text-gray-500">Please provide feedback for this appointment</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            {appointment ? 'Appointment Feedback' : 'Inspection Status Update'}
+          </h1>
+          <p className="text-gray-500">
+            {appointment ? 'Please provide feedback for this appointment' : 'Update the inspection outcome for this lead'}
+          </p>
         </div>
 
-        {/* Appointment Details */}
+        {/* Details Section */}
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Appointment Details</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            {appointment ? 'Appointment Details' : 'Lead Details'}
+          </h2>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-500">Customer</p>
-              <p className="font-medium text-gray-900">{appointment.leads?.homeowner_name || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Phone</p>
-              <p className="font-medium text-gray-900">{appointment.leads?.phone || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Date & Time</p>
               <p className="font-medium text-gray-900">
-                {appointmentDate.toLocaleDateString('en-US', { timeZone: 'America/New_York' })} at {appointmentDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })}
+                {appointment?.leads?.homeowner_name || lead?.homeowner_name || 'N/A'}
               </p>
             </div>
             <div>
-              <p className="text-gray-500">Address</p>
-              <p className="font-medium text-gray-900">{appointment.address_text || 'N/A'}</p>
+              <p className="text-gray-500">Phone</p>
+              <p className="font-medium text-gray-900">
+                {appointment?.leads?.phone || lead?.phone || 'N/A'}
+              </p>
             </div>
-            {appointment.setter?.full_name && (
+            {(appointmentDate || inspectionDate) && (
+              <div>
+                <p className="text-gray-500">
+                  {appointment ? 'Date & Time' : 'Inspection Scheduled'}
+                </p>
+                <p className="font-medium text-gray-900">
+                  {appointmentDate 
+                    ? `${appointmentDate.toLocaleDateString('en-US', { timeZone: 'America/New_York' })} at ${appointmentDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })}`
+                    : inspectionDate
+                    ? `${inspectionDate.toLocaleDateString('en-US', { timeZone: 'America/New_York' })} at ${inspectionDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })}`
+                    : 'N/A'
+                  }
+                </p>
+              </div>
+            )}
+            <div>
+              <p className="text-gray-500">Address</p>
+              <p className="font-medium text-gray-900">
+                {appointment?.address_text || lead?.address_text || 'N/A'}
+              </p>
+            </div>
+            {appointment?.setter?.full_name && (
               <div>
                 <p className="text-gray-500">Set By</p>
                 <p className="font-medium text-gray-900">{appointment.setter.full_name}</p>

@@ -823,17 +823,18 @@ export default async function LeadDetailPage({
                         </span>
                       )}
                     </p>
-                    {appointments && appointments.length > 0 && (
-                      <Link
-                        href={`/appointments/feedback?id=${appointments[0].id}`}
-                        className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                        </svg>
-                        Update Inspection Status
-                      </Link>
-                    )}
+                    <Link
+                      href={appointments && appointments.length > 0 
+                        ? `/appointments/feedback?id=${appointments[0].id}` 
+                        : `/appointments/feedback?lead_id=${params.id}`
+                      }
+                      className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      Update Inspection Status
+                    </Link>
                   </div>
                 </div>
               </div>
