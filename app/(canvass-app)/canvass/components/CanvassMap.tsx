@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { CanvassPin } from '../page'
 import type { ViewportPin } from '../lib/useViewportLeads'
 
@@ -12,6 +12,14 @@ type AnyPin = CanvassPin | ViewportPin
 
 // Bounds type for viewport mode (google.maps.LatLngBounds at runtime)
 type MapBounds = any
+
+// Disposition type from admin settings
+interface DispositionConfig {
+  id: string
+  label: string
+  color: string
+  active?: boolean
+}
 
 interface Props {
   pins: AnyPin[]
@@ -28,10 +36,12 @@ interface Props {
   // Disposition filter
   dispositionFilter?: string | null
   onDispositionFilterChange?: (d: string | null) => void
+  // Disposition config from admin settings
+  dispositions?: DispositionConfig[]
 }
 
-// Pin colors based on disposition
-const pinColors: Record<string, string> = {
+// Default pin colors (fallback if no admin settings)
+const defaultPinColors: Record<string, string> = {
   hot_lead: '#EF4444',      // red
   go_back: '#F59E0B',       // yellow
   not_home: '#9CA3AF',      // gray
@@ -82,7 +92,18 @@ export default function CanvassMap({
   onRefreshArea,
   dispositionFilter,
   onDispositionFilterChange,
+  dispositions = [],
 }: Props) {
+  // Build pin colors map from admin dispositions (with fallback to defaults)
+  const pinColors = React.useMemo(() => {
+    const colors: Record<string, string> = { ...defaultPinColors }
+    dispositions.forEach(d => {
+      if (d.id && d.color) {
+        colors[d.id] = d.color
+      }
+    })
+    return colors
+  }, [dispositions])
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<Map<string, any>>(new Map())
@@ -421,14 +442,38 @@ export default function CanvassMap({
     }
   }, [searchExpanded])
 
-  const dispositions = [
-    { value: null, label: 'All Pins', color: 'bg-gray-500' },
-    { value: 'hot_lead', label: 'Hot Lead', color: 'bg-red-500' },
-    { value: 'go_back', label: 'Go Back', color: 'bg-yellow-500' },
-    { value: 'not_home', label: 'Not Home', color: 'bg-gray-400' },
-    { value: 'not_interested', label: 'Not Interested', color: 'bg-gray-600' },
-    { value: 'scheduled', label: 'Scheduled', color: 'bg-green-500' },
-  ]
+  // Build filter options from admin dispositions
+  const filterOptions = useMemo(() => {
+    const options: Array<{ value: string | null; label: string; color: string }> = [
+      { value: null, label: 'All Pins', color: '#6B7280' },
+    ]
+    
+    // Add dispositions from admin settings
+    if (dispositions.length > 0) {
+      dispositions.forEach(d => {
+        if (d.active !== false) {
+          options.push({
+            value: d.id,
+            label: d.label,
+            color: d.color,
+          })
+        }
+      })
+    } else {
+      // Fallback to defaults if no admin dispositions
+      options.push(
+        { value: 'hot_lead', label: 'Hot Lead', color: '#EF4444' },
+        { value: 'go_back', label: 'Go Back', color: '#F59E0B' },
+        { value: 'not_home', label: 'Not Home', color: '#9CA3AF' },
+        { value: 'not_interested', label: 'Not Interested', color: '#6B7280' },
+      )
+    }
+    
+    // Always add scheduled option
+    options.push({ value: 'scheduled', label: 'Scheduled', color: '#10B981' })
+    
+    return options
+  }, [dispositions])
 
   return (
     <div className="relative h-full w-full">
@@ -539,11 +584,12 @@ export default function CanvassMap({
               onClick={() => setShowFilterMenu(!showFilterMenu)}
               className="bg-white rounded-lg shadow-lg p-3 flex items-center gap-2"
             >
-              <span className={`w-3 h-3 rounded-full ${
-                dispositions.find(d => d.value === dispositionFilter)?.color || 'bg-gray-500'
-              }`}></span>
+              <span 
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: filterOptions.find(d => d.value === dispositionFilter)?.color || '#6B7280' }}
+              ></span>
               <span className="text-sm font-medium text-gray-900">
-                {dispositions.find(d => d.value === dispositionFilter)?.label || 'All Pins'}
+                {filterOptions.find(d => d.value === dispositionFilter)?.label || 'All Pins'}
               </span>
               <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -552,7 +598,7 @@ export default function CanvassMap({
             
             {showFilterMenu && (
               <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-xl border py-1 min-w-[160px]">
-                {dispositions.map((d) => (
+                {filterOptions.map((d) => (
                   <button
                     key={d.value || 'all'}
                     onClick={() => {
@@ -563,7 +609,10 @@ export default function CanvassMap({
                       dispositionFilter === d.value ? 'bg-indigo-50' : ''
                     }`}
                   >
-                    <span className={`w-3 h-3 rounded-full ${d.color}`}></span>
+                    <span 
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: d.color }}
+                    ></span>
                     <span className="text-sm text-gray-900">{d.label}</span>
                   </button>
                 ))}
@@ -573,21 +622,18 @@ export default function CanvassMap({
         ) : (
           <div className="bg-white rounded-lg shadow-lg p-3 text-xs">
             <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-red-500"></span>
-                <span>Hot Lead</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
-                <span>Go Back</span>
-              </div>
+              {filterOptions.slice(1).map((d) => (
+                <div key={d.value} className="flex items-center gap-2">
+                  <span 
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: d.color }}
+                  ></span>
+                  <span className="text-gray-900">{d.label}</span>
+                </div>
+              ))}
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-indigo-600"></span>
-                <span>New</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-gray-400"></span>
-                <span>Not Home</span>
+                <span className="text-gray-900">New</span>
               </div>
             </div>
           </div>

@@ -3,6 +3,14 @@
 import { useState, useEffect } from 'react'
 import type { CanvassPin } from '../page'
 
+// Disposition config from admin settings
+interface DispositionConfig {
+  id: string
+  label: string
+  color: string
+  active?: boolean
+}
+
 interface Props {
   pin: CanvassPin | null
   location: { lat: number; lng: number } | null
@@ -18,16 +26,29 @@ interface Props {
   teams?: Array<{ id: string; name: string }>
   inspectionDuration?: number
   isOnline?: boolean
+  dispositions?: DispositionConfig[]
 }
 
-const dispositions = [
-  { value: 'hot_lead', label: 'Hot Lead', color: 'bg-red-500', icon: '🔥' },
-  { value: 'go_back', label: 'Go Back', color: 'bg-yellow-500', icon: '🔄' },
-  { value: 'not_home', label: 'Not Home', color: 'bg-gray-400', icon: '🏠' },
-  { value: 'not_interested', label: 'Not Interested', color: 'bg-gray-500', icon: '👎' },
-  { value: 'bad_roof', label: 'Bad Roof', color: 'bg-stone-500', icon: '🏚️' },
-  { value: 'renter', label: 'Renter', color: 'bg-zinc-400', icon: '🔑' },
+// Default dispositions (fallback if no admin settings)
+const defaultDispositions = [
+  { id: 'hot_lead', label: 'Hot Lead', color: '#EF4444', icon: '🔥' },
+  { id: 'go_back', label: 'Go Back', color: '#F59E0B', icon: '🔄' },
+  { id: 'not_home', label: 'Not Home', color: '#9CA3AF', icon: '🏠' },
+  { id: 'not_interested', label: 'Not Interested', color: '#6B7280', icon: '👎' },
+  { id: 'bad_roof', label: 'Bad Roof', color: '#78716C', icon: '🏚️' },
+  { id: 'renter', label: 'Renter', color: '#A1A1AA', icon: '🔑' },
 ]
+
+// Icon mapping for dispositions
+const dispositionIcons: Record<string, string> = {
+  hot_lead: '🔥',
+  go_back: '🔄',
+  not_home: '🏠',
+  not_interested: '👎',
+  bad_roof: '🏚️',
+  renter: '🔑',
+  scheduled: '📅',
+}
 
 interface TimeSlot {
   time: string
@@ -46,7 +67,22 @@ export default function LeadModal({
   teams = [],
   inspectionDuration = 60,
   isOnline = true,
+  dispositions: dispositionsProp = [],
 }: Props) {
+  // Use admin dispositions if available, otherwise use defaults
+  const dispositions = dispositionsProp.length > 0 
+    ? dispositionsProp.filter(d => d.active !== false).map(d => ({
+        value: d.id,
+        label: d.label,
+        color: d.color,
+        icon: dispositionIcons[d.id] || '📍',
+      }))
+    : defaultDispositions.map(d => ({
+        value: d.id,
+        label: d.label,
+        color: d.color,
+        icon: d.icon,
+      }))
   const [formData, setFormData] = useState({
     homeowner_name: '',
     phone: '',
@@ -230,12 +266,16 @@ export default function LeadModal({
                     key={d.value}
                     type="button"
                     onClick={() => handleDispositionSelect(d.value)}
-                    className={`p-3 rounded-xl border-2 text-center transition-all ${
+                    className={`p-3 rounded-xl border-2 text-center transition-all relative ${
                       formData.disposition === d.value
                         ? 'border-indigo-500 bg-indigo-50'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
+                    <span 
+                      className="absolute top-2 right-2 w-3 h-3 rounded-full"
+                      style={{ backgroundColor: d.color }}
+                    ></span>
                     <span className="text-2xl block mb-1">{d.icon}</span>
                     <span className="text-xs font-medium text-gray-900">{d.label}</span>
                   </button>

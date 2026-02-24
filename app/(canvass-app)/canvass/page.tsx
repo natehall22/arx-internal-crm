@@ -60,6 +60,16 @@ export default function CanvassPage() {
   const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([])
   const [inspectionDuration, setInspectionDuration] = useState(60)
   
+  // Disposition settings from admin
+  const [dispositions, setDispositions] = useState<Array<{ id: string; label: string; color: string; active: boolean }>>([
+    { id: 'not_home', label: 'Not Home', color: '#9CA3AF', active: true },
+    { id: 'bad_roof', label: 'Bad Roof', color: '#78716C', active: true },
+    { id: 'renter', label: 'Renter', color: '#A1A1AA', active: true },
+    { id: 'go_back', label: 'Go Back', color: '#F59E0B', active: true },
+    { id: 'hot_lead', label: 'Hot Lead', color: '#EF4444', active: true },
+    { id: 'not_interested', label: 'Not Interested', color: '#6B7280', active: true },
+  ])
+  
   // Map data mode - default to VIEWPORT for scale (Spotio/Terros style)
   const [mapDataMode, setMapDataMode] = useState<MapDataMode>('VIEWPORT')
   
@@ -157,6 +167,14 @@ export default function CanvassPage() {
       }
       if (data.inspectionDuration) {
         setInspectionDuration(data.inspectionDuration)
+      }
+      
+      // Load dispositions from org settings
+      if (data.orgSettings?.canvass_dispositions) {
+        const orgDispositions = data.orgSettings.canvass_dispositions
+        if (Array.isArray(orgDispositions) && orgDispositions.length > 0) {
+          setDispositions(orgDispositions.filter((d: any) => d.active !== false))
+        }
       }
 
       // Check current map data mode from settings (default is VIEWPORT)
@@ -515,6 +533,7 @@ export default function CanvassPage() {
             onRefreshArea={mapDataMode === 'VIEWPORT' ? clearViewportCache : undefined}
             dispositionFilter={dispositionFilter}
             onDispositionFilterChange={setDispositionFilter}
+            dispositions={dispositions}
           />
         ) : (
           <div className="h-full overflow-y-auto p-4 pb-24">
@@ -621,6 +640,7 @@ export default function CanvassPage() {
           teams={teams}
           inspectionDuration={inspectionDuration}
           isOnline={isOnline}
+          dispositions={dispositions}
         />
       )}
     </div>
