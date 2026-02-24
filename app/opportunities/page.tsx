@@ -78,8 +78,10 @@ export default function OpportunitiesPage() {
 
   // Client-side filtering for status, project type, and search
   const filteredOpportunities = opportunities.filter(opp => {
-    if (filterStatus && opp.status !== filterStatus) return false
-    if (filterProjectType && opp.project_type !== filterProjectType) return false
+    // Status filter - compare lowercase to handle case differences
+    if (filterStatus && opp.status?.toLowerCase() !== filterStatus.toLowerCase()) return false
+    // Project type filter - compare lowercase
+    if (filterProjectType && opp.project_type?.toLowerCase() !== filterProjectType.toLowerCase()) return false
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       const name = opp.leads?.homeowner_name || opp.customers?.name || ''
@@ -93,10 +95,8 @@ export default function OpportunitiesPage() {
 
   const statusColors: Record<string, string> = {
     open: 'bg-blue-100 text-blue-800',
-    inspection_scheduled: 'bg-purple-100 text-purple-800',
-    inspection_complete: 'bg-indigo-100 text-indigo-800',
-    estimate_sent: 'bg-yellow-100 text-yellow-800',
-    negotiating: 'bg-orange-100 text-orange-800',
+    in_progress: 'bg-purple-100 text-purple-800',
+    negotiation: 'bg-orange-100 text-orange-800',
     won: 'bg-green-100 text-green-800',
     lost: 'bg-red-100 text-red-800',
   }
@@ -143,10 +143,8 @@ export default function OpportunitiesPage() {
               >
                 <option value="">All Statuses</option>
                 <option value="open">Open</option>
-                <option value="inspection_scheduled">Inspection Scheduled</option>
-                <option value="inspection_complete">Inspection Complete</option>
-                <option value="estimate_sent">Estimate Sent</option>
-                <option value="negotiating">Negotiating</option>
+                <option value="in_progress">In Progress</option>
+                <option value="negotiation">Negotiation</option>
                 <option value="won">Won</option>
                 <option value="lost">Lost</option>
               </select>
