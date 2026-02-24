@@ -28,6 +28,13 @@ const outcomeOptions: { id: InspectionOutcome; label: string; description: strin
     icon: '✓'
   },
   { 
+    id: 'moving_to_close', 
+    label: 'Moving to Close', 
+    description: 'Customer interested, following up to close',
+    color: 'bg-emerald-500',
+    icon: '→'
+  },
+  { 
     id: 'said_no', 
     label: 'Said No', 
     description: 'Customer declined after presentation',
@@ -40,6 +47,13 @@ const outcomeOptions: { id: InspectionOutcome; label: string; description: strin
     description: 'Customer was not present',
     color: 'bg-amber-500',
     icon: '?'
+  },
+  { 
+    id: 'no_problems_found', 
+    label: 'No Problems Found', 
+    description: 'Roof inspection showed no issues',
+    color: 'bg-gray-500',
+    icon: '○'
   },
   { 
     id: 'failed_credit', 
