@@ -1,15 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 import type { InspectionOutcome } from '@/lib/types/database'
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
+function getSessionFromRequest(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
+  const cookieName = `sb-${projectRef}-auth-token`
+  
+  const singleCookie = req.cookies.get(cookieName)
+  if (singleCookie?.value) {
+    try {
+      return JSON.parse(singleCookie.value)
+    } catch {
+      return null
+    }
+  }
+  
+  const chunks: string[] = []
+  let i = 0
+  while (true) {
+    const chunk = req.cookies.get(`${cookieName}.${i}`)
+    if (!chunk?.value) break
+    chunks.push(chunk.value)
+    i++
+  }
+  
+  if (chunks.length > 0) {
+    try {
+      return JSON.parse(chunks.join(''))
+    } catch {
+      return null
+    }
+  }
+  
+  return null
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const sessionData = getSessionFromRequest(request)
     
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!sessionData?.access_token) {
+      console.log('=== AUTH FAILED: No session data ===')
+      return NextResponse.json({ error: 'Unauthorized - no session' }, { status: 401 })
     }
+    
+    // Verify the token
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const authClient = createClient(supabaseUrl, supabaseKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${sessionData.access_token}` } },
+    })
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(sessionData.access_token)
+    if (userError || !user) {
+      console.log('=== AUTH FAILED: Invalid token ===', userError)
+      return NextResponse.json({ error: 'Unauthorized - invalid token' }, { status: 401 })
+    }
+
+    const supabase = getAdminClient()
 
     const { data: profile } = await supabase
       .from('users')
@@ -18,6 +77,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (!profile?.org_id) {
+      console.log('=== AUTH FAILED: No profile ===')
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
@@ -345,12 +405,26 @@ export async function POST(request: NextRequest) {
 // Get pending status prompts for current user
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const sessionData = getSessionFromRequest(request)
     
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    if (!sessionData?.access_token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    
+    // Verify the token
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const authClient = createClient(supabaseUrl, supabaseKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${sessionData.access_token}` } },
+    })
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(sessionData.access_token)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const supabase = getAdminClient()
 
     // Get user profile to check role
     const { data: profile } = await supabase
