@@ -387,7 +387,7 @@ export default function LeadModal({
                   <select
                     value={selectedCloser}
                     onChange={(e) => setSelectedCloser(e.target.value)}
-                    className="w-full px-4 py-3 border rounded-xl bg-white focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-4 py-3 border rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="">Select closer or team...</option>
                     {teams.length > 0 && (
@@ -426,7 +426,7 @@ export default function LeadModal({
                           className={`flex-shrink-0 px-4 py-2 rounded-lg border text-sm font-medium ${
                             selectedDate === date.value
                               ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                              : 'border-gray-200 bg-white'
+                              : 'border-gray-200 bg-white text-gray-900'
                           }`}
                         >
                           {date.label}
@@ -459,7 +459,7 @@ export default function LeadModal({
                               selectedTime === slot.time
                                 ? 'bg-indigo-600 text-white'
                                 : slot.available
-                                ? 'bg-white border border-gray-200 hover:border-indigo-300'
+                                ? 'bg-white border border-gray-200 text-gray-900 hover:border-indigo-300'
                                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                             }`}
                           >
