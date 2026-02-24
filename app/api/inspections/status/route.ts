@@ -42,6 +42,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
+    console.log('=== INSPECTION STATUS UPDATE ===')
+    console.log('Appointment ID:', appointment_id)
+    console.log('Outcome:', outcome)
+    console.log('Notes:', notes)
+    console.log('Setter Feedback:', setter_feedback)
+
     // Get appointment details
     const { data: appointment, error: appointmentError } = await supabase
       .from('scheduled_appointments')
@@ -84,8 +90,9 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (statusError) {
-      console.error('Status update error:', statusError)
-      console.error('Status update details:', {
+      console.error('=== STATUS UPDATE INSERT FAILED ===')
+      console.error('Error:', statusError)
+      console.error('Insert data:', {
         org_id: profile.org_id,
         appointment_id,
         opportunity_id: appointment.opportunity_id,
@@ -93,9 +100,16 @@ export async function POST(request: NextRequest) {
         closer_user_id: user.id,
         setter_user_id: appointment.canvasser_user_id,
         outcome,
+        notes: notes || null,
+        setter_feedback: setter_feedback || null,
       })
       return NextResponse.json({ error: `Failed to create status update: ${statusError.message}` }, { status: 500 })
     }
+    
+    console.log('=== STATUS UPDATE CREATED ===')
+    console.log('Status Update ID:', statusUpdate?.id)
+    console.log('Saved outcome:', statusUpdate?.outcome)
+    console.log('Saved notes:', statusUpdate?.notes)
 
     // Update appointment status
     await supabase
