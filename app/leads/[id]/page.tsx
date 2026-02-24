@@ -14,6 +14,24 @@ import {
   CalendarEvent 
 } from '@/lib/google-calendar'
 
+// Helper to convert UTC ISO string to datetime-local format in Eastern time
+function toEasternDatetimeLocal(isoString: string | null): string {
+  if (!isoString) return ''
+  const date = new Date(isoString)
+  // Format in Eastern timezone
+  const eastern = date.toLocaleString('en-CA', { 
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+  // Convert "2026-02-24, 17:40" to "2026-02-24T17:40"
+  return eastern.replace(', ', 'T')
+}
+
 export default async function LeadDetailPage({
   params,
 }: {
@@ -628,11 +646,11 @@ export default async function LeadDetailPage({
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Inspection scheduled for</label>
+              <label className="text-sm font-medium text-gray-500">Inspection scheduled for (ET)</label>
               <input
                 name="inspection_scheduled_for"
                 type="datetime-local"
-                defaultValue={lead.inspection_scheduled_for?.slice(0, 16) || ''}
+                defaultValue={toEasternDatetimeLocal(lead.inspection_scheduled_for)}
                 className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
