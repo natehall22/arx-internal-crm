@@ -7,7 +7,6 @@ import Image from 'next/image'
 
 type SettingsSection = 
   | 'contact-fields' 
-  | 'contact-workflows' 
   | 'job-fields' 
   | 'job-workflows'
   | 'work-order-fields'
@@ -104,7 +103,6 @@ export default function AdminSettingsPage() {
   
   // Settings state
   const [customFields, setCustomFields] = useState<CustomField[]>([])
-  const [workflowStages, setWorkflowStages] = useState<Record<string, WorkflowStage[]>>({})
   const [estimateSettings, setEstimateSettings] = useState({
     default_tax_rate: 8.25,
     steep_multiplier: 15,
@@ -262,6 +260,11 @@ export default function AdminSettingsPage() {
       // Load inspection outcomes from org settings
       if (data.settings?.inspection_outcomes) {
         setInspectionOutcomes(data.settings.inspection_outcomes)
+      }
+      
+      // Load appointment types from org settings
+      if (data.settings?.appointment_types) {
+        setAppointmentTypes(data.settings.appointment_types)
       }
       
       // Load commission settings
@@ -428,7 +431,6 @@ export default function AdminSettingsPage() {
       title: 'WORKFLOWS & FIELDS',
       items: [
         { id: 'contact-fields', label: 'Contact Fields' },
-        { id: 'contact-workflows', label: 'Contact Workflows' },
         { id: 'job-fields', label: 'Project Fields' },
         { id: 'job-workflows', label: 'Project Workflows' },
         { id: 'work-order-fields', label: 'Work Order Fields' },
@@ -2135,44 +2137,6 @@ export default function AdminSettingsPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </div>
-          )}
-
-          {/* Contact Workflows */}
-          {activeSection === 'contact-workflows' && (
-            <div className="max-w-3xl">
-              <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">Contact Workflows</h1>
-                <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
-                  + Add Stage
-                </button>
-              </div>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-sm text-gray-500 mb-4">
-                  Define the stages a contact goes through in your sales process.
-                </p>
-                <div className="space-y-2">
-                  {[
-                    { name: 'New', color: '#6366f1' },
-                    { name: 'Contacted', color: '#3b82f6' },
-                    { name: 'Qualified', color: '#22c55e' },
-                    { name: 'Proposal Sent', color: '#f59e0b' },
-                    { name: 'Won', color: '#10b981' },
-                    { name: 'Lost', color: '#ef4444' },
-                  ].map((stage, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }} />
-                      <span className="font-medium text-gray-900 flex-1">{stage.name}</span>
-                      <button className="text-gray-400 hover:text-gray-600">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
           )}
