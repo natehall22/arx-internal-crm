@@ -329,6 +329,23 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    if (type === 'external_integrations') {
+      const { error } = await adminClient
+        .from('orgs')
+        .update({
+          settings: {
+            ...currentSettings,
+            external_integrations_config: data.external_integrations_config,
+          }
+        })
+        .eq('id', profile.org_id)
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+      return NextResponse.json({ success: true })
+    }
+
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
   } catch (error) {
     console.error('Settings API error:', error)

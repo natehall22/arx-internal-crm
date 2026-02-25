@@ -206,6 +206,236 @@ export default function AdminSettingsPage() {
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [userRole, setUserRole] = useState<string>('')
   const logoInputRef = useRef<HTMLInputElement>(null)
+  
+  // External integrations state - organized by category with clear use cases
+  interface IntegrationConfig {
+    account?: string
+    api_key?: string
+    webhook_url?: string
+    [key: string]: string | undefined
+  }
+  interface ExternalIntegration {
+    id: string
+    name: string
+    category: 'signatures' | 'measurements' | 'accounting' | 'communication' | 'automation'
+    description: string
+    useCases: string[]
+    icon: string
+    connected: boolean
+    enabled: boolean
+    config?: IntegrationConfig
+    configFields: { key: string; label: string; type: 'text' | 'password' | 'email'; placeholder: string; required: boolean }[]
+  }
+  
+  const defaultIntegrations: ExternalIntegration[] = [
+    // E-SIGNATURES
+    {
+      id: 'dropbox_sign',
+      name: 'Dropbox Sign',
+      category: 'signatures',
+      description: 'Send contracts and change orders for e-signature',
+      useCases: [
+        'Send contracts from Opportunity page',
+        'Get signed proposals from Proposal Builder',
+        'Send change orders from Work Orders / Jobs',
+        'Track signature status on deals',
+      ],
+      icon: '✍️',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Account Email', type: 'email', placeholder: 'your-email@company.com', required: true },
+        { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'From Dropbox Sign Dashboard → API', required: true },
+      ],
+    },
+    {
+      id: 'docusign',
+      name: 'DocuSign',
+      category: 'signatures',
+      description: 'Enterprise e-signature solution for contracts and change orders',
+      useCases: [
+        'Send contracts from Opportunity page',
+        'Get signed proposals from Proposal Builder',
+        'Send change orders from Work Orders / Jobs',
+        'Automated document workflows',
+      ],
+      icon: '📝',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Account Email', type: 'email', placeholder: 'your-email@company.com', required: true },
+        { key: 'api_key', label: 'Integration Key', type: 'password', placeholder: 'From DocuSign Admin → Integrations', required: true },
+      ],
+    },
+    // MEASUREMENTS & DESIGN
+    {
+      id: 'eagleview',
+      name: 'EagleView',
+      category: 'measurements',
+      description: 'Aerial roof measurements and 3D property data',
+      useCases: [
+        'Order measurements from Proposal Builder',
+        'Auto-import roof data into estimates',
+        'Access 3D models for design',
+      ],
+      icon: '🦅',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'EagleView Username', type: 'text', placeholder: 'Your EagleView login', required: true },
+        { key: 'api_key', label: 'API Token', type: 'password', placeholder: 'From EagleView Account Settings', required: true },
+      ],
+    },
+    {
+      id: 'hover',
+      name: 'HOVER',
+      category: 'measurements',
+      description: 'Smartphone-based 3D property models and measurements',
+      useCases: [
+        'Create 3D models from phone photos',
+        'Import measurements to proposals',
+        'Visualize material options',
+      ],
+      icon: '📱',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'HOVER Email', type: 'email', placeholder: 'your-email@company.com', required: true },
+        { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'From HOVER Dashboard', required: true },
+      ],
+    },
+    {
+      id: 'roofr',
+      name: 'Roofr',
+      category: 'measurements',
+      description: 'Instant satellite roof measurements',
+      useCases: [
+        'Quick measurements from address',
+        'Import to Proposal Builder',
+        'Instant quotes for customers',
+      ],
+      icon: '🏠',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Roofr Email', type: 'email', placeholder: 'your-email@company.com', required: true },
+        { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'From Roofr Settings', required: true },
+      ],
+    },
+    // ACCOUNTING
+    {
+      id: 'quickbooks',
+      name: 'QuickBooks',
+      category: 'accounting',
+      description: 'Sync invoices, payments, and customer data',
+      useCases: [
+        'Auto-create invoices from won deals',
+        'Sync customer records',
+        'Track payments in one place',
+      ],
+      icon: '💰',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'QuickBooks Company', type: 'text', placeholder: 'Your company name', required: true },
+      ],
+    },
+    {
+      id: 'xero',
+      name: 'Xero',
+      category: 'accounting',
+      description: 'Cloud accounting for invoicing and financials',
+      useCases: [
+        'Generate invoices from opportunities',
+        'Sync customer and payment data',
+        'Financial reporting',
+      ],
+      icon: '📊',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Xero Organization', type: 'text', placeholder: 'Your organization name', required: true },
+      ],
+    },
+    // COMMUNICATION
+    {
+      id: 'twilio',
+      name: 'Twilio',
+      category: 'communication',
+      description: 'SMS notifications to customers and team',
+      useCases: [
+        'Appointment reminders to homeowners',
+        'Job status updates via text',
+        'Team notifications',
+      ],
+      icon: '💬',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Account SID', type: 'text', placeholder: 'From Twilio Console', required: true },
+        { key: 'api_key', label: 'Auth Token', type: 'password', placeholder: 'From Twilio Console', required: true },
+        { key: 'phone_number', label: 'Twilio Phone Number', type: 'text', placeholder: '+1234567890', required: true },
+      ],
+    },
+    {
+      id: 'sendgrid',
+      name: 'SendGrid',
+      category: 'communication',
+      description: 'Transactional email delivery',
+      useCases: [
+        'Proposal delivery emails',
+        'Appointment confirmations',
+        'Invoice and receipt emails',
+      ],
+      icon: '📧',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Sender Email', type: 'email', placeholder: 'noreply@yourcompany.com', required: true },
+        { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'From SendGrid Settings → API Keys', required: true },
+      ],
+    },
+    {
+      id: 'google_calendar',
+      name: 'Google Calendar',
+      category: 'communication',
+      description: 'Sync appointments with Google Calendar',
+      useCases: [
+        'Sync inspections to team calendars',
+        'Crew scheduling visibility',
+        'Avoid double-booking',
+      ],
+      icon: '📅',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Google Account', type: 'email', placeholder: 'your-email@gmail.com', required: true },
+      ],
+    },
+    // AUTOMATION
+    {
+      id: 'zapier',
+      name: 'Zapier',
+      category: 'automation',
+      description: 'Connect to 5000+ apps with automated workflows',
+      useCases: [
+        'Push new leads to other systems',
+        'Trigger actions on deal stages',
+        'Custom workflow automation',
+      ],
+      icon: '⚡',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'webhook_url', label: 'Zapier Webhook URL', type: 'text', placeholder: 'https://hooks.zapier.com/...', required: true },
+      ],
+    },
+  ]
+  
+  const [externalIntegrations, setExternalIntegrations] = useState<ExternalIntegration[]>(defaultIntegrations)
+  const [editingIntegration, setEditingIntegration] = useState<ExternalIntegration | null>(null)
+  const [showIntegrationModal, setShowIntegrationModal] = useState(false)
+  const [integrationFilter, setIntegrationFilter] = useState<'all' | ExternalIntegration['category']>('all')
 
   useEffect(() => {
     loadSettings()
@@ -265,6 +495,17 @@ export default function AdminSettingsPage() {
       // Load appointment types from org settings
       if (data.settings?.appointment_types) {
         setAppointmentTypes(data.settings.appointment_types)
+      }
+      
+      // Load external integrations from org settings
+      if (data.settings?.external_integrations_config) {
+        setExternalIntegrations(prev => prev.map(integration => {
+          const savedConfig = data.settings.external_integrations_config[integration.id]
+          if (savedConfig) {
+            return { ...integration, ...savedConfig }
+          }
+          return integration
+        }))
       }
       
       // Load commission settings
@@ -1897,42 +2138,408 @@ export default function AdminSettingsPage() {
 
           {/* Other Integrations */}
           {activeSection === 'integrations' && (
-            <div className="max-w-2xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">Other Integrations</h1>
-              
-              <div className="space-y-4">
+            <div className="max-w-4xl">
+              <div className="mb-8">
+                <h1 className="text-2xl font-bold text-gray-900">Integrations</h1>
+                <p className="text-gray-600 mt-1">Connect your tools to streamline your workflow. Each integration shows exactly where it will be used.</p>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap gap-2 mb-6">
                 {[
-                  { name: 'Xero', description: 'Accounting software', icon: '📊', connected: false },
-                  { name: 'FreshBooks', description: 'Invoicing & accounting', icon: '📝', connected: false },
-                  { name: 'Sage', description: 'Business management', icon: '📈', connected: false },
-                  { name: 'Zapier', description: 'Connect to 5000+ apps', icon: '⚡', connected: false },
-                  { name: 'Dropbox Sign', description: 'E-signatures', icon: '✍️', connected: true },
-                  { name: 'Google Calendar', description: 'Calendar sync', icon: '📅', connected: false },
-                  { name: 'Twilio', description: 'SMS notifications', icon: '📱', connected: false },
-                  { name: 'SendGrid', description: 'Email delivery', icon: '📧', connected: false },
-                ].map((integration) => (
-                  <div key={integration.name} className="bg-white rounded-xl shadow-sm border p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-2xl">
-                        {integration.icon}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{integration.name}</h3>
-                        <p className="text-sm text-gray-500">{integration.description}</p>
-                      </div>
-                    </div>
-                    <button
-                      className={`px-4 py-2 rounded-lg font-medium text-sm ${
-                        integration.connected
-                          ? 'text-green-600 bg-green-50 border border-green-200'
-                          : 'text-gray-600 border border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      {integration.connected ? 'Connected' : 'Connect'}
-                    </button>
-                  </div>
+                  { id: 'all', label: 'All', icon: '📋' },
+                  { id: 'signatures', label: 'E-Signatures', icon: '✍️' },
+                  { id: 'measurements', label: 'Measurements', icon: '📐' },
+                  { id: 'accounting', label: 'Accounting', icon: '💰' },
+                  { id: 'communication', label: 'Communication', icon: '💬' },
+                  { id: 'automation', label: 'Automation', icon: '⚡' },
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setIntegrationFilter(cat.id as any)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                      integrationFilter === cat.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span className="mr-1.5">{cat.icon}</span>
+                    {cat.label}
+                  </button>
                 ))}
               </div>
+
+              {/* Connected Integrations Summary */}
+              {externalIntegrations.filter(i => i.connected).length > 0 && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-green-600 text-lg">✓</span>
+                    <h3 className="font-semibold text-green-800">
+                      {externalIntegrations.filter(i => i.connected).length} Active Integration{externalIntegrations.filter(i => i.connected).length !== 1 ? 's' : ''}
+                    </h3>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {externalIntegrations.filter(i => i.connected).map(i => (
+                      <span key={i.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-white rounded-full text-sm text-green-700 border border-green-200">
+                        <span>{i.icon}</span>
+                        {i.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Integration Cards by Category */}
+              <div className="space-y-8">
+                {(['signatures', 'measurements', 'accounting', 'communication', 'automation'] as const)
+                  .filter(category => integrationFilter === 'all' || integrationFilter === category)
+                  .map(category => {
+                    const categoryIntegrations = externalIntegrations.filter(i => i.category === category)
+                    if (categoryIntegrations.length === 0) return null
+                    
+                    const categoryLabels = {
+                      signatures: { label: 'E-Signatures', desc: 'Send contracts and get them signed digitally', icon: '✍️' },
+                      measurements: { label: 'Measurements & Design', desc: 'Get accurate roof measurements and 3D models', icon: '📐' },
+                      accounting: { label: 'Accounting', desc: 'Sync invoices and financial data', icon: '💰' },
+                      communication: { label: 'Communication', desc: 'Keep customers and team informed', icon: '💬' },
+                      automation: { label: 'Automation', desc: 'Connect to other apps and automate workflows', icon: '⚡' },
+                    }
+                    
+                    return (
+                      <div key={category}>
+                        <div className="flex items-center gap-2 mb-4">
+                          <span className="text-xl">{categoryLabels[category].icon}</span>
+                          <div>
+                            <h2 className="text-lg font-semibold text-gray-900">{categoryLabels[category].label}</h2>
+                            <p className="text-sm text-gray-500">{categoryLabels[category].desc}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid gap-4">
+                          {categoryIntegrations.map((integration) => (
+                            <div 
+                              key={integration.id} 
+                              className={`bg-white rounded-xl border-2 transition-all ${
+                                integration.connected 
+                                  ? 'border-green-200 shadow-sm' 
+                                  : 'border-gray-100 hover:border-gray-200'
+                              }`}
+                            >
+                              <div className="p-5">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex items-start gap-4 flex-1">
+                                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${
+                                      integration.connected ? 'bg-green-100' : 'bg-gray-100'
+                                    }`}>
+                                      {integration.icon}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <h3 className="font-semibold text-gray-900">{integration.name}</h3>
+                                        {integration.connected && (
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                            Connected
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-sm text-gray-600 mb-3">{integration.description}</p>
+                                      
+                                      {/* Use Cases - This is the key UX improvement */}
+                                      <div className="space-y-1.5">
+                                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Where this is used:</p>
+                                        {integration.useCases.map((useCase, idx) => (
+                                          <div key={idx} className="flex items-center gap-2 text-sm">
+                                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                              integration.connected ? 'bg-green-500' : 'bg-gray-300'
+                                            }`} />
+                                            <span className={integration.connected ? 'text-gray-700' : 'text-gray-500'}>
+                                              {useCase}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+
+                                      {/* Connected Account Info */}
+                                      {integration.connected && integration.config?.account && (
+                                        <div className="mt-3 pt-3 border-t border-gray-100">
+                                          <p className="text-sm text-gray-600">
+                                            <span className="text-gray-500">Account:</span>{' '}
+                                            <span className="font-medium">{integration.config.account}</span>
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Action Buttons */}
+                                  <div className="flex flex-col gap-2 flex-shrink-0">
+                                    {integration.connected ? (
+                                      <>
+                                        <button
+                                          onClick={() => {
+                                            setEditingIntegration({ ...integration })
+                                            setShowIntegrationModal(true)
+                                          }}
+                                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                                        >
+                                          Edit Settings
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            if (confirm(`Disconnect ${integration.name}? This will disable all features that use this integration.`)) {
+                                              setExternalIntegrations(prev => prev.map(i => 
+                                                i.id === integration.id ? { ...i, connected: false, config: undefined } : i
+                                              ))
+                                            }
+                                          }}
+                                          className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                        >
+                                          Disconnect
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          const emptyConfig: IntegrationConfig = {}
+                                          integration.configFields.forEach(f => {
+                                            emptyConfig[f.key] = ''
+                                          })
+                                          setEditingIntegration({ ...integration, config: emptyConfig })
+                                          setShowIntegrationModal(true)
+                                        }}
+                                        className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                                      >
+                                        Connect
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+
+              {/* Save Button */}
+              <div className="mt-8 pt-6 border-t flex items-center justify-between">
+                <p className="text-sm text-gray-500">
+                  Changes are saved when you connect or disconnect integrations.
+                </p>
+                <button
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      const configToSave: Record<string, any> = {}
+                      externalIntegrations.forEach(integration => {
+                        configToSave[integration.id] = {
+                          connected: integration.connected,
+                          enabled: integration.enabled,
+                          config: integration.config,
+                        }
+                      })
+                      
+                      const response = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'external_integrations',
+                          external_integrations_config: configToSave,
+                        }),
+                      })
+                      
+                      if (!response.ok) {
+                        const data = await response.json()
+                        alert(data.error || 'Failed to save integrations')
+                        return
+                      }
+                      
+                      alert('All integration settings saved!')
+                    } catch (error) {
+                      console.error('Error saving integrations:', error)
+                      alert('Failed to save integrations')
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"
+                >
+                  {saving ? 'Saving...' : 'Save All Settings'}
+                </button>
+              </div>
+
+              {/* Integration Connect/Edit Modal */}
+              {showIntegrationModal && editingIntegration && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                    {/* Modal Header */}
+                    <div className="p-6 border-b sticky top-0 bg-white rounded-t-2xl">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-2xl ${
+                          editingIntegration.connected ? 'bg-green-100' : 'bg-indigo-100'
+                        }`}>
+                          {editingIntegration.icon}
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-bold text-gray-900">
+                            {editingIntegration.connected ? 'Edit' : 'Connect'} {editingIntegration.name}
+                          </h2>
+                          <p className="text-sm text-gray-500">{editingIntegration.description}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* What This Enables */}
+                    <div className="p-6 bg-gray-50 border-b">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">What this enables:</h3>
+                      <div className="space-y-2">
+                        {editingIntegration.useCases.map((useCase, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <span className="text-green-500">✓</span>
+                            <span className="text-sm text-gray-700">{useCase}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Configuration Fields */}
+                    <div className="p-6 space-y-4">
+                      <h3 className="text-sm font-semibold text-gray-700">Connection Settings</h3>
+                      
+                      {editingIntegration.configFields.map((field) => (
+                        <div key={field.key}>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            {field.label}
+                            {field.required && <span className="text-red-500 ml-1">*</span>}
+                          </label>
+                          <input
+                            type={field.type}
+                            value={editingIntegration.config?.[field.key] || ''}
+                            onChange={(e) => setEditingIntegration(prev => prev ? { 
+                              ...prev, 
+                              config: { ...prev.config, [field.key]: e.target.value } 
+                            } : null)}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder={field.placeholder}
+                          />
+                        </div>
+                      ))}
+
+                      {/* Integration-specific help */}
+                      {editingIntegration.id === 'eagleview' && (
+                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                          <p className="text-sm text-blue-800 font-medium mb-1">How to get your API credentials:</p>
+                          <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
+                            <li>Log into your EagleView account</li>
+                            <li>Go to Account Settings → API Access</li>
+                            <li>Generate or copy your API token</li>
+                          </ol>
+                        </div>
+                      )}
+                      {editingIntegration.id === 'dropbox_sign' && (
+                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                          <p className="text-sm text-blue-800 font-medium mb-1">How to get your API key:</p>
+                          <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
+                            <li>Log into Dropbox Sign</li>
+                            <li>Go to Settings → API</li>
+                            <li>Create or copy your API key</li>
+                          </ol>
+                        </div>
+                      )}
+                      {editingIntegration.id === 'twilio' && (
+                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                          <p className="text-sm text-blue-800 font-medium mb-1">Where to find your credentials:</p>
+                          <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
+                            <li>Log into Twilio Console</li>
+                            <li>Account SID and Auth Token are on the dashboard</li>
+                            <li>Get a phone number from Phone Numbers → Manage</li>
+                          </ol>
+                        </div>
+                      )}
+                      {(editingIntegration.id === 'quickbooks' || editingIntegration.id === 'xero') && (
+                        <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+                          <p className="text-sm text-amber-800">
+                            <strong>Note:</strong> Clicking Connect will redirect you to {editingIntegration.name} to authorize the connection.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Modal Footer */}
+                    <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-between">
+                      <button
+                        onClick={() => {
+                          setShowIntegrationModal(false)
+                          setEditingIntegration(null)
+                        }}
+                        className="px-5 py-2.5 border border-gray-300 rounded-lg hover:bg-white text-gray-700 font-medium"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={async () => {
+                          // Validate required fields
+                          const missingFields = editingIntegration.configFields
+                            .filter(f => f.required && !editingIntegration.config?.[f.key])
+                            .map(f => f.label)
+                          
+                          if (missingFields.length > 0) {
+                            alert(`Please fill in: ${missingFields.join(', ')}`)
+                            return
+                          }
+
+                          // Update state
+                          setExternalIntegrations(prev => prev.map(i => 
+                            i.id === editingIntegration.id 
+                              ? { ...editingIntegration, connected: true }
+                              : i
+                          ))
+
+                          // Auto-save to backend
+                          try {
+                            const configToSave: Record<string, any> = {}
+                            externalIntegrations.forEach(integration => {
+                              if (integration.id === editingIntegration.id) {
+                                configToSave[integration.id] = {
+                                  connected: true,
+                                  enabled: true,
+                                  config: editingIntegration.config,
+                                }
+                              } else {
+                                configToSave[integration.id] = {
+                                  connected: integration.connected,
+                                  enabled: integration.enabled,
+                                  config: integration.config,
+                                }
+                              }
+                            })
+                            
+                            await fetch('/api/admin/settings', {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                type: 'external_integrations',
+                                external_integrations_config: configToSave,
+                              }),
+                            })
+                          } catch (error) {
+                            console.error('Error saving integration:', error)
+                          }
+
+                          setShowIntegrationModal(false)
+                          setEditingIntegration(null)
+                        }}
+                        className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+                      >
+                        {editingIntegration.connected ? 'Save Changes' : 'Connect Integration'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
