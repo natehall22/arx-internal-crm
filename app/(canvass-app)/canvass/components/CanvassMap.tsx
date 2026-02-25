@@ -295,9 +295,21 @@ export default function CanvassMap({
       const synced = isSynced(pin)
 
       if (currentMarkers.has(pin.id)) {
-        // Marker exists - update if needed
+        // Marker exists - update icon if disposition changed
         const marker = currentMarkers.get(pin.id)
-        markersForClusterer.push(marker)
+        if (marker) {
+          // Update the marker icon with current disposition color
+          marker.setIcon({
+            path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
+            fillColor: color,
+            fillOpacity: synced ? 1 : 0.6,
+            strokeColor: synced ? '#ffffff' : '#FCD34D',
+            strokeWeight: synced ? 2 : 3,
+            scale: 1.5,
+            anchor: new google.maps.Point(12, 22),
+          })
+          markersForClusterer.push(marker)
+        }
       } else {
         // Create new marker
         const marker = new google.maps.Marker({
