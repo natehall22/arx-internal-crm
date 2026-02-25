@@ -255,6 +255,19 @@ export default function LeadModal({
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-4">
+            {/* Show existing notes prominently when editing */}
+            {pin && pin.notes && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-600 mt-0.5">📝</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1">Previous Notes</p>
+                    <p className="text-sm text-amber-900 whitespace-pre-wrap">{pin.notes}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Quick Disposition Buttons */}
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-2">

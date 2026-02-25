@@ -271,6 +271,7 @@ export default function CanvassPage() {
       
       if (details) {
         // Convert to CanvassPin format
+        // Note: API returns canvass_notes, we map it to notes for the modal
         const fullPin: CanvassPin = {
           id: details.id,
           lat: details.lat,
@@ -281,7 +282,7 @@ export default function CanvassPage() {
           email: details.email,
           status: details.status,
           disposition: details.canvass_disposition,
-          notes: details.notes,
+          notes: details.canvass_notes || details.notes || '',
           created_at: details.created_at,
           synced: true,
           owner_user_id: details.owner_user_id,
@@ -303,6 +304,7 @@ export default function CanvassPage() {
   }) => {
     if (selectedPin) {
       // Update existing pin via API
+      let apiSuccess = false
       if (isOnline && selectedPin.synced) {
         try {
           const response = await fetch('/api/canvass/lead', {
@@ -324,17 +326,36 @@ export default function CanvassPage() {
           })
           
           if (response.ok) {
+            apiSuccess = true
             const data = await response.json()
+            console.log('Lead updated successfully:', { 
+              lead_id: data.lead_id,
+              disposition: leadData.disposition,
+              notes: leadData.notes 
+            })
             if (data.calendar_synced) {
               console.log('Calendar synced successfully')
             }
             if (data.opportunity_id) {
               console.log('Opportunity created:', data.opportunity_id)
             }
+          } else {
+            const errorData = await response.json().catch(() => ({}))
+            console.error('Failed to update lead - API error:', errorData)
+            alert('Failed to save changes. Please try again.')
           }
         } catch (error) {
           console.error('Failed to update lead:', error)
+          alert('Failed to save changes. Please check your connection.')
         }
+      } else {
+        // Offline mode - will sync later
+        apiSuccess = true
+      }
+      
+      // Only update local state if API succeeded (or offline)
+      if (!apiSuccess) {
+        return
       }
       
       // Update local state

@@ -37,6 +37,7 @@ export interface FullPinData {
   email?: string
   status: string
   canvass_disposition?: string
+  canvass_notes?: string
   notes?: string
   created_at: string
   owner_user_id?: string
