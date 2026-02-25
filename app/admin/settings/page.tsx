@@ -267,6 +267,44 @@ export default function AdminSettingsPage() {
         { key: 'api_key', label: 'Integration Key', type: 'password', placeholder: 'From DocuSign Admin → Integrations', required: true },
       ],
     },
+    {
+      id: 'signnow',
+      name: 'signNow',
+      category: 'signatures',
+      description: 'Fast, affordable e-signatures for contracts and documents',
+      useCases: [
+        'Send contracts from Opportunity page',
+        'Get signed proposals from Proposal Builder',
+        'Send change orders from Work Orders / Jobs',
+        'In-person signing on tablet/phone',
+      ],
+      icon: '✒️',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'account', label: 'Account Email', type: 'email', placeholder: 'your-email@company.com', required: true },
+        { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'From signNow Settings → API', required: true },
+      ],
+    },
+    // PDF & DOCUMENT MANAGEMENT
+    {
+      id: 'pdf_upload',
+      name: 'PDF Documents',
+      category: 'signatures',
+      description: 'Upload and send PDF contracts, agreements, and documents',
+      useCases: [
+        'Upload custom PDF contracts',
+        'Send PDFs for signature via email',
+        'Attach signed documents to opportunities',
+        'Store completed documents with jobs',
+      ],
+      icon: '📄',
+      connected: false,
+      enabled: true,
+      configFields: [
+        { key: 'storage_provider', label: 'Storage', type: 'text', placeholder: 'Default: Built-in storage', required: false },
+      ],
+    },
     // MEASUREMENTS & DESIGN
     {
       id: 'eagleview',

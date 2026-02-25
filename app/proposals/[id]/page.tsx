@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -8,6 +8,7 @@ import { pdf } from '@react-pdf/renderer'
 import ProposalPDF from '@/components/ProposalPDF'
 import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
+import SignaturePadInline from '@/components/SignaturePadInline'
 
 interface Proposal {
   id: string
@@ -40,6 +41,19 @@ interface Proposal {
   opportunity_id: string | null
   cover_image_url: string | null
   users?: { full_name: string; email?: string; phone?: string }
+  // Signature fields
+  customer_signature_type?: string
+  customer_signature_data?: string
+  customer_signature_typed?: string
+  customer_signed_name?: string
+  customer_signed_at?: string
+  rep_signature_type?: string
+  rep_signature_data?: string
+  rep_signature_typed?: string
+  rep_signed_name?: string
+  rep_signed_at?: string
+  declined_at?: string
+  declined_reason?: string
 }
 
 interface LineItem {
@@ -92,6 +106,22 @@ export default function ProposalDetailPage() {
   // Inspection notes
   const [inspectionNotes, setInspectionNotes] = useState<string[]>([])
   const [newInspectionNote, setNewInspectionNote] = useState('')
+  
+  // Signature states
+  const [showSignatureModal, setShowSignatureModal] = useState(false)
+  const [signatureMode, setSignatureMode] = useState<'rep' | 'customer'>('rep')
+  const [signatureType, setSignatureType] = useState<'typed' | 'draw'>('typed')
+  const [signatureTypedValue, setSignatureTypedValue] = useState('')
+  const [signatureCanvasData, setSignatureCanvasData] = useState('')
+  const [signingName, setSigningName] = useState('')
+  const [savingSignature, setSavingSignature] = useState(false)
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [isDrawing, setIsDrawing] = useState(false)
+
+  // Decline state
+  const [showDeclineModal, setShowDeclineModal] = useState(false)
+  const [declineReason, setDeclineReason] = useState('')
+  const [declining, setDeclining] = useState(false)
 
   useEffect(() => {
     loadProposal()
@@ -1168,17 +1198,314 @@ export default function ProposalDetailPage() {
                     <span className="text-gray-900">Viewed on {new Date(proposal.viewed_at).toLocaleString()}</span>
                   </div>
                 )}
+                {proposal.rep_signed_at && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-indigo-500" />
+                    <span className="text-gray-900">Rep signed on {new Date(proposal.rep_signed_at).toLocaleString()}</span>
+                  </div>
+                )}
+                {proposal.customer_signed_at && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-green-500" />
+                    <span className="text-gray-900">Customer signed on {new Date(proposal.customer_signed_at).toLocaleString()}</span>
+                  </div>
+                )}
                 {proposal.accepted_at && (
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-green-500" />
                     <span className="text-gray-900">Accepted on {new Date(proposal.accepted_at).toLocaleString()}</span>
                   </div>
                 )}
+                {proposal.declined_at && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-red-500" />
+                    <span className="text-gray-900">Declined on {new Date(proposal.declined_at).toLocaleString()}</span>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Signatures Section */}
+            <div className="mt-8 pt-8 border-t">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Signatures</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Rep Signature */}
+                <div className={`p-6 rounded-xl border-2 ${proposal.rep_signed_at ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-medium text-gray-900">Sales Representative</h4>
+                    {proposal.rep_signed_at ? (
+                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">Signed</span>
+                    ) : (
+                      <span className="px-2 py-1 bg-gray-200 text-gray-600 text-xs font-medium rounded-full">Pending</span>
+                    )}
+                  </div>
+                  
+                  {proposal.rep_signed_at ? (
+                    <div>
+                      {proposal.rep_signature_type === 'draw' && proposal.rep_signature_data ? (
+                        <div className="bg-white rounded-lg p-3 border mb-2">
+                          <img src={proposal.rep_signature_data} alt="Rep signature" className="h-16 object-contain" />
+                        </div>
+                      ) : proposal.rep_signature_typed ? (
+                        <div className="bg-white rounded-lg p-3 border mb-2">
+                          <p className="text-2xl text-gray-900" style={{ fontFamily: 'cursive, serif' }}>{proposal.rep_signature_typed}</p>
+                        </div>
+                      ) : null}
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium">{proposal.rep_signed_name}</span>
+                        <br />
+                        {new Date(proposal.rep_signed_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setSignatureMode('rep')
+                        setSignatureTypedValue('')
+                        setSignatureCanvasData('')
+                        setSigningName(rep?.full_name || '')
+                        setShowSignatureModal(true)
+                      }}
+                      className="w-full px-4 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
+                    >
+                      Sign as Rep
+                    </button>
+                  )}
+                </div>
+
+                {/* Customer Signature */}
+                <div className={`p-6 rounded-xl border-2 ${proposal.customer_signed_at ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-medium text-gray-900">Customer</h4>
+                    {proposal.customer_signed_at ? (
+                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">Signed</span>
+                    ) : (
+                      <span className="px-2 py-1 bg-gray-200 text-gray-600 text-xs font-medium rounded-full">Pending</span>
+                    )}
+                  </div>
+                  
+                  {proposal.customer_signed_at ? (
+                    <div>
+                      {proposal.customer_signature_type === 'draw' && proposal.customer_signature_data ? (
+                        <div className="bg-white rounded-lg p-3 border mb-2">
+                          <img src={proposal.customer_signature_data} alt="Customer signature" className="h-16 object-contain" />
+                        </div>
+                      ) : proposal.customer_signature_typed ? (
+                        <div className="bg-white rounded-lg p-3 border mb-2">
+                          <p className="text-2xl text-gray-900" style={{ fontFamily: 'cursive, serif' }}>{proposal.customer_signature_typed}</p>
+                        </div>
+                      ) : null}
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium">{proposal.customer_signed_name}</span>
+                        <br />
+                        {new Date(proposal.customer_signed_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setSignatureMode('customer')
+                        setSignatureTypedValue('')
+                        setSignatureCanvasData('')
+                        setSigningName(proposal.customer_name || '')
+                        setShowSignatureModal(true)
+                      }}
+                      disabled={!proposal.rep_signed_at}
+                      className="w-full px-4 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {proposal.rep_signed_at ? 'Sign as Customer' : 'Rep must sign first'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Fully Signed Status */}
+              {proposal.rep_signed_at && proposal.customer_signed_at && (
+                <div className="mt-6 p-4 bg-green-100 border border-green-200 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <p className="font-semibold text-green-800">Proposal Fully Signed</p>
+                      <p className="text-sm text-green-700">Both parties have signed this proposal. Ready to proceed!</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Accept/Decline Section */}
+            {proposal.status !== 'accepted' && proposal.status !== 'declined' && (
+              <div className="mt-8 pt-8 border-t">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Proposal Decision</h3>
+                
+                {proposal.rep_signed_at && proposal.customer_signed_at ? (
+                  <div className="flex gap-4">
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Accept this proposal? This will mark it as accepted and create a project.')) return
+                        try {
+                          const response = await fetch(`/api/proposals/${proposalId}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              status: 'accepted',
+                              accepted_at: new Date().toISOString(),
+                            }),
+                          })
+                          if (response.ok) {
+                            await loadProposal()
+                            alert('Proposal accepted!')
+                          } else {
+                            alert('Failed to accept proposal')
+                          }
+                        } catch (err) {
+                          console.error('Error accepting proposal:', err)
+                          alert('Failed to accept proposal')
+                        }
+                      }}
+                      className="flex-1 px-6 py-4 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Accept Proposal
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const reason = prompt('Reason for declining (optional):')
+                        if (reason === null) return
+                        try {
+                          const response = await fetch(`/api/proposals/${proposalId}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              status: 'declined',
+                              declined_at: new Date().toISOString(),
+                              declined_reason: reason || null,
+                            }),
+                          })
+                          if (response.ok) {
+                            await loadProposal()
+                            alert('Proposal declined')
+                          } else {
+                            alert('Failed to decline proposal')
+                          }
+                        } catch (err) {
+                          console.error('Error declining proposal:', err)
+                          alert('Failed to decline proposal')
+                        }
+                      }}
+                      className="px-6 py-4 border-2 border-red-200 text-red-600 rounded-xl font-semibold hover:bg-red-50 flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Decline
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                    <p className="text-amber-800">
+                      <span className="font-medium">Signatures required:</span> Both the sales representative and customer must sign before the proposal can be accepted or declined.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Accepted/Declined Status */}
+            {proposal.status === 'accepted' && (
+              <div className="mt-8 p-6 bg-green-100 border border-green-200 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-xl font-bold text-green-800">Proposal Accepted</p>
+                    <p className="text-green-700">Accepted on {proposal.accepted_at ? new Date(proposal.accepted_at).toLocaleString() : 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {proposal.status === 'declined' && (
+              <div className="mt-8 p-6 bg-red-100 border border-red-200 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-xl font-bold text-red-800">Proposal Declined</p>
+                    <p className="text-red-700">Declined on {proposal.declined_at ? new Date(proposal.declined_at).toLocaleString() : 'N/A'}</p>
+                    {proposal.declined_reason && (
+                      <p className="text-red-600 mt-1">Reason: {proposal.declined_reason}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Signature Modal */}
+      {showSignatureModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <SignaturePadInline
+                title={signatureMode === 'rep' ? 'Sales Representative Signature' : 'Customer Signature'}
+                description={signatureMode === 'rep' 
+                  ? 'Sign to confirm you have presented this proposal to the customer.'
+                  : 'Sign to confirm you agree to the terms and pricing in this proposal.'
+                }
+                defaultName={signingName}
+                saving={savingSignature}
+                onCancel={() => setShowSignatureModal(false)}
+                onSave={async (data) => {
+                  setSavingSignature(true)
+                  try {
+                    const updateData: any = {}
+                    if (signatureMode === 'rep') {
+                      updateData.rep_signature_type = data.type
+                      updateData.rep_signature_typed = data.typed || null
+                      updateData.rep_signature_data = data.drawn || null
+                      updateData.rep_signed_name = data.name
+                      updateData.rep_signed_at = new Date().toISOString()
+                    } else {
+                      updateData.customer_signature_type = data.type
+                      updateData.customer_signature_typed = data.typed || null
+                      updateData.customer_signature_data = data.drawn || null
+                      updateData.customer_signed_name = data.name
+                      updateData.customer_signed_at = new Date().toISOString()
+                    }
+
+                    const response = await fetch(`/api/proposals/${proposalId}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(updateData),
+                    })
+
+                    if (response.ok) {
+                      setShowSignatureModal(false)
+                      await loadProposal()
+                    } else {
+                      alert('Failed to save signature')
+                    }
+                  } catch (err) {
+                    console.error('Error saving signature:', err)
+                    alert('Failed to save signature')
+                  }
+                  setSavingSignature(false)
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Image Upload Modal */}
       {showImageModal && (

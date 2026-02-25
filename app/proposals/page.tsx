@@ -83,6 +83,32 @@ export default function ProposalsPage() {
     return true
   })
 
+  const handleDelete = async (e: React.MouseEvent, proposalId: string, proposalNumber: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    if (!confirm(`Delete proposal ${proposalNumber}? This cannot be undone.`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/proposals/${proposalId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to delete proposal')
+        return
+      }
+
+      setProposals(prev => prev.filter(p => p.id !== proposalId))
+    } catch (err) {
+      console.error('Error deleting proposal:', err)
+      alert('Failed to delete proposal')
+    }
+  }
+
   const stats = {
     total: proposals.length,
     draft: proposals.filter(p => p.status === 'draft').length,
@@ -192,13 +218,12 @@ export default function ProposalsPage() {
         ) : (
           <div className="space-y-4">
             {filteredProposals.map((proposal) => (
-              <Link
+              <div
                 key={proposal.id}
-                href={`/proposals/${proposal.id}`}
-                className="block bg-white rounded-xl shadow-sm border p-6 hover:shadow-md hover:border-indigo-200 transition-all"
+                className="bg-white rounded-xl shadow-sm border p-6 hover:shadow-md hover:border-indigo-200 transition-all"
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex-1">
+                  <Link href={`/proposals/${proposal.id}`} className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="font-semibold text-gray-900">{proposal.proposal_number}</h3>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(proposal.status)}`}>
@@ -211,15 +236,26 @@ export default function ProposalsPage() {
                       Created {new Date(proposal.created_at).toLocaleDateString()}
                       {proposal.users?.full_name && ` by ${proposal.users.full_name}`}
                     </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-indigo-600">
-                      ${proposal.total.toLocaleString()}
-                    </p>
-                    <p className="text-sm text-gray-500">{proposal.title}</p>
+                  </Link>
+                  <div className="flex items-center gap-4">
+                    <Link href={`/proposals/${proposal.id}`} className="text-right">
+                      <p className="text-2xl font-bold text-indigo-600">
+                        ${proposal.total.toLocaleString()}
+                      </p>
+                      <p className="text-sm text-gray-500">{proposal.title}</p>
+                    </Link>
+                    <button
+                      onClick={(e) => handleDelete(e, proposal.id, proposal.proposal_number)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete proposal"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}

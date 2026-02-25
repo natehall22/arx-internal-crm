@@ -202,3 +202,88 @@ export async function PATCH(
     }, { status: 500 })
   }
 }
+
+// DELETE - Delete a proposal
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { client: authClient, accessToken } = getAuthClient(request)
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    // Get user profile for org_id and role
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    // Check if proposal exists and belongs to this org
+    const { data: proposal, error: fetchError } = await adminClient
+      .from('proposals')
+      .select('id, status, created_by')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (fetchError || !proposal) {
+      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+    }
+
+    // Only allow deletion of draft proposals, or by admins/managers
+    const isAdmin = profile.role === 'admin' || profile.role === 'manager'
+    const isOwner = proposal.created_by === user.id
+    
+    if (proposal.status !== 'draft' && !isAdmin) {
+      return NextResponse.json({ 
+        error: 'Only draft proposals can be deleted. Contact an admin to delete sent proposals.' 
+      }, { status: 403 })
+    }
+
+    if (!isOwner && !isAdmin) {
+      return NextResponse.json({ 
+        error: 'You can only delete your own proposals' 
+      }, { status: 403 })
+    }
+
+    // Delete line items first (should cascade, but being explicit)
+    await adminClient
+      .from('proposal_line_items')
+      .delete()
+      .eq('proposal_id', params.id)
+
+    // Delete the proposal
+    const { error: deleteError } = await adminClient
+      .from('proposals')
+      .delete()
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+
+    if (deleteError) {
+      console.error('Proposal delete error:', deleteError)
+      return NextResponse.json({ error: 'Failed to delete proposal' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Proposal delete API error:', error)
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to delete proposal' 
+    }, { status: 500 })
+  }
+}
