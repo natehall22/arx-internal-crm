@@ -206,20 +206,53 @@ export async function POST(request: NextRequest) {
       .eq('id', profile.org_id)
       .single()
     
-    const inspectionOutcomes = orgData?.settings?.inspection_outcomes || []
+    // Default inspection outcomes (same as admin settings defaults)
+    const defaultInspectionOutcomes = [
+      { id: 'sale', converts_to_opportunity: true },
+      { id: 'moving_to_close', converts_to_opportunity: true },
+      { id: 'insurance_follow_up', converts_to_opportunity: true },
+      { id: 'said_no', converts_to_opportunity: false },
+      { id: 'not_home', converts_to_opportunity: false },
+      { id: 'no_problems_found', converts_to_opportunity: false },
+      { id: 'failed_credit', converts_to_opportunity: true },
+      { id: 'rescheduled', converts_to_opportunity: false },
+    ]
+    
+    // Use org settings if available, otherwise use defaults
+    const inspectionOutcomes = orgData?.settings?.inspection_outcomes?.length > 0 
+      ? orgData.settings.inspection_outcomes 
+      : defaultInspectionOutcomes
     const outcomeConfig = inspectionOutcomes.find((o: any) => o.id === outcome)
     const shouldCreateOpportunity = outcomeConfig?.converts_to_opportunity ?? false
     
     console.log('Outcome config:', outcomeConfig)
     console.log('Should create opportunity:', shouldCreateOpportunity)
+    console.log('Using default outcomes:', !orgData?.settings?.inspection_outcomes?.length)
 
     const leadId = appointment?.lead_id || directLeadId
     let opportunityId = appointment?.opportunity_id || opportunity?.id
     let createdOpportunity = null
+    
+    console.log('=== OPPORTUNITY LOOKUP ===')
+    console.log('appointment?.opportunity_id:', appointment?.opportunity_id)
+    console.log('opportunity?.id:', opportunity?.id)
+    console.log('Final opportunityId:', opportunityId)
+    console.log('leadId:', leadId)
 
     // Create opportunity if outcome is configured to do so and no opportunity exists
     if (shouldCreateOpportunity && !opportunityId && leadId) {
       console.log('Creating opportunity from inspection outcome...')
+      
+      // Determine status based on outcome
+      // Valid opportunity statuses: 'open', 'in_progress', 'won', 'lost'
+      let newStatus: 'open' | 'in_progress' | 'won' | 'lost' = 'open'
+      if (outcome === 'sale') {
+        newStatus = 'won'
+      } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
+        newStatus = 'lost'
+      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up' || outcome === 'failed_credit') {
+        newStatus = 'in_progress'
+      }
       
       const { data: newOpportunity, error: oppError } = await supabase
         .from('opportunities')
@@ -228,7 +261,7 @@ export async function POST(request: NextRequest) {
           lead_id: leadId,
           customer_id: lead?.customer_id || null,
           owner_user_id: user.id,
-          status: outcome === 'sale' ? 'won' : outcome === 'moving_to_close' ? 'negotiation' : 'open',
+          status: newStatus,
           source: lead?.source || 'inspection',
           project_type: 'roofing',
           inspection_outcome: outcome,
@@ -312,18 +345,34 @@ export async function POST(request: NextRequest) {
       }
 
       // Update status based on outcome
+      // Valid opportunity statuses: 'open', 'in_progress', 'won', 'lost'
       if (outcome === 'sale') {
         opportunityUpdate.status = 'won'
-      } else if (outcome === 'said_no' || outcome === 'failed_credit' || outcome === 'no_problems_found') {
+      } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
         opportunityUpdate.status = 'lost'
-      } else if (outcome === 'moving_to_close') {
-        opportunityUpdate.status = 'negotiation'
+      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up' || outcome === 'failed_credit') {
+        opportunityUpdate.status = 'in_progress' // Active opportunities being worked
       }
+      // 'not_home' and 'rescheduled' keep status as 'open'
 
-      await supabase
+      console.log('=== UPDATING EXISTING OPPORTUNITY ===')
+      console.log('opportunityId:', opportunityId)
+      console.log('Update data:', opportunityUpdate)
+      
+      const { error: oppUpdateError } = await supabase
         .from('opportunities')
         .update(opportunityUpdate)
         .eq('id', opportunityId)
+      
+      if (oppUpdateError) {
+        console.error('Failed to update opportunity:', oppUpdateError)
+      } else {
+        console.log('Successfully updated opportunity')
+      }
+    } else {
+      console.log('=== SKIPPING OPPORTUNITY UPDATE ===')
+      console.log('opportunityId:', opportunityId)
+      console.log('createdOpportunity:', !!createdOpportunity)
     }
 
     // Mark pending prompt as completed (if we have an appointment)
