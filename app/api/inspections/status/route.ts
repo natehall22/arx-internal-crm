@@ -219,8 +219,8 @@ export async function POST(request: NextRequest) {
     ]
     
     // Use org settings if available, otherwise use defaults
-    const inspectionOutcomes = orgData?.settings?.inspection_outcomes?.length > 0 
-      ? orgData.settings.inspection_outcomes 
+    const inspectionOutcomes = (orgData?.settings?.inspection_outcomes?.length ?? 0) > 0 
+      ? orgData!.settings.inspection_outcomes 
       : defaultInspectionOutcomes
     const outcomeConfig = inspectionOutcomes.find((o: any) => o.id === outcome)
     const shouldCreateOpportunity = outcomeConfig?.converts_to_opportunity ?? false
