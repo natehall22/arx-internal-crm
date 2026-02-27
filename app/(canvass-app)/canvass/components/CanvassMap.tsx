@@ -53,7 +53,12 @@ const defaultPinColors: Record<string, string> = {
 }
 
 // Helper to get disposition from either pin format
+// Also checks status for scheduled inspections
 function getDisposition(pin: AnyPin): string | null {
+  // Check if pin has inspection status - show as scheduled
+  if ('status' in pin && pin.status === 'inspection') return 'scheduled'
+  if ('s' in pin && pin.s === 'inspection') return 'scheduled'
+  
   if ('disposition' in pin) return pin.disposition || null
   if ('d' in pin) return pin.d
   return null

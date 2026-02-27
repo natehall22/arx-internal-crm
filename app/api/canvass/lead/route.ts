@@ -295,25 +295,63 @@ export async function POST(request: Request) {
     
     // Parse inspection time - the client sends local time (e.g., "2026-02-17T09:00")
     // We store UTC in the database but need local time for Google Calendar API
-    // Assume Eastern timezone (UTC-5, or UTC-4 during DST)
     let inspectionScheduledFor: string | null = null // UTC for database
     let inspectionLocalTime: string | null = null // Local time for Google Calendar
+    let closerTimezone = 'America/New_York' // Default, will be updated based on closer/team
+    
     if (body.inspection_scheduled_for) {
-      // Parse the local time string
       const localTimeStr = body.inspection_scheduled_for // e.g., "2026-02-17T09:00"
       inspectionLocalTime = localTimeStr // Keep original for calendar sync
+      
+      // Get timezone from closer or team (if available)
+      if (closerUserId) {
+        closerTimezone = await getTimezoneForUser(supabase, closerUserId)
+      } else if (teamIdForRoundRobin) {
+        const { data: team } = await supabase
+          .from('teams')
+          .select('timezone')
+          .eq('id', teamIdForRoundRobin)
+          .single()
+        if (team?.timezone) {
+          closerTimezone = team.timezone
+        }
+      } else if (profile.team_id) {
+        const { data: team } = await supabase
+          .from('teams')
+          .select('timezone')
+          .eq('id', profile.team_id)
+          .single()
+        if (team?.timezone) {
+          closerTimezone = team.timezone
+        }
+      }
       
       const [datePart, timePart] = localTimeStr.split('T')
       const [year, month, day] = datePart.split('-').map(Number)
       const [hour, minute] = timePart.split(':').map(Number)
       
-      // Create date in Eastern timezone by adding 5 hours to get UTC
-      // TODO: Use proper timezone library for DST handling
-      const tzOffsetHours = 5 // Eastern Standard Time offset
+      // Determine timezone offset based on the TARGET date (for DST handling)
+      // DST in US is roughly second Sunday of March to first Sunday of November
+      const targetMonth = month
+      const isDST = targetMonth >= 3 && targetMonth <= 10 // Rough DST check
+      
+      let tzOffsetHours = 5 // Default to Eastern Standard Time
+      if (closerTimezone === 'America/New_York' || closerTimezone === 'America/Detroit' || closerTimezone === 'US/Eastern') {
+        tzOffsetHours = isDST ? 4 : 5
+      } else if (closerTimezone === 'America/Chicago' || closerTimezone === 'US/Central') {
+        tzOffsetHours = isDST ? 5 : 6
+      } else if (closerTimezone === 'America/Denver' || closerTimezone === 'US/Mountain') {
+        tzOffsetHours = isDST ? 6 : 7
+      } else if (closerTimezone === 'America/Los_Angeles' || closerTimezone === 'US/Pacific') {
+        tzOffsetHours = isDST ? 7 : 8
+      } else if (closerTimezone === 'America/Phoenix') {
+        tzOffsetHours = 7 // Arizona doesn't observe DST
+      }
+      
       const utcDate = new Date(Date.UTC(year, month - 1, day, hour + tzOffsetHours, minute, 0))
       inspectionScheduledFor = utcDate.toISOString()
       
-      console.log(`Inspection time conversion: local=${localTimeStr} -> UTC=${inspectionScheduledFor}`)
+      console.log(`Inspection time conversion: local=${localTimeStr} (${closerTimezone}, offset=${tzOffsetHours}h, isDST=${isDST}) -> UTC=${inspectionScheduledFor}`)
     }
     // Use round-robin if team was selected OR if no closer was specified
     const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection

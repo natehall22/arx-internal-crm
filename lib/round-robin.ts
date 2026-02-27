@@ -139,6 +139,28 @@ export async function assignNextAvailableCloser(
             customerDetails?.notes ? `\nNotes:\n${customerDetails.notes}` : '',
           ].filter(Boolean).join('\n')
 
+          // Format datetime for Google Calendar API
+          // Google expects local time format (YYYY-MM-DDTHH:MM:SS) with separate timezone field
+          // Convert UTC Date to local time string in the target timezone
+          const formatForCalendar = (date: Date, tz: string): string => {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+              timeZone: tz,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false,
+            }).formatToParts(date)
+            
+            const get = (type: string) => parts.find(p => p.type === type)?.value || '00'
+            return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`
+          }
+          
+          const startLocalTime = formatForCalendar(scheduledFor, teamTimezone)
+          const endLocalTime = formatForCalendar(endTime, teamTimezone)
+
           // Create calendar event for closer (NO attendees to avoid duplicate invites)
           let googleEventId: string | undefined
           try {
@@ -147,11 +169,11 @@ export async function assignNextAvailableCloser(
               description: descriptionLines,
               location: address,
               start: {
-                dateTime: scheduledFor.toISOString(),
+                dateTime: startLocalTime,
                 timeZone: teamTimezone,
               },
               end: {
-                dateTime: endTime.toISOString(),
+                dateTime: endLocalTime,
                 timeZone: teamTimezone,
               },
             })
@@ -202,11 +224,11 @@ export async function assignNextAvailableCloser(
                   description: setterDescription,
                   location: address,
                   start: {
-                    dateTime: scheduledFor.toISOString(),
+                    dateTime: startLocalTime,
                     timeZone: teamTimezone,
                   },
                   end: {
-                    dateTime: endTime.toISOString(),
+                    dateTime: endLocalTime,
                     timeZone: teamTimezone,
                   },
                 })

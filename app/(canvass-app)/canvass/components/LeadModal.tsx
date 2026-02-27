@@ -255,6 +255,30 @@ export default function LeadModal({
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-4">
+            {/* Show previous knock info when editing an existing pin */}
+            {pin && pin.created_at && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">🚪</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-blue-700 uppercase tracking-wide mb-1">Previously Knocked</p>
+                    <p className="text-sm text-blue-900">
+                      {new Date(pin.created_at).toLocaleDateString('en-US', { 
+                        weekday: 'short',
+                        month: 'short', 
+                        day: 'numeric',
+                        year: 'numeric'
+                      })} at {new Date(pin.created_at).toLocaleTimeString('en-US', { 
+                        hour: 'numeric', 
+                        minute: '2-digit',
+                        hour12: true 
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Show existing notes prominently when editing */}
             {pin && pin.notes && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">

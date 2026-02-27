@@ -11,7 +11,9 @@ interface PendingPrompt {
     id: string
     scheduled_for: string
     address_text: string | null
+    lead_id: string | null
     leads?: {
+      id?: string
       homeowner_name: string | null
       address_text: string | null
     }
@@ -106,7 +108,13 @@ export default function AppointmentFeedbackPrompt() {
               
               <div className="flex gap-2 mt-3">
                 <button
-                  onClick={() => router.push(`/appointments/feedback?id=${appointment.id}`)}
+                  onClick={() => {
+                    const leadId = appointment.leads?.id || (appointment as any).lead_id
+                    const url = leadId 
+                      ? `/appointments/feedback?id=${appointment.id}&lead_id=${leadId}`
+                      : `/appointments/feedback?id=${appointment.id}`
+                    router.push(url)
+                  }}
                   className="flex-1 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700"
                 >
                   Give Feedback
