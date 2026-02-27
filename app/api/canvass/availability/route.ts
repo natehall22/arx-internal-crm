@@ -221,7 +221,19 @@ export async function GET(request: NextRequest) {
       try {
         // Use UTC times for Google Calendar API
         busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
-        console.log(`Availability: ${closerId} has ${busySlots.length} Google Calendar busy slots:`, JSON.stringify(busySlots))
+        console.log(`Availability: ${closerId} has ${busySlots.length} Google Calendar busy slots`)
+        
+        // Log each busy slot with local time conversion for debugging
+        if (busySlots.length > 0) {
+          for (const slot of busySlots) {
+            const startUTC = new Date(slot.start)
+            const endUTC = new Date(slot.end)
+            // Convert to local time for logging
+            const startLocal = new Date(startUTC.getTime() - tzOffsetHours * 60 * 60 * 1000)
+            const endLocal = new Date(endUTC.getTime() - tzOffsetHours * 60 * 60 * 1000)
+            console.log(`Availability: Busy slot - UTC: ${slot.start} to ${slot.end} | Local: ${startLocal.toISOString()} to ${endLocal.toISOString()}`)
+          }
+        }
       } catch (error: any) {
         console.error('Failed to get free/busy:', error?.message || error)
       }
@@ -299,6 +311,7 @@ export async function GET(request: NextRequest) {
       const slotStartUTC = currentSlotUTC
       
       // Check for conflicts with separate before/after buffers
+      let conflictReason = ''
       const hasConflict = busySlots.some(busy => {
         const busyStart = new Date(busy.start)
         const busyEnd = new Date(busy.end)
@@ -310,6 +323,10 @@ export async function GET(request: NextRequest) {
         const slotOverlaps = slotStartUTC < busyEnd && slotEndUTC > busyStart
         const tooCloseBeforeEvent = bufferAfter > 0 && slotEndUTC > new Date(busyStart.getTime() - bufferAfter * 60 * 1000) && slotEndUTC <= busyStart
         const tooCloseAfterEvent = bufferBefore > 0 && slotStartUTC < new Date(busyEnd.getTime() + bufferBefore * 60 * 1000) && slotStartUTC >= busyEnd
+        
+        if (slotOverlaps) conflictReason = `overlaps with ${busy.start}-${busy.end}`
+        else if (tooCloseBeforeEvent) conflictReason = `too close before event at ${busy.start}`
+        else if (tooCloseAfterEvent) conflictReason = `too close after event ending ${busy.end}`
         
         return slotOverlaps || tooCloseBeforeEvent || tooCloseAfterEvent
       })
@@ -334,6 +351,11 @@ export async function GET(request: NextRequest) {
       const hourStr = String(hours).padStart(2, '0')
       const minStr = String(minutes).padStart(2, '0')
       const timeValue = `${localYear}-${localMonth}-${localDay}T${hourStr}:${minStr}`
+      
+      // Log first few unavailable slots to help debug
+      if (hasConflict && slots.filter(s => !s.available).length < 5) {
+        console.log(`Availability: Slot ${display} (${timeValue}) UNAVAILABLE - ${conflictReason}`)
+      }
       
       slots.push({
         time: timeValue,

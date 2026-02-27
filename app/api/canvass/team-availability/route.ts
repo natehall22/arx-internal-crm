@@ -190,15 +190,20 @@ export async function GET(request: NextRequest) {
           // Use UTC times for Google Calendar API
           busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
           console.log(`Team availability: ${closer.user?.full_name} has ${busySlots.length} Google Calendar busy slots`)
+          if (busySlots.length > 0) {
+            console.log(`Team availability: ${closer.user?.full_name} busy times:`, busySlots.map(s => `${s.start} to ${s.end}`))
+          }
         } catch (error) {
           console.error(`Failed to get free/busy for ${closer.user?.full_name}:`, error)
-          // Mark as fully busy if we can't check their calendar
+          // DON'T mark as fully busy - just skip this closer for this check
+          // This allows other closers to still be available
+          console.log(`Team availability: ${closer.user?.full_name} calendar check failed - treating as unavailable for safety`)
           busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
         }
       } else {
-        // Token refresh failed or no token - mark as fully busy to be safe
-        // This prevents scheduling with someone whose calendar we can't verify
-        console.log(`Team availability: ${closer.user?.full_name} has no valid token - marking as fully busy`)
+        // Token refresh failed or no token - DON'T mark as fully busy
+        // Just skip this closer - they shouldn't block other closers
+        console.log(`Team availability: ${closer.user?.full_name} has no valid token - treating as unavailable`)
         busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
       }
       
