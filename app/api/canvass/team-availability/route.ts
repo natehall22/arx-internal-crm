@@ -132,8 +132,10 @@ export async function GET(request: NextRequest) {
     const [endHour, endMin] = workingHoursEnd.split(':').map(Number)
     
     // Determine timezone offset based on the TARGET date (not current date)
-    // DST in US is roughly second Sunday of March to first Sunday of November
-    const isDST = month >= 3 && month <= 10 // Rough DST check for target date
+    // DST in US starts second Sunday of March, ends first Sunday of November
+    const isDST = (month > 3 && month < 11) || 
+                  (month === 3 && day >= 8) || 
+                  (month === 11 && day < 7)
     
     let tzOffsetHours = 5 // Default to Eastern Standard Time
     if (timezone === 'America/New_York' || timezone === 'America/Detroit' || timezone === 'US/Eastern') {

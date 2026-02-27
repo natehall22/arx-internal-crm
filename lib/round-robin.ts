@@ -118,13 +118,16 @@ export async function assignNextAvailableCloser(
       // Check calendar availability
       const endTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
       
+      // Use buffer_minutes from queue settings, default to 15 if not set
+      const bufferMinutes = closer.buffer_minutes ?? 15
+      
       try {
-        console.log(`Round-robin: Checking availability for ${closer.user?.full_name} at ${scheduledFor.toISOString()}`)
+        console.log(`Round-robin: Checking availability for ${closer.user?.full_name} at ${scheduledFor.toISOString()} with buffer=${bufferMinutes}min`)
         const available = await isSlotAvailable(
           accessToken,
           scheduledFor,
           endTime,
-          closer.buffer_minutes
+          bufferMinutes
         )
 
         console.log(`Round-robin: ${closer.user?.full_name} availability: ${available ? 'AVAILABLE' : 'BUSY'}`)
@@ -164,6 +167,11 @@ export async function assignNextAvailableCloser(
           // Create calendar event for closer (NO attendees to avoid duplicate invites)
           let googleEventId: string | undefined
           try {
+            console.log(`Round-robin: Creating calendar event for ${closer.user?.full_name}:`, {
+              summary: `Inspection: ${customerName}`,
+              start: { dateTime: startLocalTime, timeZone: teamTimezone },
+              end: { dateTime: endLocalTime, timeZone: teamTimezone },
+            })
             const event = await createCalendarEvent(accessToken, {
               summary: `Inspection: ${customerName}`,
               description: descriptionLines,
@@ -178,8 +186,9 @@ export async function assignNextAvailableCloser(
               },
             })
             googleEventId = event.id
-          } catch (calendarError) {
-            console.error('Failed to create calendar event:', calendarError)
+            console.log(`Round-robin: Calendar event created successfully, ID: ${googleEventId}`)
+          } catch (calendarError: any) {
+            console.error('Failed to create calendar event:', calendarError?.message || calendarError)
             // Continue anyway - appointment can still be created
           }
 

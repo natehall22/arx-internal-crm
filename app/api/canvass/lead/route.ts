@@ -150,7 +150,15 @@ async function syncToGoogleCalendar(
       },
     }
 
+    console.log('Creating Google Calendar event:', {
+      summary: event.summary,
+      start: event.start,
+      end: event.end,
+      scheduledForInput: scheduledFor,
+    })
+
     const createdEvent = await createCalendarEvent(googleAccessToken, event)
+    console.log('Google Calendar event created:', createdEvent.id)
     return { synced: true, eventId: createdEvent.id }
   } catch (error) {
     console.error('Google Calendar sync error:', error)
@@ -331,9 +339,11 @@ export async function POST(request: Request) {
       const [hour, minute] = timePart.split(':').map(Number)
       
       // Determine timezone offset based on the TARGET date (for DST handling)
-      // DST in US is roughly second Sunday of March to first Sunday of November
-      const targetMonth = month
-      const isDST = targetMonth >= 3 && targetMonth <= 10 // Rough DST check
+      // DST in US starts second Sunday of March, ends first Sunday of November
+      // More accurate check: March 8+ through November 1- (approximate)
+      const isDST = (month > 3 && month < 11) || 
+                    (month === 3 && day >= 8) || 
+                    (month === 11 && day < 7)
       
       let tzOffsetHours = 5 // Default to Eastern Standard Time
       if (closerTimezone === 'America/New_York' || closerTimezone === 'America/Detroit' || closerTimezone === 'US/Eastern') {
