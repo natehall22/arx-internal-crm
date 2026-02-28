@@ -15,14 +15,14 @@ function getAdminClient() {
 
 export async function GET() {
   try {
-    const { user } = await requireAuth()
+    const { authUser } = await requireAuth()
     const supabase = getAdminClient()
 
     // Get unread inspection_outcome notifications for this user
     const { data: notifications, error } = await supabase
       .from('notifications')
       .select('*')
-      .eq('recipient_user_id', user.id)
+      .eq('recipient_user_id', authUser.id)
       .eq('type', 'inspection_outcome')
       .is('read_at', null)
       .order('created_at', { ascending: false })

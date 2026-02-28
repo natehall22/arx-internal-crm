@@ -15,7 +15,7 @@ function getAdminClient() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user } = await requireAuth()
+    const { authUser } = await requireAuth()
     const supabase = getAdminClient()
     
     const { notification_id } = await request.json()
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       .from('notifications')
       .update({ read_at: new Date().toISOString() })
       .eq('id', notification_id)
-      .eq('recipient_user_id', user.id)
+      .eq('recipient_user_id', authUser.id)
 
     if (error) {
       console.error('Error acknowledging notification:', error)
