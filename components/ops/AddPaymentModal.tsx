@@ -4,8 +4,10 @@ import { useState } from 'react'
 import { 
   PaymentType, 
   PaymentMethod,
+  PaymentPayer,
   PAYMENT_TYPE_LABELS, 
-  PAYMENT_METHOD_LABELS 
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_PAYER_LABELS,
 } from '@/lib/types/job-payments'
 
 interface AddPaymentModalProps {
@@ -33,6 +35,13 @@ const PAYMENT_METHODS: PaymentMethod[] = [
   'other',
 ]
 
+const PAYMENT_PAYERS: PaymentPayer[] = [
+  'homeowner',
+  'insurance',
+  'financing',
+  'other',
+]
+
 export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentModalProps) {
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
@@ -40,6 +49,7 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
     amount: '',
     payment_type: 'deposit' as PaymentType,
     method: 'check' as PaymentMethod,
+    payer: 'homeowner' as PaymentPayer,
     note: '',
   })
 
@@ -63,6 +73,7 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
           amount_cents: Math.round(amountDollars * 100),
           payment_type: formData.payment_type,
           method: formData.method,
+          payer: formData.payer,
           note: formData.note || null,
         }),
       })
@@ -153,6 +164,23 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
               {PAYMENT_METHODS.map((method) => (
                 <option key={method} value={method}>
                   {PAYMENT_METHOD_LABELS[method]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Payer
+            </label>
+            <select
+              value={formData.payer}
+              onChange={(e) => setFormData({ ...formData, payer: e.target.value as PaymentPayer })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              {PAYMENT_PAYERS.map((payer) => (
+                <option key={payer} value={payer}>
+                  {PAYMENT_PAYER_LABELS[payer]}
                 </option>
               ))}
             </select>

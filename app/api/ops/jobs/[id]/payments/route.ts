@@ -112,14 +112,14 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { paid_at, amount_cents, payment_type, method, note } = body
+    const { paid_at, amount_cents, payment_type, method, payer, note } = body
 
     // Validate required fields
-    if (!paid_at || !amount_cents || !payment_type || !method) {
+    if (!paid_at || amount_cents === undefined || !payment_type || !method || !payer) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Insert payment
+    // Insert payment (append-only, no updates allowed)
     const { data: payment, error: insertError } = await adminClient
       .from('job_payments')
       .insert({
@@ -128,7 +128,9 @@ export async function POST(
         amount_cents,
         payment_type,
         method,
+        payer,
         note: note || null,
+        created_by: user.id,
       })
       .select()
       .single()

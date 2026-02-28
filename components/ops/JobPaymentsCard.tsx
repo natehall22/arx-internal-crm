@@ -6,8 +6,10 @@ import {
   JobPaymentSummary, 
   PaymentType, 
   PaymentMethod,
+  PaymentPayer,
   PAYMENT_TYPE_LABELS, 
-  PAYMENT_METHOD_LABELS 
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_PAYER_LABELS,
 } from '@/lib/types/job-payments'
 import { formatCurrency } from '@/lib/job-payments'
 import AddPaymentModal from './AddPaymentModal'
@@ -130,8 +132,10 @@ export default function JobPaymentsCard({ jobId, saleAmount }: JobPaymentsCardPr
               <tr className="border-b">
                 <th className="text-left py-2 text-xs font-medium text-gray-500">Date</th>
                 <th className="text-left py-2 text-xs font-medium text-gray-500">Type</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-500">Payer</th>
                 <th className="text-left py-2 text-xs font-medium text-gray-500">Method</th>
                 <th className="text-right py-2 text-xs font-medium text-gray-500">Amount</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-500 pl-3">Note</th>
                 <th className="text-right py-2 text-xs font-medium text-gray-500"></th>
               </tr>
             </thead>
@@ -150,10 +154,16 @@ export default function JobPaymentsCard({ jobId, saleAmount }: JobPaymentsCardPr
                     {PAYMENT_TYPE_LABELS[payment.payment_type as PaymentType]}
                   </td>
                   <td className="py-2 text-gray-700">
+                    {PAYMENT_PAYER_LABELS[payment.payer as PaymentPayer]}
+                  </td>
+                  <td className="py-2 text-gray-700">
                     {PAYMENT_METHOD_LABELS[payment.method as PaymentMethod]}
                   </td>
                   <td className="py-2 text-right font-medium text-gray-900">
                     {formatCurrency(payment.amount_cents)}
+                  </td>
+                  <td className="py-2 text-gray-500 text-xs pl-3 max-w-[150px] truncate" title={payment.note || ''}>
+                    {payment.note || '—'}
                   </td>
                   <td className="py-2 text-right">
                     <button
@@ -168,18 +178,6 @@ export default function JobPaymentsCard({ jobId, saleAmount }: JobPaymentsCardPr
               ))}
             </tbody>
           </table>
-          {summary.payments.some(p => p.note) && (
-            <div className="mt-3 space-y-1">
-              {summary.payments.filter(p => p.note).map((payment) => (
-                <div key={payment.id} className="text-xs text-gray-500">
-                  <span className="font-medium">
-                    {new Date(payment.paid_at + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })}:
-                  </span>{' '}
-                  {payment.note}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       ) : (
         <div className="text-center py-6 text-gray-400 text-sm">

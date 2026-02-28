@@ -15,6 +15,12 @@ export type PaymentMethod =
   | 'insurance'
   | 'other'
 
+export type PaymentPayer =
+  | 'homeowner'
+  | 'insurance'
+  | 'financing'
+  | 'other'
+
 export interface JobPayment {
   id: string
   job_id: string
@@ -22,8 +28,10 @@ export interface JobPayment {
   amount_cents: number
   payment_type: PaymentType
   method: PaymentMethod
+  payer: PaymentPayer
   note: string | null
   created_at: string
+  created_by: string | null
 }
 
 export interface JobPaymentInsert {
@@ -32,7 +40,9 @@ export interface JobPaymentInsert {
   amount_cents: number
   payment_type: PaymentType
   method: PaymentMethod
+  payer: PaymentPayer
   note?: string | null
+  created_by?: string | null
 }
 
 export interface JobPaymentSummary {
@@ -62,5 +72,12 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   card: 'Credit/Debit Card',
   financing: 'Financing',
   insurance: 'Insurance',
+  other: 'Other',
+}
+
+export const PAYMENT_PAYER_LABELS: Record<PaymentPayer, string> = {
+  homeowner: 'Homeowner',
+  insurance: 'Insurance',
+  financing: 'Financing',
   other: 'Other',
 }
