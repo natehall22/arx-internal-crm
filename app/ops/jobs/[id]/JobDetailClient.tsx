@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
+import CompleteJobModal from '@/components/ops/CompleteJobModal'
+import { JobPaymentSummary } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -92,6 +94,24 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesValue, setNotesValue] = useState(initialJob.internal_notes || '')
   const [deleting, setDeleting] = useState(false)
+  const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
+
+  // Load payment summary for balance check
+  useEffect(() => {
+    const loadPayments = async () => {
+      try {
+        const response = await fetch(`/api/ops/jobs/${job.id}/payments`)
+        if (response.ok) {
+          const data = await response.json()
+          setPaymentSummary(data)
+        }
+      } catch (error) {
+        console.error('Error loading payments:', error)
+      }
+    }
+    loadPayments()
+  }, [job.id])
 
   const reloadJob = async () => {
     try {
@@ -141,10 +161,10 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
     }
   }
 
-  const updateStatus = async (newStatus: JobStatus) => {
+  const updateStatus = async (newStatus: JobStatus, extraUpdates?: Record<string, any>) => {
     setSaving(true)
 
-    const updates: any = { status: newStatus }
+    const updates: any = { status: newStatus, ...extraUpdates }
     if (newStatus === 'in_progress' && !job.started_at) {
       updates.started_at = new Date().toISOString()
     } else if (newStatus === 'complete' && !job.completed_at) {
@@ -170,6 +190,26 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
 
     await reloadJob()
     setSaving(false)
+  }
+
+  const handleCompleteClick = () => {
+    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
+    const collectedCents = paymentSummary?.collected_cents || 0
+    const remainingCents = saleAmountCents - collectedCents
+
+    if (remainingCents > 0) {
+      setShowCompleteModal(true)
+    } else {
+      updateStatus('complete')
+    }
+  }
+
+  const handleCompleteWithBalance = async (reason?: string) => {
+    await updateStatus('complete', {
+      allow_close_with_balance: true,
+      close_balance_reason: reason || null,
+    })
+    setShowCompleteModal(false)
   }
 
   const updateMaterialsStatus = async (newStatus: string) => {
@@ -335,7 +375,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 )}
                 {job.status === 'in_progress' && (
                   <button
-                    onClick={() => updateStatus('complete')}
+                    onClick={handleCompleteClick}
                     disabled={saving}
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
                   >
@@ -686,6 +726,17 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
           subs={subs}
           onClose={() => setShowScheduleModal(false)}
           onSave={() => { setShowScheduleModal(false); reloadJob(); }}
+        />
+      )}
+
+      {showCompleteModal && (
+        <CompleteJobModal
+          jobId={job.id}
+          remainingCents={
+            Math.round((job.sale_amount || 0) * 100) - (paymentSummary?.collected_cents || 0)
+          }
+          onClose={() => setShowCompleteModal(false)}
+          onConfirm={handleCompleteWithBalance}
         />
       )}
     </div>
