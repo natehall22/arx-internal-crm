@@ -1,0 +1,147 @@
+import { NextResponse } from 'next/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { createClient } from '@/lib/supabase/server'
+import { JobPaymentSummary } from '@/lib/types/job-payments'
+
+// GET - Get all payments for a job with summary
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createClient()
+    const adminClient = createServiceClient()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    // Verify job exists and belongs to user's org
+    const { data: job, error: jobError } = await adminClient
+      .from('production_jobs')
+      .select('id, sale_amount')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (jobError || !job) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    // Fetch payments
+    const { data: payments, error: paymentsError } = await adminClient
+      .from('job_payments')
+      .select('*')
+      .eq('job_id', params.id)
+      .order('paid_at', { ascending: true })
+
+    if (paymentsError) {
+      console.error('Error fetching payments:', paymentsError)
+      return NextResponse.json({ error: 'Failed to fetch payments' }, { status: 500 })
+    }
+
+    const paymentList = payments || []
+    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
+    const collectedCents = paymentList.reduce((sum, p) => sum + p.amount_cents, 0)
+    const remainingCents = saleAmountCents - collectedCents
+
+    const summary: JobPaymentSummary = {
+      payments: paymentList,
+      collected_cents: collectedCents,
+      collected_dollars: collectedCents / 100,
+      sale_amount_cents: saleAmountCents,
+      sale_amount_dollars: saleAmountCents / 100,
+      remaining_cents: remainingCents,
+      remaining_dollars: remainingCents / 100,
+      payment_count: paymentList.length,
+    }
+
+    return NextResponse.json(summary)
+
+  } catch (error) {
+    console.error('Error in GET /api/ops/jobs/[id]/payments:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+// POST - Add a new payment
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createClient()
+    const adminClient = createServiceClient()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    // Verify job exists and belongs to user's org
+    const { data: job, error: jobError } = await adminClient
+      .from('production_jobs')
+      .select('id')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (jobError || !job) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    const body = await request.json()
+    const { paid_at, amount_cents, payment_type, method, note } = body
+
+    // Validate required fields
+    if (!paid_at || !amount_cents || !payment_type || !method) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    // Insert payment
+    const { data: payment, error: insertError } = await adminClient
+      .from('job_payments')
+      .insert({
+        job_id: params.id,
+        paid_at,
+        amount_cents,
+        payment_type,
+        method,
+        note: note || null,
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Error inserting payment:', insertError)
+      return NextResponse.json({ error: 'Failed to add payment' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, payment })
+
+  } catch (error) {
+    console.error('Error in POST /api/ops/jobs/[id]/payments:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

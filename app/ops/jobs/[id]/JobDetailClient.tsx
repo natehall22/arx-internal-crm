@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
+import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -620,6 +621,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 )}
               </div>
             </div>
+
+            <JobPaymentsCard jobId={job.id} saleAmount={job.sale_amount} />
 
             {job.permit_required && (
               <div className="bg-white rounded-xl shadow-sm border p-6">
