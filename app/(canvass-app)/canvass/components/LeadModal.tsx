@@ -261,19 +261,24 @@ export default function LeadModal({
                 <div className="flex items-start gap-2">
                   <span className="text-blue-600 mt-0.5">🚪</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-blue-700 uppercase tracking-wide mb-1">Previously Knocked</p>
+                    <p className="text-xs font-medium text-blue-700 uppercase tracking-wide mb-1">Last Knock</p>
                     <p className="text-sm text-blue-900">
-                      {new Date(pin.created_at).toLocaleDateString('en-US', { 
+                      {new Date(pin.updated_at || pin.created_at).toLocaleDateString('en-US', { 
                         weekday: 'short',
                         month: 'short', 
                         day: 'numeric',
                         year: 'numeric'
-                      })} at {new Date(pin.created_at).toLocaleTimeString('en-US', { 
+                      })} at {new Date(pin.updated_at || pin.created_at).toLocaleTimeString('en-US', { 
                         hour: 'numeric', 
                         minute: '2-digit',
                         hour12: true 
                       })}
                     </p>
+                    {pin.owner_name && (
+                      <p className="text-sm text-blue-700 mt-1">
+                        <span className="font-medium">Setter:</span> {pin.owner_name}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

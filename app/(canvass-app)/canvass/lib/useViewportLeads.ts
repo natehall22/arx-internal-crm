@@ -40,6 +40,7 @@ export interface FullPinData {
   canvass_notes?: string
   notes?: string
   created_at: string
+  updated_at?: string
   owner_user_id?: string
   owner?: { id: string; full_name: string }
 }

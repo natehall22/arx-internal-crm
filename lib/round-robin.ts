@@ -41,6 +41,7 @@ export async function assignNextAvailableCloser(
     homeownerName?: string | null
     phone?: string | null
     notes?: string | null
+    setterName?: string | null
   }
 ): Promise<AssignmentResult> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -81,12 +82,18 @@ export async function assignNextAvailableCloser(
 
     // Try each closer in priority order - only closers WITH calendars
     for (const closer of closers as CloserWithToken[]) {
+      console.log(`Round-robin: Processing closer ${closer.user?.full_name} (${closer.user_id})`)
+      
       // Get their Google token
-      const { data: token } = await supabase
+      const { data: token, error: tokenError } = await supabase
         .from('user_google_tokens')
         .select('*')
         .eq('user_id', closer.user_id)
         .single()
+
+      if (tokenError) {
+        console.log(`Round-robin: Token lookup error for ${closer.user?.full_name}:`, tokenError.message)
+      }
 
       if (!token) {
         // Closer has no calendar connected - skip entirely
@@ -94,9 +101,15 @@ export async function assignNextAvailableCloser(
         continue
       }
 
+      console.log(`Round-robin: Token found for ${closer.user?.full_name}, expires_at: ${token.expires_at}`)
+
       // Check if token needs refresh
       let accessToken = token.access_token
-      if (new Date(token.expires_at) < new Date()) {
+      const expiresAt = new Date(token.expires_at)
+      const now = new Date()
+      
+      if (expiresAt < now) {
+        console.log(`Round-robin: Token expired for ${closer.user?.full_name}, attempting refresh...`)
         try {
           const refreshed = await refreshAccessToken(token.refresh_token)
           accessToken = refreshed.access_token
@@ -109,10 +122,19 @@ export async function assignNextAvailableCloser(
               expires_at: refreshed.expires_at.toISOString(),
             })
             .eq('id', token.id)
-        } catch (refreshError) {
-          console.error('Failed to refresh token for closer:', closer.user_id)
-          continue // Try next closer
+          console.log(`Round-robin: Token refreshed successfully for ${closer.user?.full_name}`)
+        } catch (refreshError: any) {
+          console.error(`Round-robin: Failed to refresh token for ${closer.user?.full_name}:`, refreshError?.message || refreshError)
+          // If refresh fails but token was recently valid, try using it anyway
+          // (Google tokens sometimes work slightly past expiry)
+          if (now.getTime() - expiresAt.getTime() < 5 * 60 * 1000) {
+            console.log(`Round-robin: Token recently expired, attempting to use anyway`)
+          } else {
+            continue // Try next closer
+          }
         }
+      } else {
+        console.log(`Round-robin: Token still valid for ${closer.user?.full_name}`)
       }
 
       // Check calendar availability
@@ -139,6 +161,7 @@ export async function assignNextAvailableCloser(
             `Customer: ${customerName}`,
             customerDetails?.phone ? `Phone: ${customerDetails.phone}` : '',
             address ? `Address: ${address}` : '',
+            customerDetails?.setterName ? `Set by: ${customerDetails.setterName}` : '',
             customerDetails?.notes ? `\nNotes:\n${customerDetails.notes}` : '',
           ].filter(Boolean).join('\n')
 
@@ -262,13 +285,13 @@ export async function assignNextAvailableCloser(
           )
           return result
         }
-      } catch (availabilityError) {
-        console.error('Failed to check availability for closer:', closer.user_id, availabilityError)
+      } catch (availabilityError: any) {
+        console.error(`Round-robin: Failed to check availability for ${closer.user?.full_name}:`, availabilityError?.message || availabilityError)
         continue // Try next closer
       }
     }
 
-    console.log('Round-robin: No closers with connected calendars available at requested time')
+    console.log(`Round-robin: Checked ${closers.length} closers, none available at requested time`)
     return { success: false, error: 'No closers with connected calendars available at this time' }
   } catch (error) {
     console.error('Round-robin assignment error:', error)

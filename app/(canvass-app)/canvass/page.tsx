@@ -38,8 +38,10 @@ export type CanvassPin = {
   disposition?: string
   notes?: string
   created_at: string
+  updated_at?: string
   synced: boolean
   owner_user_id?: string
+  owner_name?: string
 }
 
 // Union type for display
@@ -284,8 +286,10 @@ export default function CanvassPage() {
           disposition: details.canvass_disposition,
           notes: details.canvass_notes || details.notes || '',
           created_at: details.created_at,
+          updated_at: details.updated_at,
           synced: true,
           owner_user_id: details.owner_user_id,
+          owner_name: details.owner?.full_name,
         }
         setSelectedPin(fullPin)
         setShowLeadModal(true)

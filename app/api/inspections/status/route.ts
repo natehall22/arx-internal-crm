@@ -622,10 +622,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
-    const isAdmin = profile.role === 'admin'
-
     // Get pending prompts that are due
-    // Admins see all prompts in their org, others see only their own
+    // Only show prompts where the current user is the CLOSER (not setter)
+    // This is the closer feedback prompt - setters get their own notification via SetterFeedbackPrompt
     let query = supabase
       .from('pending_status_prompts')
       .select(`
@@ -637,14 +636,9 @@ export async function GET(request: NextRequest) {
       `)
       .eq('completed', false)
       .eq('dismissed', false)
+      .eq('closer_user_id', user.id) // Always filter by closer - this is the closer's feedback prompt
       .lte('prompt_at', new Date().toISOString())
       .order('prompt_at', { ascending: true })
-
-    if (!isAdmin) {
-      query = query.eq('closer_user_id', user.id)
-    } else {
-      query = query.eq('org_id', profile.org_id)
-    }
 
     const { data: prompts, error } = await query
 

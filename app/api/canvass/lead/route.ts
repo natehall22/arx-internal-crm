@@ -115,7 +115,8 @@ async function syncToGoogleCalendar(
   notes: string | null,
   canvassNotes: string | null,
   leadId: string,
-  opportunityId: string | null
+  opportunityId: string | null,
+  setterName: string | null = null
 ): Promise<{ synced: boolean; eventId?: string; error?: string }> {
   console.log('=== SYNC TO GOOGLE CALENDAR ===')
   console.log('closerUserId:', closerUserId)
@@ -162,6 +163,7 @@ async function syncToGoogleCalendar(
         `Customer: ${homeownerName || 'N/A'}`,
         phone ? `Phone: ${phone}` : '',
         addressText ? `Address: ${addressText}` : '',
+        setterName ? `Set by: ${setterName}` : '',
         '',
         canvassNotes ? `Canvass Notes:\n${canvassNotes}` : '',
         notes ? `Additional Notes:\n${notes}` : '',
@@ -539,6 +541,7 @@ export async function POST(request: Request) {
               homeownerName: leadRow.homeowner_name,
               phone: leadRow.phone,
               notes: leadRow.canvass_notes || leadRow.notes,
+              setterName: profile.full_name,
             }
           )
 
@@ -681,7 +684,8 @@ export async function POST(request: Request) {
         leadRow.notes,
         leadRow.canvass_notes,
         leadRow.id,
-        opportunityId
+        opportunityId,
+        profile.full_name // Setter name
       )
       
       calendarSynced = calendarResult.synced
