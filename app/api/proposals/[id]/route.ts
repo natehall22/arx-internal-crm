@@ -233,10 +233,11 @@ export async function PATCH(
       }
 
       // Create the project
+      // Valid statuses: 'open', 'in_progress', 'on_hold', 'complete', 'collected'
       const projectPayload: any = {
         org_id: profile.org_id,
         owner_user_id: currentProposal?.created_by || user.id,
-        status: 'sold',
+        status: 'open',
         project_type: opportunityData?.project_type || 'roofing',
         address_text: currentProposal?.customer_address || opportunityData?.address_text,
         lat: opportunityData?.lat,

@@ -142,10 +142,11 @@ export async function POST(
     }
 
     // Create the project
+    // Valid statuses: 'open', 'in_progress', 'on_hold', 'complete', 'collected'
     const projectPayload: any = {
       org_id: profile.org_id,
       owner_user_id: proposal.created_by || user.id,
-      status: 'sold',
+      status: 'open',
       project_type: opportunityData?.project_type || 'roofing',
       address_text: proposal.customer_address || opportunityData?.address_text,
       lat: opportunityData?.lat,
@@ -156,6 +157,8 @@ export async function POST(
       customer_id: customerId,
     }
 
+    console.log('Creating project with payload:', projectPayload)
+
     const { data: newProject, error: projectError } = await adminClient
       .from('projects')
       .insert(projectPayload)
@@ -164,7 +167,7 @@ export async function POST(
 
     if (projectError) {
       console.error('Failed to create project:', projectError)
-      return NextResponse.json({ error: 'Failed to create project' }, { status: 500 })
+      return NextResponse.json({ error: `Failed to create project: ${projectError.message}` }, { status: 500 })
     }
 
     // Link proposal to project
