@@ -10,6 +10,7 @@ import ReferralsSection from '@/components/ReferralsSection'
 import SendToOpsButton from '@/components/SendToOpsButton'
 import ProjectStatusUpdate from '@/components/ProjectStatusUpdate'
 import DeleteProjectButton from '@/components/DeleteProjectButton'
+import ProjectFinancialSnapshot from '@/components/ProjectFinancialSnapshot'
 
 export default async function ProjectDetailPage({
   params,
@@ -64,7 +65,7 @@ export default async function ProjectDetailPage({
   // Check if production job exists for this project
   const { data: productionJob } = await supabase
     .from('production_jobs')
-    .select('id, job_number')
+    .select('id, job_number, sale_amount')
     .eq('project_id', params.id)
     .single()
 
@@ -142,6 +143,13 @@ export default async function ProjectDetailPage({
             ← Back to Projects
           </Link>
         </div>
+
+        <ProjectFinancialSnapshot
+          projectId={project.id}
+          jobId={productionJob?.id || null}
+          jobNumber={productionJob?.job_number || null}
+          contractTotal={productionJob?.sale_amount || null}
+        />
 
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex justify-between items-start mb-4">
