@@ -22,19 +22,31 @@ function getAdminClient() {
 
 // Helper to get valid access token (refresh if needed)
 async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
-  const { data: tokenData } = await adminClient
+  console.log(`getValidAccessToken: Looking up token for user ${userId}`)
+  
+  const { data: tokenData, error: tokenError } = await adminClient
     .from('user_google_tokens')
     .select('*')
     .eq('user_id', userId)
     .single()
 
-  if (!tokenData) return null
+  if (tokenError) {
+    console.log(`getValidAccessToken: Error fetching token:`, tokenError.message)
+  }
+  
+  if (!tokenData) {
+    console.log(`getValidAccessToken: No token found for user ${userId}`)
+    return null
+  }
+  
+  console.log(`getValidAccessToken: Token found, expires_at: ${tokenData.expires_at}`)
 
   const expiresAt = new Date(tokenData.expires_at)
   const now = new Date()
 
-  // If token expires in less than 5 minutes, refresh it
+  // If token expires in less than 5 minutes, try to refresh it
   if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+    console.log(`getValidAccessToken: Token expires soon, attempting refresh...`)
     try {
       const refreshed = await refreshAccessToken(tokenData.refresh_token)
       
@@ -47,13 +59,20 @@ async function getValidAccessToken(adminClient: any, userId: string): Promise<st
         })
         .eq('user_id', userId)
 
+      console.log(`getValidAccessToken: Token refreshed successfully`)
       return refreshed.access_token
     } catch (error) {
       console.error('Failed to refresh token:', error)
+      // If refresh fails but token hasn't actually expired yet, try using it anyway
+      if (expiresAt > now) {
+        console.log(`getValidAccessToken: Refresh failed but token not yet expired, using existing token`)
+        return tokenData.access_token
+      }
       return null
     }
   }
 
+  console.log(`getValidAccessToken: Token is valid, returning`)
   return tokenData.access_token
 }
 
@@ -98,12 +117,20 @@ async function syncToGoogleCalendar(
   leadId: string,
   opportunityId: string | null
 ): Promise<{ synced: boolean; eventId?: string; error?: string }> {
+  console.log('=== SYNC TO GOOGLE CALENDAR ===')
+  console.log('closerUserId:', closerUserId)
+  console.log('scheduledFor:', scheduledFor)
+  console.log('durationMinutes:', durationMinutes)
+  
   try {
     const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
     
     if (!googleAccessToken) {
+      console.log('syncToGoogleCalendar: No access token available')
       return { synced: false, error: 'Closer does not have Google Calendar connected' }
     }
+    
+    console.log('syncToGoogleCalendar: Got access token, proceeding with event creation')
 
     // Get timezone from closer's team
     const timezone = await getTimezoneForUser(adminClient, closerUserId)
@@ -613,6 +640,16 @@ export async function POST(request: Request) {
     // Only sync calendars manually if round-robin was NOT used
     // Round-robin already handles calendar event creation in assignNextAvailableCloser()
     const roundRobinHandledCalendar = useRoundRobin && assignedCloserName
+    
+    console.log('=== CALENDAR SYNC DECISION ===')
+    console.log('scheduleInspection:', scheduleInspection)
+    console.log('closerUserId:', closerUserId)
+    console.log('inspectionScheduledFor:', inspectionScheduledFor)
+    console.log('inspectionLocalTime:', inspectionLocalTime)
+    console.log('useRoundRobin:', useRoundRobin)
+    console.log('assignedCloserName:', assignedCloserName)
+    console.log('roundRobinHandledCalendar:', roundRobinHandledCalendar)
+    console.log('Will sync calendar:', scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar)
     
     if (scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar) {
       // Get closer's name for setter calendar event
