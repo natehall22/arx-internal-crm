@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
@@ -82,11 +83,13 @@ interface JobDetailClientProps {
 }
 
 export default function JobDetailClient({ initialJob, crews, subs }: JobDetailClientProps) {
+  const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   const [saving, setSaving] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesValue, setNotesValue] = useState(initialJob.internal_notes || '')
+  const [deleting, setDeleting] = useState(false)
 
   const reloadJob = async () => {
     try {
@@ -221,6 +224,32 @@ export default function JobDetailClient({ initialJob, crews, subs }: JobDetailCl
     setSaving(false)
   }
 
+  const deleteJob = async () => {
+    if (!confirm(`Are you sure you want to delete job ${job.job_number}? This action cannot be undone.`)) {
+      return
+    }
+
+    setDeleting(true)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        alert(error.error || 'Failed to delete job')
+        setDeleting(false)
+        return
+      }
+
+      router.push('/ops')
+    } catch (error) {
+      console.error('Error deleting job:', error)
+      alert('Failed to delete job')
+      setDeleting(false)
+    }
+  }
+
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
 
@@ -329,6 +358,13 @@ export default function JobDetailClient({ initialJob, crews, subs }: JobDetailCl
                     Put On Hold
                   </button>
                 )}
+                <button
+                  onClick={deleteJob}
+                  disabled={deleting}
+                  className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm ml-auto"
+                >
+                  {deleting ? 'Deleting...' : 'Delete Job'}
+                </button>
               </div>
             </div>
 

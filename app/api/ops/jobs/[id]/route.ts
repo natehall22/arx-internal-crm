@@ -111,3 +111,64 @@ export async function GET(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+// DELETE - Delete a production job
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createClient()
+    const adminClient = createServiceClient()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    // Only admins and managers can delete jobs
+    if (!['admin', 'regional_manager', 'manager', 'operations'].includes(profile.role)) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
+    }
+
+    // Verify job exists and belongs to user's org
+    const { data: existingJob, error: fetchError } = await adminClient
+      .from('production_jobs')
+      .select('id, org_id, job_number')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (fetchError || !existingJob) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    // Delete the job
+    const { error: deleteError } = await adminClient
+      .from('production_jobs')
+      .delete()
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+
+    if (deleteError) {
+      console.error('Error deleting job:', deleteError)
+      return NextResponse.json({ error: 'Failed to delete job' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, message: `Job ${existingJob.job_number} deleted` })
+
+  } catch (error) {
+    console.error('Error in DELETE /api/ops/jobs/[id]:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

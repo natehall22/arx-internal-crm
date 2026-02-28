@@ -9,6 +9,7 @@ import { revalidatePath } from 'next/cache'
 import ReferralsSection from '@/components/ReferralsSection'
 import SendToOpsButton from '@/components/SendToOpsButton'
 import ProjectStatusUpdate from '@/components/ProjectStatusUpdate'
+import DeleteProjectButton from '@/components/DeleteProjectButton'
 
 export default async function ProjectDetailPage({
   params,
@@ -159,6 +160,12 @@ export default async function ProjectDetailPage({
               >
                 Create Estimate
               </Link>
+              {['admin', 'regional_manager', 'manager', 'sales_manager'].includes(profile.role) && (
+                <DeleteProjectButton 
+                  projectId={project.id}
+                  address={project.address_text}
+                />
+              )}
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
