@@ -185,21 +185,52 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     totalValue: jobs.reduce((sum, j) => sum + (j.sale_amount || 0), 0),
   }
 
+  const updateMaterialsStatus = async (jobId: string, newStatus: string) => {
+    await supabase
+      .from('production_jobs')
+      .update({ materials_status: newStatus })
+      .eq('id', jobId)
+    await loadData()
+  }
+
   const JobCard = ({ job }: { job: Job }) => {
     const priority = priorityConfig[job.priority] || priorityConfig.normal
     const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
 
+    // Status indicators
+    const needsMaterials = job.materials_status === 'not_ordered'
+    const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
+    const isPastDue = job.scheduled_date && new Date(job.scheduled_date + 'T23:59:59') < new Date() && job.status !== 'complete' && job.status !== 'collected'
+    // Note: For balance check, we'd need payment data. For now, show on complete status without collected
+    const mayHaveBalance = job.status === 'complete'
+
     return (
       <div 
-        className="bg-white rounded-lg border shadow-sm p-4 hover:shadow-md transition cursor-pointer"
+        className="group bg-white rounded-lg border shadow-sm p-4 hover:shadow-md transition cursor-pointer relative"
         onClick={() => router.push(`/ops/jobs/${job.id}`)}
       >
+        {/* Status Indicator Dots */}
+        <div className="absolute top-2 right-2 flex gap-1">
+          {needsMaterials && (
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500" title="Materials not ordered" />
+          )}
+          {needsCrew && (
+            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" title="No crew assigned" />
+          )}
+          {isPastDue && (
+            <div className="w-2.5 h-2.5 rounded-full bg-orange-500" title="Past scheduled date" />
+          )}
+          {mayHaveBalance && (
+            <div className="w-2.5 h-2.5 rounded-full bg-purple-500" title="Check balance" />
+          )}
+        </div>
+
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-center gap-2">
             {priority.icon && <span>{priority.icon}</span>}
             <span className="text-xs font-mono text-gray-500">{job.job_number}</span>
           </div>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${
+          <span className={`text-xs px-2 py-0.5 rounded-full mr-6 ${
             job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
             job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
             job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
@@ -248,17 +279,19 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         )}
 
         {job.scheduled_date && (
-          <div className="text-xs text-indigo-600 font-medium">
+          <div className={`text-xs font-medium ${isPastDue ? 'text-orange-600' : 'text-indigo-600'}`}>
             📅 {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { 
               weekday: 'short', 
               month: 'short', 
               day: 'numeric',
               timeZone: 'America/New_York'
             })}
+            {isPastDue && <span className="ml-1 text-orange-600">(overdue)</span>}
           </div>
         )}
 
-        <div className="flex gap-2 mt-3 pt-3 border-t">
+        {/* Default Actions */}
+        <div className="flex gap-2 mt-3 pt-3 border-t group-hover:hidden">
           <button
             onClick={(e) => { e.stopPropagation(); openScheduleModal(job); }}
             className="flex-1 text-xs py-1.5 px-2 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100"
@@ -281,6 +314,38 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               Complete
             </button>
           )}
+        </div>
+
+        {/* Hover Quick Actions */}
+        <div className="hidden group-hover:flex gap-1 mt-3 pt-3 border-t flex-wrap">
+          {needsCrew && (
+            <button
+              onClick={(e) => { e.stopPropagation(); openScheduleModal(job); }}
+              className="text-xs py-1 px-2 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100"
+            >
+              Assign Crew
+            </button>
+          )}
+          {needsMaterials && (
+            <button
+              onClick={(e) => { e.stopPropagation(); updateMaterialsStatus(job.id, 'ordered'); }}
+              className="text-xs py-1 px-2 bg-red-50 text-red-700 rounded hover:bg-red-100"
+            >
+              Mark Ordered
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); router.push(`/ops/jobs/${job.id}#payments-section`); }}
+            className="text-xs py-1 px-2 bg-purple-50 text-purple-700 rounded hover:bg-purple-100"
+          >
+            Add Payment
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); openScheduleModal(job); }}
+            className="text-xs py-1 px-2 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100"
+          >
+            {job.scheduled_date ? 'Reschedule' : 'Schedule'}
+          </button>
         </div>
       </div>
     )
