@@ -26,9 +26,9 @@ export async function DELETE(
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    // Only admins and managers can delete projects
-    if (!['admin', 'regional_manager', 'manager', 'sales_manager'].includes(profile.role)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
+    // Only admins can delete projects
+    if (profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can delete projects' }, { status: 403 })
     }
 
     // Verify project exists and belongs to user's org

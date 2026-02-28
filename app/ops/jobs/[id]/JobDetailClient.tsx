@@ -80,9 +80,10 @@ interface JobDetailClientProps {
   initialJob: Job
   crews: Crew[]
   subs: SubContractor[]
+  userRole: string
 }
 
-export default function JobDetailClient({ initialJob, crews, subs }: JobDetailClientProps) {
+export default function JobDetailClient({ initialJob, crews, subs, userRole }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   const [saving, setSaving] = useState(false)
@@ -358,13 +359,15 @@ export default function JobDetailClient({ initialJob, crews, subs }: JobDetailCl
                     Put On Hold
                   </button>
                 )}
-                <button
-                  onClick={deleteJob}
-                  disabled={deleting}
-                  className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm ml-auto"
-                >
-                  {deleting ? 'Deleting...' : 'Delete Job'}
-                </button>
+                {userRole === 'admin' && (
+                  <button
+                    onClick={deleteJob}
+                    disabled={deleting}
+                    className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm ml-auto"
+                  >
+                    {deleting ? 'Deleting...' : 'Delete Job'}
+                  </button>
+                )}
               </div>
             </div>
 

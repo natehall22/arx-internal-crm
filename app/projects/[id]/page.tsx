@@ -160,7 +160,7 @@ export default async function ProjectDetailPage({
               >
                 Create Estimate
               </Link>
-              {['admin', 'regional_manager', 'manager', 'sales_manager'].includes(profile.role) && (
+              {profile.role === 'admin' && (
                 <DeleteProjectButton 
                   projectId={project.id}
                   address={project.address_text}

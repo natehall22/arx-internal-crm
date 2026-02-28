@@ -78,6 +78,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       initialJob={transformedJob}
       crews={crewsRes.data || []}
       subs={subsRes.data || []}
+      userRole={profile.role}
     />
   )
 }
