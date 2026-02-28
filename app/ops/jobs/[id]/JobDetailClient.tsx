@@ -150,10 +150,22 @@ export default function JobDetailClient({ initialJob, crews, subs }: JobDetailCl
       updates.completed_at = new Date().toISOString()
     }
 
-    await supabase
-      .from('production_jobs')
-      .update(updates)
-      .eq('id', job.id)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Failed to update status:', error)
+        alert('Failed to update status')
+      }
+    } catch (error) {
+      console.error('Error updating status:', error)
+      alert('Failed to update status')
+    }
 
     await reloadJob()
     setSaving(false)
@@ -167,10 +179,22 @@ export default function JobDetailClient({ initialJob, crews, subs }: JobDetailCl
       updates.materials_ordered_at = new Date().toISOString()
     }
 
-    await supabase
-      .from('production_jobs')
-      .update(updates)
-      .eq('id', job.id)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Failed to update materials status:', error)
+        alert('Failed to update materials status')
+      }
+    } catch (error) {
+      console.error('Error updating materials status:', error)
+      alert('Failed to update materials status')
+    }
 
     await reloadJob()
     setSaving(false)
@@ -179,10 +203,22 @@ export default function JobDetailClient({ initialJob, crews, subs }: JobDetailCl
   const saveNotes = async () => {
     setSaving(true)
 
-    await supabase
-      .from('production_jobs')
-      .update({ internal_notes: notesValue })
-      .eq('id', job.id)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ internal_notes: notesValue }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Failed to save notes:', error)
+        alert('Failed to save notes')
+      }
+    } catch (error) {
+      console.error('Error saving notes:', error)
+      alert('Failed to save notes')
+    }
 
     setEditingNotes(false)
     await reloadJob()

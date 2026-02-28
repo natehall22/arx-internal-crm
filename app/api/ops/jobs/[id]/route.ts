@@ -1,0 +1,113 @@
+import { NextResponse } from 'next/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { createClient } from '@/lib/supabase/server'
+
+// PATCH - Update a production job
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createClient()
+    const adminClient = createServiceClient()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    // Verify job exists and belongs to user's org
+    const { data: existingJob, error: fetchError } = await adminClient
+      .from('production_jobs')
+      .select('id, org_id')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (fetchError || !existingJob) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    const body = await request.json()
+
+    // Update the job
+    const { data: updatedJob, error: updateError } = await adminClient
+      .from('production_jobs')
+      .update(body)
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Error updating job:', updateError)
+      return NextResponse.json({ error: 'Failed to update job' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, job: updatedJob })
+
+  } catch (error) {
+    console.error('Error in PATCH /api/ops/jobs/[id]:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+// GET - Get a single production job
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createClient()
+    const adminClient = createServiceClient()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const { data: job, error } = await adminClient
+      .from('production_jobs')
+      .select(`
+        *,
+        assigned_crew:crews(id, name, color, phone),
+        assigned_sub:sub_contractors(id, company_name, contact_name, phone),
+        customer:customers(id, name, phone, email),
+        salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
+        project:projects(id, scope_of_work, product_summary, ops_notes, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+      `)
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (error || !job) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    return NextResponse.json({ job })
+
+  } catch (error) {
+    console.error('Error in GET /api/ops/jobs/[id]:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
