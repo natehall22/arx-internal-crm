@@ -45,6 +45,9 @@ async function getValidAccessToken(adminClient: any, userId: string, tokenData: 
 }
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
+  console.log('Team availability: Request started')
+  
   try {
     await requireAuth()
     const adminClient = getAdminClient()
@@ -180,6 +183,7 @@ export async function GET(request: NextRequest) {
     }
 
     for (const closer of closersWithCalendars) {
+      const closerStart = Date.now()
       const tokenData = tokens?.find(t => t.user_id === closer.user_id)
       const accessToken = await getValidAccessToken(adminClient, closer.user_id, tokenData)
       
@@ -188,8 +192,9 @@ export async function GET(request: NextRequest) {
       if (accessToken) {
         try {
           // Use UTC times for Google Calendar API
+          const calStart = Date.now()
           busySlots = await getFreeBusy(accessToken, dayStartUTC, dayEndUTC)
-          console.log(`Team availability: ${closer.user?.full_name} has ${busySlots.length} Google Calendar busy slots`)
+          console.log(`Team availability: ${closer.user?.full_name} calendar check took ${Date.now() - calStart}ms, found ${busySlots.length} busy slots`)
           if (busySlots.length > 0) {
             console.log(`Team availability: ${closer.user?.full_name} busy times:`, busySlots.map(s => `${s.start} to ${s.end}`))
           }
@@ -206,6 +211,7 @@ export async function GET(request: NextRequest) {
         console.log(`Team availability: ${closer.user?.full_name} has no valid token - treating as unavailable`)
         busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
       }
+      console.log(`Team availability: ${closer.user?.full_name} total processing took ${Date.now() - closerStart}ms`)
       
       // Add database appointments for this closer that aren't already in Google Calendar
       const closerDbAppts = dbAppointments?.filter(a => a.closer_user_id === closer.user_id) || []
@@ -332,6 +338,9 @@ export async function GET(request: NextRequest) {
       buffer_after: c.buffer_after ?? c.buffer_minutes ?? 15
     }))
 
+    const elapsed = Date.now() - startTime
+    console.log(`Team availability: Request completed in ${elapsed}ms, returning ${slots.length} slots`)
+
     return NextResponse.json({
       slots,
       hasCalendar: true,
@@ -341,11 +350,12 @@ export async function GET(request: NextRequest) {
         end: workingHoursEnd,
       },
       closersInQueue: closersWithCalendars.length,
-      debug: { closers: closerDebug }
+      debug: { closers: closerDebug, elapsedMs: elapsed }
     })
 
   } catch (error) {
-    console.error('Team availability check error:', error)
+    const elapsed = Date.now() - startTime
+    console.error(`Team availability check error after ${elapsed}ms:`, error)
     return NextResponse.json({ error: 'Failed to check availability' }, { status: 500 })
   }
 }
