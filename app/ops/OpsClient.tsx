@@ -94,20 +94,42 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         assigned_sub:sub_contractors(id, company_name),
         customer:customers(id, name, phone),
         salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary)
+        project:projects(id, scope_of_work, product_summary, customers(id, name, phone), leads(id, homeowner_name, phone))
       `)
       .eq('org_id', orgId)
       .neq('status', 'collected')
       .order('scheduled_date', { ascending: true, nullsFirst: false })
 
-    const transformedJobs = (jobsData || []).map((job: any) => ({
-      ...job,
-      assigned_crew: Array.isArray(job.assigned_crew) ? job.assigned_crew[0] : job.assigned_crew,
-      assigned_sub: Array.isArray(job.assigned_sub) ? job.assigned_sub[0] : job.assigned_sub,
-      customer: Array.isArray(job.customer) ? job.customer[0] : job.customer,
-      salesperson: Array.isArray(job.salesperson) ? job.salesperson[0] : job.salesperson,
-      project: Array.isArray(job.project) ? job.project[0] : job.project,
-    }))
+    const transformedJobs = (jobsData || []).map((job: any) => {
+      const rawProject = Array.isArray(job.project) ? job.project[0] : job.project
+      const rawCustomer = Array.isArray(job.customer) ? job.customer[0] : job.customer
+      
+      // Try to get customer from: 1) direct customer link, 2) project's customer, 3) project's lead
+      let customer = rawCustomer
+      if (!customer && rawProject) {
+        const projectCustomer = Array.isArray(rawProject.customers) ? rawProject.customers[0] : rawProject.customers
+        const projectLead = Array.isArray(rawProject.leads) ? rawProject.leads[0] : rawProject.leads
+        
+        if (projectCustomer) {
+          customer = projectCustomer
+        } else if (projectLead) {
+          customer = {
+            id: projectLead.id,
+            name: projectLead.homeowner_name,
+            phone: projectLead.phone,
+          }
+        }
+      }
+
+      return {
+        ...job,
+        assigned_crew: Array.isArray(job.assigned_crew) ? job.assigned_crew[0] : job.assigned_crew,
+        assigned_sub: Array.isArray(job.assigned_sub) ? job.assigned_sub[0] : job.assigned_sub,
+        customer: customer,
+        salesperson: Array.isArray(job.salesperson) ? job.salesperson[0] : job.salesperson,
+        project: rawProject,
+      }
+    })
     setJobs(transformedJobs)
   }
 
