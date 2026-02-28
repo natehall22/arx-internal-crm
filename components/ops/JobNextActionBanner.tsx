@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { JobPaymentSummary } from '@/lib/types/job-payments'
+import { JobPaymentSummary, JobPayment } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -9,10 +9,12 @@ interface JobNextActionBannerProps {
   jobId: string
   status: JobStatus
   saleAmount: number | null
+  depositRequiredPercent: number | null
   materialsStatus: string
   scheduledDate: string | null
   assignedCrewId: string | null
   assignedSubId: string | null
+  refreshKey?: number
   onOrderMaterials?: () => void
   onSchedule?: () => void
 }
@@ -24,12 +26,27 @@ interface NextAction {
   action: 'deposit' | 'materials' | 'schedule' | 'assign' | 'collect' | 'done'
 }
 
+function isDepositSatisfied(
+  payments: JobPayment[],
+  collectedCents: number,
+  saleAmountCents: number,
+  depositRequiredPercent: number
+): boolean {
+  const hasDepositPayment = payments.some(
+    p => p.payment_type === 'deposit' && p.amount_cents > 0
+  )
+  if (hasDepositPayment) return true
+  
+  const requiredDepositCents = Math.round(saleAmountCents * depositRequiredPercent)
+  return collectedCents >= requiredDepositCents
+}
+
 function getNextAction(
   status: JobStatus,
   materialsStatus: string,
   scheduledDate: string | null,
   hasCrewOrSub: boolean,
-  hasPayments: boolean,
+  depositSatisfied: boolean,
   remainingBalance: number
 ): NextAction {
   // Job on hold - special case
@@ -72,8 +89,8 @@ function getNextAction(
     }
   }
 
-  // No deposit collected yet (sold status, no payments)
-  if (status === 'sold' && !hasPayments) {
+  // Deposit not satisfied yet
+  if (!depositSatisfied) {
     return {
       message: 'Collect deposit to get started',
       buttonText: 'Record Deposit',
@@ -161,10 +178,12 @@ export default function JobNextActionBanner({
   jobId,
   status,
   saleAmount,
+  depositRequiredPercent,
   materialsStatus,
   scheduledDate,
   assignedCrewId,
   assignedSubId,
+  refreshKey = 0,
   onOrderMaterials,
   onSchedule,
 }: JobNextActionBannerProps) {
@@ -173,8 +192,11 @@ export default function JobNextActionBanner({
 
   useEffect(() => {
     const loadPayments = async () => {
+      setLoading(true)
       try {
-        const response = await fetch(`/api/ops/jobs/${jobId}/payments`)
+        const response = await fetch(`/api/ops/jobs/${jobId}/payments`, {
+          cache: 'no-store',
+        })
         if (response.ok) {
           const data = await response.json()
           setPaymentSummary(data)
@@ -186,7 +208,7 @@ export default function JobNextActionBanner({
       }
     }
     loadPayments()
-  }, [jobId])
+  }, [jobId, refreshKey])
 
   if (loading) {
     return null
@@ -195,15 +217,23 @@ export default function JobNextActionBanner({
   const saleAmountCents = Math.round((saleAmount || 0) * 100)
   const collectedCents = paymentSummary?.collected_cents || 0
   const remainingCents = saleAmountCents - collectedCents
-  const hasPayments = (paymentSummary?.payment_count || 0) > 0
+  const payments = paymentSummary?.payments || []
+  const depositPercent = depositRequiredPercent ?? 0.5
   const hasCrewOrSub = !!(assignedCrewId || assignedSubId)
+
+  const depositSatisfied = isDepositSatisfied(
+    payments,
+    collectedCents,
+    saleAmountCents,
+    depositPercent
+  )
 
   const nextAction = getNextAction(
     status,
     materialsStatus,
     scheduledDate,
     hasCrewOrSub,
-    hasPayments,
+    depositSatisfied,
     remainingCents
   )
 

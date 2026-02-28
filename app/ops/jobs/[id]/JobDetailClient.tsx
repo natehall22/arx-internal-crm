@@ -20,6 +20,7 @@ interface Job {
   job_type: string
   address_text: string
   sale_amount: number | null
+  deposit_required_percent: number | null
   sale_date: string | null
   materials_status: string
   materials_ordered_at: string | null
@@ -97,6 +98,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const [deleting, setDeleting] = useState(false)
   const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
+  const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
 
   // Load payment summary for balance check
   useEffect(() => {
@@ -311,10 +313,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
           jobId={job.id}
           status={job.status}
           saleAmount={job.sale_amount}
+          depositRequiredPercent={job.deposit_required_percent}
           materialsStatus={job.materials_status}
           scheduledDate={job.scheduled_date}
           assignedCrewId={job.assigned_crew?.id || null}
           assignedSubId={job.assigned_sub?.id || null}
+          refreshKey={paymentsRefreshKey}
           onSchedule={() => setShowScheduleModal(true)}
         />
 
@@ -675,7 +679,11 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
             </div>
 
             <div id="payments-section">
-              <JobPaymentsCard jobId={job.id} saleAmount={job.sale_amount} />
+              <JobPaymentsCard 
+                jobId={job.id} 
+                saleAmount={job.sale_amount} 
+                onPaymentChange={() => setPaymentsRefreshKey(k => k + 1)}
+              />
             </div>
 
             {job.permit_required && (

@@ -17,16 +17,19 @@ import AddPaymentModal from './AddPaymentModal'
 interface JobPaymentsCardProps {
   jobId: string
   saleAmount: number | null
+  onPaymentChange?: () => void
 }
 
-export default function JobPaymentsCard({ jobId, saleAmount }: JobPaymentsCardProps) {
+export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: JobPaymentsCardProps) {
   const [summary, setSummary] = useState<JobPaymentSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
 
   const loadPayments = async () => {
     try {
-      const response = await fetch(`/api/ops/jobs/${jobId}/payments`)
+      const response = await fetch(`/api/ops/jobs/${jobId}/payments`, {
+        cache: 'no-store',
+      })
       if (response.ok) {
         const data = await response.json()
         setSummary(data)
@@ -45,6 +48,7 @@ export default function JobPaymentsCard({ jobId, saleAmount }: JobPaymentsCardPr
   const handlePaymentAdded = () => {
     setShowModal(false)
     loadPayments()
+    onPaymentChange?.()
   }
 
   const handleDeletePayment = async (paymentId: string) => {
@@ -56,6 +60,7 @@ export default function JobPaymentsCard({ jobId, saleAmount }: JobPaymentsCardPr
       })
       if (response.ok) {
         loadPayments()
+        onPaymentChange?.()
       } else {
         alert('Failed to delete payment')
       }
