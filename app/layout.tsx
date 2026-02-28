@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import AppointmentFeedbackPrompt from '@/components/AppointmentFeedbackPrompt'
+import SetterFeedbackPrompt from '@/components/SetterFeedbackPrompt'
 
 export const metadata: Metadata = {
   title: 'ARX Internal CRM',
@@ -42,6 +43,7 @@ export default function RootLayout({
         {children}
         <ServiceWorkerRegistration />
         <AppointmentFeedbackPrompt />
+        <SetterFeedbackPrompt />
       </body>
     </html>
   )
