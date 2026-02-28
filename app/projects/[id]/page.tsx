@@ -453,7 +453,7 @@ export default async function ProjectDetailPage({
             <div className="space-y-2">
               {files && files.length > 0 ? (
                 files.map((file: any) => {
-                  const fileUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${file.storage_path}`
+                  const fileUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${file.storage_path}`
                   return (
                     <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
                       <div className="flex items-center gap-3">
