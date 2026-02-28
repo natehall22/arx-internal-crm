@@ -7,6 +7,7 @@ import Link from 'next/link'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
+import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
@@ -306,6 +307,17 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
           </Link>
         </div>
 
+        <JobNextActionBanner
+          jobId={job.id}
+          status={job.status}
+          saleAmount={job.sale_amount}
+          materialsStatus={job.materials_status}
+          scheduledDate={job.scheduled_date}
+          assignedCrewId={job.assigned_crew?.id || null}
+          assignedSubId={job.assigned_sub?.id || null}
+          onSchedule={() => setShowScheduleModal(true)}
+        />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -412,7 +424,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-6">
+            <div id="materials-section" className="bg-white rounded-xl shadow-sm border p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Materials</h2>
                 <span className={`px-3 py-1 text-sm font-medium rounded-full ${
@@ -662,7 +674,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               </div>
             </div>
 
-            <JobPaymentsCard jobId={job.id} saleAmount={job.sale_amount} />
+            <div id="payments-section">
+              <JobPaymentsCard jobId={job.id} saleAmount={job.sale_amount} />
+            </div>
 
             {job.permit_required && (
               <div className="bg-white rounded-xl shadow-sm border p-6">
