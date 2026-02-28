@@ -21,8 +21,9 @@ async function getValidAccessToken(adminClient: any, userId: string, tokenData: 
   const expiresAt = new Date(tokenData.expires_at)
   const now = new Date()
 
-  // If token expires in less than 5 minutes, refresh it
+  // If token expires in less than 5 minutes, try to refresh it
   if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+    console.log(`Token for user ${userId} expires soon (${expiresAt.toISOString()}), attempting refresh...`)
     try {
       const refreshed = await refreshAccessToken(tokenData.refresh_token)
       
@@ -34,9 +35,15 @@ async function getValidAccessToken(adminClient: any, userId: string, tokenData: 
         })
         .eq('user_id', userId)
 
+      console.log(`Token refreshed successfully for user ${userId}`)
       return refreshed.access_token
     } catch (error) {
-      console.error('Failed to refresh token:', error)
+      console.error(`Failed to refresh token for user ${userId}:`, error)
+      // If refresh fails but token hasn't actually expired yet, try using it anyway
+      if (expiresAt > now) {
+        console.log(`Token refresh failed but token not yet expired, trying existing token`)
+        return tokenData.access_token
+      }
       return null
     }
   }

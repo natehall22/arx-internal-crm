@@ -126,7 +126,9 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
   })
 
   if (!response.ok) {
-    throw new Error('Failed to refresh token')
+    const errorText = await response.text()
+    console.error(`Google token refresh failed (${response.status}):`, errorText)
+    throw new Error(`Failed to refresh token: ${response.status} - ${errorText}`)
   }
 
   const data = await response.json()
