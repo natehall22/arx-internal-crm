@@ -392,6 +392,14 @@ export async function POST(request: Request) {
     }
     // Use round-robin if team was selected OR if no closer was specified
     const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
+    
+    console.log('Round-robin decision:', {
+      'body.use_round_robin': body.use_round_robin,
+      'closerUserId': closerUserId,
+      'scheduleInspection': scheduleInspection,
+      'useRoundRobin': useRoundRobin,
+      'teamIdForRoundRobin': teamIdForRoundRobin,
+    })
 
     // Get default inspection duration from appointment_types
     let inspectionDuration = 60 // default
