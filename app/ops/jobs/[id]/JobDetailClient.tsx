@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
@@ -89,54 +88,51 @@ export default function JobDetailClient({ initialJob, crews, subs }: JobDetailCl
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesValue, setNotesValue] = useState(initialJob.internal_notes || '')
 
-  const supabase = createClientBrowser()
-
   const reloadJob = async () => {
-    const { data } = await supabase
-      .from('production_jobs')
-      .select(`
-        *,
-        assigned_crew:crews(id, name, color, phone),
-        assigned_sub:sub_contractors(id, company_name, contact_name, phone),
-        customer:customers(id, name, phone, email),
-        salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
-      `)
-      .eq('id', job.id)
-      .single()
-
-    if (data) {
-      const rawProject = Array.isArray(data.project) ? data.project[0] : data.project
-      const rawCustomer = Array.isArray(data.customer) ? data.customer[0] : data.customer
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}`)
+      if (!response.ok) {
+        console.error('Failed to reload job')
+        return
+      }
       
-      // Try to get customer from: 1) direct customer link, 2) project's customer, 3) project's lead
-      let customer = rawCustomer
-      if (!customer && rawProject) {
-        const projectCustomer = Array.isArray(rawProject.customers) ? rawProject.customers[0] : rawProject.customers
-        const projectLead = Array.isArray(rawProject.leads) ? rawProject.leads[0] : rawProject.leads
+      const { job: data } = await response.json()
+      
+      if (data) {
+        const rawProject = Array.isArray(data.project) ? data.project[0] : data.project
+        const rawCustomer = Array.isArray(data.customer) ? data.customer[0] : data.customer
         
-        if (projectCustomer) {
-          customer = projectCustomer
-        } else if (projectLead) {
-          customer = {
-            id: projectLead.id,
-            name: projectLead.homeowner_name,
-            phone: projectLead.phone,
-            email: projectLead.email,
+        // Try to get customer from: 1) direct customer link, 2) project's customer, 3) project's lead
+        let customer = rawCustomer
+        if (!customer && rawProject) {
+          const projectCustomer = Array.isArray(rawProject.customers) ? rawProject.customers[0] : rawProject.customers
+          const projectLead = Array.isArray(rawProject.leads) ? rawProject.leads[0] : rawProject.leads
+          
+          if (projectCustomer) {
+            customer = projectCustomer
+          } else if (projectLead) {
+            customer = {
+              id: projectLead.id,
+              name: projectLead.homeowner_name,
+              phone: projectLead.phone,
+              email: projectLead.email,
+            }
           }
         }
-      }
 
-      const transformedJob = {
-        ...data,
-        assigned_crew: Array.isArray(data.assigned_crew) ? data.assigned_crew[0] : data.assigned_crew,
-        assigned_sub: Array.isArray(data.assigned_sub) ? data.assigned_sub[0] : data.assigned_sub,
-        customer: customer,
-        salesperson: Array.isArray(data.salesperson) ? data.salesperson[0] : data.salesperson,
-        project: rawProject,
+        const transformedJob = {
+          ...data,
+          assigned_crew: Array.isArray(data.assigned_crew) ? data.assigned_crew[0] : data.assigned_crew,
+          assigned_sub: Array.isArray(data.assigned_sub) ? data.assigned_sub[0] : data.assigned_sub,
+          customer: customer,
+          salesperson: Array.isArray(data.salesperson) ? data.salesperson[0] : data.salesperson,
+          project: rawProject,
+        }
+        setJob(transformedJob)
+        setNotesValue(data.internal_notes || '')
       }
-      setJob(transformedJob)
-      setNotesValue(data.internal_notes || '')
+    } catch (error) {
+      console.error('Error reloading job:', error)
     }
   }
 
