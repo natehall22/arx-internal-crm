@@ -1356,8 +1356,13 @@ export default function ProposalDetailPage() {
                             }),
                           })
                           if (response.ok) {
+                            const data = await response.json()
                             await loadProposal()
-                            alert('Proposal accepted!')
+                            if (data.project_id) {
+                              alert(`Proposal accepted! Project created successfully.`)
+                            } else {
+                              alert('Proposal accepted!')
+                            }
                           } else {
                             alert('Failed to accept proposal')
                           }

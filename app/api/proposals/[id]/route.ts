@@ -180,6 +180,14 @@ export async function PATCH(
 
     const body = await request.json()
 
+    // Get current proposal state before update
+    const { data: currentProposal } = await adminClient
+      .from('proposals')
+      .select('status, opportunity_id, customer_name, customer_address, total, created_by')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
     // Update proposal
     const { data: proposal, error: updateError } = await adminClient
       .from('proposals')
@@ -194,7 +202,83 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update proposal' }, { status: 500 })
     }
 
-    return NextResponse.json({ proposal })
+    // If proposal was just accepted, create a project
+    let projectId: string | null = null
+    if (body.status === 'accepted' && currentProposal?.status !== 'accepted') {
+      console.log('Proposal accepted, creating project...')
+      
+      // Get opportunity details if available
+      let opportunityData: any = null
+      let leadId: string | null = null
+      let customerId: string | null = null
+      
+      if (currentProposal?.opportunity_id) {
+        const { data: opp } = await adminClient
+          .from('opportunities')
+          .select('*, lead_id, customer_id')
+          .eq('id', currentProposal.opportunity_id)
+          .single()
+        
+        if (opp) {
+          opportunityData = opp
+          leadId = opp.lead_id
+          customerId = opp.customer_id
+          
+          // Update opportunity status to 'won'
+          await adminClient
+            .from('opportunities')
+            .update({ status: 'won' })
+            .eq('id', currentProposal.opportunity_id)
+        }
+      }
+
+      // Create the project
+      const projectPayload: any = {
+        org_id: profile.org_id,
+        owner_user_id: currentProposal?.created_by || user.id,
+        status: 'sold',
+        project_type: opportunityData?.project_type || 'roofing',
+        address_text: currentProposal?.customer_address || opportunityData?.address_text,
+        lat: opportunityData?.lat,
+        lng: opportunityData?.lng,
+        roof_squares: opportunityData?.roof_squares,
+        notes: `Created from accepted proposal. Total: $${currentProposal?.total?.toLocaleString() || 0}`,
+        lead_id: leadId,
+        customer_id: customerId,
+      }
+
+      const { data: newProject, error: projectError } = await adminClient
+        .from('projects')
+        .insert(projectPayload)
+        .select()
+        .single()
+
+      if (projectError) {
+        console.error('Failed to create project:', projectError)
+      } else {
+        projectId = newProject.id
+        console.log('Project created:', projectId)
+
+        // Link proposal to project
+        await adminClient
+          .from('proposals')
+          .update({ project_id: projectId })
+          .eq('id', params.id)
+
+        // Create activity log
+        await adminClient
+          .from('activities')
+          .insert({
+            org_id: profile.org_id,
+            user_id: user.id,
+            project_id: projectId,
+            type: 'status_change',
+            body: `Project created from accepted proposal "${proposal.title || proposal.proposal_number}"`,
+          })
+      }
+    }
+
+    return NextResponse.json({ proposal, project_id: projectId })
   } catch (error) {
     console.error('Proposal update API error:', error)
     return NextResponse.json({ 
