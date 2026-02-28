@@ -429,6 +429,13 @@ export async function POST(request: NextRequest) {
 
     // Notify setter - always notify when feedback is submitted (unless closer is the setter)
     const setterUserId = appointment?.canvasser_user_id || lead?.owner_user_id
+    console.log('=== SETTER NOTIFICATION DEBUG ===')
+    console.log('appointment?.canvasser_user_id:', appointment?.canvasser_user_id)
+    console.log('lead?.owner_user_id:', lead?.owner_user_id)
+    console.log('setterUserId:', setterUserId)
+    console.log('current user.id:', user.id)
+    console.log('Will create notification:', setterUserId && setterUserId !== user.id)
+    
     if (setterUserId && setterUserId !== user.id) {
       console.log('Creating notification for setter:', setterUserId)
       console.log('Notification data:', {
