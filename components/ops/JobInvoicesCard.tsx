@@ -129,15 +129,12 @@ export default function JobInvoicesCard({
   const handleViewPdf = async (invoiceId: string) => {
     try {
       const response = await fetch(`/api/invoices/${invoiceId}/pdf`)
-      if (response.ok) {
-        const data = await response.json()
-        if (data.pdf_url) {
-          window.open(data.pdf_url, '_blank')
-        } else {
-          alert('PDF not available')
-        }
+      const data = await response.json()
+      
+      if (response.ok && data.pdf_url) {
+        window.open(data.pdf_url, '_blank')
       } else {
-        alert('Failed to get PDF')
+        alert(data.error || 'Failed to get PDF')
       }
     } catch (error) {
       console.error('Error getting PDF:', error)

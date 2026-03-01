@@ -66,7 +66,8 @@ export async function GET(
 
   } catch (error) {
     console.error('Error in GET /api/invoices/[invoiceId]/pdf:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Internal server error'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
@@ -130,11 +131,15 @@ async function generateAndStoreInvoicePdf(
   orgId: string
 ): Promise<string> {
   // Get line items
-  const { data: items } = await supabase
+  const { data: items, error: itemsError } = await supabase
     .from('job_invoice_items')
     .select('*')
     .eq('invoice_id', invoice.id)
     .order('sort_order', { ascending: true })
+
+  if (itemsError) {
+    console.error('Error fetching invoice items:', itemsError)
+  }
 
   // Get applied payments
   const { data: applications } = await supabase
@@ -194,6 +199,7 @@ async function generateAndStoreInvoicePdf(
   // Upload to storage
   const storagePath = `org/${orgId}/invoices/${invoice.id}.pdf`
 
+  // Try to upload to storage - if bucket doesn't exist, we'll still return a data URL
   const { error: uploadError } = await supabase.storage
     .from('files')
     .upload(storagePath, pdfBuffer, {
@@ -202,6 +208,12 @@ async function generateAndStoreInvoicePdf(
     })
 
   if (uploadError) {
+    console.error('Upload error:', uploadError)
+    // If bucket doesn't exist, return base64 data URL instead
+    if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('bucket')) {
+      const base64 = Buffer.from(pdfBuffer).toString('base64')
+      return `data:application/pdf;base64,${base64}`
+    }
     throw new Error(`Failed to upload PDF: ${uploadError.message}`)
   }
 
