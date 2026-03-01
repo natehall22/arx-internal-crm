@@ -66,6 +66,95 @@ export async function createInvoiceForJob(
 }
 
 /**
+ * Create a deposit invoice for a job.
+ * - Creates invoice with deposit amount
+ * - Adds single line item "Deposit - 50%"
+ * - Auto-applies the deposit payment
+ * - Marks invoice as paid
+ */
+export async function createDepositInvoice(
+  supabase: SupabaseClient,
+  jobId: string,
+  createdBy: string,
+  depositPaymentId: string,
+  depositAmountCents: number
+): Promise<JobInvoice> {
+  // Create the invoice
+  const { data: invoice, error: invoiceError } = await supabase
+    .from('job_invoices')
+    .insert({
+      job_id: jobId,
+      created_by: createdBy,
+      status: 'draft',
+    })
+    .select()
+    .single()
+
+  if (invoiceError || !invoice) {
+    throw new Error(`Failed to create invoice: ${invoiceError?.message || 'Unknown error'}`)
+  }
+
+  // Add deposit line item
+  const { error: itemError } = await supabase
+    .from('job_invoice_items')
+    .insert({
+      invoice_id: invoice.id,
+      description: 'Deposit - 50%',
+      qty: 1,
+      unit_price_cents: depositAmountCents,
+      line_total_cents: depositAmountCents,
+      sort_order: 0,
+    })
+
+  if (itemError) {
+    throw new Error(`Failed to add deposit item: ${itemError.message}`)
+  }
+
+  // Update invoice totals
+  const { error: updateError } = await supabase
+    .from('job_invoices')
+    .update({
+      subtotal_cents: depositAmountCents,
+      total_cents: depositAmountCents,
+    })
+    .eq('id', invoice.id)
+
+  if (updateError) {
+    throw new Error(`Failed to update invoice totals: ${updateError.message}`)
+  }
+
+  // Apply the deposit payment to this invoice
+  const { error: paymentError } = await supabase
+    .from('invoice_payments')
+    .insert({
+      invoice_id: invoice.id,
+      job_payment_id: depositPaymentId,
+      applied_cents: depositAmountCents,
+    })
+
+  if (paymentError) {
+    throw new Error(`Failed to apply payment: ${paymentError.message}`)
+  }
+
+  // Mark invoice as paid (since deposit fully covers it)
+  const { data: finalInvoice, error: finalError } = await supabase
+    .from('job_invoices')
+    .update({
+      status: 'paid',
+      issued_at: new Date().toISOString().split('T')[0],
+    })
+    .eq('id', invoice.id)
+    .select()
+    .single()
+
+  if (finalError || !finalInvoice) {
+    throw new Error(`Failed to finalize invoice: ${finalError?.message || 'Unknown error'}`)
+  }
+
+  return finalInvoice as JobInvoice
+}
+
+/**
  * Add a line item to a draft invoice.
  * Automatically recalculates invoice totals.
  */

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
-import { createInvoiceForJob, getInvoicesForJob } from '@/lib/invoices'
+import { 
+  createInvoiceForJob, 
+  getInvoicesForJob,
+  createDepositInvoice,
+} from '@/lib/invoices'
 
 // GET - List all invoices for a job
 export async function GET(
@@ -85,14 +89,33 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { default_from_job_total = true } = body
+    const { 
+      default_from_job_total = true,
+      invoice_type,
+      deposit_payment_id,
+      deposit_amount_cents,
+    } = body
 
-    const invoice = await createInvoiceForJob(
-      adminClient,
-      params.id,
-      user.id,
-      default_from_job_total
-    )
+    let invoice
+
+    // Handle deposit invoice creation
+    if (invoice_type === 'deposit' && deposit_payment_id && deposit_amount_cents) {
+      invoice = await createDepositInvoice(
+        adminClient,
+        params.id,
+        user.id,
+        deposit_payment_id,
+        deposit_amount_cents
+      )
+    } else {
+      // Standard invoice creation
+      invoice = await createInvoiceForJob(
+        adminClient,
+        params.id,
+        user.id,
+        default_from_job_total
+      )
+    }
 
     return NextResponse.json({ success: true, invoice })
 

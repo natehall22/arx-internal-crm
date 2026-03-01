@@ -11,6 +11,13 @@ import { formatCurrency } from '@/lib/job-payments'
 import SendInvoiceModal from './SendInvoiceModal'
 import ApplyPaymentModal from './ApplyPaymentModal'
 import InvoiceDetailModal from './InvoiceDetailModal'
+import CreateInvoiceModal from './CreateInvoiceModal'
+
+interface DepositInfo {
+  hasDeposit: boolean
+  depositPaymentId: string | null
+  depositAmountCents: number
+}
 
 interface JobInvoicesCardProps {
   jobId: string
@@ -32,6 +39,12 @@ export default function JobInvoicesCard({
   const [showSendModal, setShowSendModal] = useState<string | null>(null)
   const [showApplyModal, setShowApplyModal] = useState<string | null>(null)
   const [showDetailModal, setShowDetailModal] = useState<string | null>(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [depositInfo, setDepositInfo] = useState<DepositInfo>({
+    hasDeposit: false,
+    depositPaymentId: null,
+    depositAmountCents: 0,
+  })
 
   const loadInvoices = async () => {
     try {
@@ -49,11 +62,43 @@ export default function JobInvoicesCard({
     }
   }
 
+  const checkForDeposit = async () => {
+    try {
+      const response = await fetch(`/api/ops/jobs/${jobId}/payments`, {
+        cache: 'no-store',
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const payments = data.payments || []
+        const depositPayment = payments.find(
+          (p: any) => p.payment_type === 'deposit' && p.amount_cents > 0
+        )
+        if (depositPayment) {
+          setDepositInfo({
+            hasDeposit: true,
+            depositPaymentId: depositPayment.id,
+            depositAmountCents: depositPayment.amount_cents,
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for deposit:', error)
+    }
+  }
+
   useEffect(() => {
     loadInvoices()
+    checkForDeposit()
   }, [jobId])
 
   const handleCreateInvoice = async () => {
+    // If no invoices exist and deposit is detected, show modal
+    if (invoices.length === 0 && depositInfo.hasDeposit) {
+      setShowCreateModal(true)
+      return
+    }
+
+    // Otherwise create full invoice directly
     setCreating(true)
     try {
       const response = await fetch(`/api/ops/jobs/${jobId}/invoices`, {
@@ -75,6 +120,12 @@ export default function JobInvoicesCard({
     } finally {
       setCreating(false)
     }
+  }
+
+  const handleInvoiceCreated = async () => {
+    await loadInvoices()
+    await checkForDeposit()
+    onInvoiceChange?.()
   }
 
   const handleSendComplete = () => {
@@ -278,6 +329,16 @@ export default function JobInvoicesCard({
         <InvoiceDetailModal
           invoiceId={showDetailModal}
           onClose={handleDetailClose}
+        />
+      )}
+
+      {showCreateModal && (
+        <CreateInvoiceModal
+          jobId={jobId}
+          saleAmountCents={Math.round((saleAmount || 0) * 100)}
+          depositInfo={depositInfo}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={handleInvoiceCreated}
         />
       )}
     </div>
