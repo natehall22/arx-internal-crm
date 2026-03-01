@@ -40,6 +40,7 @@ export default function JobInvoicesCard({
   const [showApplyModal, setShowApplyModal] = useState<string | null>(null)
   const [showDetailModal, setShowDetailModal] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [depositChecked, setDepositChecked] = useState(false)
   const [depositInfo, setDepositInfo] = useState<DepositInfo>({
     hasDeposit: false,
     depositPaymentId: null,
@@ -62,28 +63,40 @@ export default function JobInvoicesCard({
     }
   }
 
-  const checkForDeposit = async () => {
+  const checkForDeposit = async (): Promise<DepositInfo> => {
     try {
       const response = await fetch(`/api/ops/jobs/${jobId}/payments`, {
         cache: 'no-store',
       })
       if (response.ok) {
         const data = await response.json()
+        // API returns JobPaymentSummary with payments array
         const payments = data.payments || []
         const depositPayment = payments.find(
           (p: any) => p.payment_type === 'deposit' && p.amount_cents > 0
         )
         if (depositPayment) {
-          setDepositInfo({
+          const info: DepositInfo = {
             hasDeposit: true,
             depositPaymentId: depositPayment.id,
             depositAmountCents: depositPayment.amount_cents,
-          })
+          }
+          setDepositInfo(info)
+          setDepositChecked(true)
+          return info
         }
       }
     } catch (error) {
       console.error('Error checking for deposit:', error)
     }
+    const noDeposit: DepositInfo = {
+      hasDeposit: false,
+      depositPaymentId: null,
+      depositAmountCents: 0,
+    }
+    setDepositInfo(noDeposit)
+    setDepositChecked(true)
+    return noDeposit
   }
 
   useEffect(() => {
@@ -92,8 +105,14 @@ export default function JobInvoicesCard({
   }, [jobId])
 
   const handleCreateInvoice = async () => {
+    // Check for deposit (always fresh check when creating first invoice)
+    let currentDepositInfo = depositInfo
+    if (invoices.length === 0) {
+      currentDepositInfo = await checkForDeposit()
+    }
+
     // If no invoices exist and deposit is detected, show modal
-    if (invoices.length === 0 && depositInfo.hasDeposit) {
+    if (invoices.length === 0 && currentDepositInfo.hasDeposit) {
       setShowCreateModal(true)
       return
     }
