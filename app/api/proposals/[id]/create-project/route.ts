@@ -141,6 +141,31 @@ export async function POST(
       }
     }
 
+    // Create or find customer from proposal data
+    if (!customerId && proposal.customer_name) {
+      try {
+        const { upsertCustomer } = await import('@/lib/customers')
+        const result = await upsertCustomer(adminClient, profile.org_id, {
+          name: proposal.customer_name,
+          email: proposal.customer_email,
+          phone: proposal.customer_phone,
+          address_text: proposal.customer_address,
+        })
+        customerId = result.customer_id
+        console.log(`Customer ${result.created ? 'created' : 'found'}:`, customerId)
+        
+        // Update opportunity with customer_id if it exists
+        if (proposal.opportunity_id) {
+          await adminClient
+            .from('opportunities')
+            .update({ customer_id: customerId })
+            .eq('id', proposal.opportunity_id)
+        }
+      } catch (err) {
+        console.error('Failed to upsert customer:', err)
+      }
+    }
+
     // Create the project
     // Valid statuses: 'open', 'in_progress', 'on_hold', 'complete', 'collected'
     const projectPayload: any = {

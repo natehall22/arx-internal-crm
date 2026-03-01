@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
+import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
@@ -683,6 +684,15 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 jobId={job.id} 
                 saleAmount={job.sale_amount} 
                 onPaymentChange={() => setPaymentsRefreshKey(k => k + 1)}
+              />
+            </div>
+
+            <div id="invoices-section">
+              <JobInvoicesCard
+                jobId={job.id}
+                saleAmount={job.sale_amount}
+                customerEmail={job.customer?.email}
+                onInvoiceChange={() => setPaymentsRefreshKey(k => k + 1)}
               />
             </div>
 

@@ -183,7 +183,7 @@ export async function PATCH(
     // Get current proposal state before update
     const { data: currentProposal } = await adminClient
       .from('proposals')
-      .select('status, opportunity_id, customer_name, customer_address, total, created_by')
+      .select('status, opportunity_id, customer_name, customer_email, customer_phone, customer_address, total, created_by')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -229,6 +229,31 @@ export async function PATCH(
             .from('opportunities')
             .update({ status: 'won' })
             .eq('id', currentProposal.opportunity_id)
+        }
+      }
+
+      // Create or find customer from proposal data
+      if (!customerId && currentProposal?.customer_name) {
+        try {
+          const { upsertCustomer } = await import('@/lib/customers')
+          const result = await upsertCustomer(adminClient, profile.org_id, {
+            name: currentProposal.customer_name,
+            email: currentProposal.customer_email,
+            phone: currentProposal.customer_phone,
+            address_text: currentProposal.customer_address,
+          })
+          customerId = result.customer_id
+          console.log(`Customer ${result.created ? 'created' : 'found'}:`, customerId)
+          
+          // Update opportunity with customer_id if it exists
+          if (currentProposal.opportunity_id) {
+            await adminClient
+              .from('opportunities')
+              .update({ customer_id: customerId })
+              .eq('id', currentProposal.opportunity_id)
+          }
+        } catch (err) {
+          console.error('Failed to upsert customer:', err)
         }
       }
 

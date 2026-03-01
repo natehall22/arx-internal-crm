@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
+import { enqueuePaymentRecorded } from '@/lib/integrations'
 
 // GET - Get all payments for a job with summary
 export async function GET(
@@ -102,7 +103,7 @@ export async function POST(
     // Verify job exists and belongs to user's org
     const { data: job, error: jobError } = await adminClient
       .from('production_jobs')
-      .select('id')
+      .select('id, customer_id')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -139,6 +140,17 @@ export async function POST(
       console.error('Error inserting payment:', insertError)
       return NextResponse.json({ error: 'Failed to add payment' }, { status: 500 })
     }
+
+    // Enqueue integration event for payment
+    enqueuePaymentRecorded(adminClient, profile.org_id, payment.id, {
+      job_id: params.id,
+      customer_id: job.customer_id,
+      amount_cents,
+      paid_at,
+      payment_type,
+      method,
+      payer,
+    }).catch(err => console.error('Failed to enqueue payment event:', err))
 
     return NextResponse.json({ success: true, payment })
 
