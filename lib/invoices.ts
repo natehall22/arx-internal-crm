@@ -7,8 +7,115 @@ import {
   InvoiceItemInput,
   InvoiceBalance,
   InvoiceStatus,
+  InvoiceKind,
+  DepositInfo,
 } from './types/invoices'
 import { enqueueInvoiceFinalized, enqueueInvoiceVoided } from './integrations'
+
+/**
+ * Get all active (non-void) invoices for a job
+ */
+export async function getActiveInvoices(
+  supabase: SupabaseClient,
+  jobId: string
+): Promise<JobInvoice[]> {
+  const { data, error } = await supabase
+    .from('job_invoices')
+    .select('*')
+    .eq('job_id', jobId)
+    .neq('status', 'void')
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    throw new Error(`Failed to get invoices: ${error.message}`)
+  }
+
+  return (data || []) as JobInvoice[]
+}
+
+/**
+ * Check if an active deposit invoice exists for a job
+ */
+export async function hasActiveDepositInvoice(
+  supabase: SupabaseClient,
+  jobId: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('job_invoices')
+    .select('id')
+    .eq('job_id', jobId)
+    .eq('invoice_kind', 'deposit')
+    .neq('status', 'void')
+    .limit(1)
+
+  if (error) {
+    console.error('Error checking deposit invoice:', error)
+    return false
+  }
+
+  return (data?.length || 0) > 0
+}
+
+/**
+ * Get deposit information for a job including payments and invoice status
+ */
+export async function getDepositInfo(
+  supabase: SupabaseClient,
+  jobId: string
+): Promise<DepositInfo> {
+  // Get job sale amount and deposit percent
+  const { data: job } = await supabase
+    .from('production_jobs')
+    .select('sale_amount, deposit_required_percent')
+    .eq('id', jobId)
+    .single()
+
+  const saleAmountCents = Math.round((job?.sale_amount || 0) * 100)
+  const depositPercent = job?.deposit_required_percent || 0.5
+  const requiredDepositCents = Math.round(saleAmountCents * depositPercent)
+
+  // Get all deposit payments
+  const { data: payments } = await supabase
+    .from('job_payments')
+    .select('id, amount_cents')
+    .eq('job_id', jobId)
+    .eq('payment_type', 'deposit')
+
+  const depositPayments = (payments || []).filter(p => p.amount_cents > 0)
+  const totalDepositCents = depositPayments.reduce((sum, p) => sum + p.amount_cents, 0)
+
+  // Check for active deposit invoice
+  const { data: depositInvoices } = await supabase
+    .from('job_invoices')
+    .select('id, total_cents')
+    .eq('job_id', jobId)
+    .eq('invoice_kind', 'deposit')
+    .neq('status', 'void')
+
+  const hasActiveDepositInvoice = (depositInvoices?.length || 0) > 0
+
+  // Get total applied to deposit invoices
+  let appliedDepositCents = 0
+  if (depositInvoices && depositInvoices.length > 0) {
+    const invoiceIds = depositInvoices.map(i => i.id)
+    const { data: appliedPayments } = await supabase
+      .from('invoice_payments')
+      .select('applied_cents')
+      .in('invoice_id', invoiceIds)
+
+    appliedDepositCents = (appliedPayments || []).reduce((sum, p) => sum + p.applied_cents, 0)
+  }
+
+  return {
+    hasDeposit: depositPayments.length > 0,
+    depositPayments,
+    totalDepositCents,
+    saleAmountCents,
+    requiredDepositCents,
+    hasActiveDepositInvoice,
+    appliedDepositCents,
+  }
+}
 
 /**
  * Create a new invoice for a job.
@@ -67,10 +174,175 @@ export async function createInvoiceForJob(
 
 /**
  * Create a deposit invoice for a job.
+ * - Checks for existing active deposit invoice (prevents duplicates)
  * - Creates invoice with deposit amount
- * - Adds single line item "Deposit - 50%"
- * - Auto-applies the deposit payment
- * - Marks invoice as paid
+ * - Adds single line item "Deposit (50%)"
+ * - Auto-applies all deposit payments
+ * - Sets status based on applied vs total
+ */
+export async function createDepositInvoiceV2(
+  supabase: SupabaseClient,
+  jobId: string,
+  createdBy: string
+): Promise<JobInvoice> {
+  // Check for existing active deposit invoice
+  const hasExisting = await hasActiveDepositInvoice(supabase, jobId)
+  if (hasExisting) {
+    throw new Error('An active deposit invoice already exists for this job')
+  }
+
+  // Get deposit info
+  const depositInfo = await getDepositInfo(supabase, jobId)
+  
+  if (!depositInfo.hasDeposit) {
+    throw new Error('No deposit payments found for this job')
+  }
+
+  // Use total deposit payments as invoice amount (or required deposit, whichever is less)
+  const invoiceAmountCents = Math.min(
+    depositInfo.totalDepositCents,
+    depositInfo.requiredDepositCents
+  )
+
+  // Create the invoice with kind = 'deposit'
+  const { data: invoice, error: invoiceError } = await supabase
+    .from('job_invoices')
+    .insert({
+      job_id: jobId,
+      created_by: createdBy,
+      status: 'draft',
+      invoice_kind: 'deposit',
+      subtotal_cents: invoiceAmountCents,
+      total_cents: invoiceAmountCents,
+      issued_at: new Date().toISOString().split('T')[0],
+    })
+    .select()
+    .single()
+
+  if (invoiceError || !invoice) {
+    throw new Error(`Failed to create invoice: ${invoiceError?.message || 'Unknown error'}`)
+  }
+
+  // Add deposit line item
+  const depositPercent = Math.round((invoiceAmountCents / depositInfo.saleAmountCents) * 100)
+  const { error: itemError } = await supabase
+    .from('job_invoice_items')
+    .insert({
+      invoice_id: invoice.id,
+      description: `Deposit (${depositPercent}%)`,
+      qty: 1,
+      unit_price_cents: invoiceAmountCents,
+      line_total_cents: invoiceAmountCents,
+      sort_order: 0,
+    })
+
+  if (itemError) {
+    throw new Error(`Failed to add deposit item: ${itemError.message}`)
+  }
+
+  // Auto-apply all deposit payments
+  let totalApplied = 0
+  for (const payment of depositInfo.depositPayments) {
+    const amountToApply = Math.min(payment.amount_cents, invoiceAmountCents - totalApplied)
+    if (amountToApply <= 0) break
+
+    const { error: paymentError } = await supabase
+      .from('invoice_payments')
+      .insert({
+        invoice_id: invoice.id,
+        job_payment_id: payment.id,
+        applied_cents: amountToApply,
+      })
+
+    if (paymentError) {
+      console.error('Failed to apply payment:', paymentError)
+    } else {
+      totalApplied += amountToApply
+    }
+  }
+
+  // Determine status based on applied amount
+  const newStatus: InvoiceStatus = totalApplied >= invoiceAmountCents 
+    ? 'paid' 
+    : totalApplied > 0 
+      ? 'partially_paid' 
+      : 'sent'
+
+  // Update invoice status
+  const { data: finalInvoice, error: finalError } = await supabase
+    .from('job_invoices')
+    .update({ status: newStatus })
+    .eq('id', invoice.id)
+    .select()
+    .single()
+
+  if (finalError || !finalInvoice) {
+    throw new Error(`Failed to finalize invoice: ${finalError?.message || 'Unknown error'}`)
+  }
+
+  return finalInvoice as JobInvoice
+}
+
+/**
+ * Create a final invoice for a job (remaining balance after deposit).
+ * - total = sale_amount - applied_deposit_total
+ * - Line item: "Remaining Balance"
+ */
+export async function createFinalInvoice(
+  supabase: SupabaseClient,
+  jobId: string,
+  createdBy: string
+): Promise<JobInvoice> {
+  // Get deposit info to calculate remaining balance
+  const depositInfo = await getDepositInfo(supabase, jobId)
+  
+  // Final invoice amount = sale amount - deposit already invoiced/applied
+  const finalAmountCents = depositInfo.saleAmountCents - depositInfo.appliedDepositCents
+
+  if (finalAmountCents <= 0) {
+    throw new Error('No remaining balance to invoice')
+  }
+
+  // Create the invoice with kind = 'final'
+  const { data: invoice, error: invoiceError } = await supabase
+    .from('job_invoices')
+    .insert({
+      job_id: jobId,
+      created_by: createdBy,
+      status: 'draft',
+      invoice_kind: 'final',
+      subtotal_cents: finalAmountCents,
+      total_cents: finalAmountCents,
+    })
+    .select()
+    .single()
+
+  if (invoiceError || !invoice) {
+    throw new Error(`Failed to create invoice: ${invoiceError?.message || 'Unknown error'}`)
+  }
+
+  // Add line item for remaining balance
+  const { error: itemError } = await supabase
+    .from('job_invoice_items')
+    .insert({
+      invoice_id: invoice.id,
+      description: 'Remaining Balance - Per Contract',
+      qty: 1,
+      unit_price_cents: finalAmountCents,
+      line_total_cents: finalAmountCents,
+      sort_order: 0,
+    })
+
+  if (itemError) {
+    throw new Error(`Failed to add line item: ${itemError.message}`)
+  }
+
+  return invoice as JobInvoice
+}
+
+/**
+ * Legacy function - kept for backwards compatibility
+ * @deprecated Use createDepositInvoiceV2 instead
  */
 export async function createDepositInvoice(
   supabase: SupabaseClient,
@@ -79,13 +351,23 @@ export async function createDepositInvoice(
   depositPaymentId: string,
   depositAmountCents: number
 ): Promise<JobInvoice> {
-  // Create the invoice
+  // Check for existing active deposit invoice
+  const hasExisting = await hasActiveDepositInvoice(supabase, jobId)
+  if (hasExisting) {
+    throw new Error('An active deposit invoice already exists for this job')
+  }
+
+  // Create the invoice with kind = 'deposit'
   const { data: invoice, error: invoiceError } = await supabase
     .from('job_invoices')
     .insert({
       job_id: jobId,
       created_by: createdBy,
       status: 'draft',
+      invoice_kind: 'deposit',
+      subtotal_cents: depositAmountCents,
+      total_cents: depositAmountCents,
+      issued_at: new Date().toISOString().split('T')[0],
     })
     .select()
     .single()
@@ -99,7 +381,7 @@ export async function createDepositInvoice(
     .from('job_invoice_items')
     .insert({
       invoice_id: invoice.id,
-      description: 'Deposit - 50%',
+      description: 'Deposit (50%)',
       qty: 1,
       unit_price_cents: depositAmountCents,
       line_total_cents: depositAmountCents,
@@ -108,19 +390,6 @@ export async function createDepositInvoice(
 
   if (itemError) {
     throw new Error(`Failed to add deposit item: ${itemError.message}`)
-  }
-
-  // Update invoice totals
-  const { error: updateError } = await supabase
-    .from('job_invoices')
-    .update({
-      subtotal_cents: depositAmountCents,
-      total_cents: depositAmountCents,
-    })
-    .eq('id', invoice.id)
-
-  if (updateError) {
-    throw new Error(`Failed to update invoice totals: ${updateError.message}`)
   }
 
   // Apply the deposit payment to this invoice
@@ -139,10 +408,7 @@ export async function createDepositInvoice(
   // Mark invoice as paid (since deposit fully covers it)
   const { data: finalInvoice, error: finalError } = await supabase
     .from('job_invoices')
-    .update({
-      status: 'paid',
-      issued_at: new Date().toISOString().split('T')[0],
-    })
+    .update({ status: 'paid' })
     .eq('id', invoice.id)
     .select()
     .single()

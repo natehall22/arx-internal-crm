@@ -1,9 +1,11 @@
 export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'void'
+export type InvoiceKind = 'deposit' | 'final' | 'standard'
 
 export interface JobInvoice {
   id: string
   job_id: string
   invoice_number: string
+  invoice_kind: InvoiceKind
   status: InvoiceStatus
   issued_at: string | null
   due_at: string | null
@@ -74,4 +76,20 @@ export const INVOICE_STATUS_COLORS: Record<InvoiceStatus, string> = {
   partially_paid: 'bg-amber-100 text-amber-700',
   paid: 'bg-green-100 text-green-700',
   void: 'bg-red-100 text-red-700',
+}
+
+export const INVOICE_KIND_LABELS: Record<InvoiceKind, string> = {
+  deposit: 'Deposit',
+  final: 'Final',
+  standard: 'Standard',
+}
+
+export interface DepositInfo {
+  hasDeposit: boolean
+  depositPayments: Array<{ id: string; amount_cents: number }>
+  totalDepositCents: number
+  saleAmountCents: number
+  requiredDepositCents: number
+  hasActiveDepositInvoice: boolean
+  appliedDepositCents: number
 }

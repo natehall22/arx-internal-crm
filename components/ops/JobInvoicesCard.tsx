@@ -1,23 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { 
   JobInvoice, 
   InvoiceWithItems,
   INVOICE_STATUS_LABELS, 
-  INVOICE_STATUS_COLORS 
+  INVOICE_STATUS_COLORS,
+  INVOICE_KIND_LABELS,
+  DepositInfo,
 } from '@/lib/types/invoices'
 import { formatCurrency } from '@/lib/job-payments'
 import SendInvoiceModal from './SendInvoiceModal'
 import ApplyPaymentModal from './ApplyPaymentModal'
 import InvoiceDetailModal from './InvoiceDetailModal'
 import CreateInvoiceModal from './CreateInvoiceModal'
-
-interface DepositInfo {
-  hasDeposit: boolean
-  depositPaymentId: string | null
-  depositAmountCents: number
-}
 
 interface JobInvoicesCardProps {
   jobId: string
@@ -26,28 +23,32 @@ interface JobInvoicesCardProps {
   onInvoiceChange?: () => void
 }
 
+const defaultDepositInfo: DepositInfo = {
+  hasDeposit: false,
+  depositPayments: [],
+  totalDepositCents: 0,
+  saleAmountCents: 0,
+  requiredDepositCents: 0,
+  hasActiveDepositInvoice: false,
+  appliedDepositCents: 0,
+}
+
 export default function JobInvoicesCard({ 
   jobId, 
   saleAmount, 
   customerEmail,
   onInvoiceChange 
 }: JobInvoicesCardProps) {
+  const router = useRouter()
   const [invoices, setInvoices] = useState<JobInvoice[]>([])
+  const [depositInfo, setDepositInfo] = useState<DepositInfo>(defaultDepositInfo)
   const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithItems | null>(null)
   const [showSendModal, setShowSendModal] = useState<string | null>(null)
   const [showApplyModal, setShowApplyModal] = useState<string | null>(null)
   const [showDetailModal, setShowDetailModal] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [depositChecked, setDepositChecked] = useState(false)
-  const [depositInfo, setDepositInfo] = useState<DepositInfo>({
-    hasDeposit: false,
-    depositPaymentId: null,
-    depositAmountCents: 0,
-  })
 
-  const loadInvoices = async () => {
+  const loadData = async () => {
     try {
       const response = await fetch(`/api/ops/jobs/${jobId}/invoices`, {
         cache: 'no-store',
@@ -55,6 +56,9 @@ export default function JobInvoicesCard({
       if (response.ok) {
         const data = await response.json()
         setInvoices(data.invoices || [])
+        if (data.depositInfo) {
+          setDepositInfo(data.depositInfo)
+        }
       }
     } catch (error) {
       console.error('Error loading invoices:', error)
@@ -63,105 +67,38 @@ export default function JobInvoicesCard({
     }
   }
 
-  const checkForDeposit = async (): Promise<DepositInfo> => {
-    try {
-      const response = await fetch(`/api/ops/jobs/${jobId}/payments`, {
-        cache: 'no-store',
-      })
-      if (response.ok) {
-        const data = await response.json()
-        // API returns JobPaymentSummary with payments array
-        const payments = data.payments || []
-        const depositPayment = payments.find(
-          (p: any) => p.payment_type === 'deposit' && p.amount_cents > 0
-        )
-        if (depositPayment) {
-          const info: DepositInfo = {
-            hasDeposit: true,
-            depositPaymentId: depositPayment.id,
-            depositAmountCents: depositPayment.amount_cents,
-          }
-          setDepositInfo(info)
-          setDepositChecked(true)
-          return info
-        }
-      }
-    } catch (error) {
-      console.error('Error checking for deposit:', error)
-    }
-    const noDeposit: DepositInfo = {
-      hasDeposit: false,
-      depositPaymentId: null,
-      depositAmountCents: 0,
-    }
-    setDepositInfo(noDeposit)
-    setDepositChecked(true)
-    return noDeposit
-  }
-
   useEffect(() => {
-    loadInvoices()
-    checkForDeposit()
+    loadData()
   }, [jobId])
 
-  const handleCreateInvoice = async () => {
-    // Check for deposit (always fresh check when creating first invoice)
-    let currentDepositInfo = depositInfo
-    if (invoices.length === 0) {
-      currentDepositInfo = await checkForDeposit()
-    }
-
-    // If no invoices exist and deposit is detected, show modal
-    if (invoices.length === 0 && currentDepositInfo.hasDeposit) {
-      setShowCreateModal(true)
-      return
-    }
-
-    // Otherwise create full invoice directly
-    setCreating(true)
-    try {
-      const response = await fetch(`/api/ops/jobs/${jobId}/invoices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ default_from_job_total: true }),
-      })
-
-      if (response.ok) {
-        await loadInvoices()
-        onInvoiceChange?.()
-      } else {
-        const error = await response.json()
-        alert(error.error || 'Failed to create invoice')
-      }
-    } catch (error) {
-      console.error('Error creating invoice:', error)
-      alert('Failed to create invoice')
-    } finally {
-      setCreating(false)
-    }
+  const handleCreateInvoice = () => {
+    // Always show modal to give user choice
+    setShowCreateModal(true)
   }
 
   const handleInvoiceCreated = async () => {
-    await loadInvoices()
-    await checkForDeposit()
+    await loadData()
+    router.refresh()
     onInvoiceChange?.()
   }
 
   const handleSendComplete = () => {
     setShowSendModal(null)
-    loadInvoices()
+    loadData()
+    router.refresh()
     onInvoiceChange?.()
   }
 
   const handleApplyComplete = () => {
     setShowApplyModal(null)
-    loadInvoices()
+    loadData()
+    router.refresh()
     onInvoiceChange?.()
   }
 
   const handleDetailClose = () => {
     setShowDetailModal(null)
-    loadInvoices()
+    loadData()
   }
 
   const handleVoidInvoice = async (invoiceId: string) => {
@@ -176,7 +113,8 @@ export default function JobInvoicesCard({
       })
 
       if (response.ok) {
-        loadInvoices()
+        loadData()
+        router.refresh()
         onInvoiceChange?.()
       } else {
         const error = await response.json()
@@ -207,9 +145,9 @@ export default function JobInvoicesCard({
     }
   }
 
-  const getInvoiceBalance = (invoice: JobInvoice) => {
-    return invoice.total_cents
-  }
+  // Filter out void invoices for display purposes
+  const activeInvoices = invoices.filter(i => i.status !== 'void')
+  const voidedInvoices = invoices.filter(i => i.status === 'void')
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -217,26 +155,30 @@ export default function JobInvoicesCard({
         <h2 className="text-lg font-semibold text-gray-900">Invoices</h2>
         <button
           onClick={handleCreateInvoice}
-          disabled={creating}
-          className="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          className="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
         >
-          {creating ? 'Creating...' : '+ Create Invoice'}
+          + Create Invoice
         </button>
       </div>
 
       {loading ? (
-        <div className="text-center py-4 text-gray-500 text-sm">Loading...</div>
-      ) : invoices.length > 0 ? (
+        <div className="text-center py-4 text-gray-600 text-sm">Loading...</div>
+      ) : activeInvoices.length > 0 ? (
         <div className="space-y-3">
-          {invoices.map((invoice) => (
+          {activeInvoices.map((invoice) => (
             <div
               key={invoice.id}
               className="border rounded-lg p-4 hover:bg-gray-50"
             >
               <div className="flex items-start justify-between mb-2">
                 <div>
-                  <div className="font-medium text-gray-900">
+                  <div className="font-medium text-gray-900 flex items-center gap-2">
                     {invoice.invoice_number}
+                    {invoice.invoice_kind && invoice.invoice_kind !== 'standard' && (
+                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
+                        {INVOICE_KIND_LABELS[invoice.invoice_kind]}
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-gray-900">
                     {invoice.sent_at ? (
@@ -309,6 +251,31 @@ export default function JobInvoicesCard({
               </div>
             </div>
           ))}
+
+          {/* Show voided invoices collapsed */}
+          {voidedInvoices.length > 0 && (
+            <details className="mt-4">
+              <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+                {voidedInvoices.length} voided invoice{voidedInvoices.length !== 1 ? 's' : ''}
+              </summary>
+              <div className="mt-2 space-y-2">
+                {voidedInvoices.map((invoice) => (
+                  <div
+                    key={invoice.id}
+                    className="border border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 opacity-60"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">{invoice.invoice_number}</span>
+                      <span className="text-xs text-red-600">Voided</span>
+                    </div>
+                    {invoice.void_reason && (
+                      <p className="text-xs text-gray-500 mt-1">Reason: {invoice.void_reason}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       ) : (
         <div className="text-center py-6 text-gray-600 text-sm">
@@ -317,10 +284,9 @@ export default function JobInvoicesCard({
             <div className="mt-2">
               <button
                 onClick={handleCreateInvoice}
-                disabled={creating}
                 className="text-indigo-600 hover:text-indigo-800 underline"
               >
-                Create first invoice for {formatCurrency(Math.round(saleAmount * 100))}
+                Create first invoice
               </button>
             </div>
           )}
@@ -354,7 +320,7 @@ export default function JobInvoicesCard({
       {showCreateModal && (
         <CreateInvoiceModal
           jobId={jobId}
-          saleAmountCents={Math.round((saleAmount || 0) * 100)}
+          saleAmountCents={depositInfo.saleAmountCents || Math.round((saleAmount || 0) * 100)}
           depositInfo={depositInfo}
           onClose={() => setShowCreateModal(false)}
           onCreated={handleInvoiceCreated}

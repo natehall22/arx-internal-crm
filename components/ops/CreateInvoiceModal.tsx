@@ -2,12 +2,7 @@
 
 import { useState } from 'react'
 import { formatCurrency } from '@/lib/job-payments'
-
-interface DepositInfo {
-  hasDeposit: boolean
-  depositPaymentId: string | null
-  depositAmountCents: number
-}
+import { DepositInfo } from '@/lib/types/invoices'
 
 interface CreateInvoiceModalProps {
   jobId: string
@@ -27,18 +22,14 @@ export default function CreateInvoiceModal({
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleCreateDepositInvoice = async () => {
+  const handleCreate = async (invoiceKind: 'deposit' | 'final' | 'standard') => {
     setCreating(true)
     setError(null)
     try {
       const response = await fetch(`/api/ops/jobs/${jobId}/invoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoice_type: 'deposit',
-          deposit_payment_id: depositInfo.depositPaymentId,
-          deposit_amount_cents: depositInfo.depositAmountCents,
-        }),
+        body: JSON.stringify({ invoice_kind: invoiceKind }),
       })
 
       if (response.ok) {
@@ -55,29 +46,9 @@ export default function CreateInvoiceModal({
     }
   }
 
-  const handleCreateFullInvoice = async () => {
-    setCreating(true)
-    setError(null)
-    try {
-      const response = await fetch(`/api/ops/jobs/${jobId}/invoices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ default_from_job_total: true }),
-      })
-
-      if (response.ok) {
-        onCreated()
-        onClose()
-      } else {
-        const data = await response.json()
-        setError(data.error || 'Failed to create invoice')
-      }
-    } catch (err) {
-      setError('Failed to create invoice')
-    } finally {
-      setCreating(false)
-    }
-  }
+  const remainingBalance = saleAmountCents - depositInfo.appliedDepositCents
+  const canCreateDeposit = depositInfo.hasDeposit && !depositInfo.hasActiveDepositInvoice
+  const canCreateFinal = depositInfo.hasActiveDepositInvoice && remainingBalance > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -91,46 +62,84 @@ export default function CreateInvoiceModal({
           </div>
         )}
 
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <div className="flex items-center gap-2 mb-2">
-            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="font-medium text-blue-900">Deposit Detected</span>
+        {/* Deposit info banner */}
+        {depositInfo.hasDeposit && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center gap-2 mb-1">
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="font-medium text-blue-900 text-sm">Deposit Recorded</span>
+            </div>
+            <p className="text-sm text-blue-800">
+              {formatCurrency(depositInfo.totalDepositCents)} deposit payment{depositInfo.depositPayments.length > 1 ? 's' : ''} on file
+            </p>
+            {depositInfo.hasActiveDepositInvoice && (
+              <p className="text-xs text-blue-700 mt-1">
+                ✓ Deposit invoice already created
+              </p>
+            )}
           </div>
-          <p className="text-sm text-blue-800">
-            A deposit payment of <strong>{formatCurrency(depositInfo.depositAmountCents)}</strong> has been recorded.
-          </p>
-        </div>
+        )}
 
         <div className="space-y-3">
-          <button
-            onClick={handleCreateDepositInvoice}
-            disabled={creating}
-            className="w-full p-4 border-2 border-green-500 rounded-lg hover:bg-green-50 text-left transition disabled:opacity-50"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium text-gray-900">Deposit Invoice</div>
-                <div className="text-sm text-gray-600">
-                  {formatCurrency(depositInfo.depositAmountCents)} - Auto-applies deposit payment
+          {/* Deposit Invoice Option */}
+          {canCreateDeposit && (
+            <button
+              onClick={() => handleCreate('deposit')}
+              disabled={creating}
+              className="w-full p-4 border-2 border-green-500 rounded-lg hover:bg-green-50 text-left transition disabled:opacity-50"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium text-gray-900">Deposit Invoice</div>
+                  <div className="text-sm text-gray-600">
+                    {formatCurrency(depositInfo.totalDepositCents)} - Auto-applies deposit payment
+                  </div>
                 </div>
+                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
+                  Recommended
+                </span>
               </div>
-              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
-                Recommended
-              </span>
-            </div>
-          </button>
+            </button>
+          )}
 
+          {/* Final Invoice Option */}
+          {canCreateFinal && (
+            <button
+              onClick={() => handleCreate('final')}
+              disabled={creating}
+              className="w-full p-4 border-2 border-blue-500 rounded-lg hover:bg-blue-50 text-left transition disabled:opacity-50"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium text-gray-900">Final Invoice</div>
+                  <div className="text-sm text-gray-600">
+                    {formatCurrency(remainingBalance)} - Remaining balance after deposit
+                  </div>
+                </div>
+                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                  Recommended
+                </span>
+              </div>
+            </button>
+          )}
+
+          {/* Standard/Full Invoice Option */}
           <button
-            onClick={handleCreateFullInvoice}
+            onClick={() => handleCreate('standard')}
             disabled={creating}
             className="w-full p-4 border border-gray-300 rounded-lg hover:bg-gray-50 text-left transition disabled:opacity-50"
           >
             <div className="font-medium text-gray-900">Full Contract Invoice</div>
             <div className="text-sm text-gray-600">
-              {formatCurrency(saleAmountCents)} - Deposit not auto-applied
+              {formatCurrency(saleAmountCents)} - Full contract amount
             </div>
+            {depositInfo.hasDeposit && !depositInfo.hasActiveDepositInvoice && (
+              <div className="text-xs text-amber-600 mt-1">
+                ⚠ Deposit payment will not be auto-applied
+              </div>
+            )}
           </button>
         </div>
 

@@ -4,7 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { 
   createInvoiceForJob, 
   getInvoicesForJob,
-  createDepositInvoice,
+  createDepositInvoiceV2,
+  createFinalInvoice,
+  getDepositInfo,
 } from '@/lib/invoices'
 
 // GET - List all invoices for a job
@@ -44,7 +46,8 @@ export async function GET(
     }
 
     const invoices = await getInvoicesForJob(adminClient, params.id)
-    return NextResponse.json({ invoices })
+    const depositInfo = await getDepositInfo(adminClient, params.id)
+    return NextResponse.json({ invoices, depositInfo })
 
   } catch (error) {
     console.error('Error in GET /api/ops/jobs/[id]/invoices:', error)
@@ -89,32 +92,36 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { 
-      default_from_job_total = true,
-      invoice_type,
-      deposit_payment_id,
-      deposit_amount_cents,
-    } = body
+    const { invoice_kind = 'standard' } = body
 
     let invoice
 
-    // Handle deposit invoice creation
-    if (invoice_type === 'deposit' && deposit_payment_id && deposit_amount_cents) {
-      invoice = await createDepositInvoice(
-        adminClient,
-        params.id,
-        user.id,
-        deposit_payment_id,
-        deposit_amount_cents
-      )
-    } else {
-      // Standard invoice creation
-      invoice = await createInvoiceForJob(
-        adminClient,
-        params.id,
-        user.id,
-        default_from_job_total
-      )
+    switch (invoice_kind) {
+      case 'deposit':
+        invoice = await createDepositInvoiceV2(
+          adminClient,
+          params.id,
+          user.id
+        )
+        break
+
+      case 'final':
+        invoice = await createFinalInvoice(
+          adminClient,
+          params.id,
+          user.id
+        )
+        break
+
+      case 'standard':
+      default:
+        invoice = await createInvoiceForJob(
+          adminClient,
+          params.id,
+          user.id,
+          true // default from job total
+        )
+        break
     }
 
     return NextResponse.json({ success: true, invoice })
