@@ -1,3 +1,4 @@
+import React from 'react'
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import { JobInvoice, JobInvoiceItem } from '@/lib/types/invoices'
 
@@ -222,13 +223,15 @@ interface InvoicePDFProps {
   }
 }
 
+export { type InvoicePDFProps }
+
 export function InvoicePDF({
   invoice,
   items,
   appliedCents,
   customer,
   company,
-}: InvoicePDFProps) {
+}: InvoicePDFProps): React.ReactElement {
   const balanceCents = invoice.total_cents - appliedCents
   const isPaid = balanceCents <= 0
 
@@ -286,7 +289,7 @@ export function InvoicePDF({
           {items.map((item, index) => (
             <View
               key={item.id}
-              style={[styles.tableRow, index % 2 === 1 && styles.tableRowAlt]}
+              style={index % 2 === 1 ? [styles.tableRow, styles.tableRowAlt] : styles.tableRow}
             >
               <Text style={styles.colDescription}>{item.description}</Text>
               <Text style={styles.colQty}>{item.qty}</Text>

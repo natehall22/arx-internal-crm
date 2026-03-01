@@ -188,6 +188,7 @@ async function generateAndStoreInvoicePdf(
     },
   })
 
+  // @ts-expect-error - InvoicePDF returns a Document which is compatible with renderToBuffer
   const pdfBuffer = await renderToBuffer(pdfDoc)
 
   // Upload to storage
