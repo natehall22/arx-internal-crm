@@ -198,31 +198,31 @@ export default function InvoiceDetailModal({
         </div>
 
         {loading ? (
-          <div className="text-center py-8 text-gray-500">Loading...</div>
+          <div className="text-center py-8 text-gray-700">Loading...</div>
         ) : invoice ? (
           <>
             {/* Invoice Info */}
             <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
               <div>
-                <span className="text-gray-500">Created:</span>{' '}
-                {new Date(invoice.created_at).toLocaleDateString()}
+                <span className="text-gray-600 font-medium">Created:</span>{' '}
+                <span className="text-gray-900">{new Date(invoice.created_at).toLocaleDateString()}</span>
               </div>
               {invoice.sent_at && (
                 <div>
-                  <span className="text-gray-500">Sent:</span>{' '}
-                  {new Date(invoice.sent_at).toLocaleDateString()}
+                  <span className="text-gray-600 font-medium">Sent:</span>{' '}
+                  <span className="text-gray-900">{new Date(invoice.sent_at).toLocaleDateString()}</span>
                 </div>
               )}
               {invoice.due_at && (
                 <div>
-                  <span className="text-gray-500">Due:</span>{' '}
-                  {new Date(invoice.due_at + 'T12:00:00').toLocaleDateString()}
+                  <span className="text-gray-600 font-medium">Due:</span>{' '}
+                  <span className="text-gray-900">{new Date(invoice.due_at + 'T12:00:00').toLocaleDateString()}</span>
                 </div>
               )}
               {invoice.sent_to_email && (
                 <div>
-                  <span className="text-gray-500">Sent to:</span>{' '}
-                  {invoice.sent_to_email}
+                  <span className="text-gray-600 font-medium">Sent to:</span>{' '}
+                  <span className="text-gray-900">{invoice.sent_to_email}</span>
                 </div>
               )}
             </div>
@@ -230,28 +230,28 @@ export default function InvoiceDetailModal({
             {/* Line Items */}
             <div className="border rounded-lg overflow-hidden mb-6">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-100">
                   <tr>
-                    <th className="text-left px-4 py-2 font-medium text-gray-600">Description</th>
-                    <th className="text-right px-4 py-2 font-medium text-gray-600 w-20">Qty</th>
-                    <th className="text-right px-4 py-2 font-medium text-gray-600 w-28">Unit Price</th>
-                    <th className="text-right px-4 py-2 font-medium text-gray-600 w-28">Total</th>
+                    <th className="text-left px-4 py-2 font-semibold text-gray-900">Description</th>
+                    <th className="text-right px-4 py-2 font-semibold text-gray-900 w-20">Qty</th>
+                    <th className="text-right px-4 py-2 font-semibold text-gray-900 w-28">Unit Price</th>
+                    <th className="text-right px-4 py-2 font-semibold text-gray-900 w-28">Total</th>
                     {isDraft && <th className="w-10"></th>}
                   </tr>
                 </thead>
                 <tbody>
                   {invoice.items.map((item) => (
                     <tr key={item.id} className="border-t">
-                      <td className="px-4 py-3">{item.description}</td>
-                      <td className="px-4 py-3 text-right">{item.qty}</td>
-                      <td className="px-4 py-3 text-right">{formatCurrency(item.unit_price_cents)}</td>
-                      <td className="px-4 py-3 text-right font-medium">{formatCurrency(item.line_total_cents)}</td>
+                      <td className="px-4 py-3 text-gray-900">{item.description}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium">{item.qty}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(item.unit_price_cents)}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(item.line_total_cents)}</td>
                       {isDraft && (
                         <td className="px-2 py-3">
                           <button
                             onClick={() => handleDeleteItem(item.id)}
                             disabled={saving}
-                            className="text-red-500 hover:text-red-700 disabled:opacity-50"
+                            className="text-red-600 hover:text-red-800 disabled:opacity-50"
                           >
                             ✕
                           </button>
@@ -261,7 +261,7 @@ export default function InvoiceDetailModal({
                   ))}
                   {invoice.items.length === 0 && (
                     <tr>
-                      <td colSpan={isDraft ? 5 : 4} className="px-4 py-6 text-center text-gray-400">
+                      <td colSpan={isDraft ? 5 : 4} className="px-4 py-6 text-center text-gray-600">
                         No line items
                       </td>
                     </tr>
@@ -269,19 +269,19 @@ export default function InvoiceDetailModal({
                 </tbody>
                 <tfoot className="bg-gray-50 border-t">
                   <tr>
-                    <td colSpan={isDraft ? 3 : 2} className="px-4 py-3 text-right font-medium">
+                    <td colSpan={isDraft ? 3 : 2} className="px-4 py-3 text-right text-gray-600 font-medium">
                       Subtotal:
                     </td>
-                    <td className="px-4 py-3 text-right font-medium">
+                    <td className="px-4 py-3 text-right text-gray-900 font-medium">
                       {formatCurrency(invoice.subtotal_cents)}
                     </td>
                     {isDraft && <td></td>}
                   </tr>
-                  <tr>
-                    <td colSpan={isDraft ? 3 : 2} className="px-4 py-3 text-right font-bold">
+                  <tr className="bg-gray-100">
+                    <td colSpan={isDraft ? 3 : 2} className="px-4 py-3 text-right text-gray-900 font-semibold">
                       Total:
                     </td>
-                    <td className="px-4 py-3 text-right font-bold text-lg">
+                    <td className="px-4 py-3 text-right text-gray-900 font-semibold text-lg">
                       {formatCurrency(invoice.total_cents)}
                     </td>
                     {isDraft && <td></td>}
@@ -360,14 +360,18 @@ export default function InvoiceDetailModal({
 
             {/* Payment Summary */}
             {invoice.applied_cents > 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
                 <div className="flex justify-between text-sm">
-                  <span className="text-green-800">Payments Applied:</span>
-                  <span className="font-medium text-green-800">{formatCurrency(invoice.applied_cents)}</span>
+                  <span className="text-green-700 font-medium">Payments Applied:</span>
+                  <span className="text-green-700 font-medium">-{formatCurrency(invoice.applied_cents)}</span>
                 </div>
-                <div className="flex justify-between text-sm mt-1">
-                  <span className="text-green-800 font-medium">Balance Due:</span>
-                  <span className="font-bold text-green-800">{formatCurrency(invoice.balance_cents)}</span>
+                <div className="flex justify-between text-sm mt-2 pt-2 border-t border-gray-200">
+                  <span className={`font-semibold ${invoice.balance_cents <= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    Balance Due:
+                  </span>
+                  <span className={`font-semibold ${invoice.balance_cents <= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {invoice.balance_cents <= 0 ? 'PAID' : formatCurrency(invoice.balance_cents)}
+                  </span>
                 </div>
               </div>
             )}
@@ -457,8 +461,8 @@ export default function InvoiceDetailModal({
                 {/* Read-only public note for sent invoices */}
                 {invoice.public_note && (
                   <div className="mb-6">
-                    <div className="text-sm font-medium text-gray-700 mb-1">Customer Note / Terms</div>
-                    <div className="text-sm text-gray-600 bg-amber-50 border border-amber-200 rounded p-3">
+                    <div className="text-sm font-medium text-gray-900 mb-1">Customer Note / Terms</div>
+                    <div className="text-sm text-gray-900 bg-amber-50 border border-amber-200 rounded p-3">
                       {invoice.public_note}
                     </div>
                   </div>
@@ -466,10 +470,10 @@ export default function InvoiceDetailModal({
                 {/* Read-only internal note for sent invoices */}
                 {invoice.internal_note && (
                   <div className="mb-6">
-                    <div className="text-sm font-medium text-gray-700 mb-1">
-                      Internal Note <span className="text-xs text-red-500">(Staff only)</span>
+                    <div className="text-sm font-medium text-gray-900 mb-1">
+                      Internal Note <span className="text-xs text-red-600">(Staff only)</span>
                     </div>
-                    <div className="text-sm text-gray-600 bg-gray-50 rounded p-3">
+                    <div className="text-sm text-gray-900 bg-gray-50 rounded p-3">
                       {invoice.internal_note}
                     </div>
                   </div>
@@ -480,8 +484,8 @@ export default function InvoiceDetailModal({
             {/* Legacy Notes (for backward compatibility) */}
             {invoice.notes && (
               <div className="mb-6">
-                <div className="text-sm font-medium text-gray-700 mb-1">Notes (Legacy)</div>
-                <div className="text-sm text-gray-600 bg-gray-50 rounded p-3">
+                <div className="text-sm font-medium text-gray-900 mb-1">Notes (Legacy)</div>
+                <div className="text-sm text-gray-900 bg-gray-50 rounded p-3">
                   {invoice.notes}
                 </div>
               </div>
@@ -523,7 +527,7 @@ export default function InvoiceDetailModal({
             </div>
           </>
         ) : (
-          <div className="text-center py-8 text-gray-500">Invoice not found</div>
+          <div className="text-center py-8 text-gray-700">Invoice not found</div>
         )}
       </div>
     </div>
