@@ -85,23 +85,76 @@ export default async function PrintInvoicePage({
   const supabase = createClient()
   const adminClient = createServiceClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Debug logging
+  console.log('[PrintInvoice] params.invoiceId:', params.invoiceId)
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  console.log('[PrintInvoice] user:', user?.id, 'authError:', authError?.message)
+  
   if (!user) {
     redirect('/login')
   }
 
-  const { data: profile } = await adminClient
+  const { data: profile, error: profileError } = await adminClient
     .from('users')
     .select('org_id')
     .eq('id', user.id)
     .single()
 
+  console.log('[PrintInvoice] profile:', profile, 'profileError:', profileError?.message)
+
   if (!profile) {
     redirect('/login')
   }
 
-  // Get invoice with all related data for customer resolution
-  const { data: invoice } = await adminClient
+  // First try to fetch by UUID id
+  let { data: invoice, error: invoiceError } = await adminClient
+    .from('job_invoices')
+    .select(`
+      *,
+      production_jobs!inner(
+        org_id,
+        job_number,
+        address_text,
+        customer_id
+      )
+    `)
+    .eq('id', params.invoiceId)
+    .single()
+
+  console.log('[PrintInvoice] invoice by id:', invoice?.id, 'error:', invoiceError?.message)
+
+  // If not found by id, try by invoice_number
+  if (!invoice && invoiceError) {
+    const { data: invoiceByNumber, error: numberError } = await adminClient
+      .from('job_invoices')
+      .select(`
+        *,
+        production_jobs!inner(
+          org_id,
+          job_number,
+          address_text,
+          customer_id
+        )
+      `)
+      .eq('invoice_number', params.invoiceId)
+      .single()
+    
+    console.log('[PrintInvoice] invoice by number:', invoiceByNumber?.id, 'error:', numberError?.message)
+    
+    if (invoiceByNumber) {
+      invoice = invoiceByNumber
+      invoiceError = null
+    }
+  }
+
+  if (!invoice || (invoice as any).production_jobs?.org_id !== profile.org_id) {
+    console.log('[PrintInvoice] NOT FOUND - invoice:', !!invoice, 'org match:', (invoice as any)?.production_jobs?.org_id === profile.org_id)
+    return <div className="p-8 text-center">Invoice not found</div>
+  }
+
+  // Now fetch the full data with customer relations
+  const { data: fullInvoice, error: fullError } = await adminClient
     .from('job_invoices')
     .select(`
       *,
@@ -110,21 +163,47 @@ export default async function PrintInvoicePage({
         job_number,
         address_text,
         customer_id,
-        job_customer:customers!production_jobs_customer_id_fkey(id, name, email, phone, address_text),
         project:projects(
           id,
           customer_id,
-          project_customer:customers!projects_customer_id_fkey(id, name, email, phone, address_text),
           proposal:proposals(customer_name, customer_email, customer_phone, customer_address)
         )
       )
     `)
-    .eq('id', params.invoiceId)
+    .eq('id', invoice.id)
     .single()
 
-  if (!invoice || (invoice as any).production_jobs?.org_id !== profile.org_id) {
-    return <div className="p-8 text-center">Invoice not found</div>
+  console.log('[PrintInvoice] fullInvoice:', fullInvoice?.id, 'fullError:', fullError?.message)
+
+  // Get job customer separately (simpler query)
+  const job = (fullInvoice || invoice) as any
+  let jobCustomer = null
+  if (job.production_jobs?.customer_id) {
+    const { data: customer } = await adminClient
+      .from('customers')
+      .select('id, name, email, phone, address_text')
+      .eq('id', job.production_jobs.customer_id)
+      .single()
+    jobCustomer = customer
   }
+
+  // Get project customer separately
+  const project = Array.isArray(job.production_jobs?.project) 
+    ? job.production_jobs.project[0] 
+    : job.production_jobs?.project
+  let projectCustomer = null
+  if (project?.customer_id) {
+    const { data: customer } = await adminClient
+      .from('customers')
+      .select('id, name, email, phone, address_text')
+      .eq('id', project.customer_id)
+      .single()
+    projectCustomer = customer
+  }
+
+  const proposal = project?.proposal
+    ? (Array.isArray(project.proposal) ? project.proposal[0] : project.proposal)
+    : null
 
   // Get line items
   const { data: items } = await adminClient
@@ -151,24 +230,12 @@ export default async function PrintInvoicePage({
     .eq('id', profile.org_id)
     .single()
 
-  const job = (invoice as any).production_jobs
-  const project = Array.isArray(job.project) ? job.project[0] : job.project
-  
-  // Extract customer data from nested relations
-  const jobCustomer = Array.isArray(job.job_customer) ? job.job_customer[0] : job.job_customer
-  const projectCustomer = project?.project_customer 
-    ? (Array.isArray(project.project_customer) ? project.project_customer[0] : project.project_customer)
-    : null
-  const proposal = project?.proposal
-    ? (Array.isArray(project.proposal) ? project.proposal[0] : project.proposal)
-    : null
-
   // Resolve customer with priority chain
   const resolvedCustomer = resolveCustomer(
     jobCustomer,
     projectCustomer,
     proposal,
-    job.address_text || ''
+    job.production_jobs?.address_text || ''
   )
 
   const companyAddress = [
