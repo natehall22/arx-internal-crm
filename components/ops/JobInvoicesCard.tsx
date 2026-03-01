@@ -162,7 +162,7 @@ export default function JobInvoicesCard({
       </div>
 
       {loading ? (
-        <div className="text-center py-4 text-gray-600 text-sm">Loading...</div>
+        <div className="text-center py-4 text-gray-900 text-sm">Loading...</div>
       ) : activeInvoices.length > 0 ? (
         <div className="space-y-3">
           {activeInvoices.map((invoice) => (
@@ -175,7 +175,7 @@ export default function JobInvoicesCard({
                   <div className="font-medium text-gray-900 flex items-center gap-2">
                     {invoice.invoice_number}
                     {invoice.invoice_kind && invoice.invoice_kind !== 'standard' && (
-                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
+                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-900 rounded">
                         {INVOICE_KIND_LABELS[invoice.invoice_kind]}
                       </span>
                     )}
@@ -196,7 +196,7 @@ export default function JobInvoicesCard({
               <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                 <div>
                   <span className="text-gray-900">Total:</span>{' '}
-                  <span className="font-medium">{formatCurrency(invoice.total_cents)}</span>
+                  <span className="font-medium text-gray-900">{formatCurrency(invoice.total_cents)}</span>
                 </div>
                 {invoice.sent_to_email && (
                   <div className="text-gray-900 truncate" title={invoice.sent_to_email}>
@@ -255,7 +255,7 @@ export default function JobInvoicesCard({
           {/* Show voided invoices collapsed */}
           {voidedInvoices.length > 0 && (
             <details className="mt-4">
-              <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+              <summary className="text-sm text-gray-700 cursor-pointer hover:text-gray-900">
                 {voidedInvoices.length} voided invoice{voidedInvoices.length !== 1 ? 's' : ''}
               </summary>
               <div className="mt-2 space-y-2">
@@ -265,11 +265,11 @@ export default function JobInvoicesCard({
                     className="border border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 opacity-60"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">{invoice.invoice_number}</span>
+                      <span className="text-sm text-gray-900">{invoice.invoice_number}</span>
                       <span className="text-xs text-red-600">Voided</span>
                     </div>
                     {invoice.void_reason && (
-                      <p className="text-xs text-gray-500 mt-1">Reason: {invoice.void_reason}</p>
+                      <p className="text-xs text-gray-700 mt-1">Reason: {invoice.void_reason}</p>
                     )}
                   </div>
                 ))}
@@ -278,7 +278,7 @@ export default function JobInvoicesCard({
           )}
         </div>
       ) : (
-        <div className="text-center py-6 text-gray-600 text-sm">
+        <div className="text-center py-6 text-gray-900 text-sm">
           No invoices yet
           {saleAmount && saleAmount > 0 && (
             <div className="mt-2">

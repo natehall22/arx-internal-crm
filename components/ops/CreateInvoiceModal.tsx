@@ -93,7 +93,7 @@ export default function CreateInvoiceModal({
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium text-gray-900">Deposit Invoice</div>
-                  <div className="text-sm text-gray-600">
+                  <div className="text-sm text-gray-900">
                     {formatCurrency(depositInfo.totalDepositCents)} - Auto-applies deposit payment
                   </div>
                 </div>
@@ -114,7 +114,7 @@ export default function CreateInvoiceModal({
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium text-gray-900">Final Invoice</div>
-                  <div className="text-sm text-gray-600">
+                  <div className="text-sm text-gray-900">
                     {formatCurrency(remainingBalance)} - Remaining balance after deposit
                   </div>
                 </div>
@@ -132,7 +132,7 @@ export default function CreateInvoiceModal({
             className="w-full p-4 border border-gray-300 rounded-lg hover:bg-gray-50 text-left transition disabled:opacity-50"
           >
             <div className="font-medium text-gray-900">Full Contract Invoice</div>
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-gray-900">
               {formatCurrency(saleAmountCents)} - Full contract amount
             </div>
             {depositInfo.hasDeposit && !depositInfo.hasActiveDepositInvoice && (
@@ -147,7 +147,7 @@ export default function CreateInvoiceModal({
           <button
             onClick={onClose}
             disabled={creating}
-            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
+            className="px-4 py-2 text-sm text-gray-900 hover:text-black"
           >
             Cancel
           </button>
@@ -155,7 +155,7 @@ export default function CreateInvoiceModal({
 
         {creating && (
           <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
-            <div className="text-gray-600">Creating invoice...</div>
+            <div className="text-gray-900">Creating invoice...</div>
           </div>
         )}
       </div>
