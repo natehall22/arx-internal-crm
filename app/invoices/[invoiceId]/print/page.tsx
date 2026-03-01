@@ -140,55 +140,59 @@ export default async function PrintInvoicePage({
     return <div className="p-8 text-center">Invoice not found</div>
   }
 
-  // Fetch full data with project relations
-  const { data: fullInvoice } = await adminClient
-    .from('job_invoices')
-    .select(`
-      *,
-      production_jobs!inner(
-        org_id,
-        job_number,
-        address_text,
-        customer_id,
-        project:projects(
-          id,
-          customer_id,
-          proposal:proposals(customer_name, customer_email, customer_phone, customer_address)
-        )
-      )
-    `)
-    .eq('id', invoice.id)
+  // Get job with project_id
+  const { data: jobData } = await adminClient
+    .from('production_jobs')
+    .select('id, org_id, job_number, address_text, customer_id, project_id')
+    .eq('id', invoice.job_id)
     .single()
 
-  // Get job customer separately (simpler query)
-  const job = (fullInvoice || invoice) as any
+  const job = { production_jobs: jobData }
+
+  // Get job customer
   let jobCustomer = null
-  if (job.production_jobs?.customer_id) {
+  if (jobData?.customer_id) {
     const { data: customer } = await adminClient
       .from('customers')
       .select('id, name, email, phone, address_text')
-      .eq('id', job.production_jobs.customer_id)
+      .eq('id', jobData.customer_id)
       .single()
     jobCustomer = customer
   }
 
-  // Get project customer separately
-  const project = Array.isArray(job.production_jobs?.project) 
-    ? job.production_jobs.project[0] 
-    : job.production_jobs?.project
+  // Get project and project customer
+  let project = null
   let projectCustomer = null
-  if (project?.customer_id) {
-    const { data: customer } = await adminClient
-      .from('customers')
-      .select('id, name, email, phone, address_text')
-      .eq('id', project.customer_id)
+  if (jobData?.project_id) {
+    const { data: projectData } = await adminClient
+      .from('projects')
+      .select('id, customer_id')
+      .eq('id', jobData.project_id)
       .single()
-    projectCustomer = customer
+    project = projectData
+
+    if (projectData?.customer_id) {
+      const { data: customer } = await adminClient
+        .from('customers')
+        .select('id, name, email, phone, address_text')
+        .eq('id', projectData.customer_id)
+        .single()
+      projectCustomer = customer
+    }
   }
 
-  const proposal = project?.proposal
-    ? (Array.isArray(project.proposal) ? project.proposal[0] : project.proposal)
-    : null
+  // Get proposal by project_id (proposals.project_id -> projects.id)
+  let proposal = null
+  if (jobData?.project_id) {
+    const { data: proposalData } = await adminClient
+      .from('proposals')
+      .select('customer_name, customer_email, customer_phone, customer_address')
+      .eq('project_id', jobData.project_id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    proposal = proposalData
+  }
 
   // Get line items
   const { data: items } = await adminClient
@@ -220,7 +224,7 @@ export default async function PrintInvoicePage({
     jobCustomer,
     projectCustomer,
     proposal,
-    job.production_jobs?.address_text || ''
+    jobData?.address_text || ''
   )
 
   const companyAddress = [
