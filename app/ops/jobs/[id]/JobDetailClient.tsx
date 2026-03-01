@@ -9,6 +9,7 @@ import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
+import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
@@ -643,7 +644,10 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   </Link>
                 </div>
               ) : (
-                <p className="text-gray-500">No customer linked</p>
+                <div>
+                  <p className="text-gray-500 mb-2">No customer linked</p>
+                  <LinkCustomerButton sourceType="job" sourceId={job.id} />
+                </div>
               )}
             </div>
 

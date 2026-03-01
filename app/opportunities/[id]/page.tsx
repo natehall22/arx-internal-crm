@@ -8,6 +8,7 @@ import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import ContractUpload from '@/components/ContractUpload'
 import DeleteOpportunityButton from '@/components/DeleteOpportunityButton'
+import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 
 export default async function OpportunityDetailPage({
   params,
@@ -253,6 +254,22 @@ export default async function OpportunityDetailPage({
             <div>
               <h3 className="text-sm font-medium text-gray-500">Closer</h3>
               <p className="mt-1 text-sm text-gray-900">{closer?.full_name || 'N/A'}</p>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-500">Customer</h3>
+              {opportunity.customer_id ? (
+                <Link
+                  href={`/customers/${opportunity.customer_id}`}
+                  className="mt-1 inline-block text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  {opportunity.customers?.name || 'View customer'}
+                </Link>
+              ) : (
+                <div className="mt-1">
+                  <p className="text-sm text-gray-500">Not linked</p>
+                  <LinkCustomerButton sourceType="opportunity" sourceId={opportunity.id} className="mt-1" />
+                </div>
+              )}
             </div>
           </div>
         </div>

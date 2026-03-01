@@ -11,6 +11,7 @@ import SendToOpsButton from '@/components/SendToOpsButton'
 import ProjectStatusUpdate from '@/components/ProjectStatusUpdate'
 import DeleteProjectButton from '@/components/DeleteProjectButton'
 import ProjectFinancialSnapshot from '@/components/ProjectFinancialSnapshot'
+import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 
 export default async function ProjectDetailPage({
   params,
@@ -187,9 +188,12 @@ export default async function ProjectDetailPage({
                   {project.customers?.name || 'View customer'}
                 </Link>
               ) : (
-                <p className="mt-1 text-sm text-gray-900">
-                  {project.customers?.name || project.leads?.homeowner_name || 'N/A'}
-                </p>
+                <div className="mt-1">
+                  <p className="text-sm text-gray-900">
+                    {project.leads?.homeowner_name || 'N/A'}
+                  </p>
+                  <LinkCustomerButton sourceType="project" sourceId={project.id} className="mt-1" />
+                </div>
               )}
             </div>
             <div>
