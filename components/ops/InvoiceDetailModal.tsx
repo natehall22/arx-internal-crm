@@ -44,7 +44,6 @@ export default function InvoiceDetailModal({
     loadInvoice()
   }, [invoiceId])
 
-  // Auto-prefill public_note based on invoice_kind (only if empty)
   useEffect(() => {
     if (invoice && invoice.status === 'draft' && !publicNote && !notesChanged) {
       if (invoice.invoice_kind === 'deposit') {
@@ -177,10 +176,11 @@ export default function InvoiceDetailModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-md max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
           <div>
-            <h3 className="text-lg font-bold text-gray-900">
+            <h3 className="text-xl font-semibold text-gray-900">
               {invoice?.invoice_number || 'Invoice'}
             </h3>
             {invoice && (
@@ -191,67 +191,67 @@ export default function InvoiceDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
           >
-            ✕
+            <span className="text-lg">✕</span>
           </button>
         </div>
 
         {loading ? (
-          <div className="text-center py-8 text-gray-700">Loading...</div>
+          <div className="text-center py-8 text-gray-900">Loading...</div>
         ) : invoice ? (
           <>
             {/* Invoice Info */}
             <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
               <div>
-                <span className="text-gray-600 font-medium">Created:</span>{' '}
-                <span className="text-gray-900">{new Date(invoice.created_at).toLocaleDateString()}</span>
+                <span className="text-gray-600">Created:</span>{' '}
+                <span className="text-gray-900 font-medium">{new Date(invoice.created_at).toLocaleDateString()}</span>
               </div>
               {invoice.sent_at && (
                 <div>
-                  <span className="text-gray-600 font-medium">Sent:</span>{' '}
-                  <span className="text-gray-900">{new Date(invoice.sent_at).toLocaleDateString()}</span>
+                  <span className="text-gray-600">Sent:</span>{' '}
+                  <span className="text-gray-900 font-medium">{new Date(invoice.sent_at).toLocaleDateString()}</span>
                 </div>
               )}
               {invoice.due_at && (
                 <div>
-                  <span className="text-gray-600 font-medium">Due:</span>{' '}
-                  <span className="text-gray-900">{new Date(invoice.due_at + 'T12:00:00').toLocaleDateString()}</span>
+                  <span className="text-gray-600">Due:</span>{' '}
+                  <span className="text-gray-900 font-medium">{new Date(invoice.due_at + 'T12:00:00').toLocaleDateString()}</span>
                 </div>
               )}
               {invoice.sent_to_email && (
                 <div>
-                  <span className="text-gray-600 font-medium">Sent to:</span>{' '}
-                  <span className="text-gray-900">{invoice.sent_to_email}</span>
+                  <span className="text-gray-600">Sent to:</span>{' '}
+                  <span className="text-gray-900 font-medium">{invoice.sent_to_email}</span>
                 </div>
               )}
             </div>
 
-            {/* Line Items */}
-            <div className="border rounded-lg overflow-hidden mb-6">
+            {/* Line Items Table */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden mb-6">
               <table className="w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="text-left px-4 py-2 font-semibold text-gray-900">Description</th>
-                    <th className="text-right px-4 py-2 font-semibold text-gray-900 w-20">Qty</th>
-                    <th className="text-right px-4 py-2 font-semibold text-gray-900 w-28">Unit Price</th>
-                    <th className="text-right px-4 py-2 font-semibold text-gray-900 w-28">Total</th>
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left px-4 py-3 font-semibold text-gray-700">Description</th>
+                    <th className="text-right px-4 py-3 font-semibold text-gray-700 w-20">Qty</th>
+                    <th className="text-right px-4 py-3 font-semibold text-gray-700 w-28">Unit Price</th>
+                    <th className="text-right px-4 py-3 font-semibold text-gray-700 w-28">Total</th>
                     {isDraft && <th className="w-10"></th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {invoice.items.map((item) => (
-                    <tr key={item.id} className="border-t">
+                  {invoice.items.map((item, index) => (
+                    <tr key={item.id} className={index > 0 ? 'border-t border-gray-100' : ''}>
                       <td className="px-4 py-3 text-gray-900">{item.description}</td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium">{item.qty}</td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(item.unit_price_cents)}</td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(item.line_total_cents)}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{item.qty}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(item.unit_price_cents)}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(item.line_total_cents)}</td>
                       {isDraft && (
-                        <td className="px-2 py-3">
+                        <td className="px-2 py-3 text-center">
                           <button
                             onClick={() => handleDeleteItem(item.id)}
                             disabled={saving}
-                            className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                            className={`text-red-600 hover:text-red-800 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
                           >
                             ✕
                           </button>
@@ -267,34 +267,28 @@ export default function InvoiceDetailModal({
                     </tr>
                   )}
                 </tbody>
-                <tfoot className="bg-gray-50 border-t">
-                  <tr>
-                    <td colSpan={isDraft ? 3 : 2} className="px-4 py-3 text-right text-gray-600 font-medium">
-                      Subtotal:
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-900 font-medium">
-                      {formatCurrency(invoice.subtotal_cents)}
-                    </td>
-                    {isDraft && <td></td>}
-                  </tr>
-                  <tr className="bg-gray-100">
-                    <td colSpan={isDraft ? 3 : 2} className="px-4 py-3 text-right text-gray-900 font-semibold">
-                      Total:
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-900 font-semibold text-lg">
-                      {formatCurrency(invoice.total_cents)}
-                    </td>
-                    {isDraft && <td></td>}
-                  </tr>
-                </tfoot>
               </table>
+
+              {/* Totals Section - Clean white background with borders */}
+              <div className="border-t border-gray-200">
+                <div className="flex justify-end px-4 py-3 border-b border-gray-100">
+                  <span className="text-gray-600 mr-8">Subtotal:</span>
+                  <span className="text-gray-900 font-medium tabular-nums w-28 text-right">{formatCurrency(invoice.subtotal_cents)}</span>
+                  {isDraft && <span className="w-10"></span>}
+                </div>
+                <div className="flex justify-end px-4 py-3">
+                  <span className="text-gray-900 font-semibold mr-8">Total:</span>
+                  <span className="text-gray-900 font-semibold text-lg tabular-nums w-28 text-right">{formatCurrency(invoice.total_cents)}</span>
+                  {isDraft && <span className="w-10"></span>}
+                </div>
+              </div>
             </div>
 
             {/* Add Item Form (Draft only) */}
             {isDraft && (
               <div className="mb-6">
                 {showAddItem ? (
-                  <form onSubmit={handleAddItem} className="border rounded-lg p-4 bg-gray-50">
+                  <form onSubmit={handleAddItem} className="border border-gray-200 rounded-lg p-4">
                     <div className="grid grid-cols-12 gap-3">
                       <div className="col-span-6">
                         <input
@@ -302,7 +296,7 @@ export default function InvoiceDetailModal({
                           placeholder="Description"
                           value={newItem.description}
                           onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           required
                         />
                       </div>
@@ -314,7 +308,7 @@ export default function InvoiceDetailModal({
                           min="0.01"
                           value={newItem.qty}
                           onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 tabular-nums focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                       </div>
                       <div className="col-span-2">
@@ -325,7 +319,7 @@ export default function InvoiceDetailModal({
                           min="0"
                           value={newItem.unit_price}
                           onChange={(e) => setNewItem({ ...newItem, unit_price: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 tabular-nums focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           required
                         />
                       </div>
@@ -333,14 +327,14 @@ export default function InvoiceDetailModal({
                         <button
                           type="submit"
                           disabled={saving}
-                          className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
+                          className={`flex-1 px-3 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           Add
                         </button>
                         <button
                           type="button"
                           onClick={() => setShowAddItem(false)}
-                          className="px-3 py-2 border border-gray-300 rounded text-sm hover:bg-gray-100"
+                          className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded text-sm hover:bg-gray-50"
                         >
                           ✕
                         </button>
@@ -350,7 +344,7 @@ export default function InvoiceDetailModal({
                 ) : (
                   <button
                     onClick={() => setShowAddItem(true)}
-                    className="text-sm text-indigo-600 hover:text-indigo-800"
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
                   >
                     + Add Line Item
                   </button>
@@ -360,16 +354,16 @@ export default function InvoiceDetailModal({
 
             {/* Payment Summary */}
             {invoice.applied_cents > 0 && (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+              <div className="border border-gray-200 rounded-lg p-4 mb-6">
                 <div className="flex justify-between text-sm">
                   <span className="text-green-700 font-medium">Payments Applied:</span>
-                  <span className="text-green-700 font-medium">-{formatCurrency(invoice.applied_cents)}</span>
+                  <span className="text-green-700 font-medium tabular-nums">-{formatCurrency(invoice.applied_cents)}</span>
                 </div>
-                <div className="flex justify-between text-sm mt-2 pt-2 border-t border-gray-200">
+                <div className="flex justify-between text-sm mt-3 pt-3 border-t border-gray-200">
                   <span className={`font-semibold ${invoice.balance_cents <= 0 ? 'text-green-700' : 'text-red-600'}`}>
                     Balance Due:
                   </span>
-                  <span className={`font-semibold ${invoice.balance_cents <= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  <span className={`font-semibold tabular-nums ${invoice.balance_cents <= 0 ? 'text-green-700' : 'text-red-600'}`}>
                     {invoice.balance_cents <= 0 ? 'PAID' : formatCurrency(invoice.balance_cents)}
                   </span>
                 </div>
@@ -378,47 +372,47 @@ export default function InvoiceDetailModal({
 
             {/* Customer Note / Terms (Draft: editable, Sent+: read-only) */}
             {isDraft ? (
-              <div className="mb-6 border rounded-lg p-4 bg-gray-50">
+              <div className="mb-6 border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-900">Customer Note / Terms</label>
-                  <span className="text-xs text-gray-500">Appears on PDF</span>
+                  <label className="text-sm font-semibold text-gray-900">Customer Note / Terms</label>
+                  <span className="text-xs text-gray-600">Appears on PDF</span>
                 </div>
                 
                 {/* Template buttons */}
                 <div className="flex flex-wrap gap-1 mb-2">
-                  <span className="text-xs text-gray-500 mr-1">Insert:</span>
+                  <span className="text-xs text-gray-600 mr-1">Insert:</span>
                   <button
                     type="button"
                     onClick={() => handleInsertTemplate('deposit')}
-                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
                   >
                     Deposit Terms
                   </button>
                   <button
                     type="button"
                     onClick={() => handleInsertTemplate('final')}
-                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
                   >
                     Final Terms
                   </button>
                   <button
                     type="button"
                     onClick={() => handleInsertTemplate('net7')}
-                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
                   >
                     Net 7
                   </button>
                   <button
                     type="button"
                     onClick={() => handleInsertTemplate('net14')}
-                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
                   >
                     Net 14
                   </button>
                   <button
                     type="button"
                     onClick={() => handleInsertTemplate('due_upon_completion')}
-                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
                   >
                     Due Upon Completion
                   </button>
@@ -429,19 +423,19 @@ export default function InvoiceDetailModal({
                   onChange={(e) => { setPublicNote(e.target.value); setNotesChanged(true) }}
                   placeholder="Payment terms or notes for the customer..."
                   rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm mb-3"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 mb-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
 
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-900">Internal Note</label>
-                  <span className="text-xs text-red-500">Staff only - NOT on PDF</span>
+                  <label className="text-sm font-semibold text-gray-900">Internal Note</label>
+                  <span className="text-xs text-red-600 font-medium">Staff only - NOT on PDF</span>
                 </div>
                 <textarea
                   value={internalNote}
                   onChange={(e) => { setInternalNote(e.target.value); setNotesChanged(true) }}
                   placeholder="Internal notes (not visible to customer)..."
                   rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
 
                 {notesChanged && (
@@ -449,7 +443,7 @@ export default function InvoiceDetailModal({
                     <button
                       onClick={handleSaveNotes}
                       disabled={saving}
-                      className="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                      className={`text-sm px-4 py-2 bg-indigo-600 text-white rounded font-medium hover:bg-indigo-700 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {saving ? 'Saving...' : 'Save Notes'}
                     </button>
@@ -461,8 +455,8 @@ export default function InvoiceDetailModal({
                 {/* Read-only public note for sent invoices */}
                 {invoice.public_note && (
                   <div className="mb-6">
-                    <div className="text-sm font-medium text-gray-900 mb-1">Customer Note / Terms</div>
-                    <div className="text-sm text-gray-900 bg-amber-50 border border-amber-200 rounded p-3">
+                    <div className="text-sm font-semibold text-gray-900 mb-2">Customer Note / Terms</div>
+                    <div className="text-sm text-gray-900 border border-amber-200 bg-amber-50 rounded-lg p-3">
                       {invoice.public_note}
                     </div>
                   </div>
@@ -470,10 +464,10 @@ export default function InvoiceDetailModal({
                 {/* Read-only internal note for sent invoices */}
                 {invoice.internal_note && (
                   <div className="mb-6">
-                    <div className="text-sm font-medium text-gray-900 mb-1">
-                      Internal Note <span className="text-xs text-red-600">(Staff only)</span>
+                    <div className="text-sm font-semibold text-gray-900 mb-2">
+                      Internal Note <span className="text-xs text-red-600 font-medium">(Staff only)</span>
                     </div>
-                    <div className="text-sm text-gray-900 bg-gray-50 rounded p-3">
+                    <div className="text-sm text-gray-900 border border-gray-200 rounded-lg p-3">
                       {invoice.internal_note}
                     </div>
                   </div>
@@ -484,8 +478,8 @@ export default function InvoiceDetailModal({
             {/* Legacy Notes (for backward compatibility) */}
             {invoice.notes && (
               <div className="mb-6">
-                <div className="text-sm font-medium text-gray-900 mb-1">Notes (Legacy)</div>
-                <div className="text-sm text-gray-900 bg-gray-50 rounded p-3">
+                <div className="text-sm font-semibold text-gray-900 mb-2">Notes (Legacy)</div>
+                <div className="text-sm text-gray-900 border border-gray-200 rounded-lg p-3">
                   {invoice.notes}
                 </div>
               </div>
@@ -493,12 +487,12 @@ export default function InvoiceDetailModal({
 
             {/* Void Info */}
             {invoice.status === 'void' && invoice.void_reason && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <div className="border border-red-200 rounded-lg p-4 mb-6">
                 <div className="text-sm text-red-800">
                   <strong>Voided:</strong> {invoice.void_reason}
                 </div>
                 {invoice.voided_at && (
-                  <div className="text-xs text-red-600 mt-1">
+                  <div className="text-xs text-red-700 mt-1">
                     {new Date(invoice.voided_at).toLocaleString()}
                   </div>
                 )}
@@ -506,13 +500,13 @@ export default function InvoiceDetailModal({
             )}
 
             {/* Actions */}
-            <div className="flex justify-between pt-4 border-t">
+            <div className="flex justify-between pt-4 border-t border-gray-200">
               <div>
                 {!isDraft && invoice.status !== 'void' && (
                   <button
                     onClick={handleDuplicate}
                     disabled={saving}
-                    className="text-sm px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                    className={`text-sm px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded font-medium hover:bg-gray-50 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     Duplicate as Draft
                   </button>
@@ -520,14 +514,14 @@ export default function InvoiceDetailModal({
               </div>
               <button
                 onClick={onClose}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
+                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
               >
                 Close
               </button>
             </div>
           </>
         ) : (
-          <div className="text-center py-8 text-gray-700">Invoice not found</div>
+          <div className="text-center py-8 text-gray-900">Invoice not found</div>
         )}
       </div>
     </div>
