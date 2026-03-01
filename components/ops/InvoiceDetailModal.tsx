@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { InvoiceWithItems, INVOICE_STATUS_LABELS, INVOICE_STATUS_COLORS } from '@/lib/types/invoices'
+import { InvoiceWithItems, INVOICE_STATUS_LABELS, INVOICE_STATUS_COLORS, INVOICE_NOTE_TEMPLATES } from '@/lib/types/invoices'
 import { formatCurrency } from '@/lib/job-payments'
 
 interface InvoiceDetailModalProps {
@@ -19,6 +19,9 @@ export default function InvoiceDetailModal({
   const [newItem, setNewItem] = useState({ description: '', qty: '1', unit_price: '' })
   const [showAddItem, setShowAddItem] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [publicNote, setPublicNote] = useState('')
+  const [internalNote, setInternalNote] = useState('')
+  const [notesChanged, setNotesChanged] = useState(false)
 
   const loadInvoice = async () => {
     try {
@@ -26,6 +29,9 @@ export default function InvoiceDetailModal({
       if (response.ok) {
         const data = await response.json()
         setInvoice(data.invoice)
+        setPublicNote(data.invoice?.public_note || '')
+        setInternalNote(data.invoice?.internal_note || '')
+        setNotesChanged(false)
       }
     } catch (error) {
       console.error('Error loading invoice:', error)
@@ -37,6 +43,54 @@ export default function InvoiceDetailModal({
   useEffect(() => {
     loadInvoice()
   }, [invoiceId])
+
+  // Auto-prefill public_note based on invoice_kind (only if empty)
+  useEffect(() => {
+    if (invoice && invoice.status === 'draft' && !publicNote && !notesChanged) {
+      if (invoice.invoice_kind === 'deposit') {
+        setPublicNote(INVOICE_NOTE_TEMPLATES.deposit)
+      } else if (invoice.invoice_kind === 'final') {
+        setPublicNote(INVOICE_NOTE_TEMPLATES.final)
+      }
+    }
+  }, [invoice?.invoice_kind, invoice?.status])
+
+  const handleInsertTemplate = (templateKey: keyof typeof INVOICE_NOTE_TEMPLATES) => {
+    const template = INVOICE_NOTE_TEMPLATES[templateKey]
+    if (publicNote && publicNote !== template) {
+      if (!confirm('Replace existing note with template?')) return
+    }
+    setPublicNote(template)
+    setNotesChanged(true)
+  }
+
+  const handleSaveNotes = async () => {
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_notes',
+          public_note: publicNote,
+          internal_note: internalNote,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setInvoice(data.invoice)
+        setNotesChanged(false)
+      } else {
+        const error = await response.json()
+        alert(error.error || 'Failed to save notes')
+      }
+    } catch (error) {
+      console.error('Error saving notes:', error)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -318,10 +372,115 @@ export default function InvoiceDetailModal({
               </div>
             )}
 
-            {/* Notes */}
+            {/* Customer Note / Terms (Draft: editable, Sent+: read-only) */}
+            {isDraft ? (
+              <div className="mb-6 border rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-900">Customer Note / Terms</label>
+                  <span className="text-xs text-gray-500">Appears on PDF</span>
+                </div>
+                
+                {/* Template buttons */}
+                <div className="flex flex-wrap gap-1 mb-2">
+                  <span className="text-xs text-gray-500 mr-1">Insert:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTemplate('deposit')}
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                  >
+                    Deposit Terms
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTemplate('final')}
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                  >
+                    Final Terms
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTemplate('net7')}
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                  >
+                    Net 7
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTemplate('net14')}
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                  >
+                    Net 14
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTemplate('due_upon_completion')}
+                    className="text-xs px-2 py-0.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+                  >
+                    Due Upon Completion
+                  </button>
+                </div>
+                
+                <textarea
+                  value={publicNote}
+                  onChange={(e) => { setPublicNote(e.target.value); setNotesChanged(true) }}
+                  placeholder="Payment terms or notes for the customer..."
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm mb-3"
+                />
+
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-900">Internal Note</label>
+                  <span className="text-xs text-red-500">Staff only - NOT on PDF</span>
+                </div>
+                <textarea
+                  value={internalNote}
+                  onChange={(e) => { setInternalNote(e.target.value); setNotesChanged(true) }}
+                  placeholder="Internal notes (not visible to customer)..."
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                />
+
+                {notesChanged && (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      onClick={handleSaveNotes}
+                      disabled={saving}
+                      className="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {saving ? 'Saving...' : 'Save Notes'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Read-only public note for sent invoices */}
+                {invoice.public_note && (
+                  <div className="mb-6">
+                    <div className="text-sm font-medium text-gray-700 mb-1">Customer Note / Terms</div>
+                    <div className="text-sm text-gray-600 bg-amber-50 border border-amber-200 rounded p-3">
+                      {invoice.public_note}
+                    </div>
+                  </div>
+                )}
+                {/* Read-only internal note for sent invoices */}
+                {invoice.internal_note && (
+                  <div className="mb-6">
+                    <div className="text-sm font-medium text-gray-700 mb-1">
+                      Internal Note <span className="text-xs text-red-500">(Staff only)</span>
+                    </div>
+                    <div className="text-sm text-gray-600 bg-gray-50 rounded p-3">
+                      {invoice.internal_note}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Legacy Notes (for backward compatibility) */}
             {invoice.notes && (
               <div className="mb-6">
-                <div className="text-sm font-medium text-gray-700 mb-1">Notes</div>
+                <div className="text-sm font-medium text-gray-700 mb-1">Notes (Legacy)</div>
                 <div className="text-sm text-gray-600 bg-gray-50 rounded p-3">
                   {invoice.notes}
                 </div>

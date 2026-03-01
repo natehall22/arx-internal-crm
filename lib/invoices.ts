@@ -215,6 +215,7 @@ export async function createDepositInvoiceV2(
       subtotal_cents: invoiceAmountCents,
       total_cents: invoiceAmountCents,
       issued_at: new Date().toISOString().split('T')[0],
+      public_note: 'Remaining balance due at installation.',
     })
     .select()
     .single()
@@ -313,6 +314,7 @@ export async function createFinalInvoice(
       invoice_kind: 'final',
       subtotal_cents: finalAmountCents,
       total_cents: finalAmountCents,
+      public_note: 'Payment due upon completion.',
     })
     .select()
     .single()
@@ -960,6 +962,8 @@ export async function duplicateInvoiceAsDraft(
       created_by: createdBy,
       status: 'draft',
       notes: original.notes,
+      public_note: original.public_note,
+      internal_note: original.internal_note,
       due_at: original.due_at,
     })
     .select()

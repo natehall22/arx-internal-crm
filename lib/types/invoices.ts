@@ -14,12 +14,24 @@ export interface JobInvoice {
   subtotal_cents: number
   total_cents: number
   notes: string | null
+  public_note: string | null
+  internal_note: string | null
   created_at: string
   created_by: string | null
   voided_at: string | null
   void_reason: string | null
   pdf_path: string | null
 }
+
+export const INVOICE_NOTE_TEMPLATES = {
+  deposit: 'Remaining balance due at installation.',
+  final: 'Payment due upon completion.',
+  net7: 'Payment due within 7 days of invoice date.',
+  net14: 'Payment due within 14 days of invoice date.',
+  due_upon_completion: 'Payment due upon completion of work.',
+} as const
+
+export type InvoiceNoteTemplate = keyof typeof INVOICE_NOTE_TEMPLATES
 
 export interface JobInvoiceItem {
   id: string

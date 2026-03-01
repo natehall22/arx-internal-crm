@@ -165,20 +165,27 @@ export async function PATCH(
       }
 
       case 'update_notes': {
-        const { notes, due_at } = body
+        const { notes, due_at, public_note, internal_note } = body
         if (invoiceCheck.status !== 'draft') {
           return NextResponse.json({ error: 'Can only update notes on draft invoices' }, { status: 400 })
         }
+        const updateData: Record<string, any> = {}
+        if (notes !== undefined) updateData.notes = notes
+        if (due_at !== undefined) updateData.due_at = due_at
+        if (public_note !== undefined) updateData.public_note = public_note
+        if (internal_note !== undefined) updateData.internal_note = internal_note
+        
         const { data: updated, error } = await adminClient
           .from('job_invoices')
-          .update({ notes, due_at })
+          .update(updateData)
           .eq('id', params.invoiceId)
           .select()
           .single()
         if (error) {
           return NextResponse.json({ error: error.message }, { status: 500 })
         }
-        return NextResponse.json({ success: true, invoice: updated })
+        const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
+        return NextResponse.json({ success: true, invoice })
       }
 
       default:

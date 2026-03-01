@@ -28,6 +28,15 @@ interface ResolvedCustomer {
   isLinked: boolean
 }
 
+function isValidEmail(email: string | null | undefined): boolean {
+  if (!email) return false
+  const trimmed = email.trim().toLowerCase()
+  if (!trimmed) return false
+  if (trimmed.endsWith('@none.com')) return false
+  if (trimmed === 'none' || trimmed === 'n/a') return false
+  return trimmed.includes('@')
+}
+
 function resolveCustomer(
   jobCustomer: any,
   projectCustomer: any,
@@ -39,7 +48,7 @@ function resolveCustomer(
     return {
       name: jobCustomer.name,
       address: jobCustomer.address_text || jobAddress,
-      email: jobCustomer.email || null,
+      email: isValidEmail(jobCustomer.email) ? jobCustomer.email : null,
       phone: jobCustomer.phone || null,
       isLinked: true,
     }
@@ -50,7 +59,7 @@ function resolveCustomer(
     return {
       name: projectCustomer.name,
       address: projectCustomer.address_text || jobAddress,
-      email: projectCustomer.email || null,
+      email: isValidEmail(projectCustomer.email) ? projectCustomer.email : null,
       phone: projectCustomer.phone || null,
       isLinked: true,
     }
@@ -61,7 +70,7 @@ function resolveCustomer(
     return {
       name: proposal.customer_name,
       address: proposal.customer_address || jobAddress,
-      email: proposal.customer_email || null,
+      email: isValidEmail(proposal.customer_email) ? proposal.customer_email : null,
       phone: proposal.customer_phone || null,
       isLinked: false,
     }
@@ -271,6 +280,9 @@ export default async function PrintInvoicePage({
           .total-final { background: #1a365d; color: white; font-size: 16px; }
           .balance-due { background: #c53030; color: white; font-size: 16px; }
           .balance-paid { background: #2f855a; color: white; font-size: 16px; }
+          .terms { background: #f8fafc; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 30px; }
+          .terms-label { font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+          .terms-text { font-size: 13px; color: #334155; line-height: 1.5; }
           .notes { background: #fffbeb; padding: 16px; border-radius: 8px; border-left: 4px solid #d69e2e; margin-bottom: 30px; }
           .notes-label { font-size: 12px; font-weight: bold; color: #744210; margin-bottom: 8px; }
           .notes-text { font-size: 12px; color: #744210; }
@@ -374,7 +386,16 @@ export default async function PrintInvoicePage({
             </div>
           </div>
 
-          {invoice.notes && (
+          {/* Customer-facing Terms/Notes (public_note) */}
+          {invoice.public_note && (
+            <div className="terms">
+              <div className="terms-label">Terms</div>
+              <div className="terms-text">{invoice.public_note}</div>
+            </div>
+          )}
+
+          {/* Legacy notes field - only show if no public_note */}
+          {!invoice.public_note && invoice.notes && (
             <div className="notes">
               <div className="notes-label">Notes</div>
               <div className="notes-text">{invoice.notes}</div>
