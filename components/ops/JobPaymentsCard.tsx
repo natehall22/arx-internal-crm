@@ -92,25 +92,25 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
       {/* Summary Stats */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <div className="p-3 bg-gray-50 rounded-lg">
-          <div className="text-xs text-gray-500 mb-1">Sale Amount</div>
+          <div className="text-xs text-gray-700 mb-1">Sale Amount</div>
           <div className="text-lg font-semibold text-gray-900">
             {formatCurrency(saleAmountCents)}
           </div>
         </div>
         <div className="p-3 bg-green-50 rounded-lg">
-          <div className="text-xs text-gray-500 mb-1">Collected</div>
+          <div className="text-xs text-gray-700 mb-1">Collected</div>
           <div className="text-lg font-semibold text-green-700">
             {formatCurrency(collectedCents)}
           </div>
         </div>
         <div className="p-3 bg-amber-50 rounded-lg">
-          <div className="text-xs text-gray-500 mb-1">Remaining</div>
+          <div className="text-xs text-gray-700 mb-1">Remaining</div>
           <div className={`text-lg font-semibold ${remainingCents > 0 ? 'text-amber-700' : 'text-green-700'}`}>
             {formatCurrency(remainingCents)}
           </div>
         </div>
         <div className="p-3 bg-indigo-50 rounded-lg">
-          <div className="text-xs text-gray-500 mb-1">% Collected</div>
+          <div className="text-xs text-gray-700 mb-1">% Collected</div>
           <div className="text-lg font-semibold text-indigo-700">
             {percentCollected}%
           </div>
@@ -129,19 +129,19 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
 
       {/* Payments Table */}
       {loading ? (
-        <div className="text-center py-4 text-gray-500 text-sm">Loading...</div>
+        <div className="text-center py-4 text-gray-700 text-sm">Loading...</div>
       ) : summary?.payments && summary.payments.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b">
-                <th className="text-left py-2 text-xs font-medium text-gray-500">Date</th>
-                <th className="text-left py-2 text-xs font-medium text-gray-500">Type</th>
-                <th className="text-left py-2 text-xs font-medium text-gray-500">Payer</th>
-                <th className="text-left py-2 text-xs font-medium text-gray-500">Method</th>
-                <th className="text-right py-2 text-xs font-medium text-gray-500">Amount</th>
-                <th className="text-left py-2 text-xs font-medium text-gray-500 pl-3">Note</th>
-                <th className="text-right py-2 text-xs font-medium text-gray-500"></th>
+                <th className="text-left py-2 text-xs font-medium text-gray-700">Date</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-700">Type</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-700">Payer</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-700">Method</th>
+                <th className="text-right py-2 text-xs font-medium text-gray-700">Amount</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-700 pl-3">Note</th>
+                <th className="text-right py-2 text-xs font-medium text-gray-700"></th>
               </tr>
             </thead>
             <tbody>
@@ -167,13 +167,13 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
                   <td className="py-2 text-right font-medium text-gray-900">
                     {formatCurrency(payment.amount_cents)}
                   </td>
-                  <td className="py-2 text-gray-500 text-xs pl-3 max-w-[150px] truncate" title={payment.note || ''}>
+                  <td className="py-2 text-gray-700 text-xs pl-3 max-w-[150px] truncate" title={payment.note || ''}>
                     {payment.note || '—'}
                   </td>
                   <td className="py-2 text-right">
                     <button
                       onClick={() => handleDeletePayment(payment.id)}
-                      className="text-gray-400 hover:text-red-600 text-xs"
+                      className="text-gray-600 hover:text-red-600 text-xs"
                       title="Delete payment"
                     >
                       ✕
@@ -185,7 +185,7 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
           </table>
         </div>
       ) : (
-        <div className="text-center py-6 text-gray-400 text-sm">
+        <div className="text-center py-6 text-gray-600 text-sm">
           No payments recorded
         </div>
       )}

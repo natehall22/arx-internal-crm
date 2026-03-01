@@ -168,7 +168,7 @@ export default function JobInvoicesCard({
                   <div className="font-medium text-gray-900">
                     {invoice.invoice_number}
                   </div>
-                  <div className="text-sm text-gray-500">
+                  <div className="text-sm text-gray-900">
                     {invoice.sent_at ? (
                       <>Sent {new Date(invoice.sent_at).toLocaleDateString()}</>
                     ) : (
@@ -183,11 +183,11 @@ export default function JobInvoicesCard({
 
               <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                 <div>
-                  <span className="text-gray-500">Total:</span>{' '}
+                  <span className="text-gray-900">Total:</span>{' '}
                   <span className="font-medium">{formatCurrency(invoice.total_cents)}</span>
                 </div>
                 {invoice.sent_to_email && (
-                  <div className="text-gray-500 truncate" title={invoice.sent_to_email}>
+                  <div className="text-gray-900 truncate" title={invoice.sent_to_email}>
                     To: {invoice.sent_to_email}
                   </div>
                 )}
@@ -196,7 +196,7 @@ export default function JobInvoicesCard({
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setShowDetailModal(invoice.id)}
-                  className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-100"
+                  className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 text-gray-900"
                 >
                   View Details
                 </button>
@@ -204,7 +204,7 @@ export default function JobInvoicesCard({
                 {invoice.status !== 'draft' && invoice.status !== 'void' && (
                   <button
                     onClick={() => handleViewPdf(invoice.id)}
-                    className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-100"
+                    className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 text-gray-900"
                   >
                     View PDF
                   </button>
@@ -241,7 +241,7 @@ export default function JobInvoicesCard({
           ))}
         </div>
       ) : (
-        <div className="text-center py-6 text-gray-400 text-sm">
+        <div className="text-center py-6 text-gray-600 text-sm">
           No invoices yet
           {saleAmount && saleAmount > 0 && (
             <div className="mt-2">
