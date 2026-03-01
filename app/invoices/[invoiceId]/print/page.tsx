@@ -20,6 +20,63 @@ function formatDate(dateStr: string | null): string {
   })
 }
 
+interface ResolvedCustomer {
+  name: string
+  address: string
+  email: string | null
+  phone: string | null
+  isLinked: boolean
+}
+
+function resolveCustomer(
+  jobCustomer: any,
+  projectCustomer: any,
+  proposal: any,
+  jobAddress: string
+): ResolvedCustomer {
+  // Priority 1: Job's linked customer
+  if (jobCustomer?.name) {
+    return {
+      name: jobCustomer.name,
+      address: jobCustomer.address_text || jobAddress,
+      email: jobCustomer.email || null,
+      phone: jobCustomer.phone || null,
+      isLinked: true,
+    }
+  }
+
+  // Priority 2: Project's linked customer
+  if (projectCustomer?.name) {
+    return {
+      name: projectCustomer.name,
+      address: projectCustomer.address_text || jobAddress,
+      email: projectCustomer.email || null,
+      phone: projectCustomer.phone || null,
+      isLinked: true,
+    }
+  }
+
+  // Priority 3: Proposal customer info (fallback name/address from original proposal)
+  if (proposal?.customer_name) {
+    return {
+      name: proposal.customer_name,
+      address: proposal.customer_address || jobAddress,
+      email: proposal.customer_email || null,
+      phone: proposal.customer_phone || null,
+      isLinked: false,
+    }
+  }
+
+  // Priority 4: Generic fallback
+  return {
+    name: 'Customer',
+    address: jobAddress,
+    email: null,
+    phone: null,
+    isLinked: false,
+  }
+}
+
 export default async function PrintInvoicePage({
   params,
 }: {
@@ -43,7 +100,7 @@ export default async function PrintInvoicePage({
     redirect('/login')
   }
 
-  // Get invoice with all details
+  // Get invoice with all related data for customer resolution
   const { data: invoice } = await adminClient
     .from('job_invoices')
     .select(`
@@ -52,8 +109,14 @@ export default async function PrintInvoicePage({
         org_id,
         job_number,
         address_text,
-        customer:customers(name, email, phone, address_text),
-        project:projects(address_text)
+        customer_id,
+        job_customer:customers!production_jobs_customer_id_fkey(id, name, email, phone, address_text),
+        project:projects(
+          id,
+          customer_id,
+          project_customer:customers!projects_customer_id_fkey(id, name, email, phone, address_text),
+          proposal:proposals(customer_name, customer_email, customer_phone, customer_address)
+        )
       )
     `)
     .eq('id', params.invoiceId)
@@ -89,15 +152,30 @@ export default async function PrintInvoicePage({
     .single()
 
   const job = (invoice as any).production_jobs
-  const customer = Array.isArray(job.customer) ? job.customer[0] : job.customer
   const project = Array.isArray(job.project) ? job.project[0] : job.project
+  
+  // Extract customer data from nested relations
+  const jobCustomer = Array.isArray(job.job_customer) ? job.job_customer[0] : job.job_customer
+  const projectCustomer = project?.project_customer 
+    ? (Array.isArray(project.project_customer) ? project.project_customer[0] : project.project_customer)
+    : null
+  const proposal = project?.proposal
+    ? (Array.isArray(project.proposal) ? project.proposal[0] : project.proposal)
+    : null
+
+  // Resolve customer with priority chain
+  const resolvedCustomer = resolveCustomer(
+    jobCustomer,
+    projectCustomer,
+    proposal,
+    job.address_text || ''
+  )
 
   const companyAddress = [
     org?.address,
     org?.city && org?.state ? `${org.city}, ${org.state} ${org.zip || ''}`.trim() : null,
   ].filter(Boolean).join('\n')
 
-  const customerAddress = customer?.address_text || project?.address_text || job.address_text || ''
   const balanceCents = invoice.total_cents - appliedCents
   const isPaid = balanceCents <= 0
 
@@ -123,6 +201,7 @@ export default async function PrintInvoicePage({
           .bill-to-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
           .bill-to-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
           .bill-to-address { font-size: 13px; color: #444; white-space: pre-line; }
+          .warning-banner { background: #fef3c7; border: 1px solid #f59e0b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: #92400e; }
           table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
           th { background: #1a365d; color: white; padding: 12px; text-align: left; font-size: 12px; }
           th:nth-child(2), th:nth-child(3), th:nth-child(4) { text-align: right; }
@@ -143,14 +222,20 @@ export default async function PrintInvoicePage({
           .payment-title { font-size: 14px; font-weight: bold; color: #2c5282; margin-bottom: 8px; }
           .payment-text { font-size: 12px; color: #2c5282; line-height: 1.6; }
           .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #999; }
-          .print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; background: #4f46e5; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
-          .print-btn:hover { background: #4338ca; }
         `}</style>
       </head>
       <body>
         <PrintButton />
 
         <div className="page">
+          {/* Warning banner - screen only */}
+          {!resolvedCustomer.isLinked && (
+            <div className="warning-banner no-print">
+              ⚠️ Customer not linked — invoice using fallback name/address from proposal. 
+              Link a customer record to the job for accurate invoicing.
+            </div>
+          )}
+
           <div className="header">
             <div>
               <div className="company-name">{org?.name || 'ARX Roofing & Exteriors, LLC'}</div>
@@ -181,11 +266,11 @@ export default async function PrintInvoicePage({
 
           <div className="bill-to">
             <div className="bill-to-label">Bill To</div>
-            <div className="bill-to-name">{customer?.name || 'Customer'}</div>
+            <div className="bill-to-name">{resolvedCustomer.name}</div>
             <div className="bill-to-address">
-              {customerAddress}
-              {customer?.phone && `\n${customer.phone}`}
-              {customer?.email && `\n${customer.email}`}
+              {resolvedCustomer.address}
+              {resolvedCustomer.phone && `\n${resolvedCustomer.phone}`}
+              {resolvedCustomer.email && `\n${resolvedCustomer.email}`}
             </div>
           </div>
 
