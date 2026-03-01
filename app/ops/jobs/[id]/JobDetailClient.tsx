@@ -368,7 +368,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={() => updateStatus('materials')}
                     disabled={saving}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
                   >
                     Move to Materials
                   </button>
@@ -377,7 +377,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={() => updateStatus('scheduled')}
                     disabled={saving}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
                   >
                     Ready to Schedule
                   </button>
@@ -452,7 +452,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     className={`px-3 py-1.5 text-sm rounded-lg border transition ${
                       job.materials_status === s 
                         ? 'bg-indigo-600 text-white border-indigo-600' 
-                        : 'border-gray-300 hover:bg-gray-50'
+                        : 'border-gray-300 hover:bg-gray-50 text-gray-900'
                     }`}
                   >
                     {materialsConfig[s]?.label || s}
@@ -526,14 +526,14 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     </button>
                     <button
                       onClick={() => { setEditingNotes(false); setNotesValue(job.internal_notes || ''); }}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
                     >
                       Cancel
                     </button>
                   </div>
                 </div>
               ) : (
-                <p className={`text-gray-${job.internal_notes ? '700' : '400'} whitespace-pre-wrap`}>
+                <p className={`whitespace-pre-wrap ${job.internal_notes ? 'text-gray-900' : 'text-gray-600'}`}>
                   {job.internal_notes || 'No notes yet'}
                 </p>
               )}
