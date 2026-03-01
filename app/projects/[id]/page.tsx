@@ -180,21 +180,19 @@ export default async function ProjectDetailPage({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h3 className="text-sm font-medium text-gray-500">Customer</h3>
-              {project.customer_id ? (
-                <Link
-                  href={`/customers/${project.customer_id}`}
-                  className="mt-1 inline-block text-sm font-semibold text-indigo-600 hover:text-indigo-800"
-                >
-                  {project.customers?.name || 'View customer'}
-                </Link>
-              ) : (
-                <div className="mt-1">
-                  <p className="text-sm text-gray-900">
-                    {project.leads?.homeowner_name || 'N/A'}
+              <div className="mt-1">
+                {!project.customer_id && project.leads?.homeowner_name && (
+                  <p className="text-sm text-gray-900 mb-1">
+                    {project.leads.homeowner_name}
                   </p>
-                  <LinkCustomerButton sourceType="project" sourceId={project.id} className="mt-1" />
-                </div>
-              )}
+                )}
+                <LinkCustomerButton 
+                  sourceType="project" 
+                  sourceId={project.id} 
+                  currentCustomerId={project.customer_id}
+                  currentCustomerName={project.customers?.name}
+                />
+              </div>
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500">Status</h3>

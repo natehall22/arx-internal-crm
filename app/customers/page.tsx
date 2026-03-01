@@ -60,7 +60,7 @@ export default async function CustomersPage({
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <CustomersPageClient customers={customers || []} query={query} />
+        <CustomersPageClient customers={customers || []} query={query} isAdmin={profile.role === 'admin'} />
       </div>
     </div>
   )

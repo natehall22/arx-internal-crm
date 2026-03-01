@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import LinkCreateCustomerModal from './LinkCreateCustomerModal'
 
@@ -15,22 +16,68 @@ interface Customer {
 interface Props {
   customers: Customer[]
   query: string
+  isAdmin?: boolean
 }
 
-export default function CustomersPageClient({ customers, query }: Props) {
+export default function CustomersPageClient({ customers, query, isAdmin = false }: Props) {
+  const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isBackfilling, setIsBackfilling] = useState(false)
+  const [backfillResult, setBackfillResult] = useState<string | null>(null)
+
+  const handleBackfill = async () => {
+    if (!confirm('This will scan all projects and jobs without a linked customer and attempt to link them. Continue?')) {
+      return
+    }
+    
+    setIsBackfilling(true)
+    setBackfillResult(null)
+    
+    try {
+      const res = await fetch('/api/admin/backfill-customers', { method: 'POST' })
+      const data = await res.json()
+      
+      if (res.ok) {
+        setBackfillResult(data.message)
+        router.refresh()
+      } else {
+        setBackfillResult(`Error: ${data.error}`)
+      }
+    } catch (err) {
+      setBackfillResult('Failed to run backfill')
+    } finally {
+      setIsBackfilling(false)
+    }
+  }
 
   return (
     <>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Customers</h1>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
-        >
-          Link / Create Customer
-        </button>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button
+              onClick={handleBackfill}
+              disabled={isBackfilling}
+              className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm"
+            >
+              {isBackfilling ? 'Running...' : 'Backfill Missing Links'}
+            </button>
+          )}
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+          >
+            Link / Create Customer
+          </button>
+        </div>
       </div>
+      
+      {backfillResult && (
+        <div className={`mb-4 p-3 rounded-md text-sm ${backfillResult.startsWith('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+          {backfillResult}
+        </div>
+      )}
 
       <form className="mb-6 flex flex-wrap items-center gap-3" action="/customers" method="GET">
         <input

@@ -82,36 +82,96 @@ export async function POST(request: Request) {
       } else if (source_type === 'project') {
         const { data } = await adminClient
           .from('projects')
-          .select('address_text, lead:leads(homeowner_name, email, phone)')
+          .select('id, address_text')
           .eq('id', source_id)
           .eq('org_id', profile.org_id)
           .single()
         
         if (data) {
-          const lead = Array.isArray(data.lead) ? data.lead[0] : data.lead
-          sourceData = {
-            name: lead?.homeowner_name,
-            email: lead?.email,
-            phone: lead?.phone,
-            address_text: data.address_text,
+          // Try to get customer info from proposal first
+          const { data: proposal } = await adminClient
+            .from('proposals')
+            .select('customer_name, customer_email, customer_phone, customer_address')
+            .eq('project_id', data.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (proposal?.customer_name) {
+            sourceData = {
+              name: proposal.customer_name,
+              email: proposal.customer_email,
+              phone: proposal.customer_phone,
+              address_text: proposal.customer_address || data.address_text,
+            }
+          } else {
+            // Fallback to lead
+            const { data: projectWithLead } = await adminClient
+              .from('projects')
+              .select('lead:leads(homeowner_name, email, phone)')
+              .eq('id', source_id)
+              .single()
+            
+            const lead = projectWithLead?.lead 
+              ? (Array.isArray(projectWithLead.lead) ? projectWithLead.lead[0] : projectWithLead.lead)
+              : null
+            sourceData = {
+              name: lead?.homeowner_name,
+              email: lead?.email,
+              phone: lead?.phone,
+              address_text: data.address_text,
+            }
           }
         }
       } else if (source_type === 'job') {
         const { data } = await adminClient
           .from('production_jobs')
-          .select('address_text, project:projects(lead:leads(homeowner_name, email, phone))')
+          .select('address_text, project_id')
           .eq('id', source_id)
           .eq('org_id', profile.org_id)
           .single()
         
         if (data) {
-          const project = Array.isArray(data.project) ? data.project[0] : data.project
-          const lead = project?.lead ? (Array.isArray(project.lead) ? project.lead[0] : project.lead) : null
-          sourceData = {
-            name: lead?.homeowner_name,
-            email: lead?.email,
-            phone: lead?.phone,
-            address_text: data.address_text,
+          // Try to get customer info from proposal first
+          if (data.project_id) {
+            const { data: proposal } = await adminClient
+              .from('proposals')
+              .select('customer_name, customer_email, customer_phone, customer_address')
+              .eq('project_id', data.project_id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single()
+
+            if (proposal?.customer_name) {
+              sourceData = {
+                name: proposal.customer_name,
+                email: proposal.customer_email,
+                phone: proposal.customer_phone,
+                address_text: proposal.customer_address || data.address_text,
+              }
+            }
+          }
+          
+          // Fallback to lead if no proposal
+          if (!sourceData) {
+            const { data: jobWithProject } = await adminClient
+              .from('production_jobs')
+              .select('project:projects(lead:leads(homeowner_name, email, phone))')
+              .eq('id', source_id)
+              .single()
+            
+            const project = jobWithProject?.project 
+              ? (Array.isArray(jobWithProject.project) ? jobWithProject.project[0] : jobWithProject.project)
+              : null
+            const lead = project?.lead 
+              ? (Array.isArray(project.lead) ? project.lead[0] : project.lead) 
+              : null
+            sourceData = {
+              name: lead?.homeowner_name,
+              email: lead?.email,
+              phone: lead?.phone,
+              address_text: data.address_text,
+            }
           }
         }
       }
@@ -159,6 +219,32 @@ export async function POST(request: Request) {
         if (updateError) {
           console.error('Error updating source record:', updateError)
           return NextResponse.json({ error: 'Failed to link customer to source' }, { status: 500 })
+        }
+
+        // If linking to project, also update any associated production_jobs
+        if (source_type === 'project') {
+          await adminClient
+            .from('production_jobs')
+            .update({ customer_id: finalCustomerId })
+            .eq('project_id', source_id)
+            .eq('org_id', profile.org_id)
+        }
+
+        // If linking to job, also update the parent project
+        if (source_type === 'job') {
+          const { data: job } = await adminClient
+            .from('production_jobs')
+            .select('project_id')
+            .eq('id', source_id)
+            .single()
+          
+          if (job?.project_id) {
+            await adminClient
+              .from('projects')
+              .update({ customer_id: finalCustomerId })
+              .eq('id', job.project_id)
+              .eq('org_id', profile.org_id)
+          }
         }
       }
     }

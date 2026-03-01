@@ -77,18 +77,36 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false })
         .limit(50)
 
-      results.projects = (projects || []).map(p => {
+      // For each project, also try to get proposal customer info
+      const projectsWithProposals = await Promise.all((projects || []).map(async (p) => {
         const lead = Array.isArray(p.lead) ? p.lead[0] : p.lead
+        
+        // Try to get customer info from proposal
+        const { data: proposal } = await adminClient
+          .from('proposals')
+          .select('customer_name, customer_email, customer_phone, customer_address')
+          .eq('project_id', p.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        const customerName = proposal?.customer_name || lead?.homeowner_name
+        const customerEmail = proposal?.customer_email || lead?.email
+        const customerPhone = proposal?.customer_phone || lead?.phone
+        const customerAddress = proposal?.customer_address || p.address_text
+
         return {
           ...p,
           source_type: 'project',
-          display_name: lead?.homeowner_name || p.address_text || 'Unnamed Project',
-          customer_name: lead?.homeowner_name,
-          customer_email: lead?.email,
-          customer_phone: lead?.phone,
-          customer_address: p.address_text,
+          display_name: customerName || p.address_text || 'Unnamed Project',
+          customer_name: customerName,
+          customer_email: customerEmail,
+          customer_phone: customerPhone,
+          customer_address: customerAddress,
         }
-      })
+      }))
+
+      results.projects = projectsWithProposals
     }
 
     // Fetch production_jobs without customer_id
@@ -96,7 +114,7 @@ export async function GET(request: Request) {
       const { data: jobs } = await adminClient
         .from('production_jobs')
         .select(`
-          id, job_number, status, address_text, created_at,
+          id, job_number, status, address_text, created_at, project_id,
           project:projects(
             lead:leads(homeowner_name, email, phone)
           )
@@ -106,19 +124,46 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false })
         .limit(50)
 
-      results.jobs = (jobs || []).map(j => {
+      // For each job, also try to get proposal customer info
+      const jobsWithProposals = await Promise.all((jobs || []).map(async (j) => {
         const project = Array.isArray(j.project) ? j.project[0] : j.project
         const lead = project?.lead ? (Array.isArray(project.lead) ? project.lead[0] : project.lead) : null
+        
+        let customerName = lead?.homeowner_name
+        let customerEmail = lead?.email
+        let customerPhone = lead?.phone
+        let customerAddress = j.address_text
+
+        // Try to get customer info from proposal
+        if (j.project_id) {
+          const { data: proposal } = await adminClient
+            .from('proposals')
+            .select('customer_name, customer_email, customer_phone, customer_address')
+            .eq('project_id', j.project_id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (proposal?.customer_name) {
+            customerName = proposal.customer_name
+            customerEmail = proposal.customer_email || customerEmail
+            customerPhone = proposal.customer_phone || customerPhone
+            customerAddress = proposal.customer_address || customerAddress
+          }
+        }
+
         return {
           ...j,
           source_type: 'job',
           display_name: `Job ${j.job_number}` + (j.address_text ? ` - ${j.address_text}` : ''),
-          customer_name: lead?.homeowner_name,
-          customer_email: lead?.email,
-          customer_phone: lead?.phone,
-          customer_address: j.address_text,
+          customer_name: customerName,
+          customer_email: customerEmail,
+          customer_phone: customerPhone,
+          customer_address: customerAddress,
         }
-      })
+      }))
+
+      results.jobs = jobsWithProposals
     }
 
     return NextResponse.json(results)
