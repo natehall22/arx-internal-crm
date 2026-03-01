@@ -85,30 +85,23 @@ export default async function PrintInvoicePage({
   const supabase = createClient()
   const adminClient = createServiceClient()
 
-  // Debug logging
-  console.log('[PrintInvoice] params.invoiceId:', params.invoiceId)
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  console.log('[PrintInvoice] user:', user?.id, 'authError:', authError?.message)
-  
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     redirect('/login')
   }
 
-  const { data: profile, error: profileError } = await adminClient
+  const { data: profile } = await adminClient
     .from('users')
     .select('org_id')
     .eq('id', user.id)
     .single()
 
-  console.log('[PrintInvoice] profile:', profile, 'profileError:', profileError?.message)
-
   if (!profile) {
     redirect('/login')
   }
 
-  // First try to fetch by UUID id
-  let { data: invoice, error: invoiceError } = await adminClient
+  // Fetch invoice by UUID id, fallback to invoice_number
+  let { data: invoice } = await adminClient
     .from('job_invoices')
     .select(`
       *,
@@ -122,11 +115,9 @@ export default async function PrintInvoicePage({
     .eq('id', params.invoiceId)
     .single()
 
-  console.log('[PrintInvoice] invoice by id:', invoice?.id, 'error:', invoiceError?.message)
-
-  // If not found by id, try by invoice_number
-  if (!invoice && invoiceError) {
-    const { data: invoiceByNumber, error: numberError } = await adminClient
+  // Fallback: try by invoice_number
+  if (!invoice) {
+    const { data: invoiceByNumber } = await adminClient
       .from('job_invoices')
       .select(`
         *,
@@ -140,21 +131,17 @@ export default async function PrintInvoicePage({
       .eq('invoice_number', params.invoiceId)
       .single()
     
-    console.log('[PrintInvoice] invoice by number:', invoiceByNumber?.id, 'error:', numberError?.message)
-    
     if (invoiceByNumber) {
       invoice = invoiceByNumber
-      invoiceError = null
     }
   }
 
   if (!invoice || (invoice as any).production_jobs?.org_id !== profile.org_id) {
-    console.log('[PrintInvoice] NOT FOUND - invoice:', !!invoice, 'org match:', (invoice as any)?.production_jobs?.org_id === profile.org_id)
     return <div className="p-8 text-center">Invoice not found</div>
   }
 
-  // Now fetch the full data with customer relations
-  const { data: fullInvoice, error: fullError } = await adminClient
+  // Fetch full data with project relations
+  const { data: fullInvoice } = await adminClient
     .from('job_invoices')
     .select(`
       *,
@@ -172,8 +159,6 @@ export default async function PrintInvoicePage({
     `)
     .eq('id', invoice.id)
     .single()
-
-  console.log('[PrintInvoice] fullInvoice:', fullInvoice?.id, 'fullError:', fullError?.message)
 
   // Get job customer separately (simpler query)
   const job = (fullInvoice || invoice) as any
