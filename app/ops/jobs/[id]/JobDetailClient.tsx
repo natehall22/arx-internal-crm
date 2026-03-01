@@ -77,7 +77,7 @@ const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: s
 }
 
 const materialsConfig: Record<string, { label: string; color: string }> = {
-  not_ordered: { label: 'Not Ordered', color: 'text-gray-500' },
+  not_ordered: { label: 'Not Ordered', color: 'text-gray-700' },
   ordered: { label: 'Ordered', color: 'text-blue-600' },
   partial: { label: 'Partial', color: 'text-amber-600' },
   received: { label: 'Received', color: 'text-green-600' },
@@ -330,7 +330,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="text-sm font-mono text-gray-500">{job.job_number}</span>
+                    <span className="text-sm font-mono text-gray-600">{job.job_number}</span>
                     <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.bgColor} ${status.color}`}>
                       {status.label}
                     </span>
@@ -345,7 +345,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <h1 className="text-2xl font-bold text-gray-900">
                     {job.customer?.name || 'Customer'}
                   </h1>
-                  <p className="text-gray-500 mt-1">{job.address_text}</p>
+                  <p className="text-gray-700 mt-1">{job.address_text}</p>
                 </div>
                 <span className={`text-sm px-3 py-1 rounded-full ${
                   job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
@@ -461,12 +461,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               </div>
 
               {job.materials_ordered_at && (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-700">
                   Ordered: {new Date(job.materials_ordered_at).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                 </p>
               )}
               {job.materials_eta && (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-700">
                   ETA: {new Date(job.materials_eta).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                 </p>
               )}
@@ -482,13 +482,13 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Job Details</h2>
                 {job.project?.product_summary && (
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-gray-500 mb-1">Product</h3>
+                    <h3 className="text-sm font-medium text-gray-600 mb-1">Product</h3>
                     <p className="text-gray-900">{job.project.product_summary}</p>
                   </div>
                 )}
                 {job.project?.scope_of_work && (
                   <div>
-                    <h3 className="text-sm font-medium text-gray-500 mb-1">Scope of Work</h3>
+                    <h3 className="text-sm font-medium text-gray-600 mb-1">Scope of Work</h3>
                     <p className="text-gray-900 whitespace-pre-wrap">{job.project.scope_of_work}</p>
                   </div>
                 )}
@@ -554,15 +554,15 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     })}
                   </div>
                   {job.scheduled_time_start && (
-                    <p className="text-gray-500 mt-1">Start: {job.scheduled_time_start}</p>
+                    <p className="text-gray-700 mt-1">Start: {job.scheduled_time_start}</p>
                   )}
                   {job.estimated_duration_hours && (
-                    <p className="text-gray-500">Duration: {job.estimated_duration_hours} hours</p>
+                    <p className="text-gray-700">Duration: {job.estimated_duration_hours} hours</p>
                   )}
                 </div>
               ) : (
                 <div className="text-center py-4">
-                  <p className="text-gray-500 mb-3">Not scheduled yet</p>
+                  <p className="text-gray-600 mb-3">Not scheduled yet</p>
                   <button
                     onClick={() => setShowScheduleModal(true)}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
@@ -585,7 +585,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   </div>
                   <div>
                     <div className="font-medium text-gray-900">{job.assigned_crew.name}</div>
-                    <div className="text-sm text-gray-500">In-House Crew</div>
+                    <div className="text-sm text-gray-600">In-House Crew</div>
                     {job.assigned_crew.phone && (
                       <a href={`tel:${job.assigned_crew.phone}`} className="text-sm text-indigo-600">
                         {job.assigned_crew.phone}
@@ -600,7 +600,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   </div>
                   <div>
                     <div className="font-medium text-gray-900">{job.assigned_sub.company_name}</div>
-                    <div className="text-sm text-gray-500">Sub-Contractor</div>
+                    <div className="text-sm text-gray-600">Sub-Contractor</div>
                     {job.assigned_sub.phone && (
                       <a href={`tel:${job.assigned_sub.phone}`} className="text-sm text-indigo-600">
                         {job.assigned_sub.phone}
@@ -610,7 +610,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 </div>
               ) : (
                 <div className="text-center py-4">
-                  <p className="text-gray-500 mb-3">Not assigned</p>
+                  <p className="text-gray-600 mb-3">Not assigned</p>
                   <button
                     onClick={() => setShowScheduleModal(true)}
                     className="text-sm text-indigo-600 hover:text-indigo-800"
@@ -638,14 +638,14 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   )}
                   <Link
                     href={`/customers/${job.customer.id}`}
-                    className="block text-sm text-gray-500 hover:text-gray-700 mt-3"
+                    className="block text-sm text-gray-600 hover:text-gray-800 mt-3"
                   >
                     View customer →
                   </Link>
                 </div>
               ) : (
                 <div>
-                  <p className="text-gray-500 mb-2">No customer linked</p>
+                  <p className="text-gray-600 mb-2">No customer linked</p>
                   <LinkCustomerButton sourceType="job" sourceId={job.id} />
                 </div>
               )}
@@ -655,26 +655,26 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Financials</h2>
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Sale Amount</span>
+                  <span className="text-gray-700">Sale Amount</span>
                   <span className="font-medium text-gray-900">
                     {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Labor Cost</span>
+                  <span className="text-gray-700">Labor Cost</span>
                   <span className="font-medium text-gray-900">
                     {job.labor_cost ? `$${job.labor_cost.toLocaleString()}` : '-'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Material Cost</span>
+                  <span className="text-gray-700">Material Cost</span>
                   <span className="font-medium text-gray-900">
                     {job.material_cost ? `$${job.material_cost.toLocaleString()}` : '-'}
                   </span>
                 </div>
                 {job.sale_amount && (job.labor_cost || job.material_cost) && (
                   <div className="border-t pt-3 flex justify-between">
-                    <span className="text-gray-500">Gross Profit</span>
+                    <span className="text-gray-700">Gross Profit</span>
                     <span className="font-bold text-green-600">
                       ${(job.sale_amount - (job.labor_cost || 0) - (job.material_cost || 0)).toLocaleString()}
                     </span>
@@ -731,12 +731,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   </Link>
                 )}
                 {job.salesperson && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-700">
                     Sold by: {job.salesperson.full_name}
                   </p>
                 )}
                 {job.sale_date && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-700">
                     Sale date: {new Date(job.sale_date + 'T12:00:00').toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                   </p>
                 )}
