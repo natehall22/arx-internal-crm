@@ -109,6 +109,13 @@ export default async function DashboardPage() {
   // So we don't filter by owner_user_id here for non-admins
   const { data: opportunities } = await oppsQuery
 
+  // Fetch scheduled_appointments for accurate inspection attribution
+  // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
+  const { data: allAppointments } = await supabase
+    .from('scheduled_appointments')
+    .select('id, canvasser_user_id, lead_id, created_at')
+    .eq('org_id', profile.org_id)
+
   let projectsQuery = supabase
     .from('projects')
     .select('status, created_at, owner_user_id')
@@ -212,8 +219,6 @@ export default async function DashboardPage() {
       for (const member of members) {
         const memberLeads = allLeads?.filter(l => l.owner_user_id === member.id) || []
         
-        // Inspections SET by this member (setter gets credit)
-        const memberSetOpps = opportunities?.filter(o => o.setter_user_id === member.id) || []
         // Inspections OWNED by this member (closer gets credit for sales)
         const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
         
@@ -221,14 +226,36 @@ export default async function DashboardPage() {
         const memberWeekLeads = memberLeads.filter(l => 
           new Date(l.created_at) >= startOfWeek
         )
+        const rawDoors = memberWeekLeads.length
         
         // Count contacts - only dispositions where they talked to someone
-        const memberWeekContacts = memberWeekLeads.filter(l => 
+        const rawContacts = memberWeekLeads.filter(l => 
           l.canvass_disposition && contactDispositions.includes(l.canvass_disposition)
         ).length
         
-        // Inspections set this week - credit goes to SETTER
-        const memberWeekSetOpps = memberSetOpps.filter(o => new Date(o.created_at) >= startOfWeek)
+        // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
+        const memberWeekAppointments = allAppointments?.filter(a => 
+          a.canvasser_user_id === member.id && new Date(a.created_at) >= startOfWeek
+        ) || []
+        const inspectionsSet = memberWeekAppointments.length
+        
+        // Calculate bonus doors/contacts from inspections
+        // Bonus = inspections that weren't already counted via a lead owned by this user
+        const inspectionBonusDoors = memberWeekAppointments.filter(a => {
+          if (!a.lead_id) return true
+          const lead = memberWeekLeads.find(l => l.id === a.lead_id)
+          return !lead
+        }).length
+        
+        const inspectionBonusContacts = memberWeekAppointments.filter(a => {
+          if (!a.lead_id) return true
+          const lead = memberWeekLeads.find(l => l.id === a.lead_id)
+          if (!lead) return true
+          return !contactDispositions.includes(lead.canvass_disposition || '')
+        }).length
+        
+        const finalDoors = rawDoors + inspectionBonusDoors
+        const finalContacts = rawContacts + inspectionBonusContacts
         
         // Sales this week - credit goes to CLOSER (owner)
         const memberWeekSales = memberOwnedOpps.filter(o => 
@@ -245,9 +272,9 @@ export default async function DashboardPage() {
           id: member.id,
           name: member.full_name || 'Unknown',
           role: member.role,
-          doorsKnocked: memberWeekLeads.length,
-          contacts: memberWeekContacts,
-          inspectionsSet: memberWeekSetOpps.length, // Credit to setter
+          doorsKnocked: finalDoors,
+          contacts: finalContacts,
+          inspectionsSet, // Credit to setter via scheduled_appointments.canvasser_user_id
           sales: memberWeekSales.length, // Credit to closer
           closeRate: closeRate.toFixed(0),
         })
@@ -263,16 +290,34 @@ export default async function DashboardPage() {
   }
 
   const thisWeekLeads = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
-  const doorsKnocked = thisWeekLeads.length
-  const contacts = thisWeekLeads.filter(l => 
+  const rawDoorsKnocked = thisWeekLeads.length
+  const rawContacts = thisWeekLeads.filter(l => 
     ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
   ).length
   
-  // Inspections set - credit to setter (filter by setter_user_id for current user)
-  const inspectionsSet = opportunities?.filter(o => 
-    new Date(o.created_at) >= startOfWeek && 
-    (isAdmin || o.setter_user_id === profile.id || teamMemberIds.includes(o.setter_user_id || ''))
-  ).length || 0
+  // Inspections set - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
+  const thisWeekAppointments = allAppointments?.filter(a => 
+    new Date(a.created_at) >= startOfWeek &&
+    (isAdmin || a.canvasser_user_id === profile.id || teamMemberIds.includes(a.canvasser_user_id || ''))
+  ) || []
+  const inspectionsSet = thisWeekAppointments.length
+  
+  // Calculate bonus doors/contacts from inspections
+  const contactDisps = ['go_back', 'hot_lead', 'not_interested', 'renter']
+  const inspectionBonusDoors = thisWeekAppointments.filter(a => {
+    if (!a.lead_id) return true
+    const lead = thisWeekLeads.find(l => l.id === a.lead_id)
+    return !lead
+  }).length
+  const inspectionBonusContacts = thisWeekAppointments.filter(a => {
+    if (!a.lead_id) return true
+    const lead = thisWeekLeads.find(l => l.id === a.lead_id)
+    if (!lead) return true
+    return !contactDisps.includes(lead.canvass_disposition || '')
+  }).length
+  
+  const doorsKnocked = rawDoorsKnocked + inspectionBonusDoors
+  const contacts = rawContacts + inspectionBonusContacts
   
   // Sales - credit to closer (filter by owner_user_id for current user)
   const salesThisWeek = opportunities?.filter(o => 

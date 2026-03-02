@@ -64,11 +64,9 @@ function getAdminClient() {
 
 function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date } {
   // Use Eastern Time offset (UTC-5, or UTC-4 during DST)
-  // This ensures consistent date boundaries for US Eastern timezone
-  const ET_OFFSET_HOURS = 5 // Standard time offset (adjust for DST if needed)
+  const ET_OFFSET_HOURS = 5
   
   const now = new Date()
-  // Convert to Eastern Time by subtracting offset
   const nowET = new Date(now.getTime() - ET_OFFSET_HOURS * 60 * 60 * 1000)
   
   let start: Date
@@ -76,37 +74,31 @@ function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date }
 
   switch (timeframe) {
     case 'today':
-      // Start of today in ET
       start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate(), ET_OFFSET_HOURS, 0, 0, 0))
       end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'yesterday':
-      // Start of yesterday in ET
       start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - 1, ET_OFFSET_HOURS, 0, 0, 0))
       end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'week':
-      // Start of this week (Sunday) in ET
       const dayOfWeek = nowET.getUTCDay()
       start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - dayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000) // Through end of today
+      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'last_week':
-      // Start of last week (Sunday) in ET
       const currentDayOfWeek = nowET.getUTCDay()
       const startOfThisWeek = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - currentDayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
-      start = new Date(startOfThisWeek.getTime() - 7 * 24 * 60 * 60 * 1000) // Go back 7 days
-      end = startOfThisWeek // End at start of this week
+      start = new Date(startOfThisWeek.getTime() - 7 * 24 * 60 * 60 * 1000)
+      end = startOfThisWeek
       break
     case 'month':
       start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
       end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
     case 'last_month':
-      // First day of last month
       const lastMonthDate = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth() - 1, 1, ET_OFFSET_HOURS, 0, 0, 0))
       start = lastMonthDate
-      // First day of this month (end of last month)
       end = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
       break
     case 'quarter':
@@ -123,7 +115,6 @@ function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date }
       end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
     default:
-      // Default to this week
       const defaultDayOfWeek = nowET.getUTCDay()
       start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - defaultDayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
       end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
@@ -147,7 +138,6 @@ export async function GET(request: NextRequest) {
 
     const supabase = getAdminClient()
 
-    // Get user profile
     const { data: profile } = await supabase
       .from('users')
       .select('org_id, role, team_id, region_id')
@@ -162,7 +152,6 @@ export async function GET(request: NextRequest) {
     const isRegionalManager = profile.role === 'regional_manager'
     const isSalesManager = profile.role === 'sales_manager'
 
-    // Only managers/admins can see team stats
     if (!isAdmin && !isRegionalManager && !isSalesManager) {
       return NextResponse.json({ teamMemberStats: [] })
     }
@@ -193,19 +182,15 @@ export async function GET(request: NextRequest) {
           .in('team_id', teamIds)
         teamMemberIds = regionMembers?.map(m => m.id) || []
       }
-    } else if (isAdmin) {
-      // Admin sees all - we'll filter by org_id in queries
-      teamMemberIds = []
     }
 
-    // Get all active team members with their info
-    // Filter out users who have show_in_reports set to false
+    // Get all active team members
     let membersQuery = supabase
       .from('users')
       .select('id, full_name, role, show_in_reports')
       .eq('org_id', profile.org_id)
       .eq('active', true)
-      .neq('show_in_reports', false) // Exclude users who opted out of leaderboards
+      .neq('show_in_reports', false)
     
     if (!isAdmin && teamMemberIds.length > 0) {
       membersQuery = membersQuery.in('id', teamMemberIds)
@@ -217,12 +202,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ teamMemberStats: [] })
     }
 
-    // Fetch leads for the time period
-    // Count ALL leads as doors knocked (not just ones with canvass_disposition)
-    // This ensures stats work for leads created from any source
+    // ============================================
+    // SEPARATE QUERIES TO AVOID JOIN MULTIPLICATION
+    // ============================================
+
+    // 1) LEADS (raw door knocks from canvassing)
+    // owner_user_id = the setter who knocked the door
     let leadsQuery = supabase
       .from('leads')
-      .select('owner_user_id, canvass_disposition, source, created_at')
+      .select('id, owner_user_id, canvass_disposition, source, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
@@ -233,54 +221,104 @@ export async function GET(request: NextRequest) {
 
     const { data: leads } = await leadsQuery
 
-    // Fetch opportunities for the time period
-    // Include setter_user_id to properly attribute inspections set vs sales
-    const oppsQuery = supabase
-      .from('opportunities')
-      .select('owner_user_id, setter_user_id, inspection_outcome, created_at')
+    // 2) SCHEDULED APPOINTMENTS (inspections set)
+    // canvasser_user_id = the setter who scheduled the inspection
+    // This is the SOURCE OF TRUTH for "who set the inspection"
+    let appointmentsQuery = supabase
+      .from('scheduled_appointments')
+      .select('id, canvasser_user_id, lead_id, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
 
-    // Don't filter by owner_user_id - we need all opps to properly attribute
-    // inspections_set to setter and sales to owner (closer)
+    if (!isAdmin && teamMemberIds.length > 0) {
+      appointmentsQuery = appointmentsQuery.in('canvasser_user_id', teamMemberIds)
+    }
+
+    const { data: appointments } = await appointmentsQuery
+
+    // 3) OPPORTUNITIES (for sales - closer gets credit)
+    // owner_user_id = the closer who ran the inspection
+    const oppsQuery = supabase
+      .from('opportunities')
+      .select('id, owner_user_id, setter_user_id, inspection_outcome, created_at')
+      .eq('org_id', profile.org_id)
+      .gte('created_at', start.toISOString())
+      .lt('created_at', end.toISOString())
 
     const { data: opportunities } = await oppsQuery
 
     // Contact dispositions - where rep actually talked to someone
     const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
 
+    // Build a set of lead_ids that already have appointments
+    // to avoid double-counting doors/contacts
+    const leadsWithAppointments = new Set(
+      (appointments || [])
+        .filter(a => a.lead_id)
+        .map(a => a.lead_id)
+    )
+
     // Calculate stats for each member
     const teamMemberStats = members.map(member => {
-      // Count doors knocked - leads with any canvass_disposition
+      // ---- DOORS ----
+      // Raw: leads owned by this user (door knocks)
       const memberLeads = leads?.filter(l => l.owner_user_id === member.id) || []
-      const doorsKnocked = memberLeads.length
+      const rawDoors = memberLeads.length
 
-      // Count contacts - only dispositions where they talked to someone
-      const contacts = memberLeads.filter(l => 
+      // Inspections set by this user
+      const memberAppointments = appointments?.filter(a => a.canvasser_user_id === member.id) || []
+      const inspectionsSet = memberAppointments.length
+
+      // Bonus doors: inspections that were NOT already counted via a lead
+      // (i.e., inspection was set without a prior canvass knock on that lead)
+      const inspectionBonusDoors = memberAppointments.filter(a => {
+        // If appointment has no lead_id, it's a bonus
+        if (!a.lead_id) return true
+        // If the lead exists but was owned by someone else, this setter gets bonus
+        const lead = memberLeads.find(l => l.id === a.lead_id)
+        return !lead // No matching lead owned by this user = bonus
+      }).length
+
+      const finalDoors = rawDoors + inspectionBonusDoors
+
+      // ---- CONTACTS ----
+      // Raw: leads with contact disposition
+      const rawContacts = memberLeads.filter(l => 
         contactDispositions.includes(l.canvass_disposition)
       ).length
 
-      // Count inspections SET by this member (setter gets credit)
-      const memberSetOpps = opportunities?.filter(o => o.setter_user_id === member.id) || []
-      const inspectionsSet = memberSetOpps.length
+      // Bonus contacts: inspections that were NOT already counted as contacts
+      // An inspection implies contact was made
+      const inspectionBonusContacts = memberAppointments.filter(a => {
+        if (!a.lead_id) return true
+        // Check if this lead was already counted as a contact
+        const lead = memberLeads.find(l => l.id === a.lead_id)
+        if (!lead) return true // No lead = bonus contact
+        // If lead exists but wasn't a contact disposition, bonus
+        return !contactDispositions.includes(lead.canvass_disposition)
+      }).length
 
-      // Count sales - CLOSER (owner) gets credit
+      const finalContacts = rawContacts + inspectionBonusContacts
+
+      // ---- SALES ----
+      // Sales credit goes to CLOSER (opportunity.owner_user_id)
       const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
       const sales = memberOwnedOpps.filter(o => o.inspection_outcome === 'sale').length
 
-      // Calculate close rate based on inspections run by this closer
-      const totalInspections = memberOwnedOpps.filter(o => o.inspection_outcome).length
-      const closeRate = totalInspections > 0 ? (sales / totalInspections * 100) : 0
+      // ---- CLOSE RATE ----
+      // Based on inspections RUN by this closer (not set)
+      const totalInspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
+      const closeRate = totalInspectionsRun > 0 ? (sales / totalInspectionsRun * 100) : 0
 
       return {
         id: member.id,
         name: member.full_name || 'Unknown',
         role: member.role,
-        doorsKnocked,
-        contacts,
-        inspectionsSet, // Credit to setter
-        sales, // Credit to closer
+        doorsKnocked: finalDoors,
+        contacts: finalContacts,
+        inspectionsSet,
+        sales,
         closeRate: closeRate.toFixed(0),
       }
     })
