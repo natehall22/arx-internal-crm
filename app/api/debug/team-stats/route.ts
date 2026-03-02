@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, team_id, region_id, full_name')
       .eq('id', user.id)
       .single()
 
@@ -129,41 +129,117 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('range') || searchParams.get('timeframe') || 'quarter'
+    const showAllOrg = searchParams.get('all') === 'true' // Admin can optionally see all
     const { start, end } = getDateRangeForTimeFrame(timeframe)
 
-    // Get all active team members
-    const { data: members } = await supabase
+    // Get viewer's team info
+    let viewerTeamName = null
+    if (profile.team_id) {
+      const { data: team } = await supabase
+        .from('teams')
+        .select('name')
+        .eq('id', profile.team_id)
+        .single()
+      viewerTeamName = team?.name
+    }
+
+    // Determine team member IDs based on viewer's role and team
+    let teamMemberIds: string[] = []
+    let scopeDescription = ''
+    
+    if (showAllOrg) {
+      scopeDescription = 'All org users (admin override)'
+    } else if (profile.team_id) {
+      const { data: teamMembers } = await supabase
+        .from('users')
+        .select('id')
+        .eq('team_id', profile.team_id)
+        .eq('active', true)
+      teamMemberIds = teamMembers?.map(m => m.id) || []
+      scopeDescription = `Team: ${viewerTeamName || profile.team_id}`
+    } else if (profile.region_id) {
+      const { data: regionTeams } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('region_id', profile.region_id)
+      const teamIds = regionTeams?.map(t => t.id) || []
+      if (teamIds.length > 0) {
+        const { data: regionMembers } = await supabase
+          .from('users')
+          .select('id')
+          .in('team_id', teamIds)
+          .eq('active', true)
+        teamMemberIds = regionMembers?.map(m => m.id) || []
+      }
+      scopeDescription = `Region: ${profile.region_id}`
+    } else {
+      scopeDescription = 'All org users (no team assigned)'
+    }
+
+    // Get active team members
+    let membersQuery = supabase
       .from('users')
       .select('id, full_name, role, email')
       .eq('org_id', profile.org_id)
       .eq('active', true)
       .neq('show_in_reports', false)
+    
+    if (teamMemberIds.length > 0) {
+      membersQuery = membersQuery.in('id', teamMemberIds)
+    }
+    
+    const { data: members } = await membersQuery
 
     if (!members || members.length === 0) {
-      return NextResponse.json({ error: 'No members found' }, { status: 404 })
+      return NextResponse.json({ 
+        error: 'No members found',
+        viewer: { user_id: user.id, team_id: profile.team_id },
+        scope: scopeDescription,
+      }, { status: 404 })
     }
 
-    // Fetch all data separately
-    const { data: leads } = await supabase
+    // Get member IDs for scoped queries
+    const memberIds = members.map(m => m.id)
+
+    // Fetch data SCOPED to team members only (for scalability)
+    let leadsQuery = supabase
       .from('leads')
       .select('id, owner_user_id, canvass_disposition, source, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
+    
+    if (memberIds.length > 0 && memberIds.length < 100) {
+      leadsQuery = leadsQuery.in('owner_user_id', memberIds)
+    }
+    
+    const { data: leads } = await leadsQuery
 
-    const { data: appointments } = await supabase
+    let appointmentsQuery = supabase
       .from('scheduled_appointments')
       .select('id, canvasser_user_id, closer_user_id, lead_id, created_at, status')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
+    
+    if (memberIds.length > 0 && memberIds.length < 100) {
+      appointmentsQuery = appointmentsQuery.in('canvasser_user_id', memberIds)
+    }
+    
+    const { data: appointments } = await appointmentsQuery
 
-    const { data: opportunities } = await supabase
+    let opportunitiesQuery = supabase
       .from('opportunities')
       .select('id, owner_user_id, setter_user_id, inspection_outcome, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
+    
+    if (memberIds.length > 0 && memberIds.length < 100) {
+      opportunitiesQuery = opportunitiesQuery.in('owner_user_id', memberIds)
+    }
+    
+    const { data: opportunities } = await opportunitiesQuery
 
     const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
 
@@ -245,16 +321,26 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json({
+      viewer: {
+        user_id: user.id,
+        name: profile.full_name,
+        team_id: profile.team_id,
+        team_name: viewerTeamName,
+        role: profile.role,
+      },
+      scope: scopeDescription,
       range: {
         start: start.toISOString(),
         end: end.toISOString(),
         timezone: 'America/New_York',
         timeframe,
       },
+      team_member_ids: teamMemberIds.length > 0 ? teamMemberIds : 'all_org',
       totals: {
         leads: leads?.length || 0,
         appointments: appointments?.length || 0,
         opportunities: opportunities?.length || 0,
+        members: members?.length || 0,
       },
       reps,
       query_info: {
@@ -262,6 +348,12 @@ export async function GET(request: NextRequest) {
         appointments_table: 'canvasser_user_id = setter who scheduled inspection',
         opportunities_table: 'owner_user_id = closer, setter_user_id = setter',
         logic: 'Inspections counted from scheduled_appointments.canvasser_user_id',
+        indexes: [
+          'idx_scheduled_appointments_canvasser_created',
+          'idx_leads_owner_created',
+          'idx_opportunities_owner_created',
+          'idx_users_team_active',
+        ],
       },
     })
   } catch (error) {
