@@ -52,7 +52,7 @@ interface TeamMemberStat {
   closeRate: string
 }
 
-type TimeFrame = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'year' | 'all'
+type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all'
 
 interface DashboardClientProps {
   profile: any
@@ -507,6 +507,7 @@ export default function DashboardClient({
                   <option value="week">This Week</option>
                   <option value="last_week">Last Week</option>
                   <option value="month">This Month</option>
+                  <option value="last_month">Last Month</option>
                   <option value="quarter">This Quarter</option>
                   <option value="year">This Year</option>
                   <option value="all">All Time</option>

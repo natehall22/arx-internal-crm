@@ -102,6 +102,13 @@ function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date }
       start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
       end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
       break
+    case 'last_month':
+      // First day of last month
+      const lastMonthDate = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth() - 1, 1, ET_OFFSET_HOURS, 0, 0, 0))
+      start = lastMonthDate
+      // First day of this month (end of last month)
+      end = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
+      break
     case 'quarter':
       const quarter = Math.floor(nowET.getUTCMonth() / 3)
       start = new Date(Date.UTC(nowET.getUTCFullYear(), quarter * 3, 1, ET_OFFSET_HOURS, 0, 0, 0))
