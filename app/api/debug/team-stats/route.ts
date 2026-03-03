@@ -310,7 +310,7 @@ export async function GET(request: NextRequest) {
       range: {
         timeframe,
         timezone: TIMEZONE,
-        week_starts_on: 'Monday',
+        week_starts_on: 'Sunday',
         start_utc: start.toISOString(),
         end_utc: end.toISOString(),
         start_local: dateRange.startLocal,

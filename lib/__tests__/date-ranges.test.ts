@@ -37,12 +37,12 @@ describe('getDateRangeForTimeFrame', () => {
       expect(end.getTime()).toBeGreaterThan(start.getTime())
     })
 
-    it('should start on Monday', () => {
+    it('should start on Sunday', () => {
       const result = getDateRangeWithDebug('week', timezone)
       
-      // Parse the local start date and check it's a Monday
+      // Parse the local start date and check it's a Sunday
       const startDate = new Date(result.startLocal)
-      expect(startDate.getDay()).toBe(1) // 1 = Monday
+      expect(startDate.getDay()).toBe(0) // 0 = Sunday
     })
 
     it('should have start time at midnight local time', () => {
@@ -127,11 +127,11 @@ describe('getDateRangeForTimeFrame', () => {
       expect(diffMs).toBe(7 * 24 * 60 * 60 * 1000)
     })
 
-    it('should start on Monday of last week', () => {
+    it('should start on Sunday of last week', () => {
       const result = getDateRangeWithDebug('last_week', timezone)
       
       const startDate = new Date(result.startLocal)
-      expect(startDate.getDay()).toBe(1) // Monday
+      expect(startDate.getDay()).toBe(0) // Sunday
     })
   })
 

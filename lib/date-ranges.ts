@@ -67,15 +67,15 @@ export function getDateRangeForTimeFrame(
       break
 
     case 'week':
-      // Start of this week (Monday) in local time
-      // weekStartsOn: 1 = Monday
-      startLocal = startOfWeek(nowLocal, { weekStartsOn: 1 })
+      // Start of this week (Sunday) in local time
+      // weekStartsOn: 0 = Sunday (matches existing app convention)
+      startLocal = startOfWeek(nowLocal, { weekStartsOn: 0 })
       endLocal = addDays(startOfDay(nowLocal), 1) // Through end of today
       break
 
     case 'last_week':
-      // Start of last week (Monday) to start of this week
-      const thisWeekStart = startOfWeek(nowLocal, { weekStartsOn: 1 })
+      // Start of last week (Sunday) to start of this week
+      const thisWeekStart = startOfWeek(nowLocal, { weekStartsOn: 0 })
       startLocal = subWeeks(thisWeekStart, 1)
       endLocal = thisWeekStart
       break
@@ -112,8 +112,8 @@ export function getDateRangeForTimeFrame(
       break
 
     default:
-      // Default to this week
-      startLocal = startOfWeek(nowLocal, { weekStartsOn: 1 })
+      // Default to this week (Sunday start)
+      startLocal = startOfWeek(nowLocal, { weekStartsOn: 0 })
       endLocal = addDays(startOfDay(nowLocal), 1)
   }
 

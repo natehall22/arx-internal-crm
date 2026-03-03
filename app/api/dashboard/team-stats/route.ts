@@ -321,7 +321,7 @@ export async function GET(request: NextRequest) {
         team_member_count: members.length,
         viewer_role: profile.role,
         viewer_team_id: profile.team_id,
-        week_starts_on: 'Monday',
+        week_starts_on: 'Sunday',
       }
     }
 
