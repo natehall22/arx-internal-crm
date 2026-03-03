@@ -3,6 +3,7 @@ import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import AppointmentFeedbackPrompt from '@/components/AppointmentFeedbackPrompt'
 import SetterFeedbackPrompt from '@/components/SetterFeedbackPrompt'
+import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 
 export const metadata: Metadata = {
   title: 'ARX Internal CRM',
@@ -44,6 +45,7 @@ export default function RootLayout({
         <ServiceWorkerRegistration />
         <AppointmentFeedbackPrompt />
         <SetterFeedbackPrompt />
+        <AIAssistantWrapper context={{ type: 'general' }} />
       </body>
     </html>
   )
