@@ -1,11 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import dynamic from 'next/dynamic'
 import { createClientBrowser } from '@/lib/supabase/client'
-
-// Dynamically import AI Assistant to avoid SSR issues
-const AIAssistant = dynamic(() => import('./AIAssistant'), { ssr: false })
+import AIAssistant from './AIAssistant'
 
 interface AIAssistantWrapperProps {
   context?: {
