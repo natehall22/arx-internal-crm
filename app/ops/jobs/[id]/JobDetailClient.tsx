@@ -90,13 +90,21 @@ interface JobDetailClientProps {
   userRole: string
 }
 
+interface JobNote {
+  id: string
+  note: string
+  created_at: string
+  user: { full_name: string } | null
+}
+
 export default function JobDetailClient({ initialJob, crews, subs, userRole }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   const [saving, setSaving] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
-  const [notesValue, setNotesValue] = useState(initialJob.internal_notes || '')
+  const [newNoteText, setNewNoteText] = useState('')
+  const [jobNotes, setJobNotes] = useState<JobNote[]>([])
+  const [loadingNotes, setLoadingNotes] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
@@ -117,6 +125,51 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
     }
     loadPayments()
   }, [job.id])
+
+  // Load job notes
+  useEffect(() => {
+    const loadNotes = async () => {
+      setLoadingNotes(true)
+      try {
+        const response = await fetch(`/api/ops/jobs/${job.id}/notes`)
+        if (response.ok) {
+          const data = await response.json()
+          setJobNotes(data.notes || [])
+        }
+      } catch (error) {
+        console.error('Error loading notes:', error)
+      } finally {
+        setLoadingNotes(false)
+      }
+    }
+    loadNotes()
+  }, [job.id])
+
+  const addNote = async () => {
+    if (!newNoteText.trim()) return
+    
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: newNoteText.trim() }),
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setJobNotes(prev => [data.note, ...prev])
+        setNewNoteText('')
+      } else {
+        alert('Failed to add note')
+      }
+    } catch (error) {
+      console.error('Error adding note:', error)
+      alert('Failed to add note')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const reloadJob = async () => {
     try {
@@ -159,7 +212,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
           project: rawProject,
         }
         setJob(transformedJob)
-        setNotesValue(data.internal_notes || '')
       }
     } catch (error) {
       console.error('Error reloading job:', error)
@@ -242,31 +294,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
       alert('Failed to update materials status')
     }
 
-    await reloadJob()
-    setSaving(false)
-  }
-
-  const saveNotes = async () => {
-    setSaving(true)
-
-    try {
-      const response = await fetch(`/api/ops/jobs/${job.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ internal_notes: notesValue }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        console.error('Failed to save notes:', error)
-        alert('Failed to save notes')
-      }
-    } catch (error) {
-      console.error('Error saving notes:', error)
-      alert('Failed to save notes')
-    }
-
-    setEditingNotes(false)
     await reloadJob()
     setSaving(false)
   }
@@ -496,47 +523,52 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
             )}
 
             <div className="bg-white rounded-xl shadow-sm border p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Internal Notes</h2>
-                {!editingNotes && (
-                  <button
-                    onClick={() => setEditingNotes(true)}
-                    className="text-sm text-indigo-600 hover:text-indigo-800"
-                  >
-                    Edit
-                  </button>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
+              
+              {/* Add new note */}
+              <div className="mb-4">
+                <textarea
+                  value={newNoteText}
+                  onChange={(e) => setNewNoteText(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-2 text-gray-900"
+                  placeholder="Add a note..."
+                />
+                <button
+                  onClick={addNote}
+                  disabled={saving || !newNoteText.trim()}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? 'Adding...' : 'Add Note'}
+                </button>
+              </div>
+
+              {/* Notes list */}
+              <div className="border-t pt-4">
+                {loadingNotes ? (
+                  <p className="text-gray-500 text-sm">Loading notes...</p>
+                ) : jobNotes.length === 0 ? (
+                  <p className="text-gray-500 text-sm">No notes yet</p>
+                ) : (
+                  <div className="space-y-4">
+                    {jobNotes.map((note) => (
+                      <div key={note.id} className="border-b pb-3 last:border-b-0 last:pb-0">
+                        <p className="text-gray-900 whitespace-pre-wrap">{note.note}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {note.user?.full_name || 'Unknown'} • {new Date(note.created_at).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                          })}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              {editingNotes ? (
-                <div>
-                  <textarea
-                    value={notesValue}
-                    onChange={(e) => setNotesValue(e.target.value)}
-                    rows={4}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-3"
-                    placeholder="Add internal notes..."
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={saveNotes}
-                      disabled={saving}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => { setEditingNotes(false); setNotesValue(job.internal_notes || ''); }}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <p className={`whitespace-pre-wrap ${job.internal_notes ? 'text-gray-900' : 'text-gray-600'}`}>
-                  {job.internal_notes || 'No notes yet'}
-                </p>
-              )}
             </div>
           </div>
 
