@@ -19,6 +19,19 @@ interface Appointment {
   canvasser?: { full_name: string | null } | null
 }
 
+interface ScheduledJob {
+  id: string
+  job_number: string
+  scheduled_date: string
+  scheduled_time_start: string | null
+  address_text: string
+  job_type: string
+  status: string
+  customer_name: string | null
+  crew_name: string | null
+  crew_color: string | null
+}
+
 interface User {
   id: string
   full_name: string | null
@@ -30,10 +43,12 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<ViewMode>('month')
   const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
+  const [selectedJob, setSelectedJob] = useState<ScheduledJob | null>(null)
 
   const supabase = createClientBrowser()
 
@@ -142,6 +157,46 @@ export default function CalendarPage() {
     })
     
     setAppointments(enrichedAppointments)
+
+    // Fetch scheduled production jobs
+    // Show jobs where user is: salesperson, assigned crew member, or admin/ops
+    let jobsQuery = supabase
+      .from('production_jobs')
+      .select(`
+        id, job_number, scheduled_date, scheduled_time_start, address_text, job_type, status,
+        customer:customers(name),
+        assigned_crew:crews(name, color),
+        salesperson_id
+      `)
+      .eq('org_id', profile?.org_id)
+      .not('scheduled_date', 'is', null)
+      .in('status', ['scheduled', 'in_progress'])
+      .gte('scheduled_date', startDate.toISOString().split('T')[0])
+      .lte('scheduled_date', endDate.toISOString().split('T')[0])
+      .order('scheduled_date')
+
+    // For sales reps, only show jobs they sold
+    const isOpsOrAdmin = ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile?.role || '')
+    if (!isOpsOrAdmin && profile) {
+      jobsQuery = jobsQuery.eq('salesperson_id', user.id)
+    }
+
+    const { data: jobsData } = await jobsQuery
+
+    const transformedJobs: ScheduledJob[] = (jobsData || []).map((job: any) => ({
+      id: job.id,
+      job_number: job.job_number,
+      scheduled_date: job.scheduled_date,
+      scheduled_time_start: job.scheduled_time_start,
+      address_text: job.address_text,
+      job_type: job.job_type,
+      status: job.status,
+      customer_name: Array.isArray(job.customer) ? job.customer[0]?.name : job.customer?.name,
+      crew_name: Array.isArray(job.assigned_crew) ? job.assigned_crew[0]?.name : job.assigned_crew?.name,
+      crew_color: Array.isArray(job.assigned_crew) ? job.assigned_crew[0]?.color : job.assigned_crew?.color,
+    }))
+
+    setScheduledJobs(transformedJobs)
     setLoading(false)
   }
 
@@ -198,6 +253,12 @@ export default function CalendarPage() {
       const aptDate = new Date(apt.scheduled_for)
       return aptDate.toDateString() === date.toDateString()
     })
+  }
+
+  // Get scheduled jobs for a specific day
+  const getJobsForDay = (date: Date) => {
+    const dateStr = date.toISOString().split('T')[0]
+    return scheduledJobs.filter(job => job.scheduled_date?.split('T')[0] === dateStr)
   }
 
   // Week days
@@ -339,6 +400,8 @@ export default function CalendarPage() {
               <div className="flex-1 grid grid-cols-7 grid-rows-6">
                 {calendarDays.map((day, idx) => {
                   const dayAppointments = getAppointmentsForDay(day)
+                  const dayJobs = getJobsForDay(day)
+                  const totalItems = dayAppointments.length + dayJobs.length
                   return (
                     <div
                       key={idx}
@@ -352,7 +415,23 @@ export default function CalendarPage() {
                         {day.getDate()}
                       </div>
                       <div className="space-y-1">
-                        {dayAppointments.slice(0, 3).map(apt => (
+                        {/* Scheduled Jobs */}
+                        {dayJobs.slice(0, 2).map(job => (
+                          <button
+                            key={`job-${job.id}`}
+                            onClick={() => setSelectedJob(job)}
+                            className="w-full text-left px-1.5 py-0.5 rounded text-xs truncate"
+                            style={{
+                              backgroundColor: `${job.crew_color || '#8B5CF6'}20`,
+                              color: job.crew_color || '#8B5CF6',
+                              borderLeft: `2px solid ${job.crew_color || '#8B5CF6'}`,
+                            }}
+                          >
+                            🔨 {job.customer_name || job.address_text?.split(',')[0]}
+                          </button>
+                        ))}
+                        {/* Appointments */}
+                        {dayAppointments.slice(0, Math.max(0, 3 - dayJobs.length)).map(apt => (
                           <button
                             key={apt.id}
                             onClick={() => setSelectedAppointment(apt)}
@@ -361,9 +440,9 @@ export default function CalendarPage() {
                             {formatTime(apt.scheduled_for)} {apt.lead?.homeowner_name || 'Appointment'}
                           </button>
                         ))}
-                        {dayAppointments.length > 3 && (
+                        {totalItems > 3 && (
                           <div className="text-xs text-gray-500 px-1">
-                            +{dayAppointments.length - 3} more
+                            +{totalItems - 3} more
                           </div>
                         )}
                       </div>
@@ -580,6 +659,86 @@ export default function CalendarPage() {
                 )}
                 <button
                   onClick={() => setSelectedAppointment(null)}
+                  className="flex-1 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scheduled Job Detail Modal */}
+      {selectedJob && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
+            <div 
+              className="px-6 py-4 text-white"
+              style={{ backgroundColor: selectedJob.crew_color || '#8B5CF6' }}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-lg">🔨 Scheduled Job</h3>
+                <button
+                  onClick={() => setSelectedJob(null)}
+                  className="p-1 hover:bg-white/20 rounded"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="text-sm text-gray-500">Job Number</p>
+                <p className="font-semibold text-gray-900">{selectedJob.job_number}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Customer</p>
+                <p className="font-semibold text-gray-900">
+                  {selectedJob.customer_name || 'Unknown'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Install Date</p>
+                <p className="font-semibold text-gray-900">
+                  {new Date(selectedJob.scheduled_date + 'T12:00:00').toLocaleDateString([], {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                  {selectedJob.scheduled_time_start && ` at ${selectedJob.scheduled_time_start}`}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Address</p>
+                <p className="font-semibold text-gray-900">{selectedJob.address_text}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Job Type</p>
+                <p className="font-semibold text-gray-900 capitalize">{selectedJob.job_type}</p>
+              </div>
+              {selectedJob.crew_name && (
+                <div>
+                  <p className="text-sm text-gray-500">Assigned Crew</p>
+                  <p className="font-semibold text-gray-900">{selectedJob.crew_name}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-sm text-gray-500">Status</p>
+                <p className="font-semibold text-gray-900 capitalize">{selectedJob.status.replace('_', ' ')}</p>
+              </div>
+              <div className="pt-4 flex gap-3">
+                <a
+                  href={`/ops/jobs/${selectedJob.id}`}
+                  className="flex-1 py-2 bg-indigo-600 text-white text-center font-medium rounded-lg hover:bg-indigo-700"
+                >
+                  View Job Details
+                </a>
+                <button
+                  onClick={() => setSelectedJob(null)}
                   className="flex-1 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50"
                 >
                   Close
