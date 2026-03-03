@@ -129,37 +129,48 @@ export default function CampaignsPage() {
   }, [])
 
   const loadData = async () => {
-    const supabase = createClientBrowser()
-    
-    // Get current user's org_id first
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-    
-    if (!profile?.org_id) return
+    try {
+      const supabase = createClientBrowser()
+      
+      // Get current user's org_id first
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setLoading(false)
+        return
+      }
+      
+      const { data: profile } = await supabase
+        .from('users')
+        .select('org_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile?.org_id) {
+        setLoading(false)
+        return
+      }
 
-    const [campaignsRes, sourcesRes, usersRes, teamsRes] = await Promise.all([
-      supabase.from('campaigns').select('*').eq('org_id', profile.org_id).order('created_at', { ascending: false }),
-      supabase.from('lead_sources').select(`
-        *,
-        campaigns (id, name),
-        auto_assign_user:users!lead_sources_auto_assign_user_id_fkey (id, full_name, email),
-        auto_assign_team:teams!lead_sources_auto_assign_team_id_fkey (id, name)
-      `).eq('org_id', profile.org_id).order('name'),
-      supabase.from('users').select('id, full_name, email').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
-      supabase.from('teams').select('id, name').eq('org_id', profile.org_id).order('name'),
-    ])
+      const [campaignsRes, sourcesRes, usersRes, teamsRes] = await Promise.all([
+        supabase.from('campaigns').select('*').eq('org_id', profile.org_id).order('created_at', { ascending: false }),
+        supabase.from('lead_sources').select(`
+          *,
+          campaigns (id, name),
+          auto_assign_user:users!lead_sources_auto_assign_user_id_fkey (id, full_name, email),
+          auto_assign_team:teams!lead_sources_auto_assign_team_id_fkey (id, name)
+        `).eq('org_id', profile.org_id).order('name'),
+        supabase.from('users').select('id, full_name, email').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
+        supabase.from('teams').select('id, name').eq('org_id', profile.org_id).order('name'),
+      ])
 
-    setCampaigns(campaignsRes.data || [])
-    setLeadSources(sourcesRes.data || [])
-    setUsers(usersRes.data || [])
-    setTeams(teamsRes.data || [])
-    setLoading(false)
+      setCampaigns(campaignsRes.data || [])
+      setLeadSources(sourcesRes.data || [])
+      setUsers(usersRes.data || [])
+      setTeams(teamsRes.data || [])
+    } catch (err) {
+      console.error('Error loading campaigns data:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Campaign functions
