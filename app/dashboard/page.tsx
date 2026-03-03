@@ -171,7 +171,7 @@ export default async function DashboardPage() {
   const { data: recentActivities } = await activityQuery
 
   // Calculate week start date using shared utility
-  // Uses America/New_York timezone with Monday as week start
+  // Uses America/New_York timezone with Sunday as week start
   const { start: startOfWeek } = getDateRangeForTimeFrame('week', 'America/New_York')
 
   // Fetch team member stats for managers/admins

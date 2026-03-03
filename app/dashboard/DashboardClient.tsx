@@ -121,16 +121,11 @@ export default function DashboardClient({
   }, [])
 
   useEffect(() => {
-    if (timeFrame === 'week') {
-      setFilteredTeamStats(teamMemberStats)
-    } else {
-      loadTeamStatsForTimeFrame()
-    }
-  }, [timeFrame, teamMemberStats])
+    // Always fetch fresh data from API for consistency
+    loadTeamStatsForTimeFrame()
+  }, [timeFrame])
 
   const loadTeamStatsForTimeFrame = async () => {
-    if (timeFrame === 'week') return
-    
     setLoadingStats(true)
     try {
       const res = await fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`)
