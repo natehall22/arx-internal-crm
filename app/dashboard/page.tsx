@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import DashboardClient from './DashboardClient'
+import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -169,20 +170,9 @@ export default async function DashboardPage() {
   }
   const { data: recentActivities } = await activityQuery
 
-  // Calculate week start date first (used for filtering)
-  // Use Eastern Time for consistent date boundaries
-  const ET_OFFSET_HOURS = 5 // Eastern Standard Time offset
-  const now = new Date()
-  // Convert to Eastern Time
-  const nowET = new Date(now.getTime() - ET_OFFSET_HOURS * 60 * 60 * 1000)
-  const dayOfWeek = nowET.getUTCDay() // 0 = Sunday, 6 = Saturday
-  // Start of week in Eastern Time (Sunday 00:00 ET = Sunday 05:00 UTC)
-  const startOfWeek = new Date(Date.UTC(
-    nowET.getUTCFullYear(), 
-    nowET.getUTCMonth(), 
-    nowET.getUTCDate() - dayOfWeek, 
-    ET_OFFSET_HOURS, 0, 0, 0
-  ))
+  // Calculate week start date using shared utility
+  // Uses America/New_York timezone with Monday as week start
+  const { start: startOfWeek } = getDateRangeForTimeFrame('week', 'America/New_York')
 
   // Fetch team member stats for managers/admins
   let teamMemberStats: any[] = []

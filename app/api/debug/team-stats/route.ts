@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getDateRangeWithDebug } from '@/lib/date-ranges'
 
 export const dynamic = 'force-dynamic'
+
+const TIMEZONE = 'America/New_York'
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -62,41 +65,6 @@ function getAdminClient() {
   })
 }
 
-function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date } {
-  const ET_OFFSET_HOURS = 5
-  const now = new Date()
-  const nowET = new Date(now.getTime() - ET_OFFSET_HOURS * 60 * 60 * 1000)
-  
-  let start: Date
-  let end: Date
-
-  switch (timeframe) {
-    case 'today':
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate(), ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'week':
-      const dayOfWeek = nowET.getUTCDay()
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - dayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'month':
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'quarter':
-      const quarter = Math.floor(nowET.getUTCMonth() / 3)
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), quarter * 3, 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    default:
-      start = new Date(Date.UTC(2020, 0, 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-  }
-
-  return { start, end }
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -130,7 +98,17 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('range') || searchParams.get('timeframe') || 'quarter'
     const showAllOrg = searchParams.get('all') === 'true' // Admin can optionally see all
-    const { start, end } = getDateRangeForTimeFrame(timeframe)
+    const dateRange = getDateRangeWithDebug(timeframe, TIMEZONE)
+    const { start, end } = dateRange
+    
+    // Debug logging
+    console.log('[debug/team-stats] Date range:', {
+      timeframe,
+      startUtc: start.toISOString(),
+      endUtc: end.toISOString(),
+      startLocal: dateRange.startLocal,
+      endLocal: dateRange.endLocal,
+    })
 
     // Get viewer's team info
     let viewerTeamName = null
@@ -330,10 +308,13 @@ export async function GET(request: NextRequest) {
       },
       scope: scopeDescription,
       range: {
-        start: start.toISOString(),
-        end: end.toISOString(),
-        timezone: 'America/New_York',
         timeframe,
+        timezone: TIMEZONE,
+        week_starts_on: 'Monday',
+        start_utc: start.toISOString(),
+        end_utc: end.toISOString(),
+        start_local: dateRange.startLocal,
+        end_local: dateRange.endLocal,
       },
       team_member_ids: teamMemberIds.length > 0 ? teamMemberIds : 'all_org',
       totals: {

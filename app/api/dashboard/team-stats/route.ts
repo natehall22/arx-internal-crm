@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getDateRangeForTimeFrame, getDateRangeWithDebug } from '@/lib/date-ranges'
 
 export const dynamic = 'force-dynamic'
+
+const TIMEZONE = 'America/New_York'
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -62,67 +65,6 @@ function getAdminClient() {
   })
 }
 
-function getDateRangeForTimeFrame(timeframe: string): { start: Date; end: Date } {
-  // Use Eastern Time offset (UTC-5, or UTC-4 during DST)
-  const ET_OFFSET_HOURS = 5
-  
-  const now = new Date()
-  const nowET = new Date(now.getTime() - ET_OFFSET_HOURS * 60 * 60 * 1000)
-  
-  let start: Date
-  let end: Date
-
-  switch (timeframe) {
-    case 'today':
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate(), ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'yesterday':
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'week':
-      const dayOfWeek = nowET.getUTCDay()
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - dayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'last_week':
-      const currentDayOfWeek = nowET.getUTCDay()
-      const startOfThisWeek = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - currentDayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
-      start = new Date(startOfThisWeek.getTime() - 7 * 24 * 60 * 60 * 1000)
-      end = startOfThisWeek
-      break
-    case 'month':
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'last_month':
-      const lastMonthDate = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth() - 1, 1, ET_OFFSET_HOURS, 0, 0, 0))
-      start = lastMonthDate
-      end = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), 1, ET_OFFSET_HOURS, 0, 0, 0))
-      break
-    case 'quarter':
-      const quarter = Math.floor(nowET.getUTCMonth() / 3)
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), quarter * 3, 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'year':
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), 0, 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'all':
-      start = new Date(Date.UTC(2020, 0, 1, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      break
-    default:
-      const defaultDayOfWeek = nowET.getUTCDay()
-      start = new Date(Date.UTC(nowET.getUTCFullYear(), nowET.getUTCMonth(), nowET.getUTCDate() - defaultDayOfWeek, ET_OFFSET_HOURS, 0, 0, 0))
-      end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-  }
-
-  return { start, end }
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -159,7 +101,20 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('timeframe') || 'week'
     const debug = searchParams.get('debug') === '1'
-    const { start, end } = getDateRangeForTimeFrame(timeframe)
+    const dateRange = debug 
+      ? getDateRangeWithDebug(timeframe, TIMEZONE)
+      : getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
+    const { start, end } = dateRange
+    
+    // Debug logging for date range issues
+    if (debug) {
+      console.log('[team-stats] Date range:', {
+        timeframe,
+        startUtc: start.toISOString(),
+        endUtc: end.toISOString(),
+        nowUtc: new Date().toISOString(),
+      })
+    }
 
     // Get team member IDs based on role
     let teamMemberIds: string[] = []
@@ -352,17 +307,21 @@ export async function GET(request: NextRequest) {
     
     // Include date range info in debug mode
     if (debug) {
+      const debugDateRange = dateRange as any
       response._debug = {
         timeframe,
-        start_date: start.toISOString(),
-        end_date: end.toISOString(),
-        timezone: 'America/New_York',
+        timezone: TIMEZONE,
+        start_utc: start.toISOString(),
+        end_utc: end.toISOString(),
+        start_local: debugDateRange.startLocal || start.toISOString(),
+        end_local: debugDateRange.endLocal || end.toISOString(),
         total_leads_in_range: leads?.length || 0,
         total_appointments_in_range: appointments?.length || 0,
         total_opportunities_in_range: opportunities?.length || 0,
         team_member_count: members.length,
         viewer_role: profile.role,
         viewer_team_id: profile.team_id,
+        week_starts_on: 'Monday',
       }
     }
 
