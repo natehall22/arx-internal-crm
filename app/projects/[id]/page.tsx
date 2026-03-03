@@ -12,6 +12,8 @@ import DeleteProjectButton from '@/components/DeleteProjectButton'
 import ProjectFinancialSnapshot from '@/components/ProjectFinancialSnapshot'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import ProjectFileUpload from '@/components/ProjectFileUpload'
+import ProjectSoldScope from '@/components/ProjectSoldScope'
+import JobNotesReadOnly from '@/components/JobNotesReadOnly'
 
 export default async function ProjectDetailPage({
   params,
@@ -248,6 +250,25 @@ export default async function ProjectDetailPage({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* What Was Sold - Accepted Proposal Summary */}
+        <ProjectSoldScope projectId={project.id} />
+
+        {/* Job Notes - Read Only from associated production job */}
+        {productionJob && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Job Notes</h2>
+              <Link
+                href={`/ops/jobs/${productionJob.id}`}
+                className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+              >
+                View Job →
+              </Link>
+            </div>
+            <JobNotesReadOnly jobId={productionJob.id} limit={10} />
           </div>
         )}
 

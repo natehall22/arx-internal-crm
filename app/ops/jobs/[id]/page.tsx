@@ -64,6 +64,15 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
   }
 
+  // Debug logging for Sold Scope
+  console.log('[JobDetailPage] Job data:', {
+    id: jobRes.data.id,
+    job_number: jobRes.data.job_number,
+    project_id: jobRes.data.project_id,
+    accepted_proposal_id: jobRes.data.accepted_proposal_id,
+    accepted_estimate_id: jobRes.data.accepted_estimate_id,
+  })
+
   const transformedJob = {
     ...jobRes.data,
     assigned_crew: Array.isArray(jobRes.data.assigned_crew) ? jobRes.data.assigned_crew[0] : jobRes.data.assigned_crew,

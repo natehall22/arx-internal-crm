@@ -11,12 +11,15 @@ import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
+import SoldScopeCard from '@/components/ops/SoldScopeCard'
+import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
 interface Job {
   id: string
+  org_id: string
   project_id: string
   job_number: string
   status: JobStatus
@@ -46,6 +49,9 @@ interface Job {
   progress_photos: string[]
   after_photos: string[]
   created_at: string
+  accepted_proposal_id?: string | null
+  accepted_estimate_id?: string | null
+  special_instructions?: string | null
   assigned_crew?: { id: string; name: string; color: string; phone: string } | null
   assigned_sub?: { id: string; company_name: string; contact_name: string; phone: string } | null
   customer?: { id: string; name: string; phone: string; email: string } | null
@@ -620,6 +626,15 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               </div>
             )}
 
+            {/* Sold Scope + Job Packet - What was sold (from accepted proposal) */}
+            <SoldScopeCard 
+              projectId={job.project_id}
+              acceptedProposalId={job.accepted_proposal_id}
+              acceptedEstimateId={job.accepted_estimate_id}
+              jobId={job.id}
+              showJobPacketButton={true}
+            />
+
             <div className="bg-white rounded-xl shadow-sm border p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
               
@@ -851,6 +866,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
 
             <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
 
+            <FinalPhotosCard jobId={job.id} projectId={job.project_id} orgId={job.org_id} />
+
             {job.permit_required && (
               <div className="bg-white rounded-xl shadow-sm border p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Permit</h2>
@@ -879,6 +896,14 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     className="block text-sm text-indigo-600 hover:text-indigo-800"
                   >
                     View Project →
+                  </Link>
+                )}
+                {job.accepted_proposal_id && (
+                  <Link
+                    href={`/proposals/${job.accepted_proposal_id}`}
+                    className="block text-sm text-indigo-600 hover:text-indigo-800"
+                  >
+                    View Accepted Proposal →
                   </Link>
                 )}
                 {job.salesperson && (
