@@ -100,13 +100,8 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
       
       const { leads: allLeads } = await response.json()
       
-      // Apply client-side filtering
+      // Apply client-side filtering (role-based filtering is now done server-side)
       let filteredData = allLeads || []
-      
-      // Role-based filtering
-      if (profile.role === 'rep' || profile.role === 'sales_rep' || profile.role === 'canvasser') {
-        filteredData = filteredData.filter((lead: Lead) => lead.owner_user_id === profile.id)
-      }
 
       // Channel filter based on permissions
       if (!canViewInbound) {

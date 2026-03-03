@@ -143,10 +143,10 @@ export async function GET(request: NextRequest) {
 
     const adminClient = getAdminClient()
 
-    // Get user profile for org_id
+    // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, team_id')
       .eq('id', user.id)
       .single()
 
@@ -154,8 +154,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    // Get all leads first
-    const { data: allLeads, error: leadsError } = await adminClient
+    // Build leads query with role-based filtering
+    let leadsQuery = adminClient
       .from('leads')
       .select(`
         *,
@@ -165,6 +165,14 @@ export async function GET(request: NextRequest) {
       `)
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
+
+    // Role-based filtering - setters/canvassers only see their own leads
+    const isRep = ['rep', 'sales_rep', 'canvasser', 'setter'].includes(profile.role)
+    if (isRep) {
+      leadsQuery = leadsQuery.eq('owner_user_id', user.id)
+    }
+
+    const { data: allLeads, error: leadsError } = await leadsQuery
 
     if (leadsError) {
       console.error('Leads fetch error:', leadsError)

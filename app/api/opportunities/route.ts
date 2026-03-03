@@ -79,10 +79,10 @@ export async function GET(request: NextRequest) {
 
     const adminClient = getAdminClient()
 
-    // Get user profile for org_id
+    // Get user profile for org_id and role
     const { data: profile, error: profileError } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, team_id')
       .eq('id', user.id)
       .single()
 
@@ -100,6 +100,7 @@ export async function GET(request: NextRequest) {
     const fullData = searchParams.get('full') === 'true'
     const inspectionOutcome = searchParams.get('inspection_outcome')
     const searchQuery = searchParams.get('q')
+    const bypassRoleFilter = searchParams.get('_internal') === 'true' // For internal API calls (reporting, etc.)
 
     // Build the query - fetch all columns explicitly to avoid join issues
     let query = adminClient
@@ -110,6 +111,7 @@ export async function GET(request: NextRequest) {
         lead_id,
         customer_id,
         owner_user_id,
+        setter_user_id,
         address_text,
         project_type,
         status,
@@ -118,6 +120,21 @@ export async function GET(request: NextRequest) {
       `)
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
+
+    // Role-based filtering for reps (closers see their own, setters see ones they set)
+    // Skip if this is an internal API call (for reporting/dashboard)
+    const isRep = ['rep', 'sales_rep', 'closer'].includes(profile.role)
+    const isSetter = ['canvasser', 'setter'].includes(profile.role)
+    
+    if (!bypassRoleFilter) {
+      if (isSetter) {
+        // Setters see opportunities they set (setter_user_id)
+        query = query.eq('setter_user_id', user.id)
+      } else if (isRep) {
+        // Closers see opportunities they own OR they set
+        query = query.or(`owner_user_id.eq.${user.id},setter_user_id.eq.${user.id}`)
+      }
+    }
 
     if (leadIds) {
       const ids = leadIds.split(',').filter(Boolean)
