@@ -97,6 +97,11 @@ interface JobNote {
   user: { full_name: string } | null
 }
 
+interface OrgUser {
+  id: string
+  full_name: string
+}
+
 export default function JobDetailClient({ initialJob, crews, subs, userRole }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
@@ -109,6 +114,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
+  
+  // Mention/tagging state
+  const [orgUsers, setOrgUsers] = useState<OrgUser[]>([])
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false)
+  const [mentionSearch, setMentionSearch] = useState('')
+  const [mentionCursorPos, setMentionCursorPos] = useState(0)
 
   // Load payment summary for balance check
   useEffect(() => {
@@ -144,6 +155,92 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
     }
     loadNotes()
   }, [job.id])
+
+  // Load org users for @mentions
+  useEffect(() => {
+    const loadOrgUsers = async () => {
+      try {
+        const response = await fetch('/api/users')
+        if (response.ok) {
+          const data = await response.json()
+          setOrgUsers(data.users || [])
+        }
+      } catch (error) {
+        console.error('Error loading org users:', error)
+      }
+    }
+    loadOrgUsers()
+  }, [])
+
+  // Handle note text change with @mention detection
+  const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    const cursorPos = e.target.selectionStart || 0
+    setNewNoteText(value)
+    
+    // Check if we're in the middle of typing a mention
+    const textBeforeCursor = value.substring(0, cursorPos)
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/)
+    
+    if (mentionMatch) {
+      setShowMentionDropdown(true)
+      setMentionSearch(mentionMatch[1].toLowerCase())
+      setMentionCursorPos(cursorPos)
+    } else {
+      setShowMentionDropdown(false)
+      setMentionSearch('')
+    }
+  }
+
+  // Insert mention into text
+  const insertMention = (user: OrgUser) => {
+    const textBeforeCursor = newNoteText.substring(0, mentionCursorPos)
+    const textAfterCursor = newNoteText.substring(mentionCursorPos)
+    
+    // Find where the @ starts
+    const atIndex = textBeforeCursor.lastIndexOf('@')
+    const beforeAt = textBeforeCursor.substring(0, atIndex)
+    
+    // Insert the mention
+    const newText = `${beforeAt}@${user.full_name} ${textAfterCursor}`
+    setNewNoteText(newText)
+    setShowMentionDropdown(false)
+    setMentionSearch('')
+  }
+
+  // Filter users based on search
+  const filteredUsers = orgUsers.filter(user => 
+    user.full_name.toLowerCase().includes(mentionSearch)
+  ).slice(0, 5)
+
+  // Render note text with highlighted mentions
+  const renderNoteWithMentions = (text: string) => {
+    const mentionRegex = /@([A-Za-z\s]+?)(?=\s|$|@)/g
+    const parts = []
+    let lastIndex = 0
+    let match
+
+    while ((match = mentionRegex.exec(text)) !== null) {
+      // Add text before the mention
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index))
+      }
+      // Add the mention with styling
+      parts.push(
+        <span key={match.index} className="text-indigo-600 font-medium">
+          @{match[1]}
+        </span>
+      )
+      lastIndex = match.index + match[0].length
+    }
+    
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex))
+    }
+    
+    return parts.length > 0 ? parts : text
+  }
 
   const addNote = async () => {
     if (!newNoteText.trim()) return
@@ -526,21 +623,40 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
               
               {/* Add new note */}
-              <div className="mb-4">
+              <div className="mb-4 relative">
                 <textarea
                   value={newNoteText}
-                  onChange={(e) => setNewNoteText(e.target.value)}
+                  onChange={handleNoteChange}
                   rows={3}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-2 text-gray-900"
-                  placeholder="Add a note..."
+                  placeholder="Add a note... Use @ to mention someone"
                 />
-                <button
-                  onClick={addNote}
-                  disabled={saving || !newNoteText.trim()}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? 'Adding...' : 'Add Note'}
-                </button>
+                
+                {/* @mention dropdown */}
+                {showMentionDropdown && filteredUsers.length > 0 && (
+                  <div className="absolute z-10 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 w-64 max-h-48 overflow-y-auto">
+                    {filteredUsers.map(user => (
+                      <button
+                        key={user.id}
+                        onClick={() => insertMention(user)}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-100 text-gray-900 text-sm"
+                      >
+                        {user.full_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={addNote}
+                    disabled={saving || !newNoteText.trim()}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {saving ? 'Adding...' : 'Add Note'}
+                  </button>
+                  <span className="text-xs text-gray-500">Tip: Use @ to tag team members</span>
+                </div>
               </div>
 
               {/* Notes list */}
@@ -553,7 +669,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <div className="space-y-4">
                     {jobNotes.map((note) => (
                       <div key={note.id} className="border-b pb-3 last:border-b-0 last:pb-0">
-                        <p className="text-gray-900 whitespace-pre-wrap">{note.note}</p>
+                        <p className="text-gray-900 whitespace-pre-wrap">{renderNoteWithMentions(note.note)}</p>
                         <p className="text-xs text-gray-500 mt-1">
                           {note.user?.full_name || 'Unknown'} • {new Date(note.created_at).toLocaleString('en-US', {
                             month: 'short',
