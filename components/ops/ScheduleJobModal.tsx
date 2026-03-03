@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface Job {
   id: string
@@ -46,8 +45,6 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
   const [scheduledTimeStart, setScheduledTimeStart] = useState('08:00')
   const [estimatedHours, setEstimatedHours] = useState('8')
   const [saving, setSaving] = useState(false)
-
-  const supabase = createClientBrowser()
 
   // Filter crews by job type
   const relevantCrews = crews.filter(crew => {
@@ -99,17 +96,21 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
         updates.assigned_crew_id = null
       }
 
-      const { error } = await supabase
-        .from('production_jobs')
-        .update(updates)
-        .eq('id', job.id)
+      const response = await fetch(`/api/ops/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to schedule job')
+      }
 
       onSave()
     } catch (error) {
       console.error('Error scheduling job:', error)
-      alert('Failed to schedule job')
+      alert(error instanceof Error ? error.message : 'Failed to schedule job')
     } finally {
       setSaving(false)
     }
