@@ -4,6 +4,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import ReferralsSection from '@/components/ReferralsSection'
+import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
@@ -163,23 +164,7 @@ export default async function CustomerDetailPage({
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-lg font-semibold text-gray-900">
-                {customer.name || 'Unnamed customer'}
-              </h2>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
-                <div>
-                  <span className="font-medium">Email:</span> {customer.email || 'No email'}
-                </div>
-                <div>
-                  <span className="font-medium">Phone:</span> {customer.phone || 'No phone'}
-                </div>
-                <div className="md:col-span-2">
-                  <span className="font-medium">Address:</span>{' '}
-                  {customer.address_text || 'No address'}
-                </div>
-              </div>
-            </div>
+            <CustomerInfoCard customer={customer} />
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white shadow rounded-lg p-6">
