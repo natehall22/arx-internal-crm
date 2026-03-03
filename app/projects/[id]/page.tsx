@@ -28,7 +28,8 @@ export default async function ProjectDetailPage({
     .eq('id', params.id)
     .eq('org_id', profile.org_id)
 
-  if (profile.role === 'rep') {
+  // Closers/sales reps only see projects they own
+  if (['rep', 'sales_rep', 'closer'].includes(profile.role)) {
     projectQuery = projectQuery.eq('owner_user_id', profile.id)
   }
 
@@ -93,7 +94,8 @@ export default async function ProjectDetailPage({
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
 
-    if (profile.role === 'rep') {
+    // Closers/sales reps only see projects they own
+    if (['rep', 'sales_rep', 'closer'].includes(profile.role)) {
       opsQuery = opsQuery.eq('owner_user_id', profile.id)
     }
 

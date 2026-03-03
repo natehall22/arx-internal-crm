@@ -13,7 +13,8 @@ export default async function ProjectsPage() {
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
-  if (profile.role === 'rep') {
+  // Closers/sales reps only see projects they own
+  if (['rep', 'sales_rep', 'closer'].includes(profile.role)) {
     projectsQuery = projectsQuery.eq('owner_user_id', profile.id)
   }
 
