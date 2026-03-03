@@ -61,7 +61,7 @@ export default function ProductionCalendarPage() {
 
     if (!profile) return
 
-    if (!['admin', 'regional_manager', 'operations', 'manager'].includes(profile.role)) {
+    if (!['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile.role)) {
       router.push('/dashboard')
       return
     }
