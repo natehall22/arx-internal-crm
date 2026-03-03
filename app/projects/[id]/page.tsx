@@ -12,6 +12,7 @@ import ProjectStatusUpdate from '@/components/ProjectStatusUpdate'
 import DeleteProjectButton from '@/components/DeleteProjectButton'
 import ProjectFinancialSnapshot from '@/components/ProjectFinancialSnapshot'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
+import ProjectFileUpload from '@/components/ProjectFileUpload'
 
 export default async function ProjectDetailPage({
   params,
@@ -470,7 +471,8 @@ export default async function ProjectDetailPage({
 
           <div className="bg-white shadow rounded-lg p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Files & Photos</h2>
-            <div className="space-y-2">
+            <ProjectFileUpload projectId={project.id} orgId={profile.org_id} />
+            <div className="space-y-2 mt-4">
               {files && files.length > 0 ? (
                 files.map((file: any) => {
                   const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
