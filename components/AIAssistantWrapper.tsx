@@ -16,34 +16,32 @@ interface AIAssistantWrapperProps {
 
 export default function AIAssistantWrapper({ context }: AIAssistantWrapperProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [aiEnabled, setAiEnabled] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     checkAuth()
   }, [])
 
   const checkAuth = async () => {
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (user) {
-      setIsAuthenticated(true)
+    try {
+      const supabase = createClientBrowser()
+      const { data: { user } } = await supabase.auth.getUser()
       
-      // Check if AI is enabled
-      const { data: settings } = await supabase
-        .from('user_settings')
-        .select('ai_enabled')
-        .eq('user_id', user.id)
-        .single()
-      
-      setAiEnabled(settings?.ai_enabled ?? false)
+      if (user) {
+        setIsAuthenticated(true)
+      }
+    } catch (err) {
+      console.error('AI Wrapper auth check error:', err)
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  // Only show AI assistant if user is authenticated and has AI enabled
-  if (!isAuthenticated || !aiEnabled) {
+  // Don't render anything while loading or if not authenticated
+  if (isLoading || !isAuthenticated) {
     return null
   }
 
+  // Always show the AI Assistant - it handles the enabled/disabled state internally
   return <AIAssistant context={context} />
 }
