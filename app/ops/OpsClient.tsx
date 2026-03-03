@@ -292,6 +292,14 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
 
         {/* Default Actions */}
         <div className="flex gap-2 mt-3 pt-3 border-t group-hover:hidden">
+          {job.status === 'sold' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'materials'); }}
+              className="flex-1 text-xs py-1.5 px-2 bg-amber-50 text-amber-600 rounded hover:bg-amber-100"
+            >
+              Materials
+            </button>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); openScheduleModal(job); }}
             className="flex-1 text-xs py-1.5 px-2 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100"
