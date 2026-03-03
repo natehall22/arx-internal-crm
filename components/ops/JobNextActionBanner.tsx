@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { JobPaymentSummary, JobPayment } from '@/lib/types/job-payments'
+import { JobPaymentSummary } from '@/lib/types/job-payments'
+import { checkDepositStatus } from '@/lib/job-deposit'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -24,21 +25,6 @@ interface NextAction {
   buttonText: string
   color: 'blue' | 'amber' | 'purple' | 'green' | 'gray'
   action: 'deposit' | 'materials' | 'schedule' | 'assign' | 'collect' | 'done'
-}
-
-function isDepositSatisfied(
-  payments: JobPayment[],
-  collectedCents: number,
-  saleAmountCents: number,
-  depositRequiredPercent: number
-): boolean {
-  const hasDepositPayment = payments.some(
-    p => p.payment_type === 'deposit' && p.amount_cents > 0
-  )
-  if (hasDepositPayment) return true
-  
-  const requiredDepositCents = Math.round(saleAmountCents * depositRequiredPercent)
-  return collectedCents >= requiredDepositCents
 }
 
 function getNextAction(
@@ -194,11 +180,21 @@ export default function JobNextActionBanner({
     const loadPayments = async () => {
       setLoading(true)
       try {
-        const response = await fetch(`/api/ops/jobs/${jobId}/payments`, {
+        const response = await fetch(`/api/ops/jobs/${jobId}/payments?_t=${Date.now()}`, {
           cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
         })
         if (response.ok) {
           const data = await response.json()
+          if (typeof window !== 'undefined' && (window as any).__DEBUG_NEXT_ACTION__) {
+            console.log('[NextAction] Loaded payments:', {
+              jobId,
+              refreshKey,
+              collected_cents: data.collected_cents,
+              payment_count: data.payment_count,
+              payments: data.payments?.map((p: any) => ({ type: p.payment_type, amount: p.amount_cents })),
+            })
+          }
           setPaymentSummary(data)
         }
       } catch (error) {
@@ -214,19 +210,34 @@ export default function JobNextActionBanner({
     return null
   }
 
-  const saleAmountCents = Math.round((saleAmount || 0) * 100)
+  // Use sale_amount_cents from API for consistency, fallback to prop calculation
+  const saleAmountCents = paymentSummary?.sale_amount_cents ?? Math.round((saleAmount || 0) * 100)
   const collectedCents = paymentSummary?.collected_cents || 0
-  const remainingCents = saleAmountCents - collectedCents
+  const remainingCents = paymentSummary?.remaining_cents ?? (saleAmountCents - collectedCents)
   const payments = paymentSummary?.payments || []
   const depositPercent = depositRequiredPercent ?? 0.5
   const hasCrewOrSub = !!(assignedCrewId || assignedSubId)
 
-  const depositSatisfied = isDepositSatisfied(
+  const depositStatus = checkDepositStatus(
     payments,
     collectedCents,
     saleAmountCents,
     depositPercent
   )
+  const depositSatisfied = depositStatus.satisfied
+  
+  // Debug logging (can be removed in production)
+  if (typeof window !== 'undefined' && (window as any).__DEBUG_NEXT_ACTION__) {
+    console.log('[NextAction] Deposit status:', depositStatus)
+    console.log('[NextAction] Final state:', {
+      depositSatisfied,
+      status,
+      materialsStatus,
+      scheduledDate,
+      hasCrewOrSub,
+      remainingCents,
+    })
+  }
 
   const nextAction = getNextAction(
     status,
