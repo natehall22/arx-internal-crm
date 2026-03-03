@@ -47,21 +47,32 @@ export default function ProductionCalendarPage() {
   }, [])
 
   const loadData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    console.log('[Calendar] Auth check:', { user: user?.id, error: userError })
+    
     if (!user) {
+      console.log('[Calendar] No user, redirecting to login')
       router.push('/login')
       return
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('users')
       .select('org_id, role')
       .eq('id', user.id)
       .single()
 
-    if (!profile) return
+    console.log('[Calendar] Profile:', { profile, error: profileError })
 
+    if (!profile) {
+      console.log('[Calendar] No profile found')
+      return
+    }
+
+    console.log('[Calendar] Role check:', profile.role, 'allowed:', ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile.role))
+    
     if (!['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile.role)) {
+      console.log('[Calendar] Role not allowed, redirecting to dashboard')
       router.push('/dashboard')
       return
     }
