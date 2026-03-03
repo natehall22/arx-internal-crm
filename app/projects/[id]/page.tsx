@@ -6,7 +6,6 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import ReferralsSection from '@/components/ReferralsSection'
 import SendToOpsButton from '@/components/SendToOpsButton'
 import ProjectStatusUpdate from '@/components/ProjectStatusUpdate'
 import DeleteProjectButton from '@/components/DeleteProjectButton'
@@ -58,52 +57,12 @@ export default async function ProjectDetailPage({
     .eq('project_id', params.id)
     .order('created_at', { ascending: false })
 
-  // Fetch work orders for this project
-  const { data: workOrders } = await supabase
-    .from('work_orders')
-    .select('*, assigned_user:users!work_orders_assigned_user_id_fkey(full_name), assigned_sub:sub_contractors(company_name)')
-    .eq('project_id', params.id)
-    .order('created_at', { ascending: false })
-
   // Check if production job exists for this project
   const { data: productionJob } = await supabase
     .from('production_jobs')
     .select('id, job_number, sale_amount')
     .eq('project_id', params.id)
     .single()
-
-  const updateOps = async (formData: FormData) => {
-    'use server'
-    const { profile } = await requireAuth()
-    const supabase = createClient()
-
-    const scope_of_work = String(formData.get('scope_of_work') ?? '')
-    const permits_status = String(formData.get('permits_status') ?? '')
-    const product_summary = String(formData.get('product_summary') ?? '')
-    const install_date = String(formData.get('install_date') ?? '')
-    const ops_notes = String(formData.get('ops_notes') ?? '')
-
-    let opsQuery = supabase
-      .from('projects')
-      .update({
-        scope_of_work: scope_of_work || null,
-        permits_status: permits_status || null,
-        product_summary: product_summary || null,
-        install_date: install_date || null,
-        ops_notes: ops_notes || null,
-      })
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-
-    // Closers/sales reps only see projects they own
-    if (['rep', 'sales_rep', 'closer'].includes(profile.role)) {
-      opsQuery = opsQuery.eq('owner_user_id', profile.id)
-    }
-
-    await opsQuery
-
-    revalidatePath(`/projects/${params.id}`)
-  }
 
   const updateStatus = async (formData: FormData) => {
     'use server'
@@ -292,155 +251,54 @@ export default async function ProjectDetailPage({
           </div>
         )}
 
-        {/* Work Orders Section */}
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-gray-900">Work Orders</h2>
-            <Link
-              href={`/work-orders/new?project_id=${project.id}&customer_id=${project.customer_id || ''}&address=${encodeURIComponent(project.address_text || '')}`}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm"
-            >
-              + New Work Order
-            </Link>
-          </div>
-          
-          {workOrders && workOrders.length > 0 ? (
-            <div className="space-y-3">
-              {workOrders.map((wo: any) => (
-                <div key={wo.id} className="border rounded-lg p-4 hover:bg-gray-50 transition">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-mono text-gray-500">{wo.work_order_number}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          wo.status === 'completed' ? 'bg-green-100 text-green-700' :
-                          wo.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                          wo.status === 'scheduled' ? 'bg-purple-100 text-purple-700' :
-                          wo.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {wo.status.replace('_', ' ')}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          wo.priority === 'urgent' ? 'bg-red-100 text-red-700' :
-                          wo.priority === 'high' ? 'bg-orange-100 text-orange-700' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>
-                          {wo.priority}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 capitalize">
-                          {wo.work_order_type.replace('_', ' ')}
-                        </span>
-                      </div>
-                      <h3 className="font-medium text-gray-900 mt-2">{wo.title}</h3>
-                      {wo.description && (
-                        <p className="text-sm text-gray-500 mt-1 line-clamp-2">{wo.description}</p>
-                      )}
-                      <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                        {wo.assigned_user?.full_name && (
-                          <span>Assigned: {wo.assigned_user.full_name}</span>
-                        )}
-                        {wo.assigned_sub?.company_name && (
-                          <span>Sub: {wo.assigned_sub.company_name}</span>
-                        )}
-                        {wo.scheduled_date && (
-                          <span>Scheduled: {new Date(wo.scheduled_date).toLocaleDateString()}</span>
-                        )}
-                      </div>
-                    </div>
-                    <Link
-                      href={`/work-orders/${wo.id}`}
-                      className="text-indigo-600 hover:text-indigo-800 text-sm font-medium ml-4"
-                    >
-                      View →
-                    </Link>
-                  </div>
+        {/* Operations Snapshot - Read Only (edit on Job Detail page) */}
+        {(project.scope_of_work || project.product_summary || project.permits_status || project.install_date || project.ops_notes) && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Operations Snapshot</h2>
+              {productionJob && (
+                <Link
+                  href={`/ops/jobs/${productionJob.id}`}
+                  className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                >
+                  Edit on Job →
+                </Link>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {project.scope_of_work && (
+                <div className="md:col-span-2">
+                  <span className="font-medium text-gray-500">Scope of Work</span>
+                  <p className="mt-1 text-gray-900 whitespace-pre-wrap">{project.scope_of_work}</p>
                 </div>
-              ))}
+              )}
+              {project.product_summary && (
+                <div>
+                  <span className="font-medium text-gray-500">Product</span>
+                  <p className="mt-1 text-gray-900">{project.product_summary}</p>
+                </div>
+              )}
+              {project.permits_status && (
+                <div>
+                  <span className="font-medium text-gray-500">Permits</span>
+                  <p className="mt-1 text-gray-900">{project.permits_status}</p>
+                </div>
+              )}
+              {project.install_date && (
+                <div>
+                  <span className="font-medium text-gray-500">Install Date</span>
+                  <p className="mt-1 text-gray-900">{new Date(project.install_date).toLocaleDateString()}</p>
+                </div>
+              )}
+              {project.ops_notes && (
+                <div className="md:col-span-2">
+                  <span className="font-medium text-gray-500">Ops Notes</span>
+                  <p className="mt-1 text-gray-900 whitespace-pre-wrap">{project.ops_notes}</p>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-              </svg>
-              <p className="mt-2 text-sm text-gray-500">No work orders for this project</p>
-              <Link
-                href={`/work-orders/new?project_id=${project.id}&customer_id=${project.customer_id || ''}&address=${encodeURIComponent(project.address_text || '')}`}
-                className="mt-3 inline-block text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-              >
-                Create first work order →
-              </Link>
-            </div>
-          )}
-        </div>
-
-        {/* Referrals Section - shows if this project was a referral */}
-        <div className="mb-6">
-          <ReferralsSection
-            projectId={params.id}
-            orgId={profile.org_id}
-            canManage={['admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)}
-          />
-        </div>
-
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Operations</h2>
-          <form action={updateOps} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-500">Scope of Work</label>
-              <textarea
-                name="scope_of_work"
-                defaultValue={project.scope_of_work ?? ''}
-                rows={3}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Permits</label>
-              <input
-                name="permits_status"
-                defaultValue={project.permits_status ?? ''}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                placeholder="Requested, approved, not required"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Product</label>
-              <input
-                name="product_summary"
-                defaultValue={project.product_summary ?? ''}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                placeholder="Shingle line, color, materials"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Install Date</label>
-              <input
-                name="install_date"
-                type="date"
-                defaultValue={project.install_date ?? ''}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-500">Ops Notes</label>
-              <textarea
-                name="ops_notes"
-                defaultValue={project.ops_notes ?? ''}
-                rows={3}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <button
-                type="submit"
-                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-              >
-                Save Operations
-              </button>
-            </div>
-          </form>
-        </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white shadow rounded-lg p-6">

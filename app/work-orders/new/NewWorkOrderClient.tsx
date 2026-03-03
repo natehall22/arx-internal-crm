@@ -41,6 +41,7 @@ interface NewWorkOrderClientProps {
   userId: string
   initialCustomerId?: string
   initialProjectId?: string
+  initialJobId?: string
   initialAddress?: string
 }
 
@@ -53,6 +54,7 @@ export default function NewWorkOrderClient({
   userId,
   initialCustomerId,
   initialProjectId,
+  initialJobId,
   initialAddress,
 }: NewWorkOrderClientProps) {
   const router = useRouter()
@@ -110,6 +112,7 @@ export default function NewWorkOrderClient({
       scope_of_work: '',
       customer_id,
       project_id,
+      job_id: initialJobId || '',
       assignee_type: 'none',
       assigned_user_id: '',
       assigned_sub_id: '',
@@ -204,6 +207,7 @@ export default function NewWorkOrderClient({
         scope_of_work: formData.scope_of_work || null,
         customer_id: formData.customer_id || null,
         project_id: formData.project_id || null,
+        job_id: formData.job_id || null,
         address: formData.address || null,
         city: formData.city || null,
         state: formData.state || null,

@@ -22,8 +22,15 @@ interface Referral {
   status: 'pending' | 'qualified' | 'installed' | 'paid' | 'cancelled'
   install_date: string | null
   paid_at: string | null
-  days_since_install: number | null
   created_at: string
+}
+
+function getDaysSinceInstall(referral: Referral): number | null {
+  if (!referral.install_date || referral.paid_at) return null
+  const installDate = new Date(referral.install_date)
+  const today = new Date()
+  const diffTime = today.getTime() - installDate.getTime()
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24))
 }
 
 interface ReferralsSectionProps {
@@ -502,7 +509,8 @@ function ReferralCard({
   onMarkPaid: (referral: Referral) => void
   getStatusColor: (status: string) => string
 }) {
-  const needsAttention = referral.status === 'installed' && !referral.paid_at && (referral.days_since_install || 0) >= 7
+  const daysSinceInstall = getDaysSinceInstall(referral)
+  const needsAttention = referral.status === 'installed' && !referral.paid_at && (daysSinceInstall || 0) >= 7
 
   return (
     <div className={`border rounded-lg p-4 ${needsAttention ? 'border-orange-300 bg-orange-50' : 'hover:bg-gray-50'}`}>
@@ -517,7 +525,7 @@ function ReferralCard({
             </span>
             {needsAttention && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-200 text-orange-800">
-                ⚠️ Unpaid {referral.days_since_install} days
+                ⚠️ Unpaid {daysSinceInstall} days
               </span>
             )}
           </div>

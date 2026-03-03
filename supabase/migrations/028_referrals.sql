@@ -54,13 +54,6 @@ CREATE TABLE referrals (
   
   -- Notification tracking
   payout_reminder_sent_at TIMESTAMPTZ,
-  days_since_install INTEGER GENERATED ALWAYS AS (
-    CASE 
-      WHEN install_date IS NOT NULL AND paid_at IS NULL 
-      THEN EXTRACT(DAY FROM (CURRENT_DATE - install_date))::INTEGER
-      ELSE NULL
-    END
-  ) STORED,
   
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -121,15 +114,15 @@ BEGIN
     r.referred_name,
     r.bonus_amount,
     r.install_date,
-    r.days_since_install,
+    (CURRENT_DATE - r.install_date)::INTEGER as days_since_install,
     r.referrer_customer_id,
     r.referred_project_id
   FROM referrals r
   WHERE r.org_id = p_org_id
     AND r.status = 'installed'
     AND r.paid_at IS NULL
-    AND r.days_since_install >= p_days_threshold
-  ORDER BY r.days_since_install DESC;
+    AND (CURRENT_DATE - r.install_date) >= p_days_threshold
+  ORDER BY (CURRENT_DATE - r.install_date) DESC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

@@ -10,6 +10,7 @@ import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
+import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
@@ -847,6 +848,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 onInvoiceChange={() => setPaymentsRefreshKey(k => k + 1)}
               />
             </div>
+
+            <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
 
             {job.permit_required && (
               <div className="bg-white rounded-xl shadow-sm border p-6">

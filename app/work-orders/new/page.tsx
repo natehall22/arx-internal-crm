@@ -10,6 +10,7 @@ interface PageProps {
     customer_id?: string
     project?: string
     project_id?: string
+    job_id?: string
     address?: string
   }
 }
@@ -46,6 +47,7 @@ export default async function NewWorkOrderPage({ searchParams }: PageProps) {
 
   const initialCustomerId = searchParams?.customer || searchParams?.customer_id || undefined
   const initialProjectId = searchParams?.project || searchParams?.project_id || undefined
+  const initialJobId = searchParams?.job_id || undefined
   const initialAddress = searchParams?.address || undefined
 
   return (
@@ -58,6 +60,7 @@ export default async function NewWorkOrderPage({ searchParams }: PageProps) {
       userId={profile.id}
       initialCustomerId={initialCustomerId}
       initialProjectId={initialProjectId}
+      initialJobId={initialJobId}
       initialAddress={initialAddress}
     />
   )
