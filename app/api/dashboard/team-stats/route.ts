@@ -158,6 +158,7 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('timeframe') || 'week'
+    const debug = searchParams.get('debug') === '1'
     const { start, end } = getDateRangeForTimeFrame(timeframe)
 
     // Get team member IDs based on role
@@ -311,7 +312,7 @@ export async function GET(request: NextRequest) {
       const totalInspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
       const closeRate = totalInspectionsRun > 0 ? (sales / totalInspectionsRun * 100) : 0
 
-      return {
+      const result: any = {
         id: member.id,
         name: member.full_name || 'Unknown',
         role: member.role,
@@ -321,6 +322,23 @@ export async function GET(request: NextRequest) {
         sales,
         closeRate: closeRate.toFixed(0),
       }
+
+      // Include raw breakdown in debug mode
+      if (debug) {
+        result._debug = {
+          doors_raw: rawDoors,
+          doors_bonus_from_inspections: inspectionBonusDoors,
+          doors_display: finalDoors,
+          contacts_raw: rawContacts,
+          contacts_bonus_from_inspections: inspectionBonusContacts,
+          contacts_display: finalContacts,
+          inspections_set_raw: inspectionsSet,
+          sales_raw: sales,
+          inspections_run: totalInspectionsRun,
+        }
+      }
+
+      return result
     })
 
     // Sort by sales, then inspections, then doors
@@ -330,7 +348,25 @@ export async function GET(request: NextRequest) {
       return b.doorsKnocked - a.doorsKnocked
     })
 
-    return NextResponse.json({ teamMemberStats })
+    const response: any = { teamMemberStats }
+    
+    // Include date range info in debug mode
+    if (debug) {
+      response._debug = {
+        timeframe,
+        start_date: start.toISOString(),
+        end_date: end.toISOString(),
+        timezone: 'America/New_York',
+        total_leads_in_range: leads?.length || 0,
+        total_appointments_in_range: appointments?.length || 0,
+        total_opportunities_in_range: opportunities?.length || 0,
+        team_member_count: members.length,
+        viewer_role: profile.role,
+        viewer_team_id: profile.team_id,
+      }
+    }
+
+    return NextResponse.json(response)
   } catch (error) {
     console.error('Team stats error:', error)
     return NextResponse.json({ error: 'Failed to fetch team stats' }, { status: 500 })
