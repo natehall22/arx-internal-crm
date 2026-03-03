@@ -83,21 +83,12 @@ export async function PATCH(
     const { name, email, phone, address_text } = body
 
     // Build update object with only provided fields
+    // Note: phone_normalized and email_lower are GENERATED columns - they update automatically
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name || null
     if (email !== undefined) updateData.email = email || null
     if (phone !== undefined) updateData.phone = phone || null
     if (address_text !== undefined) updateData.address_text = address_text || null
-
-    // Normalize phone for search
-    if (phone !== undefined) {
-      updateData.normalized_phone = phone ? phone.replace(/\D/g, '') : null
-    }
-
-    // Normalize email for search
-    if (email !== undefined) {
-      updateData.email_lower = email ? email.toLowerCase() : null
-    }
 
     const { data: customer, error: updateError } = await adminClient
       .from('customers')
