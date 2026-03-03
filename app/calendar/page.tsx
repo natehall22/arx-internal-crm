@@ -158,45 +158,41 @@ export default function CalendarPage() {
     
     setAppointments(enrichedAppointments)
 
-    // Fetch scheduled production jobs
-    // Show jobs where user is: salesperson, assigned crew member, or admin/ops
-    let jobsQuery = supabase
-      .from('production_jobs')
-      .select(`
-        id, job_number, scheduled_date, scheduled_time_start, address_text, job_type, status,
-        customer:customers(name),
-        assigned_crew:crews(name, color),
-        salesperson_id
-      `)
-      .eq('org_id', profile?.org_id)
-      .not('scheduled_date', 'is', null)
-      .in('status', ['scheduled', 'in_progress'])
-      .gte('scheduled_date', startDate.toISOString().split('T')[0])
-      .lte('scheduled_date', endDate.toISOString().split('T')[0])
-      .order('scheduled_date')
+    // Fetch scheduled production jobs - only for ops/admin roles
+    const canSeeJobs = ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile?.role || '')
+    
+    if (canSeeJobs) {
+      const { data: jobsData } = await supabase
+        .from('production_jobs')
+        .select(`
+          id, job_number, scheduled_date, scheduled_time_start, address_text, job_type, status,
+          customer:customers(name),
+          assigned_crew:crews(name, color)
+        `)
+        .eq('org_id', profile?.org_id)
+        .not('scheduled_date', 'is', null)
+        .in('status', ['scheduled', 'in_progress'])
+        .gte('scheduled_date', startDate.toISOString().split('T')[0])
+        .lte('scheduled_date', endDate.toISOString().split('T')[0])
+        .order('scheduled_date')
 
-    // For sales reps, only show jobs they sold
-    const isOpsOrAdmin = ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile?.role || '')
-    if (!isOpsOrAdmin && profile) {
-      jobsQuery = jobsQuery.eq('salesperson_id', user.id)
+      const transformedJobs: ScheduledJob[] = (jobsData || []).map((job: any) => ({
+        id: job.id,
+        job_number: job.job_number,
+        scheduled_date: job.scheduled_date,
+        scheduled_time_start: job.scheduled_time_start,
+        address_text: job.address_text,
+        job_type: job.job_type,
+        status: job.status,
+        customer_name: Array.isArray(job.customer) ? job.customer[0]?.name : job.customer?.name,
+        crew_name: Array.isArray(job.assigned_crew) ? job.assigned_crew[0]?.name : job.assigned_crew?.name,
+        crew_color: Array.isArray(job.assigned_crew) ? job.assigned_crew[0]?.color : job.assigned_crew?.color,
+      }))
+
+      setScheduledJobs(transformedJobs)
+    } else {
+      setScheduledJobs([])
     }
-
-    const { data: jobsData } = await jobsQuery
-
-    const transformedJobs: ScheduledJob[] = (jobsData || []).map((job: any) => ({
-      id: job.id,
-      job_number: job.job_number,
-      scheduled_date: job.scheduled_date,
-      scheduled_time_start: job.scheduled_time_start,
-      address_text: job.address_text,
-      job_type: job.job_type,
-      status: job.status,
-      customer_name: Array.isArray(job.customer) ? job.customer[0]?.name : job.customer?.name,
-      crew_name: Array.isArray(job.assigned_crew) ? job.assigned_crew[0]?.name : job.assigned_crew?.name,
-      crew_color: Array.isArray(job.assigned_crew) ? job.assigned_crew[0]?.color : job.assigned_crew?.color,
-    }))
-
-    setScheduledJobs(transformedJobs)
     setLoading(false)
   }
 
