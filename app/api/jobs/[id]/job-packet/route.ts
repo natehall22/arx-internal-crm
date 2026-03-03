@@ -6,7 +6,7 @@ import { generateJobPacketPDF } from '@/lib/pdf/job-packet'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: { id: string } }
 ) {
   try {
     const { profile } = await requireAuth()
@@ -26,7 +26,7 @@ export async function POST(
       const { data: existingJob } = await supabase
         .from('production_jobs')
         .select('job_packet_pdf_path, job_packet_generated_at')
-        .eq('id', params.jobId)
+        .eq('id', params.id)
         .eq('org_id', profile.org_id)
         .single()
 
@@ -52,7 +52,7 @@ export async function POST(
         assigned_sub:sub_contractors(company_name, contact_name, phone),
         project:projects(scope_of_work, product_summary)
       `)
-      .eq('id', params.jobId)
+      .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
 
@@ -114,7 +114,7 @@ export async function POST(
     const { data: sharedNotes } = await supabase
       .from('production_job_notes')
       .select('note, created_at')
-      .eq('job_id', params.jobId)
+      .eq('job_id', params.id)
       .eq('share_with_sub', true)
       .order('created_at', { ascending: false })
       .limit(5)
@@ -159,7 +159,7 @@ export async function POST(
 
     // Upload to Supabase Storage using service client
     const serviceSupabase = createServiceClient()
-    const storagePath = `${profile.org_id}/jobs/${params.jobId}/job-packet-${Date.now()}.pdf`
+    const storagePath = `${profile.org_id}/jobs/${params.id}/job-packet-${Date.now()}.pdf`
 
     const { error: uploadError } = await serviceSupabase.storage
       .from('job-files')
@@ -180,14 +180,14 @@ export async function POST(
         job_packet_pdf_path: storagePath,
         job_packet_generated_at: new Date().toISOString(),
       })
-      .eq('id', params.jobId)
+      .eq('id', params.id)
 
     // Insert into job_files table for tracking
     await serviceSupabase
       .from('job_files')
       .insert({
         org_id: profile.org_id,
-        job_id: params.jobId,
+        job_id: params.id,
         file_type: 'other',
         storage_key: storagePath,
         file_name: `Job Packet - ${job.job_number}.pdf`,
@@ -217,7 +217,7 @@ export async function POST(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: { id: string } }
 ) {
   try {
     const { profile } = await requireAuth()
@@ -227,7 +227,7 @@ export async function GET(
     const { data: job } = await supabase
       .from('production_jobs')
       .select('job_packet_pdf_path, job_packet_generated_at')
-      .eq('id', params.jobId)
+      .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
 
