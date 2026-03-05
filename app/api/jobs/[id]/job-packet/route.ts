@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { generateJobPacketPDF } from '@/lib/pdf/job-packet'
 
 export async function POST(
@@ -9,7 +9,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     const supabase = createClient()
     
     let body: { force?: boolean } = {}
@@ -119,6 +119,20 @@ export async function POST(
       .order('created_at', { ascending: false })
       .limit(5)
 
+    // Fetch additional scope items
+    let additionalScopeItems: { description: string; quantity: number; unit: string }[] = []
+    try {
+      const { data: additionalScope } = await supabase
+        .from('job_additional_scope')
+        .select('description, quantity, unit')
+        .eq('job_id', params.id)
+        .order('created_at')
+      
+      additionalScopeItems = additionalScope || []
+    } catch (e) {
+      // Table might not exist yet
+    }
+
     // Transform data for PDF generation
     const customer = Array.isArray(job.customer) ? job.customer[0] : job.customer
     const crew = Array.isArray(job.assigned_crew) ? job.assigned_crew[0] : job.assigned_crew
@@ -137,6 +151,7 @@ export async function POST(
       product_summary: project?.product_summary || '',
       special_instructions: job.special_instructions || '',
       line_items: lineItems,
+      additional_scope: additionalScopeItems,
       shared_notes: sharedNotes || [],
       assigned_to: crew?.name || sub?.company_name || 'Unassigned',
       permit_required: job.permit_required,
@@ -155,22 +170,47 @@ export async function POST(
     }
 
     // Generate PDF
-    const pdfBuffer = await generateJobPacketPDF(packetData)
+    console.log('[Job Packet] Generating PDF for job:', params.id)
+    let pdfBuffer: Buffer
+    try {
+      pdfBuffer = await generateJobPacketPDF(packetData)
+      console.log('[Job Packet] PDF generated, size:', pdfBuffer.length, 'bytes')
+    } catch (pdfError: any) {
+      console.error('[Job Packet] PDF generation failed:', pdfError?.message || pdfError)
+      return NextResponse.json({ error: `PDF generation failed: ${pdfError?.message || 'Unknown error'}` }, { status: 500 })
+    }
 
     // Upload to Supabase Storage using service client
     const serviceSupabase = createServiceClient()
     const storagePath = `${profile.org_id}/jobs/${params.id}/job-packet-${Date.now()}.pdf`
 
-    const { error: uploadError } = await serviceSupabase.storage
+    // Try job-files bucket first, then files bucket as fallback
+    let { error: uploadError } = await serviceSupabase.storage
       .from('job-files')
       .upload(storagePath, pdfBuffer, {
         contentType: 'application/pdf',
         upsert: true,
       })
 
+    let actualBucket = 'job-files'
     if (uploadError) {
-      console.error('Upload error:', uploadError)
-      return NextResponse.json({ error: 'Failed to upload PDF' }, { status: 500 })
+      console.error('[Job Packet] Upload to job-files failed:', uploadError.message)
+      
+      // Try fallback to files bucket
+      const { error: fallbackError } = await serviceSupabase.storage
+        .from('files')
+        .upload(storagePath, pdfBuffer, {
+          contentType: 'application/pdf',
+          upsert: true,
+        })
+      
+      if (fallbackError) {
+        console.error('[Job Packet] Upload to files bucket also failed:', fallbackError.message)
+        return NextResponse.json({ error: `Storage upload failed: ${uploadError.message}` }, { status: 500 })
+      }
+      
+      actualBucket = 'files'
+      console.log('[Job Packet] Uploaded to fallback files bucket')
     }
 
     // Update job with PDF path
@@ -200,18 +240,19 @@ export async function POST(
       .single()
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    console.log('[Job Packet] Complete. Bucket:', actualBucket, 'Path:', storagePath)
 
     return NextResponse.json({
       success: true,
-      url: `${supabaseUrl}/storage/v1/object/public/job-files/${storagePath}`,
+      url: `${supabaseUrl}/storage/v1/object/public/${actualBucket}/${storagePath}`,
       pdf_path: storagePath,
       generated_at: new Date().toISOString(),
       cached: false,
     })
 
-  } catch (error) {
-    console.error('Error generating job packet:', error)
-    return NextResponse.json({ error: 'Failed to generate job packet' }, { status: 500 })
+  } catch (error: any) {
+    console.error('[Job Packet] Unexpected error:', error?.message || error)
+    return NextResponse.json({ error: error?.message || 'Failed to generate job packet' }, { status: 500 })
   }
 }
 
@@ -220,7 +261,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     const supabase = createClient()
 
     // Check if packet PDF already exists

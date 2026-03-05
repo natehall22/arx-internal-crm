@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
@@ -6,7 +6,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const { profile } = await requireAuth()
+  const { profile } = await requireAuthApi()
   const supabase = createClient()
   const body = await request.json()
 

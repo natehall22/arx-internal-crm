@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
-import { generateContractPdf } from '@/lib/contracts/generatePdf'
 
 function getAdminClient() {
   return createClient(
@@ -9,6 +8,37 @@ function getAdminClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
+}
+
+async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+  html: string
+): Promise<boolean> {
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    })
+
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>',
+      to,
+      subject,
+      text,
+      html,
+    })
+    return true
+  } catch (error) {
+    console.error('Email send error:', error)
+    return false
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -104,15 +134,24 @@ export async function POST(request: NextRequest) {
       .eq('id', contract.id)
       .single()
 
-    let pdfUrl = null
-    let pdfStoragePath = null
+    let pdfUrl: string | null = null
+    let pdfStoragePath: string | null = null
+    let pdfGenerationError: string | null = null
 
+    // Try to generate PDF
     try {
+      console.log('[Contract Sign] Starting PDF generation for contract:', contract.id)
+      
+      // Dynamic import to avoid issues with @react-pdf/renderer in edge runtime
+      const { generateContractPdf } = await import('@/lib/contracts/generatePdf')
       const pdfBuffer = await generateContractPdf(updatedContract)
+      
+      console.log('[Contract Sign] PDF generated, size:', pdfBuffer.length, 'bytes')
       
       const fileName = `contract_${contract.id}_${Date.now()}.pdf`
       pdfStoragePath = `org/${contract.org_id}/contracts/${fileName}`
 
+      // Try contracts bucket first
       const { error: uploadError } = await supabase.storage
         .from('contracts')
         .upload(pdfStoragePath, pdfBuffer, {
@@ -121,7 +160,9 @@ export async function POST(request: NextRequest) {
         })
 
       if (uploadError) {
-        console.error('Error uploading PDF to storage:', uploadError)
+        console.error('[Contract Sign] Error uploading to contracts bucket:', uploadError.message)
+        
+        // Fallback to files bucket
         const { error: filesUploadError } = await supabase.storage
           .from('files')
           .upload(pdfStoragePath, pdfBuffer, {
@@ -129,11 +170,16 @@ export async function POST(request: NextRequest) {
             upsert: false,
           })
         
-        if (!filesUploadError) {
+        if (filesUploadError) {
+          console.error('[Contract Sign] Error uploading to files bucket:', filesUploadError.message)
+          pdfGenerationError = `Storage upload failed: ${filesUploadError.message}`
+        } else {
           pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
+          console.log('[Contract Sign] PDF uploaded to files bucket:', pdfUrl)
         }
       } else {
         pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/contracts/${pdfStoragePath}`
+        console.log('[Contract Sign] PDF uploaded to contracts bucket:', pdfUrl)
       }
 
       if (pdfUrl) {
@@ -145,8 +191,10 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', contract.id)
       }
-    } catch (pdfError) {
-      console.error('Error generating PDF:', pdfError)
+    } catch (pdfError: any) {
+      pdfGenerationError = pdfError?.message || 'Unknown PDF generation error'
+      console.error('[Contract Sign] PDF generation failed:', pdfGenerationError)
+      console.error('[Contract Sign] Full error:', pdfError)
     }
 
     let projectId = null
@@ -248,28 +296,28 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    if (contract.customer_email && pdfUrl) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT || 587),
-          secure: false,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        })
+    // Always try to send confirmation email if customer has email
+    let emailSent = false
+    if (contract.customer_email) {
+      console.log('[Contract Sign] Sending confirmation email to:', contract.customer_email)
+      
+      const pdfSection = pdfUrl
+        ? `<p style="text-align: center;">
+            <a href="${pdfUrl}" style="display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Download Signed Contract</a>
+          </p>`
+        : `<p style="background: #fef3c7; padding: 12px; border-radius: 6px; color: #92400e;">
+            Your signed contract is being processed. A copy will be sent to you shortly, or you can contact us to request one.
+          </p>`
 
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>',
-          to: contract.customer_email,
-          subject: 'ARX Roofing & Exteriors - Your Signed Contract',
-          text: `Dear ${contract.customer_name},
+      const pdfTextSection = pdfUrl
+        ? `You can download your signed contract here:\n${pdfUrl}`
+        : `Your signed contract is being processed. Please contact us if you need a copy.`
+
+      const emailText = `Dear ${contract.customer_name},
 
 Thank you for signing your contract with ARX Roofing & Exteriors!
 
-You can download your signed contract here:
-${pdfUrl}
+${pdfTextSection}
 
 Project Details:
 - Address: ${contract.project_address}
@@ -282,8 +330,9 @@ Phone: 704-313-8834
 Email: info@arxroofing.com
 
 Best regards,
-ARX Roofing & Exteriors LLC`,
-          html: `
+ARX Roofing & Exteriors LLC`
+
+      const emailHtml = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -292,7 +341,6 @@ ARX Roofing & Exteriors LLC`,
     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
     .header { background: #1e3a5f; color: white; padding: 20px; text-align: center; }
     .content { padding: 20px; background: #f9f9f9; }
-    .button { display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
     .details { background: white; padding: 15px; border-radius: 6px; margin: 15px 0; }
     .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }
   </style>
@@ -313,9 +361,7 @@ ARX Roofing & Exteriors LLC`,
         Project Cost: $${contract.project_cost.toLocaleString()}
       </div>
       
-      <p style="text-align: center;">
-        <a href="${pdfUrl}" class="button">Download Signed Contract</a>
-      </p>
+      ${pdfSection}
       
       <p>We look forward to working with you!</p>
       
@@ -334,18 +380,26 @@ ARX Roofing & Exteriors LLC`,
     </div>
   </div>
 </body>
-</html>
-          `,
-        })
-      } catch (emailError) {
-        console.error('Error sending signed contract email:', emailError)
-      }
+</html>`
+
+      emailSent = await sendEmail(
+        contract.customer_email,
+        'ARX Roofing & Exteriors - Your Signed Contract',
+        emailText,
+        emailHtml
+      )
+      
+      console.log('[Contract Sign] Email sent:', emailSent)
     }
+
+    console.log('[Contract Sign] Complete. PDF URL:', pdfUrl, 'Email sent:', emailSent, 'Project ID:', projectId)
 
     return NextResponse.json({
       success: true,
       pdfUrl,
       projectId,
+      emailSent,
+      pdfGenerationError,
     })
   } catch (error) {
     console.error('Contract sign error:', error)

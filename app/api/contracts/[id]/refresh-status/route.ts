@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  await requireAuth()
+  await requireAuthApi()
   const serviceSupabase = createServiceClient()
 
   const { data: repSignature } = await serviceSupabase

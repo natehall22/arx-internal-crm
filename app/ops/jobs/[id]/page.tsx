@@ -64,14 +64,53 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
   }
 
-  // Debug logging for Sold Scope
-  console.log('[JobDetailPage] Job data:', {
-    id: jobRes.data.id,
-    job_number: jobRes.data.job_number,
-    project_id: jobRes.data.project_id,
-    accepted_proposal_id: jobRes.data.accepted_proposal_id,
-    accepted_estimate_id: jobRes.data.accepted_estimate_id,
-  })
+  // Find the opportunity_id for this job - needed to find accepted proposals
+  let opportunityId: string | null = null
+  
+  if (jobRes.data.project_id) {
+    // Check order_form_contracts for the opportunity that created this project
+    try {
+      const { data: contracts } = await supabase
+        .from('order_form_contracts')
+        .select('opportunity_id')
+        .eq('status', 'completed')
+        .not('opportunity_id', 'is', null)
+      
+      if (contracts && contracts.length > 0) {
+        // Find which contract's opportunity matches this job's address
+        for (const contract of contracts) {
+          if (contract.opportunity_id) {
+            const { data: opp } = await supabase
+              .from('opportunities')
+              .select('id, address_text')
+              .eq('id', contract.opportunity_id)
+              .single()
+            
+            if (opp && opp.address_text === jobRes.data.address_text) {
+              opportunityId = opp.id
+              break
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // order_form_contracts table might not exist
+    }
+    
+    // Fallback: Find opportunity by matching address
+    if (!opportunityId && jobRes.data.address_text) {
+      const { data: opportunities } = await supabase
+        .from('opportunities')
+        .select('id')
+        .eq('org_id', profile.org_id)
+        .eq('address_text', jobRes.data.address_text)
+        .limit(1)
+      
+      if (opportunities && opportunities.length > 0) {
+        opportunityId = opportunities[0].id
+      }
+    }
+  }
 
   const transformedJob = {
     ...jobRes.data,
@@ -80,6 +119,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     customer: customer,
     salesperson: Array.isArray(jobRes.data.salesperson) ? jobRes.data.salesperson[0] : jobRes.data.salesperson,
     project: rawProject,
+    opportunity_id: opportunityId,
   }
 
   return (

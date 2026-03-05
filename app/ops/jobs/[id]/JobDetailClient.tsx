@@ -51,6 +51,8 @@ interface Job {
   created_at: string
   accepted_proposal_id?: string | null
   accepted_estimate_id?: string | null
+  linked_proposal_id?: string | null
+  opportunity_id?: string | null
   special_instructions?: string | null
   assigned_crew?: { id: string; name: string; color: string; phone: string } | null
   assigned_sub?: { id: string; company_name: string; contact_name: string; phone: string } | null
@@ -435,9 +437,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
     <div className="min-h-screen bg-gray-50">
       <Nav />
       
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="mb-6">
-          <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
+        <div className="mb-4 sm:mb-6">
+          <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium min-h-[44px] inline-flex items-center">
             ← Back to Production Board
           </Link>
         </div>
@@ -455,12 +457,65 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
           onSchedule={() => setShowScheduleModal(true)}
         />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <div className="flex items-center gap-3 mb-2">
+        {/* Mobile Quick Actions - visible only on small screens */}
+        <div className="lg:hidden mb-4 bg-white rounded-xl shadow-sm border p-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setShowScheduleModal(true)}
+              className="min-h-[44px] px-3 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+            >
+              {job.scheduled_date ? 'Reschedule' : 'Schedule'}
+            </button>
+            {job.status === 'in_progress' ? (
+              <button
+                onClick={handleCompleteClick}
+                disabled={saving}
+                className="min-h-[44px] px-3 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50"
+              >
+                Mark Complete
+              </button>
+            ) : job.status === 'scheduled' ? (
+              <button
+                onClick={() => updateStatus('in_progress')}
+                disabled={saving}
+                className="min-h-[44px] px-3 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50"
+              >
+                Start Job
+              </button>
+            ) : (
+              <button
+                onClick={() => updateStatus('on_hold')}
+                disabled={saving || job.status === 'on_hold' || job.status === 'complete' || job.status === 'collected'}
+                className="min-h-[44px] px-3 py-2.5 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 text-sm font-medium disabled:opacity-50"
+              >
+                Put On Hold
+              </button>
+            )}
+          </div>
+          
+          {/* Mobile Assignment & Materials Summary */}
+          <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <span className="text-gray-500 text-xs block">Assigned</span>
+              <span className="font-medium text-gray-900 truncate block">
+                {job.assigned_crew?.name || job.assigned_sub?.company_name || 'Not assigned'}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 text-xs block">Materials</span>
+              <span className={`font-medium ${materials.color}`}>
+                {materials.label}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
                     <span className="text-sm font-mono text-gray-900">{job.job_number}</span>
                     <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.bgColor} ${status.color}`}>
                       {status.label}
@@ -473,12 +528,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                       </span>
                     )}
                   </div>
-                  <h1 className="text-2xl font-bold text-gray-900">
+                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">
                     {job.customer?.name || 'Customer'}
                   </h1>
-                  <p className="text-gray-900 mt-1">{job.address_text}</p>
+                  <p className="text-gray-900 mt-1 text-sm sm:text-base break-words">{job.address_text}</p>
                 </div>
-                <span className={`text-sm px-3 py-1 rounded-full ${
+                <span className={`text-sm px-3 py-1 rounded-full whitespace-nowrap self-start ${
                   job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
                   job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
                   job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
@@ -488,10 +543,11 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-2 pt-4 border-t">
+              {/* Desktop action buttons - hidden on mobile */}
+              <div className="hidden lg:flex flex-wrap gap-2 pt-4 border-t">
                 <button
                   onClick={() => setShowScheduleModal(true)}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
+                  className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
                 >
                   {job.scheduled_date ? 'Reschedule' : 'Schedule Job'}
                 </button>
@@ -499,7 +555,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={() => updateStatus('materials')}
                     disabled={saving}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
+                    className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
                   >
                     Move to Materials
                   </button>
@@ -508,7 +564,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={() => updateStatus('scheduled')}
                     disabled={saving}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
+                    className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
                   >
                     Ready to Schedule
                   </button>
@@ -517,7 +573,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={() => updateStatus('in_progress')}
                     disabled={saving}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                    className="min-h-[44px] px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
                   >
                     Start Job
                   </button>
@@ -526,7 +582,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={handleCompleteClick}
                     disabled={saving}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                    className="min-h-[44px] px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
                   >
                     Mark Complete
                   </button>
@@ -535,7 +591,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={() => updateStatus('collected')}
                     disabled={saving}
-                    className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 text-sm"
+                    className="min-h-[44px] px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 text-sm"
                   >
                     Mark Collected
                   </button>
@@ -544,7 +600,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={() => updateStatus('on_hold')}
                     disabled={saving}
-                    className="px-4 py-2 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 text-sm"
+                    className="min-h-[44px] px-4 py-2 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 text-sm"
                   >
                     Put On Hold
                   </button>
@@ -553,7 +609,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <button
                     onClick={deleteJob}
                     disabled={deleting}
-                    className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm ml-auto"
+                    className="min-h-[44px] px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm ml-auto"
                   >
                     {deleting ? 'Deleting...' : 'Delete Job'}
                   </button>
@@ -561,9 +617,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               </div>
             </div>
 
-            <div id="materials-section" className="bg-white rounded-xl shadow-sm border p-6">
+            <div id="materials-section" className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Materials</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Materials</h2>
                 <span className={`px-3 py-1 text-sm font-medium rounded-full ${
                   job.materials_status === 'received' ? 'bg-green-100 text-green-700' :
                   job.materials_status === 'ordered' ? 'bg-blue-100 text-blue-700' :
@@ -574,13 +630,13 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mb-4">
                 {['not_ordered', 'ordered', 'partial', 'received'].map(s => (
                   <button
                     key={s}
                     onClick={() => updateMaterialsStatus(s)}
                     disabled={saving || job.materials_status === s}
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition ${
+                    className={`min-h-[44px] px-3 py-2 text-sm rounded-lg border transition ${
                       job.materials_status === s 
                         ? 'bg-indigo-600 text-white border-indigo-600' 
                         : 'border-gray-300 hover:bg-gray-50 text-gray-900'
@@ -602,25 +658,25 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 </p>
               )}
               {job.materials_notes && (
-                <p className="text-sm text-gray-700 mt-2 p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-700 mt-2 p-3 bg-gray-50 rounded-lg break-words">
                   {job.materials_notes}
                 </p>
               )}
             </div>
 
             {(job.project?.scope_of_work || job.project?.product_summary) && (
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Job Details</h2>
+              <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Job Details</h2>
                 {job.project?.product_summary && (
                   <div className="mb-4">
                     <h3 className="text-sm font-medium text-gray-900 mb-1">Product</h3>
-                    <p className="text-gray-900">{job.project.product_summary}</p>
+                    <p className="text-sm sm:text-base text-gray-900 break-words">{job.project.product_summary}</p>
                   </div>
                 )}
                 {job.project?.scope_of_work && (
                   <div>
                     <h3 className="text-sm font-medium text-gray-900 mb-1">Scope of Work</h3>
-                    <p className="text-gray-900 whitespace-pre-wrap">{job.project.scope_of_work}</p>
+                    <p className="text-sm sm:text-base text-gray-900 whitespace-pre-wrap break-words">{job.project.scope_of_work}</p>
                   </div>
                 )}
               </div>
@@ -631,12 +687,15 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               projectId={job.project_id}
               acceptedProposalId={job.accepted_proposal_id}
               acceptedEstimateId={job.accepted_estimate_id}
+              linkedProposalId={job.linked_proposal_id}
+              opportunityId={job.opportunity_id}
               jobId={job.id}
+              orgId={job.org_id}
               showJobPacketButton={true}
             />
 
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
               
               {/* Add new note */}
               <div className="mb-4 relative">
@@ -644,18 +703,18 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   value={newNoteText}
                   onChange={handleNoteChange}
                   rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-2 text-gray-900"
+                  className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg mb-2 text-gray-900 text-base"
                   placeholder="Add a note... Use @ to mention someone"
                 />
                 
                 {/* @mention dropdown */}
                 {showMentionDropdown && filteredUsers.length > 0 && (
-                  <div className="absolute z-10 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 w-64 max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 w-full sm:w-64 max-h-48 overflow-y-auto">
                     {filteredUsers.map(user => (
                       <button
                         key={user.id}
                         onClick={() => insertMention(user)}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-100 text-gray-900 text-sm"
+                        className="w-full text-left px-3 py-3 sm:py-2 hover:bg-gray-100 text-gray-900 text-sm min-h-[44px]"
                       >
                         {user.full_name}
                       </button>
@@ -663,15 +722,15 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   </div>
                 )}
                 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                   <button
                     onClick={addNote}
                     disabled={saving || !newNoteText.trim()}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {saving ? 'Adding...' : 'Add Note'}
                   </button>
-                  <span className="text-xs text-gray-500">Tip: Use @ to tag team members</span>
+                  <span className="text-xs text-gray-500 hidden sm:inline">Tip: Use @ to tag team members</span>
                 </div>
               </div>
 
@@ -685,7 +744,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <div className="space-y-4">
                     {jobNotes.map((note) => (
                       <div key={note.id} className="border-b pb-3 last:border-b-0 last:pb-0">
-                        <p className="text-gray-900 whitespace-pre-wrap">{renderNoteWithMentions(note.note)}</p>
+                        <p className="text-sm sm:text-base text-gray-900 whitespace-pre-wrap break-words">{renderNoteWithMentions(note.note)}</p>
                         <p className="text-xs text-gray-500 mt-1">
                           {note.user?.full_name || 'Unknown'} • {new Date(note.created_at).toLocaleString('en-US', {
                             month: 'short',
@@ -704,12 +763,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
             </div>
           </div>
 
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Schedule</h2>
+          <div className="space-y-4 sm:space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Schedule</h2>
               {job.scheduled_date ? (
                 <div>
-                  <div className="text-xl font-bold text-gray-900">
+                  <div className="text-lg sm:text-xl font-bold text-gray-900">
                     {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
                       weekday: 'long',
                       month: 'long',
@@ -718,10 +777,10 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     })}
                   </div>
                   {job.scheduled_time_start && (
-                    <p className="text-gray-900 mt-1">Start: {job.scheduled_time_start}</p>
+                    <p className="text-sm sm:text-base text-gray-900 mt-1">Start: {job.scheduled_time_start}</p>
                   )}
                   {job.estimated_duration_hours && (
-                    <p className="text-gray-900">Duration: {job.estimated_duration_hours} hours</p>
+                    <p className="text-sm sm:text-base text-gray-900">Duration: {job.estimated_duration_hours} hours</p>
                   )}
                 </div>
               ) : (
@@ -729,7 +788,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <p className="text-gray-900 mb-3">Not scheduled yet</p>
                   <button
                     onClick={() => setShowScheduleModal(true)}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
+                    className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
                   >
                     Schedule Now
                   </button>
@@ -737,21 +796,21 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Assignment</h2>
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Assignment</h2>
               {job.assigned_crew ? (
                 <div className="flex items-center gap-3">
                   <div 
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
                     style={{ backgroundColor: job.assigned_crew.color }}
                   >
                     {job.assigned_crew.name.charAt(0)}
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-900">{job.assigned_crew.name}</div>
+                  <div className="min-w-0">
+                    <div className="font-medium text-gray-900 truncate">{job.assigned_crew.name}</div>
                     <div className="text-sm text-gray-900">In-House Crew</div>
                     {job.assigned_crew.phone && (
-                      <a href={`tel:${job.assigned_crew.phone}`} className="text-sm text-indigo-600">
+                      <a href={`tel:${job.assigned_crew.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
                         {job.assigned_crew.phone}
                       </a>
                     )}
@@ -759,14 +818,14 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 </div>
               ) : job.assigned_sub ? (
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
                     <span className="text-orange-600 font-bold">S</span>
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-900">{job.assigned_sub.company_name}</div>
+                  <div className="min-w-0">
+                    <div className="font-medium text-gray-900 truncate">{job.assigned_sub.company_name}</div>
                     <div className="text-sm text-gray-900">Sub-Contractor</div>
                     {job.assigned_sub.phone && (
-                      <a href={`tel:${job.assigned_sub.phone}`} className="text-sm text-indigo-600">
+                      <a href={`tel:${job.assigned_sub.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
                         {job.assigned_sub.phone}
                       </a>
                     )}
@@ -777,7 +836,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <p className="text-gray-900 mb-3">Not assigned</p>
                   <button
                     onClick={() => setShowScheduleModal(true)}
-                    className="text-sm text-indigo-600 hover:text-indigo-800"
+                    className="min-h-[44px] text-sm text-indigo-600 hover:text-indigo-800"
                   >
                     Assign crew or sub →
                   </button>
@@ -785,24 +844,24 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer</h2>
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Customer</h2>
               {job.customer ? (
                 <div>
-                  <div className="font-medium text-gray-900 mb-2">{job.customer.name}</div>
+                  <div className="font-medium text-gray-900 mb-2 break-words">{job.customer.name}</div>
                   {job.customer.phone && (
-                    <a href={`tel:${job.customer.phone}`} className="block text-sm text-indigo-600 mb-1">
+                    <a href={`tel:${job.customer.phone}`} className="min-h-[44px] flex items-center text-sm text-indigo-600 mb-1">
                       📞 {job.customer.phone}
                     </a>
                   )}
                   {job.customer.email && (
-                    <a href={`mailto:${job.customer.email}`} className="block text-sm text-indigo-600">
+                    <a href={`mailto:${job.customer.email}`} className="min-h-[44px] flex items-center text-sm text-indigo-600 break-all">
                       ✉️ {job.customer.email}
                     </a>
                   )}
                   <Link
                     href={`/customers/${job.customer.id}`}
-                    className="block text-sm text-gray-900 hover:text-indigo-600 mt-3"
+                    className="min-h-[44px] flex items-center text-sm text-gray-900 hover:text-indigo-600 mt-2"
                   >
                     View customer →
                   </Link>
@@ -815,9 +874,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Financials</h2>
-              <div className="space-y-3">
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Financials</h2>
+              <div className="space-y-3 text-sm sm:text-base">
                 <div className="flex justify-between">
                   <span className="text-gray-900">Sale Amount</span>
                   <span className="font-medium text-gray-900">
@@ -869,8 +928,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
             <FinalPhotosCard jobId={job.id} projectId={job.project_id} orgId={job.org_id} />
 
             {job.permit_required && (
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Permit</h2>
+              <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Permit</h2>
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                     job.permit_status === 'approved' ? 'bg-green-100 text-green-700' :
@@ -887,13 +946,13 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               </div>
             )}
 
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Related</h2>
-              <div className="space-y-2">
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Related</h2>
+              <div className="space-y-1">
                 {job.project_id && (
                   <Link
                     href={`/projects/${job.project_id}`}
-                    className="block text-sm text-indigo-600 hover:text-indigo-800"
+                    className="min-h-[44px] flex items-center text-sm text-indigo-600 hover:text-indigo-800"
                   >
                     View Project →
                   </Link>
@@ -901,23 +960,36 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 {job.accepted_proposal_id && (
                   <Link
                     href={`/proposals/${job.accepted_proposal_id}`}
-                    className="block text-sm text-indigo-600 hover:text-indigo-800"
+                    className="min-h-[44px] flex items-center text-sm text-indigo-600 hover:text-indigo-800"
                   >
                     View Accepted Proposal →
                   </Link>
                 )}
                 {job.salesperson && (
-                  <p className="text-sm text-gray-900">
+                  <p className="text-sm text-gray-900 py-2">
                     Sold by: {job.salesperson.full_name}
                   </p>
                 )}
                 {job.sale_date && (
-                  <p className="text-sm text-gray-900">
+                  <p className="text-sm text-gray-900 py-2">
                     Sale date: {new Date(job.sale_date + 'T12:00:00').toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                   </p>
                 )}
               </div>
             </div>
+
+            {/* Mobile-only: Admin delete button */}
+            {userRole === 'admin' && (
+              <div className="lg:hidden">
+                <button
+                  onClick={deleteJob}
+                  disabled={deleting}
+                  className="w-full min-h-[44px] px-4 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm"
+                >
+                  {deleting ? 'Deleting...' : 'Delete Job'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

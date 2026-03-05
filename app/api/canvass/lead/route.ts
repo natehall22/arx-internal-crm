@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -305,7 +305,7 @@ async function checkCloserAvailability(
 
 export async function POST(request: Request) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     const supabase = getAdminClient()
     const body = await request.json().catch(() => ({}))
 
@@ -839,7 +839,7 @@ export async function POST(request: Request) {
 // DELETE - Delete a lead/pin
 export async function DELETE(request: Request) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     if (!profile) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

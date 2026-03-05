@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse } from 'next/server'
@@ -7,7 +7,7 @@ export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const { profile } = await requireAuth()
+  const { profile } = await requireAuthApi()
   const supabase = createClient()
   const serviceSupabase = createServiceClient()
 

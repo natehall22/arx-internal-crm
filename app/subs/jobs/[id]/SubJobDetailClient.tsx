@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useSubPortalLanguage, LanguageToggle } from '@/lib/i18n/SubPortalLanguageContext'
 
 interface LineItem {
   id: string
@@ -57,20 +58,21 @@ interface SubJobDetailClientProps {
   companyName: string
 }
 
-const statusConfig: Record<string, { label: string; color: string; bgColor: string }> = {
-  scheduled: { label: 'Scheduled', color: 'text-purple-700', bgColor: 'bg-purple-100' },
-  in_progress: { label: 'In Progress', color: 'text-indigo-700', bgColor: 'bg-indigo-100' },
-  complete: { label: 'Complete', color: 'text-green-700', bgColor: 'bg-green-100' },
-}
-
 export default function SubJobDetailClient({ job, companyName }: SubJobDetailClientProps) {
+  const { t, getStatusLabel } = useSubPortalLanguage()
   const router = useRouter()
   const [updating, setUpdating] = useState(false)
   const [completionNotes, setCompletionNotes] = useState('')
   const [showCompleteModal, setShowCompleteModal] = useState(false)
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const status = statusConfig[job.status] || statusConfig.scheduled
+  
+  const statusColors: Record<string, { bg: string; text: string }> = {
+    scheduled: { bg: 'bg-purple-100', text: 'text-purple-700' },
+    in_progress: { bg: 'bg-indigo-100', text: 'text-indigo-700' },
+    complete: { bg: 'bg-green-100', text: 'text-green-700' },
+  }
+  const statusStyle = statusColors[job.status] || statusColors.scheduled
 
   const handleStartJob = async () => {
     setUpdating(true)
@@ -135,7 +137,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href="/subs/jobs" className="text-gray-500 hover:text-gray-700">
+              <Link href="/subs/jobs" className="text-gray-500 hover:text-gray-700 min-h-[44px] min-w-[44px] flex items-center justify-center">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
@@ -145,9 +147,12 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
                 <p className="text-sm text-gray-500">{companyName}</p>
               </div>
             </div>
-            <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.bgColor} ${status.color}`}>
-              {status.label}
-            </span>
+            <div className="flex items-center gap-3">
+              <LanguageToggle />
+              <span className={`px-3 py-1 text-sm font-medium rounded-full ${statusStyle.bg} ${statusStyle.text}`}>
+                {getStatusLabel(job.status)}
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -156,61 +161,61 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         {/* Action Buttons */}
         {job.status === 'scheduled' && (
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-            <p className="text-sm text-purple-700 mb-3">Ready to start this job?</p>
+            <p className="text-sm text-purple-700 mb-3">{t('readyToStart')}</p>
             <button
               onClick={handleStartJob}
               disabled={updating}
-              className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
+              className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 min-h-[44px]"
             >
-              {updating ? 'Starting...' : 'Start Job'}
+              {updating ? t('starting') : t('startJob')}
             </button>
           </div>
         )}
 
         {job.status === 'in_progress' && (
           <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-            <p className="text-sm text-indigo-700 mb-3">Job in progress. Mark complete when finished.</p>
+            <p className="text-sm text-indigo-700 mb-3">{t('jobInProgress')}</p>
             <button
               onClick={() => setShowCompleteModal(true)}
               disabled={updating}
-              className="w-full bg-green-600 text-white py-2 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
+              className="w-full bg-green-600 text-white py-2 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 min-h-[44px]"
             >
-              Mark Complete
+              {t('markComplete')}
             </button>
           </div>
         )}
 
         {/* Customer & Schedule */}
         <div className="bg-white rounded-lg shadow-sm border p-4">
-          <h2 className="font-semibold text-gray-900 mb-3">Job Details</h2>
+          <h2 className="font-semibold text-gray-900 mb-3">{t('jobDetails')}</h2>
           
           <div className="space-y-3">
             <div>
-              <p className="text-sm text-gray-500">Customer</p>
+              <p className="text-sm text-gray-500">{t('customer')}</p>
               <p className="font-medium text-gray-900">{job.customer_name || 'N/A'}</p>
               {job.customer_phone && (
-                <a href={`tel:${job.customer_phone}`} className="text-sm text-indigo-600">
+                <a href={`tel:${job.customer_phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
                   {job.customer_phone}
                 </a>
               )}
             </div>
 
             <div>
-              <p className="text-sm text-gray-500">Address</p>
+              <p className="text-sm text-gray-500">{t('address')}</p>
               <p className="text-gray-900">{job.address_text}</p>
               <a 
                 href={`https://maps.google.com/?q=${encodeURIComponent(job.address_text)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-indigo-600"
+                className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center"
               >
-                Open in Maps →
+                {t('openInMaps')} →
               </a>
             </div>
 
             {job.scheduled_date && (
               <div>
-                <p className="text-sm text-gray-500">Scheduled</p>
+                <p className="text-sm text-gray-500">{t('scheduled')}</p>
                 <p className="text-gray-900">
                   {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
                     weekday: 'long',
@@ -221,16 +226,16 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
                   {job.scheduled_time_start && ` at ${job.scheduled_time_start}`}
                 </p>
                 {job.estimated_duration_hours && (
-                  <p className="text-sm text-gray-500">Est. {job.estimated_duration_hours} hours</p>
+                  <p className="text-sm text-gray-500">{job.estimated_duration_hours}h</p>
                 )}
               </div>
             )}
 
             {job.permit_required && (
               <div>
-                <p className="text-sm text-gray-500">Permit</p>
+                <p className="text-sm text-gray-500">{t('permit')}</p>
                 <p className="text-gray-900">
-                  {job.permit_number || 'Required'} 
+                  {job.permit_number || t('required')} 
                   <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
                     job.permit_status === 'approved' ? 'bg-green-100 text-green-700' :
                     job.permit_status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
@@ -247,11 +252,11 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         {/* Product & Scope */}
         {(job.product_summary || job.scope_of_work) && (
           <div className="bg-white rounded-lg shadow-sm border p-4">
-            <h2 className="font-semibold text-gray-900 mb-3">Scope of Work</h2>
+            <h2 className="font-semibold text-gray-900 mb-3">{t('scopeOfWork')}</h2>
             
             {job.product_summary && (
               <div className="mb-3">
-                <p className="text-sm text-gray-500">Product</p>
+                <p className="text-sm text-gray-500">{t('product')}</p>
                 <p className="text-gray-900">{job.product_summary}</p>
               </div>
             )}
@@ -267,7 +272,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         {/* Special Instructions */}
         {job.special_instructions && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <h2 className="font-semibold text-yellow-800 mb-2">Special Instructions</h2>
+            <h2 className="font-semibold text-yellow-800 mb-2">{t('specialInstructions')}</h2>
             <p className="text-sm text-yellow-700 whitespace-pre-wrap">{job.special_instructions}</p>
           </div>
         )}
@@ -275,7 +280,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         {/* Line Items */}
         {job.line_items.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border p-4">
-            <h2 className="font-semibold text-gray-900 mb-3">Work Items</h2>
+            <h2 className="font-semibold text-gray-900 mb-3">{t('workItems')}</h2>
             <div className="space-y-3">
               {Object.entries(groupedItems).map(([category, items]) => (
                 <div key={category}>
@@ -302,7 +307,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         {/* Notes */}
         {job.notes.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border p-4">
-            <h2 className="font-semibold text-gray-900 mb-3">Notes</h2>
+            <h2 className="font-semibold text-gray-900 mb-3">{t('notes')}</h2>
             <div className="space-y-2">
               {job.notes.map(note => (
                 <div key={note.id} className="bg-gray-50 p-3 rounded-lg">
@@ -319,7 +324,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         {/* Files & Photos */}
         {job.files.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border p-4">
-            <h2 className="font-semibold text-gray-900 mb-3">Files & Photos</h2>
+            <h2 className="font-semibold text-gray-900 mb-3">{t('filesAndPhotos')}</h2>
             <div className="grid grid-cols-3 gap-2">
               {job.files.map(file => {
                 const isImage = file.mime_type?.startsWith('image/')
@@ -367,12 +372,12 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
               href={`${supabaseUrl}/storage/v1/object/public/job-files/${job.job_packet_pdf_path}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200"
+              className="flex items-center justify-center gap-2 w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200 min-h-[44px]"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Download Job Packet PDF
+              {t('downloadJobPacket')}
             </a>
           </div>
         )}
@@ -382,34 +387,34 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
       {showCompleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Complete Job</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('completeJob')}</h2>
             
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Completion Notes (optional)
+                {t('completionNotesOptional')}
               </label>
               <textarea
                 value={completionNotes}
                 onChange={(e) => setCompletionNotes(e.target.value)}
                 rows={3}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Any notes about the completed work..."
+                placeholder={t('anyNotesPlaceholder')}
               />
             </div>
 
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCompleteModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 min-h-[44px]"
               >
-                Cancel
+                {t('cancel')}
               </button>
               <button
                 onClick={handleCompleteJob}
                 disabled={updating}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 min-h-[44px]"
               >
-                {updating ? 'Completing...' : 'Mark Complete'}
+                {updating ? t('completing') : t('markComplete')}
               </button>
             </div>
           </div>

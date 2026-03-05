@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 // GET - List all appointment types for the org
 export async function GET() {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
 
     const { data: appointmentTypes, error } = await supabase
@@ -31,7 +31,7 @@ export async function GET() {
 // POST - Create a new appointment type
 export async function POST(request: NextRequest) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     
     // Only admins and managers can create appointment types
     if (!['admin', 'owner', 'regional_manager', 'sales_manager'].includes(profile.role)) {
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
 // PUT - Update an appointment type
 export async function PUT(request: NextRequest) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     
     if (!['admin', 'owner', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
@@ -135,7 +135,7 @@ export async function PUT(request: NextRequest) {
 // DELETE - Delete an appointment type
 export async function DELETE(request: NextRequest) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     
     if (!['admin', 'owner', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })

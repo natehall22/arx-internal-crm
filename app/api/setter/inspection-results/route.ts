@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -15,10 +15,9 @@ function getAdminClient() {
 
 export async function GET() {
   try {
-    const { authUser } = await requireAuth()
+    const { authUser } = await requireAuthApi()
     const supabase = getAdminClient()
 
-    // Get unread inspection_outcome notifications for this user
     const { data: notifications, error } = await supabase
       .from('notifications')
       .select('*')

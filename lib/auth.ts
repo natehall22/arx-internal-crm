@@ -55,7 +55,7 @@ function getSessionFromCookies() {
   return sessionData
 }
 
-export async function requireAuth(): Promise<AuthContext> {
+async function getAuthContext(options?: { throwOnError?: boolean }): Promise<AuthContext | null> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -64,10 +64,10 @@ export async function requireAuth(): Promise<AuthContext> {
 
   if (!sessionData?.access_token) {
     console.log('requireAuth: No session cookie found')
-    redirect('/login')
+    if (options?.throwOnError) throw new Error('No session')
+    return null
   }
 
-  // Verify the token and get user using anon key
   const supabase = createSupabaseClient(supabaseUrl, supabaseKey, {
     auth: {
       autoRefreshToken: false,
@@ -79,15 +79,14 @@ export async function requireAuth(): Promise<AuthContext> {
 
   if (authError || !user) {
     console.log('requireAuth: Token invalid or expired', authError?.message)
-    redirect('/login')
+    if (options?.throwOnError) throw new Error('Token invalid or expired')
+    return null
   }
 
-  console.log('requireAuth: User verified:', user.id, user.email)
-
-  // ALWAYS use service role to bypass RLS for profile fetch
   if (!serviceRoleKey) {
     console.error('requireAuth: SUPABASE_SERVICE_ROLE_KEY is not set!')
-    redirect('/login?error=server_config')
+    if (options?.throwOnError) throw new Error('Server config error')
+    return null
   }
 
   const adminClient = createSupabaseClient(supabaseUrl, serviceRoleKey, {
@@ -97,35 +96,44 @@ export async function requireAuth(): Promise<AuthContext> {
     },
   })
 
-  // First, let's see ALL users to debug
-  const { data: allUsers, error: allError } = await adminClient
-    .from('users')
-    .select('id, email')
-    .limit(10)
-
-  console.log('requireAuth: All users query:', { count: allUsers?.length, error: allError?.message, users: allUsers })
-
-  // Now query for this specific user
   const { data: profiles, error: profileError } = await adminClient
     .from('users')
     .select('*')
     .eq('id', user.id)
 
-  console.log('requireAuth: Profile query (no single):', { 
-    count: profiles?.length, 
-    error: profileError?.message,
-    searchId: user.id 
-  })
-
   const profile = profiles?.[0]
 
   if (profileError || !profile) {
     console.error('User profile missing for auth user:', user.id, profileError)
-    redirect('/login?error=profile_missing')
+    if (options?.throwOnError) throw new Error('Profile missing')
+    return null
   }
 
   return {
     authUser: { id: user.id, email: user.email ?? null },
     profile: profile as User,
   }
+}
+
+/**
+ * Use in Server Components and pages - redirects to login on failure
+ */
+export async function requireAuth(): Promise<AuthContext> {
+  const context = await getAuthContext()
+  if (!context) {
+    redirect('/login')
+  }
+  return context
+}
+
+/**
+ * Use in API routes - throws error instead of redirecting
+ * Catch the error and return appropriate JSON response
+ */
+export async function requireAuthApi(): Promise<AuthContext> {
+  const context = await getAuthContext({ throwOnError: true })
+  if (!context) {
+    throw new Error('Unauthorized')
+  }
+  return context
 }

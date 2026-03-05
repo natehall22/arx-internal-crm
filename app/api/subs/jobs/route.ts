@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     const supabase = createClient()
 
     // Get sub_id for this user

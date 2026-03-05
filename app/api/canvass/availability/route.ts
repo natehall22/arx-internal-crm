@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
@@ -93,7 +93,7 @@ async function getTimezoneForUser(adminClient: any, userId: string): Promise<str
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth()
+    await requireAuthApi()
     const adminClient = getAdminClient()
 
     const closerId = request.nextUrl.searchParams.get('closer_id')

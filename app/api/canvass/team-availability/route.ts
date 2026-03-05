@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
   console.log('Team availability: Request started')
   
   try {
-    await requireAuth()
+    await requireAuthApi()
     const adminClient = getAdminClient()
 
     const teamId = request.nextUrl.searchParams.get('team_id')

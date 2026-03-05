@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import nodemailer from 'nodemailer'
 
 export async function POST(request: NextRequest) {
   try {
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
     const body = await request.json()
 
@@ -115,83 +115,68 @@ export async function POST(request: NextRequest) {
         await transporter.sendMail({
           from: process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>',
           to: customerEmail,
-          subject: 'ARX Roofing & Exteriors - Contract Ready for Signature',
-          text: `Dear ${customerName},
+          subject: 'ARX Roofing - Your Contract is Ready to Sign',
+          text: `Hi ${customerName},
 
-Your contract from ARX Roofing & Exteriors is ready for your signature.
+Your contract is ready! Please review and sign it using the link below:
 
-Please click the link below to review and sign your contract:
 ${signingUrl}
 
-This link will expire in 7 days.
+Project: ${projectAddress}
+Amount: $${projectCost.toLocaleString()}
 
-Project Details:
-- Address: ${projectAddress}
-- Project Cost: $${projectCost.toLocaleString()}
+This link expires in 7 days.
 
-If you have any questions, please contact us at:
-Phone: 704-313-8834
-Email: info@arxroofing.com
+Questions? Call 704-313-8834 or email info@arxroofing.com
 
-Thank you for choosing ARX Roofing & Exteriors!
-
-Best regards,
-${repName}
-ARX Roofing & Exteriors LLC`,
-          html: `
-<!DOCTYPE html>
+- ${repName}, ARX Roofing & Exteriors`,
+          html: `<!DOCTYPE html>
 <html>
-<head>
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: #1e3a5f; color: white; padding: 20px; text-align: center; }
-    .content { padding: 20px; background: #f9f9f9; }
-    .button { display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
-    .details { background: white; padding: 15px; border-radius: 6px; margin: 15px 0; }
-    .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1 style="margin: 0;">ARX ROOFING & EXTERIORS LLC</h1>
-      <p style="margin: 5px 0 0 0; opacity: 0.9;">Contract Ready for Signature</p>
-    </div>
-    <div class="content">
-      <p>Dear ${customerName},</p>
-      <p>Your contract from ARX Roofing & Exteriors is ready for your signature.</p>
-      
-      <div class="details">
-        <strong>Project Details:</strong><br>
-        Address: ${projectAddress}<br>
-        Project Cost: $${projectCost.toLocaleString()}
-      </div>
-      
-      <p style="text-align: center;">
-        <a href="${signingUrl}" class="button">Review & Sign Contract</a>
-      </p>
-      
-      <p style="font-size: 14px; color: #666;">This link will expire in 7 days.</p>
-      
-      <p>If you have any questions, please contact us:</p>
-      <p>
-        Phone: 704-313-8834<br>
-        Email: info@arxroofing.com
-      </p>
-      
-      <p>Thank you for choosing ARX Roofing & Exteriors!</p>
-      <p>Best regards,<br>${repName}<br>ARX Roofing & Exteriors LLC</p>
-    </div>
-    <div class="footer">
-      <p>ARX Roofing & Exteriors LLC<br>
-      4101 Woodbury Terrace NW, Concord, NC 28027<br>
-      arxroofing.com</p>
-    </div>
-  </div>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+
+<tr><td style="background:#1e3a5f;padding:20px;text-align:center;">
+<h1 style="margin:0;color:#ffffff;font-size:20px;">ARX ROOFING & EXTERIORS</h1>
+</td></tr>
+
+<tr><td style="padding:30px 30px 20px 30px;">
+<p style="margin:0 0 15px 0;font-size:16px;color:#333;">Hi ${customerName},</p>
+<p style="margin:0 0 25px 0;font-size:16px;color:#333;">Your contract is ready for signature. Click below to review and sign:</p>
+</td></tr>
+
+<tr><td align="center" style="padding:0 30px 25px 30px;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="background:#22c55e;border-radius:6px;padding:14px 32px;">
+<a href="${signingUrl}" style="color:#ffffff;text-decoration:none;font-size:18px;font-weight:bold;display:block;">Review & Sign Contract</a>
+</td>
+</tr></table>
+</td></tr>
+
+<tr><td style="padding:0 30px 20px 30px;">
+<table width="100%" cellpadding="12" cellspacing="0" style="background:#f9f9f9;border-radius:6px;">
+<tr><td style="font-size:14px;color:#666;">
+<strong style="color:#333;">Project:</strong> ${projectAddress}<br>
+<strong style="color:#333;">Amount:</strong> $${projectCost.toLocaleString()}
+</td></tr>
+</table>
+</td></tr>
+
+<tr><td style="padding:0 30px 25px 30px;">
+<p style="margin:0;font-size:13px;color:#999;">This link expires in 7 days.</p>
+</td></tr>
+
+<tr><td style="padding:20px 30px;border-top:1px solid #eee;font-size:13px;color:#666;">
+Questions? <strong>704-313-8834</strong> or <a href="mailto:info@arxroofing.com" style="color:#1e3a5f;">info@arxroofing.com</a><br><br>
+${repName}<br>ARX Roofing & Exteriors LLC
+</td></tr>
+
+</table>
+</td></tr>
+</table>
 </body>
-</html>
-          `,
+</html>`,
         })
       } catch (emailError) {
         console.error('Error sending contract email:', emailError)

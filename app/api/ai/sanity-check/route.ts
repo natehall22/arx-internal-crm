@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { validateRequiredAdders } from '@/lib/required-adders'
@@ -11,7 +11,7 @@ function getOpenAI() {
 }
 
 export async function GET(request: Request) {
-  const { profile } = await requireAuth()
+  const { profile } = await requireAuthApi()
   const supabase = createClient()
   const { searchParams } = new URL(request.url)
   const estimateId = searchParams.get('estimate_id')

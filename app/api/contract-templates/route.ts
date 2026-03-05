@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: Request) {
-  const { profile } = await requireAuth()
+  const { profile } = await requireAuthApi()
   const supabase = createClient()
   const formData = await request.formData()
   const name = String(formData.get('name') ?? '')

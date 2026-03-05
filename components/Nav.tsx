@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
+import FeedbackButton from './FeedbackButton'
 // Include legacy roles for backwards compatibility
 type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'canvasser' | 'operations' | 'owner'
 
@@ -261,6 +262,7 @@ export default function Nav() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </Link>
+            <FeedbackButton />
             <NotificationBell />
             <button
               onClick={handleLogout}

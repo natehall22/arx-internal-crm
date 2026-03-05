@@ -4,6 +4,12 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 
+interface WorkOrderPhoto {
+  id: string
+  photo_type: string
+  storage_path: string
+}
+
 interface WorkOrder {
   id: string
   work_order_number: string
@@ -13,8 +19,12 @@ interface WorkOrder {
   priority: string
   scheduled_date: string | null
   created_at: string
+  sub_completion_notes: string | null
+  completed_at: string | null
   assigned_user?: { full_name: string } | { full_name: string }[] | null
   assigned_sub?: { company_name: string } | { company_name: string }[] | null
+  completed_by_sub?: { company_name: string } | { company_name: string }[] | null
+  photos?: WorkOrderPhoto[]
 }
 
 const statusColors: Record<string, string> = {
@@ -81,8 +91,11 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
           priority,
           scheduled_date,
           created_at,
+          sub_completion_notes,
+          completed_at,
           assigned_user:users!work_orders_assigned_user_id_fkey(full_name),
-          assigned_sub:sub_contractors!work_orders_assigned_sub_id_fkey(company_name)
+          assigned_sub:sub_contractors!work_orders_assigned_sub_id_fkey(company_name),
+          completed_by_sub:sub_contractors!work_orders_completed_by_sub_id_fkey(company_name)
         `)
         .order('created_at', { ascending: false })
 
@@ -100,7 +113,33 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
         return
       }
 
-      setWorkOrders(data || [])
+      // Load photos for completed work orders
+      const completedIds = (data || []).filter(wo => wo.status === 'completed').map(wo => wo.id)
+      let photosMap: Record<string, WorkOrderPhoto[]> = {}
+      
+      if (completedIds.length > 0) {
+        const { data: photos } = await supabase
+          .from('work_order_photos')
+          .select('id, work_order_id, photo_type, storage_path')
+          .in('work_order_id', completedIds)
+        
+        if (photos) {
+          photos.forEach(photo => {
+            if (!photosMap[photo.work_order_id]) {
+              photosMap[photo.work_order_id] = []
+            }
+            photosMap[photo.work_order_id].push(photo)
+          })
+        }
+      }
+
+      // Attach photos to work orders
+      const workOrdersWithPhotos = (data || []).map(wo => ({
+        ...wo,
+        photos: photosMap[wo.id] || []
+      }))
+
+      setWorkOrders(workOrdersWithPhotos)
     } catch (err) {
       console.error('Error loading work orders:', err)
     } finally {
@@ -109,15 +148,28 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
   }
 
   const openWorkOrders = workOrders.filter(wo => !['completed', 'cancelled'].includes(wo.status))
-  const completedCount = workOrders.filter(wo => wo.status === 'completed').length
+  const completedWorkOrders = workOrders.filter(wo => wo.status === 'completed')
+  const [showCompleted, setShowCompleted] = useState(false)
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+  const getCompletedByName = (wo: WorkOrder): string | null => {
+    if (wo.completed_by_sub) {
+      if (Array.isArray(wo.completed_by_sub)) {
+        return wo.completed_by_sub[0]?.company_name || null
+      }
+      return wo.completed_by_sub.company_name
+    }
+    return null
+  }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
+    <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">Work Orders</h2>
+        <h2 className="text-base sm:text-lg font-semibold text-gray-900">Work Orders</h2>
         <Link
           href={`/work-orders/new?job_id=${jobId}${projectId ? `&project_id=${projectId}` : ''}`}
-          className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+          className="min-h-[44px] flex items-center text-sm text-indigo-600 hover:text-indigo-800 font-medium"
         >
           + New Work Order
         </Link>
@@ -133,44 +185,176 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
             <Link
               key={wo.id}
               href={`/work-orders/${wo.id}`}
-              className="block p-3 border rounded-lg hover:bg-gray-50 transition-colors"
+              className="block p-3 border rounded-lg hover:bg-gray-50 active:bg-gray-100 transition-colors min-h-[60px]"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-mono text-gray-500">{wo.work_order_number}</span>
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[wo.status] || 'bg-gray-100 text-gray-600'}`}>
                       {wo.status.replace('_', ' ')}
                     </span>
                   </div>
-                  <p className="text-sm font-medium text-gray-900 mt-1 truncate">{wo.title}</p>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                  <p className="text-sm font-medium text-gray-900 mt-1 break-words">{wo.title}</p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-gray-500">
                     <span>{typeLabels[wo.work_order_type] || wo.work_order_type}</span>
                     {wo.scheduled_date && (
                       <>
-                        <span>•</span>
+                        <span className="hidden sm:inline">•</span>
                         <span>{new Date(wo.scheduled_date + 'T12:00:00').toLocaleDateString()}</span>
                       </>
                     )}
                     {getAssigneeName(wo) && (
                       <>
-                        <span>•</span>
-                        <span>{getAssigneeName(wo)}</span>
+                        <span className="hidden sm:inline">•</span>
+                        <span className="truncate max-w-[120px]">{getAssigneeName(wo)}</span>
                       </>
                     )}
                   </div>
                 </div>
-                <svg className="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-gray-400 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </div>
             </Link>
           ))}
           
-          {completedCount > 0 && (
-            <p className="text-xs text-gray-500 pt-2 border-t">
-              + {completedCount} completed work order{completedCount !== 1 ? 's' : ''}
-            </p>
+          {/* Completed Work Orders Section */}
+          {completedWorkOrders.length > 0 && (
+            <div className="pt-2 border-t">
+              <button
+                onClick={() => setShowCompleted(!showCompleted)}
+                className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 min-h-[44px]"
+              >
+                <svg 
+                  className={`w-4 h-4 transition-transform ${showCompleted ? 'rotate-90' : ''}`} 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                {completedWorkOrders.length} completed work order{completedWorkOrders.length !== 1 ? 's' : ''}
+              </button>
+              
+              {showCompleted && (
+                <div className="mt-3 space-y-4">
+                  {completedWorkOrders.map(wo => {
+                    const workDonePhotos = wo.photos?.filter(p => p.photo_type === 'work_done') || []
+                    const cleanupPhotos = wo.photos?.filter(p => p.photo_type === 'cleanup') || []
+                    const completedByName = getCompletedByName(wo)
+                    
+                    return (
+                      <div key={wo.id} className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono text-gray-500">{wo.work_order_number}</span>
+                              <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                                Completed
+                              </span>
+                            </div>
+                            <p className="text-sm font-medium text-gray-900 mt-1">{wo.title}</p>
+                          </div>
+                          <Link
+                            href={`/work-orders/${wo.id}`}
+                            className="text-xs text-indigo-600 hover:text-indigo-800"
+                          >
+                            View →
+                          </Link>
+                        </div>
+                        
+                        {completedByName && (
+                          <p className="text-xs text-gray-600 mb-2">
+                            Completed by: <span className="font-medium">{completedByName}</span>
+                            {wo.completed_at && (
+                              <span className="text-gray-400 ml-2">
+                                {new Date(wo.completed_at).toLocaleDateString()}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                        
+                        {/* Sub Completion Note */}
+                        {wo.sub_completion_notes && (
+                          <div className="mb-3">
+                            <p className="text-xs font-medium text-gray-500 mb-1">Completion Note:</p>
+                            <p className="text-sm text-gray-700 bg-white p-2 rounded border">
+                              {wo.sub_completion_notes}
+                            </p>
+                          </div>
+                        )}
+                        
+                        {/* Sub Completion Photos */}
+                        {(workDonePhotos.length > 0 || cleanupPhotos.length > 0) && (
+                          <div className="space-y-2">
+                            {workDonePhotos.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-gray-500 mb-1">
+                                  Work Done Photos ({workDonePhotos.length})
+                                </p>
+                                <div className="grid grid-cols-4 gap-1">
+                                  {workDonePhotos.slice(0, 4).map(photo => (
+                                    <a
+                                      key={photo.id}
+                                      href={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="aspect-square bg-gray-100 rounded overflow-hidden"
+                                    >
+                                      <img
+                                        src={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                        alt="Work done"
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </a>
+                                  ))}
+                                  {workDonePhotos.length > 4 && (
+                                    <div className="aspect-square bg-gray-200 rounded flex items-center justify-center text-xs text-gray-600">
+                                      +{workDonePhotos.length - 4}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {cleanupPhotos.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-gray-500 mb-1">
+                                  Cleanup Photos ({cleanupPhotos.length})
+                                </p>
+                                <div className="grid grid-cols-4 gap-1">
+                                  {cleanupPhotos.slice(0, 4).map(photo => (
+                                    <a
+                                      key={photo.id}
+                                      href={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="aspect-square bg-gray-100 rounded overflow-hidden"
+                                    >
+                                      <img
+                                        src={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                        alt="Cleanup"
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </a>
+                                  ))}
+                                  {cleanupPhotos.length > 4 && (
+                                    <div className="aspect-square bg-gray-200 rounded flex items-center justify-center text-xs text-gray-600">
+                                      +{cleanupPhotos.length - 4}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

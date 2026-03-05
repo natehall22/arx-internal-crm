@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -16,7 +16,7 @@ function getAdminClient() {
 // Get queue for a team
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth()
+    await requireAuthApi()
     const adminClient = getAdminClient()
     
     const { searchParams } = new URL(request.url)
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     console.log('Team closer queue POST - starting')
-    const { profile } = await requireAuth()
+    const { profile } = await requireAuthApi()
     console.log('Team closer queue POST - authenticated, org_id:', profile.org_id)
     
     const adminClient = getAdminClient()
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
 // Remove closer from queue
 export async function DELETE(request: NextRequest) {
   try {
-    await requireAuth()
+    await requireAuthApi()
     const adminClient = getAdminClient()
     
     const { searchParams } = new URL(request.url)
@@ -138,7 +138,7 @@ export async function DELETE(request: NextRequest) {
 // Update closer in queue (active status, buffer, priority)
 export async function PUT(request: NextRequest) {
   try {
-    await requireAuth()
+    await requireAuthApi()
     const adminClient = getAdminClient()
     
     const body = await request.json()
