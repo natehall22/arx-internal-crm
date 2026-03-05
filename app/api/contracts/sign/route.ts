@@ -151,45 +151,51 @@ export async function POST(request: NextRequest) {
       const fileName = `contract_${contract.id}_${Date.now()}.pdf`
       pdfStoragePath = `org/${contract.org_id}/contracts/${fileName}`
 
-      // Try contracts bucket first
-      const { error: uploadError } = await supabase.storage
-        .from('contracts')
+      // Try files bucket first (more reliable)
+      const { error: filesUploadError } = await supabase.storage
+        .from('files')
         .upload(pdfStoragePath, pdfBuffer, {
           contentType: 'application/pdf',
-          upsert: false,
+          upsert: true, // Allow overwrite if exists
         })
-
-      if (uploadError) {
-        console.error('[Contract Sign] Error uploading to contracts bucket:', uploadError.message)
+      
+      if (filesUploadError) {
+        console.error('[Contract Sign] Error uploading to files bucket:', filesUploadError.message)
         
-        // Fallback to files bucket
-        const { error: filesUploadError } = await supabase.storage
-          .from('files')
+        // Fallback to contracts bucket
+        const { error: contractsUploadError } = await supabase.storage
+          .from('contracts')
           .upload(pdfStoragePath, pdfBuffer, {
             contentType: 'application/pdf',
-            upsert: false,
+            upsert: true,
           })
         
-        if (filesUploadError) {
-          console.error('[Contract Sign] Error uploading to files bucket:', filesUploadError.message)
-          pdfGenerationError = `Storage upload failed: ${filesUploadError.message}`
+        if (contractsUploadError) {
+          console.error('[Contract Sign] Error uploading to contracts bucket:', contractsUploadError.message)
+          pdfGenerationError = `Storage upload failed: ${contractsUploadError.message}`
         } else {
-          pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
-          console.log('[Contract Sign] PDF uploaded to files bucket:', pdfUrl)
+          pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/contracts/${pdfStoragePath}`
+          console.log('[Contract Sign] PDF uploaded to contracts bucket:', pdfUrl)
         }
       } else {
-        pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/contracts/${pdfStoragePath}`
-        console.log('[Contract Sign] PDF uploaded to contracts bucket:', pdfUrl)
+        pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
+        console.log('[Contract Sign] PDF uploaded to files bucket:', pdfUrl)
       }
 
       if (pdfUrl) {
-        await supabase
+        const { error: updatePdfError } = await supabase
           .from('order_form_contracts')
           .update({
             pdf_url: pdfUrl,
             pdf_storage_path: pdfStoragePath,
           })
           .eq('id', contract.id)
+        
+        if (updatePdfError) {
+          console.error('[Contract Sign] Error updating pdf_url in database:', updatePdfError)
+        } else {
+          console.log('[Contract Sign] PDF URL saved to database:', pdfUrl)
+        }
       }
     } catch (pdfError: any) {
       pdfGenerationError = pdfError?.message || 'Unknown PDF generation error'

@@ -50,6 +50,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Void any existing pending contracts for this opportunity
+    if (opportunityId) {
+      const { error: voidError } = await supabase
+        .from('order_form_contracts')
+        .update({ status: 'voided' })
+        .eq('opportunity_id', opportunityId)
+        .eq('status', 'pending_customer')
+
+      if (voidError) {
+        console.error('Error voiding existing contracts:', voidError)
+      } else {
+        console.log('Voided existing pending contracts for opportunity:', opportunityId)
+      }
+    }
+
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 
                      request.headers.get('x-real-ip') || 
                      'unknown'

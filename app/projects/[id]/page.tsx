@@ -66,35 +66,53 @@ export default async function ProjectDetailPage({
     .eq('project_id', params.id)
     .single()
 
-  // Fetch Installation Agreement PDF from order_form_contracts via opportunity
-  // Data chain: project → opportunity (by address match or direct link) → order_form_contracts
+  // Fetch Installation Agreement PDF from order_form_contracts
+  // Try multiple methods to find the contract
   let installationAgreement: { pdf_url: string | null; status: string } | null = null
   
   try {
-    // First, try to find the opportunity that matches this project's address
-    const { data: opportunities } = await supabase
-      .from('opportunities')
-      .select('id')
+    // Method 1: Find contract by matching project address to contract project_address
+    const { data: contractsByAddress } = await supabase
+      .from('order_form_contracts')
+      .select('pdf_url, status')
       .eq('org_id', profile.org_id)
-      .eq('address_text', project.address_text)
+      .eq('project_address', project.address_text)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
       .limit(1)
     
-    if (opportunities && opportunities.length > 0) {
-      const opportunityId = opportunities[0].id
-      
-      // Now fetch the completed contract for this opportunity
-      const { data: contracts } = await supabase
-        .from('order_form_contracts')
-        .select('pdf_url, status')
-        .eq('opportunity_id', opportunityId)
-        .eq('status', 'completed')
-        .order('created_at', { ascending: false })
+    if (contractsByAddress && contractsByAddress.length > 0) {
+      installationAgreement = {
+        pdf_url: contractsByAddress[0].pdf_url,
+        status: contractsByAddress[0].status
+      }
+    }
+    
+    // Method 2: If not found, try to find via opportunity
+    if (!installationAgreement) {
+      const { data: opportunities } = await supabase
+        .from('opportunities')
+        .select('id')
+        .eq('org_id', profile.org_id)
+        .eq('address_text', project.address_text)
         .limit(1)
       
-      if (contracts && contracts.length > 0) {
-        installationAgreement = {
-          pdf_url: contracts[0].pdf_url,
-          status: contracts[0].status
+      if (opportunities && opportunities.length > 0) {
+        const opportunityId = opportunities[0].id
+        
+        const { data: contracts } = await supabase
+          .from('order_form_contracts')
+          .select('pdf_url, status')
+          .eq('opportunity_id', opportunityId)
+          .eq('status', 'completed')
+          .order('created_at', { ascending: false })
+          .limit(1)
+        
+        if (contracts && contracts.length > 0) {
+          installationAgreement = {
+            pdf_url: contracts[0].pdf_url,
+            status: contracts[0].status
+          }
         }
       }
     }
