@@ -255,19 +255,15 @@ export default function SoldScopeCard({
 
   const loadAdditionalScope = async () => {
     if (!jobId) return
-    const supabase = createClientBrowser()
     
     try {
-      const { data } = await supabase
-        .from('job_additional_scope')
-        .select('id, description, quantity, unit, unit_price, line_total')
-        .eq('job_id', jobId)
-        .order('created_at')
-      
-      setAdditionalScope(data || [])
+      const response = await fetch(`/api/jobs/${jobId}/additional-scope`)
+      if (response.ok) {
+        const data = await response.json()
+        setAdditionalScope(data || [])
+      }
     } catch (err) {
-      // Table might not exist yet
-      console.log('Additional scope table not available')
+      console.log('Additional scope not available')
     }
   }
 
@@ -319,46 +315,34 @@ export default function SoldScopeCard({
   }
 
   const handleAddScopeItem = async () => {
-    if (!jobId || !orgId || !newItem.description.trim()) {
-      console.log('[AddScopeItem] Missing required fields:', { jobId, orgId, description: newItem.description })
+    if (!jobId || !newItem.description.trim()) {
+      console.log('[AddScopeItem] Missing required fields:', { jobId, description: newItem.description })
       return
     }
     setSavingItem(true)
     
-    const supabase = createClientBrowser()
-    const quantity = parseFloat(newItem.quantity) || 1
-    const unitPrice = parseFloat(newItem.unit_price) || 0
-    const lineTotal = quantity * unitPrice
-    
-    console.log('[AddScopeItem] Inserting:', { orgId, jobId, description: newItem.description.trim(), quantity, unit: newItem.unit, unitPrice, lineTotal })
-    
     try {
-      const { data, error } = await supabase
-        .from('job_additional_scope')
-        .insert({
-          org_id: orgId,
-          job_id: jobId,
+      const response = await fetch(`/api/jobs/${jobId}/additional-scope`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           description: newItem.description.trim(),
-          quantity,
+          quantity: newItem.quantity,
           unit: newItem.unit,
-          unit_price: unitPrice,
-          line_total: lineTotal,
-        })
-        .select()
-        .single()
+          unit_price: newItem.unit_price,
+        }),
+      })
       
-      if (error) {
-        console.error('[AddScopeItem] Supabase error:', error.message, error.details, error.hint)
-        alert(`Failed to add item: ${error.message}`)
-        return
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to add item')
       }
       
-      if (data) {
-        console.log('[AddScopeItem] Success:', data)
-        setAdditionalScope([...additionalScope, data])
-        setNewItem({ description: '', quantity: '1', unit: 'each', unit_price: '0' })
-        setShowAddForm(false)
-      }
+      const data = await response.json()
+      console.log('[AddScopeItem] Success:', data)
+      setAdditionalScope([...additionalScope, data])
+      setNewItem({ description: '', quantity: '1', unit: 'each', unit_price: '0' })
+      setShowAddForm(false)
     } catch (err: any) {
       console.error('[AddScopeItem] Error:', err)
       alert(`Failed to add item: ${err?.message || 'Unknown error'}`)
@@ -368,15 +352,14 @@ export default function SoldScopeCard({
   }
 
   const handleDeleteScopeItem = async (itemId: string) => {
-    const supabase = createClientBrowser()
+    if (!jobId) return
     
     try {
-      const { error } = await supabase
-        .from('job_additional_scope')
-        .delete()
-        .eq('id', itemId)
+      const response = await fetch(`/api/jobs/${jobId}/additional-scope?itemId=${itemId}`, {
+        method: 'DELETE',
+      })
       
-      if (!error) {
+      if (response.ok) {
         setAdditionalScope(additionalScope.filter(item => item.id !== itemId))
       }
     } catch (err) {
