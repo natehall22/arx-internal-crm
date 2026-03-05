@@ -32,9 +32,10 @@ export async function POST(
 
       if (existingJob?.job_packet_pdf_path) {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        // Use files bucket (job-files bucket doesn't exist)
         return NextResponse.json({
           success: true,
-          url: `${supabaseUrl}/storage/v1/object/public/job-files/${existingJob.job_packet_pdf_path}`,
+          url: `${supabaseUrl}/storage/v1/object/public/files/${existingJob.job_packet_pdf_path}`,
           pdf_path: existingJob.job_packet_pdf_path,
           generated_at: existingJob.job_packet_generated_at,
           cached: true,
@@ -184,33 +185,17 @@ export async function POST(
     const serviceSupabase = createServiceClient()
     const storagePath = `${profile.org_id}/jobs/${params.id}/job-packet-${Date.now()}.pdf`
 
-    // Try job-files bucket first, then files bucket as fallback
-    let { error: uploadError } = await serviceSupabase.storage
-      .from('job-files')
+    // Upload to files bucket (the standard bucket that exists)
+    const { error: uploadError } = await serviceSupabase.storage
+      .from('files')
       .upload(storagePath, pdfBuffer, {
         contentType: 'application/pdf',
         upsert: true,
       })
 
-    let actualBucket = 'job-files'
     if (uploadError) {
-      console.error('[Job Packet] Upload to job-files failed:', uploadError.message)
-      
-      // Try fallback to files bucket
-      const { error: fallbackError } = await serviceSupabase.storage
-        .from('files')
-        .upload(storagePath, pdfBuffer, {
-          contentType: 'application/pdf',
-          upsert: true,
-        })
-      
-      if (fallbackError) {
-        console.error('[Job Packet] Upload to files bucket also failed:', fallbackError.message)
-        return NextResponse.json({ error: `Storage upload failed: ${uploadError.message}` }, { status: 500 })
-      }
-      
-      actualBucket = 'files'
-      console.log('[Job Packet] Uploaded to fallback files bucket')
+      console.error('[Job Packet] Upload failed:', uploadError.message)
+      return NextResponse.json({ error: `Storage upload failed: ${uploadError.message}` }, { status: 500 })
     }
 
     // Update job with PDF path
@@ -240,11 +225,11 @@ export async function POST(
       .single()
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    console.log('[Job Packet] Complete. Bucket:', actualBucket, 'Path:', storagePath)
+    console.log('[Job Packet] Complete. Path:', storagePath)
 
     return NextResponse.json({
       success: true,
-      url: `${supabaseUrl}/storage/v1/object/public/${actualBucket}/${storagePath}`,
+      url: `${supabaseUrl}/storage/v1/object/public/files/${storagePath}`,
       pdf_path: storagePath,
       generated_at: new Date().toISOString(),
       cached: false,
@@ -282,7 +267,7 @@ export async function GET(
       has_packet: !!job.job_packet_pdf_path,
       pdf_path: job.job_packet_pdf_path,
       url: job.job_packet_pdf_path 
-        ? `${supabaseUrl}/storage/v1/object/public/job-files/${job.job_packet_pdf_path}`
+        ? `${supabaseUrl}/storage/v1/object/public/files/${job.job_packet_pdf_path}`
         : null,
       generated_at: job.job_packet_generated_at,
     })
