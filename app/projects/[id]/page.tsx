@@ -14,6 +14,7 @@ import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import ProjectFileUpload from '@/components/ProjectFileUpload'
 import ProjectSoldScope from '@/components/ProjectSoldScope'
 import JobNotesReadOnly from '@/components/JobNotesReadOnly'
+import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 
 export default async function ProjectDetailPage({
   params,
@@ -120,6 +121,97 @@ export default async function ProjectDetailPage({
     // order_form_contracts table might not exist yet
     console.log('Could not fetch installation agreement:', e)
   }
+
+  // Fetch original contract details for change orders
+  let originalContract: {
+    id: string
+    project_cost: number
+    created_at: string
+    payment_method: string | null
+  } | null = null
+
+  try {
+    // Try to find completed contract by address first
+    const { data: contractByAddress } = await supabase
+      .from('order_form_contracts')
+      .select('id, project_cost, created_at, payment_method')
+      .eq('org_id', profile.org_id)
+      .eq('project_address', project.address_text)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (contractByAddress && contractByAddress.length > 0) {
+      originalContract = contractByAddress[0]
+    }
+
+    // Fallback: find via opportunity
+    if (!originalContract) {
+      const { data: opportunities } = await supabase
+        .from('opportunities')
+        .select('id')
+        .eq('org_id', profile.org_id)
+        .eq('address_text', project.address_text)
+        .limit(1)
+
+      if (opportunities && opportunities.length > 0) {
+        const { data: contractByOpp } = await supabase
+          .from('order_form_contracts')
+          .select('id, project_cost, created_at, payment_method')
+          .eq('opportunity_id', opportunities[0].id)
+          .eq('status', 'completed')
+          .order('created_at', { ascending: false })
+          .limit(1)
+
+        if (contractByOpp && contractByOpp.length > 0) {
+          originalContract = contractByOpp[0]
+        }
+      }
+    }
+  } catch (e) {
+    console.log('Could not fetch original contract:', e)
+  }
+
+  // Fetch change orders for this project
+  let changeOrders: any[] = []
+  try {
+    const { data: coData } = await supabase
+      .from('job_change_orders')
+      .select('id, co_number, signed_at, updated_total, pdf_url')
+      .eq('project_id', params.id)
+      .order('created_at', { ascending: true })
+
+    if (coData) {
+      changeOrders = coData
+    }
+  } catch (e) {
+    console.log('Could not fetch change orders:', e)
+  }
+
+  // Calculate amount already collected from job payments
+  let amountCollected = 0
+  if (productionJob?.id) {
+    try {
+      const { data: payments } = await supabase
+        .from('job_payments')
+        .select('amount_cents')
+        .eq('job_id', productionJob.id)
+
+      if (payments) {
+        amountCollected = payments.reduce((sum, p) => sum + (p.amount_cents || 0), 0) / 100
+      }
+    } catch (e) {
+      console.log('Could not fetch payments:', e)
+    }
+  }
+
+  // Get customer name for change orders
+  const customerName = project.customers?.name || project.leads?.homeowner_name || 'Customer'
+
+  // Get the current contract total (latest change order or original)
+  const currentContractTotal = changeOrders.length > 0
+    ? changeOrders[changeOrders.length - 1].updated_total
+    : (originalContract?.project_cost || productionJob?.sale_amount || 0)
 
   const updateStatus = async (formData: FormData) => {
     'use server'
@@ -309,6 +401,23 @@ export default async function ProjectDetailPage({
               )}
             </div>
           </div>
+        )}
+
+        {/* Change Orders Section */}
+        {(originalContract || productionJob?.sale_amount) && (
+          <ChangeOrdersSection
+            projectId={params.id}
+            projectAddress={project.address_text || ''}
+            customerName={customerName}
+            originalContractAmount={currentContractTotal}
+            originalContractDate={originalContract?.created_at?.split('T')[0] || null}
+            originalContractId={originalContract?.id || null}
+            paymentMethod={originalContract?.payment_method || null}
+            amountCollected={amountCollected}
+            jobId={productionJob?.id || null}
+            repName={profile.full_name || ''}
+            changeOrders={changeOrders}
+          />
         )}
 
         {estimates && estimates.length > 0 && (
