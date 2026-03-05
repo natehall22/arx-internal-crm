@@ -276,27 +276,27 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                   Preferred Method Of Contact *
                 </label>
                 <div className="flex gap-4">
-                  <label className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
                     <input
                       type="radio"
                       name="preferredContact"
                       value="phone"
                       checked={preferredContact === 'phone'}
                       onChange={() => setPreferredContact('phone')}
-                      className="border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="w-5 h-5 border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <span className="text-sm">Phone</span>
+                    <span className="text-base font-medium text-black">Phone</span>
                   </label>
-                  <label className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
                     <input
                       type="radio"
                       name="preferredContact"
                       value="email"
                       checked={preferredContact === 'email'}
                       onChange={() => setPreferredContact('email')}
-                      className="border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="w-5 h-5 border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <span className="text-sm">Email</span>
+                    <span className="text-base font-medium text-black">Email</span>
                   </label>
                 </div>
               </div>
