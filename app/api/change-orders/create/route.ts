@@ -135,48 +135,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert into job_files if job exists (so it appears in job files section)
-    if (jobId && pdfUrl) {
-      try {
-        // Get the next version number for change_order files
-        const { data: existingFiles } = await supabase
-          .from('job_files')
-          .select('version')
-          .eq('job_id', jobId)
-          .eq('file_type', 'change_order')
-          .order('version', { ascending: false })
-          .limit(1)
-
-        const nextVersion = existingFiles && existingFiles.length > 0 
-          ? existingFiles[0].version + 1 
-          : 1
-
-        const { error: fileInsertError } = await supabase
-          .from('job_files')
-          .insert({
-            org_id: profile.org_id,
-            job_id: jobId,
-            file_type: 'change_order',
-            storage_key: pdfStoragePath,
-            file_name: `Change Order ${coNumber}`,
-            mime_type: 'application/pdf',
-            version: nextVersion,
-            is_signed: true,
-            signed_at: signedAt,
-            signed_by: profile.id,
-            notes: description.substring(0, 200),
-            created_by: profile.id,
-          })
-
-        if (fileInsertError) {
-          console.error('[Change Order] Error inserting job_file:', fileInsertError)
-        } else {
-          console.log('[Change Order] Added to job_files')
-        }
-      } catch (fileError) {
-        console.error('[Change Order] Error adding to job_files:', fileError)
-      }
-    }
+    // Note: Change orders are stored in job_change_orders table with pdf_url
+    // They are displayed in the Change Orders section on the project page
+    // No need to duplicate in job_files table
 
     // Log activity
     await supabase.from('activities').insert({
