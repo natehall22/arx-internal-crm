@@ -84,13 +84,24 @@ button, a {
 /* Better input styling for mobile */
 input, textarea, select {
   font-size: 16px; /* Prevents zoom on iOS */
-  color: #111827; /* text-gray-900 - ensures visible text */
+  color: #111827 !important; /* text-gray-900 - ensures visible text */
+  background-color: #ffffff;
 }
 
 /* Ensure placeholder is lighter but input text is dark */
 input::placeholder,
 textarea::placeholder {
-  color: #9ca3af; /* text-gray-400 */
+  color: #9ca3af !important; /* text-gray-400 */
+}
+
+/* Ensure inputs in modals/white backgrounds have dark text */
+.bg-white input,
+.bg-white textarea,
+.bg-white select,
+[class*="bg-white"] input,
+[class*="bg-white"] textarea {
+  color: #111827 !important;
+  background-color: #ffffff !important;
 }
 
 /* Override for dark-themed inputs (like roof measure tool) */

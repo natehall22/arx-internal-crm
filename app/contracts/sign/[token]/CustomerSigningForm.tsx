@@ -251,23 +251,23 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
             {/* Customer & Premise */}
             <section>
-              <h2 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Customer And Premise</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Customer And Premise</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500">Customer Name(s):</span>
-                  <span className="ml-2 font-medium">{contract.customer_name}</span>
+                  <span className="ml-2 font-medium text-black">{contract.customer_name}</span>
                 </div>
                 <div>
                   <span className="text-gray-500">Project Address:</span>
-                  <span className="ml-2 font-medium">{contract.project_address}</span>
+                  <span className="ml-2 font-medium text-black">{contract.project_address}</span>
                 </div>
                 <div>
                   <span className="text-gray-500">Phone Number:</span>
-                  <span className="ml-2 font-medium">{contract.customer_phone || 'N/A'}</span>
+                  <span className="ml-2 font-medium text-black">{contract.customer_phone || 'N/A'}</span>
                 </div>
                 <div>
                   <span className="text-gray-500">Email:</span>
-                  <span className="ml-2 font-medium">{contract.customer_email || 'N/A'}</span>
+                  <span className="ml-2 font-medium text-black">{contract.customer_email || 'N/A'}</span>
                 </div>
               </div>
               
@@ -304,50 +304,50 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
             {/* Project Details */}
             <section>
-              <h2 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Project Details</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Project Details</h2>
               <div className="space-y-3 text-sm">
                 <div>
                   <span className="text-gray-500">Scope Of Work:</span>
                   <div className="flex flex-wrap gap-2 mt-1">
-                    {contract.scope_roof_replacement && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded">Roof Replacement</span>}
-                    {contract.scope_roof_repair && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded">Roof Repair</span>}
-                    {contract.scope_gutters && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded">Gutters</span>}
-                    {contract.scope_siding && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded">Siding</span>}
-                    {contract.scope_other && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded">{contract.scope_other}</span>}
+                    {contract.scope_roof_replacement && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">Roof Replacement</span>}
+                    {contract.scope_roof_repair && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">Roof Repair</span>}
+                    {contract.scope_gutters && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">Gutters</span>}
+                    {contract.scope_siding && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">Siding</span>}
+                    {contract.scope_other && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">{contract.scope_other}</span>}
                   </div>
                 </div>
                 {contract.roofing_material && (
                   <div>
                     <span className="text-gray-500">Primary Roofing System:</span>
-                    <span className="ml-2 font-medium">{contract.roofing_material}</span>
+                    <span className="ml-2 font-medium text-black">{contract.roofing_material}</span>
                   </div>
                 )}
                 {contract.total_squares && (
                   <div>
                     <span className="text-gray-500">Total Squares:</span>
-                    <span className="ml-2 font-medium">{contract.total_squares}</span>
+                    <span className="ml-2 font-medium text-black">{contract.total_squares}</span>
                   </div>
                 )}
                 <div>
                   <span className="text-gray-500">Project Cost:</span>
-                  <span className="ml-2 font-medium text-lg">${contract.project_cost.toLocaleString()}</span>
+                  <span className="ml-2 font-medium text-lg text-black">${contract.project_cost.toLocaleString()}</span>
                 </div>
                 {contract.est_completion_date && (
                   <div>
                     <span className="text-gray-500">Est. Completion Date:</span>
-                    <span className="ml-2 font-medium">{new Date(contract.est_completion_date).toLocaleDateString()}</span>
+                    <span className="ml-2 font-medium text-black">{new Date(contract.est_completion_date).toLocaleDateString()}</span>
                   </div>
                 )}
                 {contract.exclusions && (
                   <div>
                     <span className="text-gray-500">Exclusions / Observations:</span>
-                    <p className="mt-1 text-gray-700 whitespace-pre-wrap">{contract.exclusions}</p>
+                    <p className="mt-1 text-black whitespace-pre-wrap">{contract.exclusions}</p>
                   </div>
                 )}
                 {contract.additional_products && (
                   <div>
                     <span className="text-gray-500">Additional Products:</span>
-                    <p className="mt-1 text-gray-700 whitespace-pre-wrap">{contract.additional_products}</p>
+                    <p className="mt-1 text-black whitespace-pre-wrap">{contract.additional_products}</p>
                   </div>
                 )}
               </div>
@@ -355,31 +355,31 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
             {/* Payment Details */}
             <section>
-              <h2 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Payment Details</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Payment Details</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500">Payment Method:</span>
-                  <span className="ml-2 font-medium capitalize">
+                  <span className="ml-2 font-medium capitalize text-black">
                     {contract.payment_method}
                     {contract.finance_company && ` (${contract.finance_company})`}
                   </span>
                 </div>
                 <div>
                   <span className="text-gray-500">Deposit (Due At Signing):</span>
-                  <span className="ml-2 font-medium">${contract.deposit_amount.toLocaleString()}</span>
+                  <span className="ml-2 font-medium text-black">${contract.deposit_amount.toLocaleString()}</span>
                 </div>
               </div>
               {contract.notes && (
                 <div className="mt-3 text-sm">
                   <span className="text-gray-500">Notes:</span>
-                  <p className="mt-1 text-gray-700 whitespace-pre-wrap">{contract.notes}</p>
+                  <p className="mt-1 text-black whitespace-pre-wrap">{contract.notes}</p>
                 </div>
               )}
             </section>
 
             {/* Terms and Conditions */}
             <section>
-              <h2 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Terms And Conditions</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Terms And Conditions</h2>
               <button
                 type="button"
                 onClick={() => setShowTerms(!showTerms)}
@@ -399,7 +399,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
             {/* Customer Acknowledgements */}
             <section>
-              <h2 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Customer Acknowledgements</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Customer Acknowledgements</h2>
               <p className="text-sm text-gray-600 mb-4">Please initial each acknowledgement below:</p>
               
               <div className="space-y-4">
@@ -409,10 +409,11 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     placeholder="Initials"
                     value={initialsChangeOrders}
                     onChange={e => setInitialsChangeOrders(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
+                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
+                    style={{ color: '#000000' }}
                     maxLength={4}
                   />
-                  <p className="text-sm text-gray-700">
+                  <p className="text-sm text-black">
                     <strong>Change Orders:</strong> I understand additional work beyond the Base Scope requires a signed change order.
                   </p>
                 </div>
@@ -423,10 +424,11 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     placeholder="Initials"
                     value={initialsPropertyCondition}
                     onChange={e => setInitialsPropertyCondition(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
+                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
+                    style={{ color: '#000000' }}
                     maxLength={4}
                   />
-                  <p className="text-sm text-gray-700">
+                  <p className="text-sm text-black">
                     <strong>Property Condition:</strong> I affirm there are no known structural defects (rotted rafters, sagging roof lines, etc.) other than disclosed in writing.
                   </p>
                 </div>
@@ -437,10 +439,11 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     placeholder="Initials"
                     value={initialsLandscaping}
                     onChange={e => setInitialsLandscaping(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
+                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
+                    style={{ color: '#000000' }}
                     maxLength={4}
                   />
-                  <p className="text-sm text-gray-700">
+                  <p className="text-sm text-black">
                     <strong>Landscaping/Cosmetic Impacts:</strong> I understand incidental cosmetic impacts may occur as described in Section 8.
                   </p>
                 </div>
@@ -452,10 +455,11 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                       placeholder="Initials"
                       value={initialsInsurance}
                       onChange={e => setInitialsInsurance(e.target.value.toUpperCase())}
-                      className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
+                      className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
+                      style={{ color: '#000000' }}
                       maxLength={4}
                     />
-                    <p className="text-sm text-gray-700">
+                    <p className="text-sm text-black">
                       <strong>Insurance Funds:</strong> I agree to Section 11 regarding insurance claim projects.
                     </p>
                   </div>
@@ -465,16 +469,16 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
             {/* Signature Block */}
             <section>
-              <h2 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Signatures</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Signatures</h2>
               
-              <div className="p-4 bg-gray-50 rounded-lg mb-6 text-sm text-gray-700">
+              <div className="p-4 bg-gray-50 rounded-lg mb-6 text-sm text-black">
                 By signing below, the undersigned represents that (i) he or she has read the above Order Form and the Terms and Conditions (collectively, the "Agreement") in its entirety, and (ii) he or she agrees to be bound by the terms and conditions of the Agreement.
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Customer Signature */}
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-3">Customer</h3>
+                  <h3 className="font-medium text-black mb-3">Customer</h3>
                   <div className="space-y-3">
                     <div>
                       <label className="block text-sm text-gray-600 mb-1">Print Name *</label>
@@ -482,7 +486,8 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                         type="text"
                         value={printName}
                         onChange={e => setPrintName(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        style={{ color: '#000000' }}
                         required
                       />
                     </div>
@@ -499,7 +504,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                         type="text"
                         value={new Date().toLocaleDateString()}
                         disabled
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-600"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-black"
                       />
                     </div>
                   </div>
@@ -507,7 +512,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
                 {/* Rep Signature (read-only) */}
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-3">ARX Roofing & Exteriors</h3>
+                  <h3 className="font-medium text-black mb-3">ARX Roofing & Exteriors</h3>
                   <div className="space-y-3">
                     <div>
                       <label className="block text-sm text-gray-600 mb-1">Print Name</label>
@@ -515,7 +520,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                         type="text"
                         value={contract.rep_name}
                         disabled
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-600"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-black"
                       />
                     </div>
                     <div>
@@ -536,7 +541,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                         type="text"
                         value={contract.rep_title}
                         disabled
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-600"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-black"
                       />
                     </div>
                     <div>
@@ -545,7 +550,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                         type="text"
                         value={new Date(contract.rep_signed_at).toLocaleDateString()}
                         disabled
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-600"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-black"
                       />
                     </div>
                   </div>

@@ -278,9 +278,136 @@ export async function POST(request: NextRequest) {
             type: 'status_change',
             body: 'Project created from signed contract.',
           })
+
+          // Auto-create production job when contract is signed
+          try {
+            // Check if production job already exists for this project
+            const { data: existingJob } = await supabase
+              .from('production_jobs')
+              .select('id, job_number')
+              .eq('project_id', projectId)
+              .maybeSingle()
+
+            if (!existingJob) {
+              // Determine job type from contract scope
+              const jobType = contract.scope_roof_replacement || contract.scope_roof_repair ? 'roofing' : 
+                             contract.scope_siding ? 'siding' : 
+                             contract.scope_gutters ? 'gutters' : 'mixed'
+
+              const { data: newJob, error: jobError } = await supabase
+                .from('production_jobs')
+                .insert({
+                  org_id: contract.org_id,
+                  project_id: projectId,
+                  customer_id: customerId,
+                  job_type: jobType,
+                  address_text: contract.project_address || '',
+                  salesperson_id: contract.created_by,
+                  sale_date: new Date().toISOString().split('T')[0],
+                  sale_amount: contract.project_cost || null,
+                  deposit_required_percent: contract.deposit_amount && contract.project_cost 
+                    ? Math.round((contract.deposit_amount / contract.project_cost) * 100) 
+                    : null,
+                  created_by: contract.created_by,
+                  internal_notes: contract.notes || null,
+                  special_instructions: contract.exclusions || null,
+                })
+                .select('id, job_number')
+                .single()
+
+              if (jobError) {
+                console.error('[Contract Sign] Error creating production job:', jobError)
+              } else if (newJob) {
+                console.log('[Contract Sign] Production job created:', newJob.job_number)
+                
+                // Update project status to in_progress
+                await supabase
+                  .from('projects')
+                  .update({ status: 'in_progress' })
+                  .eq('id', projectId)
+
+                // Log activity
+                await supabase.from('activities').insert({
+                  org_id: contract.org_id,
+                  project_id: projectId,
+                  user_id: contract.created_by,
+                  type: 'status_change',
+                  body: `Production job ${newJob.job_number} auto-created from signed Installation Agreement.`,
+                })
+              }
+            } else {
+              console.log('[Contract Sign] Production job already exists:', existingJob.job_number)
+            }
+          } catch (jobCreationError) {
+            console.error('[Contract Sign] Error in job creation:', jobCreationError)
+          }
         }
       } else {
         projectId = existingProject.id
+        
+        // Even if project exists, check if we need to create a job
+        try {
+          const { data: existingJob } = await supabase
+            .from('production_jobs')
+            .select('id, job_number')
+            .eq('project_id', projectId)
+            .maybeSingle()
+
+          if (!existingJob) {
+            // Get customer_id from existing project
+            const { data: projectData } = await supabase
+              .from('projects')
+              .select('customer_id')
+              .eq('id', projectId)
+              .single()
+
+            const jobType = contract.scope_roof_replacement || contract.scope_roof_repair ? 'roofing' : 
+                           contract.scope_siding ? 'siding' : 
+                           contract.scope_gutters ? 'gutters' : 'mixed'
+
+            const { data: newJob, error: jobError } = await supabase
+              .from('production_jobs')
+              .insert({
+                org_id: contract.org_id,
+                project_id: projectId,
+                customer_id: projectData?.customer_id || null,
+                job_type: jobType,
+                address_text: contract.project_address || '',
+                salesperson_id: contract.created_by,
+                sale_date: new Date().toISOString().split('T')[0],
+                sale_amount: contract.project_cost || null,
+                deposit_required_percent: contract.deposit_amount && contract.project_cost 
+                  ? Math.round((contract.deposit_amount / contract.project_cost) * 100) 
+                  : null,
+                created_by: contract.created_by,
+                internal_notes: contract.notes || null,
+                special_instructions: contract.exclusions || null,
+              })
+              .select('id, job_number')
+              .single()
+
+            if (jobError) {
+              console.error('[Contract Sign] Error creating production job for existing project:', jobError)
+            } else if (newJob) {
+              console.log('[Contract Sign] Production job created for existing project:', newJob.job_number)
+              
+              await supabase
+                .from('projects')
+                .update({ status: 'in_progress' })
+                .eq('id', projectId)
+
+              await supabase.from('activities').insert({
+                org_id: contract.org_id,
+                project_id: projectId,
+                user_id: contract.created_by,
+                type: 'status_change',
+                body: `Production job ${newJob.job_number} auto-created from signed Installation Agreement.`,
+              })
+            }
+          }
+        } catch (jobCreationError) {
+          console.error('[Contract Sign] Error creating job for existing project:', jobCreationError)
+        }
       }
     } catch (projectError) {
       console.error('Error creating project:', projectError)

@@ -59,6 +59,7 @@ interface Job {
   customer?: { id: string; name: string; phone: string; email: string } | null
   salesperson?: { id: string; full_name: string } | null
   project?: { id: string; scope_of_work: string; product_summary: string; ops_notes: string } | null
+  installation_agreement?: { pdf_url: string | null; status: string } | null
 }
 
 interface Crew {
@@ -949,6 +950,29 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Related</h2>
               <div className="space-y-1">
+                {/* Installation Agreement - from order_form_contracts */}
+                {job.installation_agreement && job.installation_agreement.status === 'completed' && (
+                  job.installation_agreement.pdf_url ? (
+                    <a
+                      href={job.installation_agreement.pdf_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-h-[44px] flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 mb-3"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      View Installation Agreement
+                    </a>
+                  ) : (
+                    <div className="min-h-[44px] flex items-center gap-2 text-sm text-gray-500 mb-3">
+                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      PDF generating...
+                    </div>
+                  )
+                )}
                 {job.project_id && (
                   <Link
                     href={`/projects/${job.project_id}`}

@@ -66,13 +66,15 @@ export default async function JobDetailPage({ params }: PageProps) {
 
   // Find the opportunity_id for this job - needed to find accepted proposals
   let opportunityId: string | null = null
+  // Also track the installation agreement PDF URL
+  let installationAgreement: { pdf_url: string | null; status: string } | null = null
   
   if (jobRes.data.project_id) {
     // Check order_form_contracts for the opportunity that created this project
     try {
       const { data: contracts } = await supabase
         .from('order_form_contracts')
-        .select('opportunity_id')
+        .select('opportunity_id, pdf_url, status')
         .eq('status', 'completed')
         .not('opportunity_id', 'is', null)
       
@@ -88,6 +90,11 @@ export default async function JobDetailPage({ params }: PageProps) {
             
             if (opp && opp.address_text === jobRes.data.address_text) {
               opportunityId = opp.id
+              // Found the matching contract - store the PDF URL
+              installationAgreement = {
+                pdf_url: contract.pdf_url,
+                status: contract.status
+              }
               break
             }
           }
@@ -108,6 +115,28 @@ export default async function JobDetailPage({ params }: PageProps) {
       
       if (opportunities && opportunities.length > 0) {
         opportunityId = opportunities[0].id
+        
+        // Also try to get the installation agreement for this opportunity
+        if (!installationAgreement) {
+          try {
+            const { data: contractData } = await supabase
+              .from('order_form_contracts')
+              .select('pdf_url, status')
+              .eq('opportunity_id', opportunityId)
+              .eq('status', 'completed')
+              .order('created_at', { ascending: false })
+              .limit(1)
+            
+            if (contractData && contractData.length > 0) {
+              installationAgreement = {
+                pdf_url: contractData[0].pdf_url,
+                status: contractData[0].status
+              }
+            }
+          } catch (e) {
+            // Ignore errors
+          }
+        }
       }
     }
   }
@@ -120,6 +149,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     salesperson: Array.isArray(jobRes.data.salesperson) ? jobRes.data.salesperson[0] : jobRes.data.salesperson,
     project: rawProject,
     opportunity_id: opportunityId,
+    installation_agreement: installationAgreement,
   }
 
   return (

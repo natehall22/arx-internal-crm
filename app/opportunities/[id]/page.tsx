@@ -623,7 +623,10 @@ export default async function OpportunityDetailPage({
 
           </div>
 
-        <ContractUpload opportunityId={params.id} />
+        {/* Only show manual contract upload if no completed order form contract exists */}
+        {!(orderFormContracts && orderFormContracts.some((c: any) => c.status === 'completed')) && (
+          <ContractUpload opportunityId={params.id} />
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white shadow rounded-lg p-6">

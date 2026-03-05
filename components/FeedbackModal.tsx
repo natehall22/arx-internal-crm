@@ -173,7 +173,8 @@ export default function FeedbackModal({ isOpen, onClose, userName, userEmail }: 
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={5}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                  style={{ color: '#111827', backgroundColor: '#ffffff' }}
                   placeholder="Describe the bug in detail..."
                 />
               </div>
@@ -190,7 +191,8 @@ export default function FeedbackModal({ isOpen, onClose, userName, userEmail }: 
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={6}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
                 placeholder="What feature would help you work better?"
               />
             </div>

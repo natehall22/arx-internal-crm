@@ -66,6 +66,43 @@ export default async function ProjectDetailPage({
     .eq('project_id', params.id)
     .single()
 
+  // Fetch Installation Agreement PDF from order_form_contracts via opportunity
+  // Data chain: project → opportunity (by address match or direct link) → order_form_contracts
+  let installationAgreement: { pdf_url: string | null; status: string } | null = null
+  
+  try {
+    // First, try to find the opportunity that matches this project's address
+    const { data: opportunities } = await supabase
+      .from('opportunities')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('address_text', project.address_text)
+      .limit(1)
+    
+    if (opportunities && opportunities.length > 0) {
+      const opportunityId = opportunities[0].id
+      
+      // Now fetch the completed contract for this opportunity
+      const { data: contracts } = await supabase
+        .from('order_form_contracts')
+        .select('pdf_url, status')
+        .eq('opportunity_id', opportunityId)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      
+      if (contracts && contracts.length > 0) {
+        installationAgreement = {
+          pdf_url: contracts[0].pdf_url,
+          status: contracts[0].status
+        }
+      }
+    }
+  } catch (e) {
+    // order_form_contracts table might not exist yet
+    console.log('Could not fetch installation agreement:', e)
+  }
+
   const updateStatus = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
@@ -226,6 +263,35 @@ export default async function ProjectDetailPage({
             )}
           </div>
         </div>
+
+        {/* Installation Agreement - from order_form_contracts */}
+        {installationAgreement && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">Installation Agreement</h2>
+              {installationAgreement.pdf_url ? (
+                <a
+                  href={installationAgreement.pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  View Installation Agreement
+                </a>
+              ) : (
+                <span className="text-sm text-gray-500 flex items-center gap-2">
+                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  PDF generating...
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {estimates && estimates.length > 0 && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
