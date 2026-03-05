@@ -50,18 +50,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Void any existing pending contracts for this opportunity
+    // Delete any existing pending contracts for this opportunity
     if (opportunityId) {
-      const { error: voidError } = await supabase
+      const { error: deleteError } = await supabase
         .from('order_form_contracts')
-        .update({ status: 'voided' })
+        .delete()
         .eq('opportunity_id', opportunityId)
         .eq('status', 'pending_customer')
 
-      if (voidError) {
-        console.error('Error voiding existing contracts:', voidError)
+      if (deleteError) {
+        console.error('Error deleting existing pending contracts:', deleteError)
       } else {
-        console.log('Voided existing pending contracts for opportunity:', opportunityId)
+        console.log('Deleted existing pending contracts for opportunity:', opportunityId)
       }
     }
 

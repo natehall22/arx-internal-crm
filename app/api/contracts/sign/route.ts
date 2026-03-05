@@ -128,6 +128,46 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Void and delete any older contracts for this opportunity
+    if (contract.opportunity_id) {
+      try {
+        // Find all other contracts for this opportunity (not the current one)
+        const { data: olderContracts } = await supabase
+          .from('order_form_contracts')
+          .select('id, pdf_storage_path')
+          .eq('opportunity_id', contract.opportunity_id)
+          .neq('id', contract.id)
+
+        if (olderContracts && olderContracts.length > 0) {
+          console.log('[Contract Sign] Found', olderContracts.length, 'older contracts to void and delete')
+          
+          // Delete PDFs from storage
+          for (const oldContract of olderContracts) {
+            if (oldContract.pdf_storage_path) {
+              await supabase.storage
+                .from('files')
+                .remove([oldContract.pdf_storage_path])
+            }
+          }
+
+          // Delete the contract records
+          const oldIds = olderContracts.map(c => c.id)
+          const { error: deleteError } = await supabase
+            .from('order_form_contracts')
+            .delete()
+            .in('id', oldIds)
+
+          if (deleteError) {
+            console.error('[Contract Sign] Error deleting older contracts:', deleteError)
+          } else {
+            console.log('[Contract Sign] Deleted', oldIds.length, 'older contracts')
+          }
+        }
+      } catch (cleanupError) {
+        console.error('[Contract Sign] Error cleaning up older contracts:', cleanupError)
+      }
+    }
+
     const { data: updatedContract } = await supabase
       .from('order_form_contracts')
       .select('*')
