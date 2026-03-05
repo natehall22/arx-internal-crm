@@ -319,13 +319,18 @@ export default function SoldScopeCard({
   }
 
   const handleAddScopeItem = async () => {
-    if (!jobId || !orgId || !newItem.description.trim()) return
+    if (!jobId || !orgId || !newItem.description.trim()) {
+      console.log('[AddScopeItem] Missing required fields:', { jobId, orgId, description: newItem.description })
+      return
+    }
     setSavingItem(true)
     
     const supabase = createClientBrowser()
     const quantity = parseFloat(newItem.quantity) || 1
     const unitPrice = parseFloat(newItem.unit_price) || 0
     const lineTotal = quantity * unitPrice
+    
+    console.log('[AddScopeItem] Inserting:', { orgId, jobId, description: newItem.description.trim(), quantity, unit: newItem.unit, unitPrice, lineTotal })
     
     try {
       const { data, error } = await supabase
@@ -342,13 +347,21 @@ export default function SoldScopeCard({
         .select()
         .single()
       
-      if (!error && data) {
+      if (error) {
+        console.error('[AddScopeItem] Supabase error:', error.message, error.details, error.hint)
+        alert(`Failed to add item: ${error.message}`)
+        return
+      }
+      
+      if (data) {
+        console.log('[AddScopeItem] Success:', data)
         setAdditionalScope([...additionalScope, data])
         setNewItem({ description: '', quantity: '1', unit: 'each', unit_price: '0' })
         setShowAddForm(false)
       }
-    } catch (err) {
-      console.error('Error adding scope item:', err)
+    } catch (err: any) {
+      console.error('[AddScopeItem] Error:', err)
+      alert(`Failed to add item: ${err?.message || 'Unknown error'}`)
     } finally {
       setSavingItem(false)
     }
