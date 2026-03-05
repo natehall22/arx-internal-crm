@@ -409,7 +409,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     placeholder="Initials"
                     value={initialsChangeOrders}
                     onChange={e => setInitialsChangeOrders(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase"
+                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
                     maxLength={4}
                   />
                   <p className="text-sm text-gray-700">
@@ -423,7 +423,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     placeholder="Initials"
                     value={initialsPropertyCondition}
                     onChange={e => setInitialsPropertyCondition(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase"
+                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
                     maxLength={4}
                   />
                   <p className="text-sm text-gray-700">
@@ -437,7 +437,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     placeholder="Initials"
                     value={initialsLandscaping}
                     onChange={e => setInitialsLandscaping(e.target.value.toUpperCase())}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase"
+                    className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
                     maxLength={4}
                   />
                   <p className="text-sm text-gray-700">
@@ -452,7 +452,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                       placeholder="Initials"
                       value={initialsInsurance}
                       onChange={e => setInitialsInsurance(e.target.value.toUpperCase())}
-                      className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase"
+                      className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-gray-900 bg-white"
                       maxLength={4}
                     />
                     <p className="text-sm text-gray-700">
@@ -482,7 +482,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                         type="text"
                         value={printName}
                         onChange={e => setPrintName(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         required
                       />
                     </div>

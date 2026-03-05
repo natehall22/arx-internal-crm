@@ -397,7 +397,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
                 value={completionNotes}
                 onChange={(e) => setCompletionNotes(e.target.value)}
                 rows={3}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder={t('anyNotesPlaceholder')}
               />
             </div>

@@ -247,7 +247,7 @@ export default function ContractModal({
                       type="text"
                       value={formData.customerName}
                       onChange={e => handleInputChange('customerName', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       required
                     />
                   </div>
@@ -259,7 +259,7 @@ export default function ContractModal({
                       type="text"
                       value={formData.projectAddress}
                       onChange={e => handleInputChange('projectAddress', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       required
                     />
                   </div>
@@ -271,7 +271,7 @@ export default function ContractModal({
                       type="tel"
                       value={formData.customerPhone}
                       onChange={e => handleInputChange('customerPhone', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
@@ -282,7 +282,7 @@ export default function ContractModal({
                       type="email"
                       value={formData.customerEmail}
                       onChange={e => handleInputChange('customerEmail', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -335,7 +335,7 @@ export default function ContractModal({
                       placeholder="Other (specify)"
                       value={formData.scopeOther}
                       onChange={e => handleInputChange('scopeOther', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -350,7 +350,7 @@ export default function ContractModal({
                       placeholder="e.g., Architectural Shingles"
                       value={formData.roofingMaterial}
                       onChange={e => handleInputChange('roofingMaterial', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
@@ -362,7 +362,7 @@ export default function ContractModal({
                       step="0.1"
                       value={formData.totalSquares || ''}
                       onChange={e => handleInputChange('totalSquares', e.target.value ? parseFloat(e.target.value) : null)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
@@ -376,7 +376,7 @@ export default function ContractModal({
                         step="0.01"
                         value={formData.projectCost}
                         onChange={e => handleInputChange('projectCost', parseFloat(e.target.value) || 0)}
-                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         required
                       />
                     </div>
@@ -389,7 +389,7 @@ export default function ContractModal({
                       type="date"
                       value={formData.estCompletionDate}
                       onChange={e => handleInputChange('estCompletionDate', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -402,7 +402,7 @@ export default function ContractModal({
                     rows={3}
                     value={formData.exclusions}
                     onChange={e => handleInputChange('exclusions', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     placeholder="Any exclusions or observations..."
                   />
                 </div>
@@ -415,7 +415,7 @@ export default function ContractModal({
                     rows={2}
                     value={formData.additionalProducts}
                     onChange={e => handleInputChange('additionalProducts', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     placeholder="Any additional products..."
                   />
                 </div>
@@ -446,7 +446,7 @@ export default function ContractModal({
                         placeholder="Finance company name"
                         value={formData.financeCompany}
                         onChange={e => handleInputChange('financeCompany', e.target.value)}
-                        className="ml-6 w-64 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="ml-6 w-64 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       />
                     )}
                     <label className="flex items-center gap-2">
@@ -496,7 +496,7 @@ export default function ContractModal({
                       step="0.01"
                       value={formData.depositAmount}
                       onChange={e => handleInputChange('depositAmount', parseFloat(e.target.value) || 0)}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -509,7 +509,7 @@ export default function ContractModal({
                     rows={4}
                     value={formData.notes}
                     onChange={e => handleInputChange('notes', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     placeholder="Additional notes..."
                   />
                 </div>
@@ -534,7 +534,7 @@ export default function ContractModal({
                       type="text"
                       value={formData.repName}
                       onChange={e => handleInputChange('repName', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       required
                     />
                   </div>
@@ -546,7 +546,7 @@ export default function ContractModal({
                       type="text"
                       value={formData.repTitle}
                       onChange={e => handleInputChange('repTitle', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                 </div>
