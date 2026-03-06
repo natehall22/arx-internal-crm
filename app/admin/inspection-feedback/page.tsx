@@ -126,7 +126,7 @@ export default function InspectionFeedbackAdmin() {
     said_no: 'bg-red-100 text-red-700',
     not_home: 'bg-amber-100 text-amber-700',
     no_problems_found: 'bg-gray-100 text-gray-700',
-    failed_credit: 'bg-orange-100 text-orange-700',
+    needs_repair: 'bg-orange-100 text-orange-700',
     rescheduled: 'bg-blue-100 text-blue-700',
   }
 

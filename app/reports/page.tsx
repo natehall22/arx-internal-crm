@@ -624,7 +624,7 @@ export default function ReportsPage() {
                       { outcome: 'sale', label: 'Sales', color: 'bg-green-500', textColor: 'text-green-600' },
                       { outcome: 'said_no', label: 'Said No', color: 'bg-red-500', textColor: 'text-red-600' },
                       { outcome: 'not_home', label: 'Not Home', color: 'bg-amber-500', textColor: 'text-amber-600' },
-                      { outcome: 'failed_credit', label: 'Failed Credit', color: 'bg-orange-500', textColor: 'text-orange-600' },
+                      { outcome: 'needs_repair', label: 'Needs Repair', color: 'bg-orange-500', textColor: 'text-orange-600' },
                       { outcome: 'rescheduled', label: 'Rescheduled', color: 'bg-blue-500', textColor: 'text-blue-600' },
                     ].map(({ outcome, label, color, textColor }) => {
                       // This would need actual data - for now showing placeholder

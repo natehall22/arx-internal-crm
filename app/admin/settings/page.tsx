@@ -158,11 +158,11 @@ export default function AdminSettingsPage() {
   const [inspectionOutcomes, setInspectionOutcomes] = useState<InspectionOutcomeType[]>([
     { id: 'sale', label: 'Sale', description: 'Customer signed the contract', color: '#22c55e', icon: '✓', active: true, converts_to_opportunity: true, sort_order: 0 },
     { id: 'moving_to_close', label: 'Moving to Close', description: 'Customer interested, following up to close', color: '#10b981', icon: '→', active: true, converts_to_opportunity: true, sort_order: 1 },
-    { id: 'insurance_follow_up', label: 'Insurance Follow Up', description: 'Waiting on insurance claim/approval', color: '#8b5cf6', icon: '📋', active: true, converts_to_opportunity: true, sort_order: 2 },
+    { id: 'insurance_follow_up', label: 'Insurance Follow Up', description: 'Waiting on insurance claim/approval', color: '#8b5cf6', icon: '📋', active: true, converts_to_opportunity: false, sort_order: 2 },
     { id: 'said_no', label: 'Said No', description: 'Customer declined after presentation', color: '#ef4444', icon: '✗', active: true, converts_to_opportunity: false, sort_order: 3 },
     { id: 'not_home', label: 'Not Home', description: 'Customer was not present', color: '#f59e0b', icon: '?', active: true, converts_to_opportunity: false, sort_order: 4 },
     { id: 'no_problems_found', label: 'No Problems Found', description: 'Roof inspection showed no issues', color: '#6b7280', icon: '○', active: true, converts_to_opportunity: false, sort_order: 5 },
-    { id: 'failed_credit', label: 'Failed Credit', description: 'Customer did not qualify for financing', color: '#f97316', icon: '$', active: true, converts_to_opportunity: true, sort_order: 6 },
+    { id: 'needs_repair', label: 'Needs Repair', description: 'Roof needs repair work, not full replacement', color: '#f97316', icon: '🔧', active: true, converts_to_opportunity: false, sort_order: 6 },
     { id: 'rescheduled', label: 'Rescheduled', description: 'Appointment moved to new date', color: '#3b82f6', icon: '↻', active: true, converts_to_opportunity: false, sort_order: 7 },
   ])
   const [editingInspectionOutcome, setEditingInspectionOutcome] = useState<InspectionOutcomeType | null>(null)

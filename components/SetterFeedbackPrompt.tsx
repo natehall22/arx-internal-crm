@@ -1,24 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-
-interface InspectionResult {
-  id: string
-  type: string
-  title: string
-  body: string
-  created_at: string
-  read_at: string | null
-  data: {
-    appointment_id?: string
-    opportunity_id?: string
-    lead_id?: string
-    outcome: string
-    closer_name?: string
-    notes?: string
-    setter_feedback?: string
-  }
-}
+import { useState } from 'react'
+import { useInspectionResults } from '@/hooks/useRealtimeUpdates'
 
 const outcomeStyles: Record<string, { bg: string; text: string; icon: string }> = {
   sale: { bg: 'bg-green-100', text: 'text-green-800', icon: '🎉' },
@@ -27,7 +10,7 @@ const outcomeStyles: Record<string, { bg: string; text: string; icon: string }> 
   said_no: { bg: 'bg-red-100', text: 'text-red-800', icon: '✗' },
   not_home: { bg: 'bg-amber-100', text: 'text-amber-800', icon: '?' },
   no_problems_found: { bg: 'bg-gray-100', text: 'text-gray-800', icon: '○' },
-  failed_credit: { bg: 'bg-orange-100', text: 'text-orange-800', icon: '$' },
+  needs_repair: { bg: 'bg-orange-100', text: 'text-orange-800', icon: '🔧' },
   rescheduled: { bg: 'bg-blue-100', text: 'text-blue-800', icon: '↻' },
 }
 
@@ -38,34 +21,14 @@ const outcomeLabels: Record<string, string> = {
   said_no: 'Said No',
   not_home: 'Not Home',
   no_problems_found: 'No Problems Found',
-  failed_credit: 'Failed Credit',
+  needs_repair: 'Needs Repair',
   rescheduled: 'Rescheduled',
 }
 
 export default function SetterFeedbackPrompt() {
-  const [results, setResults] = useState<InspectionResult[]>([])
-  const [loading, setLoading] = useState(true)
+  const { results, refresh } = useInspectionResults()
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
-
-  useEffect(() => {
-    checkForResults()
-    const interval = setInterval(checkForResults, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const checkForResults = async () => {
-    try {
-      const response = await fetch('/api/setter/inspection-results')
-      if (!response.ok) return
-      
-      const data = await response.json()
-      setResults(data.results || [])
-    } catch (error) {
-      console.error('Error checking inspection results:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
 
   const acknowledgeResult = async (resultId: string) => {
     setAcknowledging(resultId)
@@ -75,7 +38,8 @@ export default function SetterFeedbackPrompt() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notification_id: resultId }),
       })
-      setResults(prev => prev.filter(r => r.id !== resultId))
+      setDismissedIds(prev => new Set(Array.from(prev).concat(resultId)))
+      refresh()
     } catch (error) {
       console.error('Error acknowledging result:', error)
     } finally {
@@ -83,19 +47,21 @@ export default function SetterFeedbackPrompt() {
     }
   }
 
-  if (loading || results.length === 0) return null
+  const visibleResults = results.filter(r => !dismissedIds.has(r.id))
+
+  if (visibleResults.length === 0) return null
 
   return (
     <div className="fixed bottom-4 left-4 z-50 max-w-md w-full flex flex-col max-h-[80vh]">
-      {results.length > 1 && (
+      {visibleResults.length > 1 && (
         <div className="bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-t-xl flex items-center justify-between">
-          <span>{results.length} inspection results to review</span>
+          <span>{visibleResults.length} inspection results to review</span>
           <span className="text-blue-200 text-xs">Scroll to see all</span>
         </div>
       )}
       
-      <div className={`overflow-y-auto space-y-3 p-1 ${results.length > 1 ? 'pt-3' : ''}`} style={{ maxHeight: 'calc(80vh - 60px)' }}>
-        {results.map((result) => {
+      <div className={`overflow-y-auto space-y-3 p-1 ${visibleResults.length > 1 ? 'pt-3' : ''}`} style={{ maxHeight: 'calc(80vh - 60px)' }}>
+        {visibleResults.map((result) => {
           const outcome = result.data?.outcome || 'unknown'
           const style = outcomeStyles[outcome] || { bg: 'bg-gray-100', text: 'text-gray-800', icon: '•' }
           const label = outcomeLabels[outcome] || outcome

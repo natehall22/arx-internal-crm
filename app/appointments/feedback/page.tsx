@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 
-type FeedbackOutcome = 'sale' | 'moving_to_close' | 'insurance_follow_up' | 'said_no' | 'not_home' | 'no_problems_found' | 'failed_credit' | 'rescheduled'
+type FeedbackOutcome = 'sale' | 'moving_to_close' | 'insurance_follow_up' | 'said_no' | 'not_home' | 'no_problems_found' | 'needs_repair' | 'rescheduled'
 
 interface Appointment {
   id: string
@@ -221,7 +221,7 @@ export default function AppointmentFeedbackPage() {
         setSuccess(true)
         setTimeout(() => router.push(redirectPath), 2000)
       } else {
-        // Handle other outcomes (sale, said_no, not_home, no_problems_found, failed_credit, insurance_follow_up)
+        // Handle other outcomes (sale, said_no, not_home, no_problems_found, needs_repair, insurance_follow_up)
         const response = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -518,25 +518,25 @@ export default function AppointmentFeedbackPage() {
               </div>
             </button>
 
-            {/* Failed Credit */}
+            {/* Needs Repair */}
             <button
               type="button"
-              onClick={() => handleOutcomeChange('failed_credit')}
+              onClick={() => handleOutcomeChange('needs_repair')}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'failed_credit'
+                outcome === 'needs_repair'
                   ? 'border-orange-500 bg-orange-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'failed_credit' ? 'bg-orange-500 text-white' : 'bg-gray-100'
+                  outcome === 'needs_repair' ? 'bg-orange-500 text-white' : 'bg-gray-100'
                 }`}>
-                  <span className="text-lg font-bold">$</span>
+                  <span className="text-lg">🔧</span>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">Failed Credit</p>
-                  <p className="text-xs text-gray-500">Did not qualify for financing</p>
+                  <p className="font-semibold text-gray-900">Needs Repair</p>
+                  <p className="text-xs text-gray-500">Roof needs repair, not replacement</p>
                 </div>
               </div>
             </button>

@@ -3,33 +3,12 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import type { Notification } from '@/lib/types/database'
+import { useNotifications } from '@/hooks/useRealtimeUpdates'
 
 export default function NotificationBell() {
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
+  const { notifications, unreadCount, refresh } = useNotifications()
   const [isOpen, setIsOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
-
-  const fetchNotifications = async () => {
-    try {
-      const res = await fetch('/api/notifications?limit=10')
-      if (res.ok) {
-        const data = await res.json()
-        setNotifications(data.notifications)
-        setUnreadCount(data.unread_count)
-      }
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error)
-    }
-  }
-
-  useEffect(() => {
-    fetchNotifications()
-    // Poll for new notifications every 30 seconds
-    const interval = setInterval(fetchNotifications, 30000)
-    return () => clearInterval(interval)
-  }, [])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -48,7 +27,7 @@ export default function NotificationBell() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ids ? { notification_ids: ids } : { mark_all: true }),
       })
-      fetchNotifications()
+      refresh()
     } catch (error) {
       console.error('Failed to mark as read:', error)
     }

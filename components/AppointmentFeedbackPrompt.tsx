@@ -1,54 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-
-interface PendingPrompt {
-  id: string
-  appointment_id: string
-  prompt_at: string
-  scheduled_appointments: {
-    id: string
-    scheduled_for: string
-    address_text: string | null
-    lead_id: string | null
-    leads?: {
-      id?: string
-      homeowner_name: string | null
-      address_text: string | null
-    }
-    setter?: {
-      full_name: string | null
-    }
-  }
-}
+import { useAppointmentPrompts } from '@/hooks/useRealtimeUpdates'
 
 export default function AppointmentFeedbackPrompt() {
   const router = useRouter()
-  const [prompts, setPrompts] = useState<PendingPrompt[]>([])
-  const [loading, setLoading] = useState(true)
+  const { prompts, refresh } = useAppointmentPrompts()
   const [dismissing, setDismissing] = useState<string | null>(null)
-
-  useEffect(() => {
-    checkForPendingPrompts()
-    // Check every 5 minutes
-    const interval = setInterval(checkForPendingPrompts, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const checkForPendingPrompts = async () => {
-    try {
-      const response = await fetch('/api/inspections/status')
-      if (!response.ok) return
-      
-      const data = await response.json()
-      setPrompts(data.prompts || [])
-    } catch (error) {
-      console.error('Error checking prompts:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
 
   const dismissPrompt = async (promptId: string) => {
     setDismissing(promptId)
@@ -58,7 +18,8 @@ export default function AppointmentFeedbackPrompt() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt_id: promptId }),
       })
-      setPrompts(prev => prev.filter(p => p.id !== promptId))
+      setDismissedIds(prev => new Set(Array.from(prev).concat(promptId)))
+      refresh()
     } catch (error) {
       console.error('Error dismissing prompt:', error)
     } finally {
@@ -66,21 +27,23 @@ export default function AppointmentFeedbackPrompt() {
     }
   }
 
-  if (loading || prompts.length === 0) return null
+  const visiblePrompts = prompts.filter(p => !dismissedIds.has(p.id))
+
+  if (visiblePrompts.length === 0) return null
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm w-full flex flex-col max-h-[80vh]">
       {/* Header with count */}
-      {prompts.length > 1 && (
+      {visiblePrompts.length > 1 && (
         <div className="bg-amber-600 text-white text-sm font-medium px-4 py-2 rounded-t-xl flex items-center justify-between">
-          <span>{prompts.length} appointments need feedback</span>
+          <span>{visiblePrompts.length} appointments need feedback</span>
           <span className="text-amber-200 text-xs">Scroll to see all</span>
         </div>
       )}
       
       {/* Scrollable cards container */}
-      <div className={`overflow-y-auto space-y-3 p-1 ${prompts.length > 1 ? 'pt-3' : ''}`} style={{ maxHeight: 'calc(80vh - 60px)' }}>
-        {prompts.map((prompt) => {
+      <div className={`overflow-y-auto space-y-3 p-1 ${visiblePrompts.length > 1 ? 'pt-3' : ''}`} style={{ maxHeight: 'calc(80vh - 60px)' }}>
+        {visiblePrompts.map((prompt) => {
           const appointment = prompt.scheduled_appointments
           const appointmentDate = new Date(appointment.scheduled_for)
           

@@ -206,15 +206,15 @@ export async function POST(request: NextRequest) {
       .eq('id', profile.org_id)
       .single()
     
-    // Default inspection outcomes (same as admin settings defaults)
+    // Default inspection outcomes - only sale and moving_to_close create opportunities
     const defaultInspectionOutcomes = [
       { id: 'sale', converts_to_opportunity: true },
       { id: 'moving_to_close', converts_to_opportunity: true },
-      { id: 'insurance_follow_up', converts_to_opportunity: true },
+      { id: 'insurance_follow_up', converts_to_opportunity: false },
       { id: 'said_no', converts_to_opportunity: false },
       { id: 'not_home', converts_to_opportunity: false },
       { id: 'no_problems_found', converts_to_opportunity: false },
-      { id: 'failed_credit', converts_to_opportunity: true },
+      { id: 'needs_repair', converts_to_opportunity: false },
       { id: 'rescheduled', converts_to_opportunity: false },
     ]
     
@@ -250,7 +250,7 @@ export async function POST(request: NextRequest) {
         newStatus = 'won'
       } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
         newStatus = 'lost'
-      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up' || outcome === 'failed_credit') {
+      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up') {
         newStatus = 'in_progress'
       }
       
@@ -350,7 +350,7 @@ export async function POST(request: NextRequest) {
         opportunityUpdate.status = 'won'
       } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
         opportunityUpdate.status = 'lost'
-      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up' || outcome === 'failed_credit') {
+      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up') {
         opportunityUpdate.status = 'in_progress' // Active opportunities being worked
       }
       // 'not_home' and 'rescheduled' keep status as 'open'
@@ -388,7 +388,7 @@ export async function POST(request: NextRequest) {
       sale: 'Sale!',
       said_no: 'Said No',
       not_home: 'Not Home',
-      failed_credit: 'Failed Credit',
+      needs_repair: 'Needs Repair',
       rescheduled: 'Rescheduled',
       no_problems_found: 'No Problems Found',
       moving_to_close: 'Moving to Close',

@@ -68,9 +68,9 @@ const outcomeOptions: { id: InspectionOutcome; label: string; description: strin
     icon: '○'
   },
   { 
-    id: 'failed_credit', 
-    label: 'Failed Credit', 
-    description: 'Customer did not qualify for financing',
+    id: 'needs_repair', 
+    label: 'Needs Repair', 
+    description: 'Roof needs repair, not replacement',
     color: 'bg-orange-500',
     icon: '$'
   },

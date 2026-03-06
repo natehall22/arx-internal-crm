@@ -325,14 +325,14 @@ export default async function OpportunityDetailPage({
                     opportunity.inspection_outcome === 'sale' ? 'bg-green-100 text-green-700' :
                     opportunity.inspection_outcome === 'said_no' ? 'bg-red-100 text-red-700' :
                     opportunity.inspection_outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
-                    opportunity.inspection_outcome === 'failed_credit' ? 'bg-orange-100 text-orange-700' :
+                    opportunity.inspection_outcome === 'needs_repair' ? 'bg-orange-100 text-orange-700' :
                     opportunity.inspection_outcome === 'rescheduled' ? 'bg-blue-100 text-blue-700' :
                     'bg-gray-100 text-gray-700'
                   }`}>
                     {opportunity.inspection_outcome === 'sale' ? '✓ Sale' :
                      opportunity.inspection_outcome === 'said_no' ? 'Said No' :
                      opportunity.inspection_outcome === 'not_home' ? 'Not Home' :
-                     opportunity.inspection_outcome === 'failed_credit' ? 'Failed Credit' :
+                     opportunity.inspection_outcome === 'needs_repair' ? 'Needs Repair' :
                      opportunity.inspection_outcome === 'rescheduled' ? 'Rescheduled' :
                      opportunity.inspection_outcome}
                   </span>
@@ -358,7 +358,7 @@ export default async function OpportunityDetailPage({
                         update.outcome === 'sale' ? 'bg-green-100 text-green-700' :
                         update.outcome === 'said_no' ? 'bg-red-100 text-red-700' :
                         update.outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
-                        update.outcome === 'failed_credit' ? 'bg-orange-100 text-orange-700' :
+                        update.outcome === 'needs_repair' ? 'bg-orange-100 text-orange-700' :
                         'bg-gray-100 text-gray-700'
                       }`}>
                         {update.outcome}

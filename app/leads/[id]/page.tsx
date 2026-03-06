@@ -691,7 +691,7 @@ export default async function LeadDetailPage({
                       inspectionUpdates[0].outcome === 'insurance_follow_up' ? 'bg-cyan-100 text-cyan-700' :
                       inspectionUpdates[0].outcome === 'said_no' ? 'bg-red-100 text-red-700' :
                       inspectionUpdates[0].outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
-                      inspectionUpdates[0].outcome === 'failed_credit' ? 'bg-orange-100 text-orange-700' :
+                      inspectionUpdates[0].outcome === 'needs_repair' ? 'bg-orange-100 text-orange-700' :
                       inspectionUpdates[0].outcome === 'rescheduled' ? 'bg-blue-100 text-blue-700' :
                       inspectionUpdates[0].outcome === 'no_problems_found' ? 'bg-gray-100 text-gray-700' :
                       'bg-gray-100 text-gray-700'
@@ -701,7 +701,7 @@ export default async function LeadDetailPage({
                        inspectionUpdates[0].outcome === 'insurance_follow_up' ? 'Insurance Follow Up' :
                        inspectionUpdates[0].outcome === 'said_no' ? 'Said No' :
                        inspectionUpdates[0].outcome === 'not_home' ? 'Not Home' :
-                       inspectionUpdates[0].outcome === 'failed_credit' ? 'Failed Credit' :
+                       inspectionUpdates[0].outcome === 'needs_repair' ? 'Needs Repair' :
                        inspectionUpdates[0].outcome === 'rescheduled' ? 'Rescheduled' :
                        inspectionUpdates[0].outcome === 'no_problems_found' ? 'No Problems Found' :
                        inspectionUpdates[0].outcome?.replace('_', ' ')}

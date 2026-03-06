@@ -27,7 +27,7 @@ const inspectionOutcomeLabels: Record<string, { label: string; color: string }> 
   insurance_follow_up: { label: 'Insurance Follow Up', color: 'bg-cyan-100 text-cyan-800' },
   not_home: { label: 'Not Home', color: 'bg-yellow-100 text-yellow-800' },
   said_no: { label: 'Said No', color: 'bg-red-100 text-red-800' },
-  failed_credit: { label: 'Failed Credit', color: 'bg-orange-100 text-orange-800' },
+  needs_repair: { label: 'Needs Repair', color: 'bg-orange-100 text-orange-800' },
   rescheduled: { label: 'Rescheduled', color: 'bg-purple-100 text-purple-800' },
   no_problems_found: { label: 'No Problems Found', color: 'bg-gray-100 text-gray-800' },
 }
@@ -163,7 +163,7 @@ export default function OpportunitiesPage() {
                 <option value="insurance_follow_up">Insurance Follow Up</option>
                 <option value="not_home">Not Home</option>
                 <option value="said_no">Said No</option>
-                <option value="failed_credit">Failed Credit</option>
+                <option value="needs_repair">Needs Repair</option>
                 <option value="rescheduled">Rescheduled</option>
                 <option value="no_problems_found">No Problems Found</option>
               </select>

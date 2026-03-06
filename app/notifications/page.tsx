@@ -55,7 +55,7 @@ export default function NotificationsPage() {
         not_home: { bg: 'bg-red-100', text: 'text-red-600' },
         rescheduled: { bg: 'bg-amber-100', text: 'text-amber-600' },
         no_problems_found: { bg: 'bg-blue-100', text: 'text-blue-600' },
-        failed_credit: { bg: 'bg-red-100', text: 'text-red-600' },
+        needs_repair: { bg: 'bg-orange-100', text: 'text-orange-600' },
       }
       const colors = iconColors[outcome || ''] || { bg: 'bg-blue-100', text: 'text-blue-600' }
       
