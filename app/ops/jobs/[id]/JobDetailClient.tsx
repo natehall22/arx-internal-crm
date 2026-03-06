@@ -12,6 +12,7 @@ import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
+import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 
@@ -694,6 +695,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               orgId={job.org_id}
               showJobPacketButton={true}
             />
+
+            {/* Materials / Product Orders */}
+            <JobMaterialsCard jobId={job.id} userRole={userRole} />
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
