@@ -8,7 +8,12 @@ import { useNotifications } from '@/hooks/useRealtimeUpdates'
 export default function NotificationBell() {
   const { notifications, unreadCount, refresh } = useNotifications()
   const [isOpen, setIsOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -158,8 +163,8 @@ export default function NotificationBell() {
                             )}
                           </div>
                         )}
-                        <p className="text-xs text-gray-400 mt-1">
-                          {formatTime(notification.created_at)}
+                        <p className="text-xs text-gray-400 mt-1" suppressHydrationWarning>
+                          {mounted ? formatTime(notification.created_at) : ''}
                         </p>
                       </div>
                       {!notification.read_at && (

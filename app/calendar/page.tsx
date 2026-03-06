@@ -109,12 +109,19 @@ export default function CalendarPage() {
     let query = supabase
       .from('scheduled_appointments')
       .select('*')
+      .eq('org_id', profile?.org_id)
       .gte('scheduled_for', startDate.toISOString())
       .lte('scheduled_for', endDate.toISOString())
       .order('scheduled_for', { ascending: true })
 
+    // For non-admin roles, default to showing only their appointments
+    const isAdminOrManager = ['admin', 'regional_manager', 'operations', 'manager', 'owner', 'sales_manager'].includes(profile?.role || '')
+    
     if (selectedUserId !== 'all') {
       query = query.eq('closer_user_id', selectedUserId)
+    } else if (!isAdminOrManager) {
+      // Non-admins see only their own appointments by default
+      query = query.eq('closer_user_id', user.id)
     }
 
     const { data: appointmentsData, error: appointmentsError } = await query

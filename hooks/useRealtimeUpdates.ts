@@ -73,56 +73,62 @@ class RealtimeManager {
 
     this.disconnect()
 
-    try {
-      this.eventSource = new EventSource('/api/notifications/stream')
+    // Delay initial connection slightly to ensure auth state is ready
+    // This prevents "Failed to fetch" errors on page load
+    setTimeout(() => {
+      if (this.listeners.size === 0) return // Don't connect if no listeners
+      
+      try {
+        this.eventSource = new EventSource('/api/notifications/stream')
 
-      this.eventSource.onopen = () => {
-        this.reconnectAttempts = 0
-        this.updateState({ connected: true })
-      }
-
-      this.eventSource.addEventListener('notifications', (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          this.updateState({
-            notifications: data.notifications || [],
-            unreadCount: data.unread_count || 0,
-          })
-        } catch (e) {
-          console.error('Failed to parse notifications event:', e)
+        this.eventSource.onopen = () => {
+          this.reconnectAttempts = 0
+          this.updateState({ connected: true })
         }
-      })
 
-      this.eventSource.addEventListener('appointment_prompts', (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          this.updateState({
-            appointmentPrompts: data.prompts || [],
-          })
-        } catch (e) {
-          console.error('Failed to parse appointment_prompts event:', e)
+        this.eventSource.addEventListener('notifications', (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            this.updateState({
+              notifications: data.notifications || [],
+              unreadCount: data.unread_count || 0,
+            })
+          } catch (e) {
+            console.error('Failed to parse notifications event:', e)
+          }
+        })
+
+        this.eventSource.addEventListener('appointment_prompts', (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            this.updateState({
+              appointmentPrompts: data.prompts || [],
+            })
+          } catch (e) {
+            console.error('Failed to parse appointment_prompts event:', e)
+          }
+        })
+
+        this.eventSource.addEventListener('inspection_results', (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            this.updateState({
+              inspectionResults: data.results || [],
+            })
+          } catch (e) {
+            console.error('Failed to parse inspection_results event:', e)
+          }
+        })
+
+        this.eventSource.onerror = () => {
+          this.updateState({ connected: false })
+          this.scheduleReconnect()
         }
-      })
-
-      this.eventSource.addEventListener('inspection_results', (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          this.updateState({
-            inspectionResults: data.results || [],
-          })
-        } catch (e) {
-          console.error('Failed to parse inspection_results event:', e)
-        }
-      })
-
-      this.eventSource.onerror = () => {
-        this.updateState({ connected: false })
+      } catch (error) {
+        console.error('Failed to create EventSource:', error)
         this.scheduleReconnect()
       }
-    } catch (error) {
-      console.error('Failed to create EventSource:', error)
-      this.scheduleReconnect()
-    }
+    }, 100)
   }
 
   private scheduleReconnect() {

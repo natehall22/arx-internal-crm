@@ -106,6 +106,7 @@ export default function DashboardClient({
   const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
   const [showCompPlanModal, setShowCompPlanModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
+  const [mounted, setMounted] = useState(false)
   // Calculator inputs - dynamic based on plan type
   const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
   const [calcJobsClosed, setCalcJobsClosed] = useState(4)
@@ -115,6 +116,7 @@ export default function DashboardClient({
   const [calcTeamAvgPrice, setCalcTeamAvgPrice] = useState(13500)
 
   useEffect(() => {
+    setMounted(true)
     loadDashboardReports()
     loadWeeklyPay()
     loadCompPlanDetails()
@@ -763,38 +765,49 @@ export default function DashboardClient({
                 <p className="text-gray-500 text-sm py-4">No upcoming appointments</p>
               ) : (
                 <div className="space-y-2 sm:space-y-3">
-                  {upcomingAppointments.map((apt) => (
-                    <div
-                      key={apt.id}
-                      className="flex items-center gap-3 sm:gap-4 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                    >
-                      <div className="w-12 sm:w-14 text-center flex-shrink-0">
-                        <p className="text-xs text-gray-500">{formatDate(apt.scheduled_for)}</p>
-                        <p className="text-base sm:text-lg font-bold text-gray-900">{formatTime(apt.scheduled_for)}</p>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
-                          {apt.leads?.homeowner_name || 'Unknown'}
-                        </p>
-                        <p className="text-xs sm:text-sm text-gray-500 truncate">
-                          {apt.leads?.address_text || apt.address_text || 'No address'}
-                        </p>
-                      </div>
+                  {upcomingAppointments.map((apt) => {
+                    const customerName = apt.leads?.homeowner_name?.trim()
+                    const address = apt.leads?.address_text || apt.address_text || ''
+                    const linkHref = apt.opportunity_id 
+                      ? `/opportunities/${apt.opportunity_id}` 
+                      : apt.lead_id 
+                        ? `/leads/${apt.lead_id}`
+                        : '/appointments'
+                    
+                    return (
                       <Link
-                        href={apt.opportunity_id 
-                          ? `/opportunities/${apt.opportunity_id}` 
-                          : apt.lead_id 
-                            ? `/leads/${apt.lead_id}`
-                            : '/appointments'
-                        }
-                        className="text-indigo-600 hover:text-indigo-700 flex-shrink-0"
+                        key={apt.id}
+                        href={linkHref}
+                        className="flex items-center gap-3 sm:gap-4 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                        <div className="w-12 sm:w-14 text-center flex-shrink-0">
+                          <p className="text-xs text-gray-500" suppressHydrationWarning>{mounted ? formatDate(apt.scheduled_for) : ''}</p>
+                          <p className="text-base sm:text-lg font-bold text-gray-900" suppressHydrationWarning>{mounted ? formatTime(apt.scheduled_for) : ''}</p>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          {customerName ? (
+                            <>
+                              <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
+                                {customerName}
+                              </p>
+                              <p className="text-xs sm:text-sm text-gray-500 truncate">
+                                {address || 'No address'}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="font-medium text-gray-900 truncate text-sm sm:text-base">
+                              {address || 'No address'}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-indigo-600 flex-shrink-0">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
                       </Link>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -953,8 +966,8 @@ export default function DashboardClient({
                           <span className="text-gray-500">{activity.type.replace('_', ' ')}</span>
                         </p>
                         <p className="text-xs text-gray-500 truncate">{activity.body}</p>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {new Date(activity.created_at).toLocaleDateString()}
+                        <p className="text-xs text-gray-400 mt-1" suppressHydrationWarning>
+                          {mounted ? new Date(activity.created_at).toLocaleDateString() : ''}
                         </p>
                       </div>
                     </div>

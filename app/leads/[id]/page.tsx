@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache'
 import LeadAIHelper from '@/components/LeadAIHelper'
 import LeadReferralInfo from '@/components/LeadReferralInfo'
 import DeleteLeadButton from '@/components/DeleteLeadButton'
+import LocationMap from '@/components/LocationMap'
 import { 
   createCalendarEvent, 
   deleteCalendarEvent, 
@@ -546,11 +547,11 @@ export default async function LeadDetailPage({
           {lead.lat && lead.lng && (
             <div className="mt-4 pt-4 border-t border-gray-200">
               <h3 className="text-sm font-medium text-gray-500 mb-2">Location</h3>
-              <div className="h-48 bg-gray-200 rounded flex items-center justify-center">
-                <p className="text-gray-500 text-sm">
-                  Coordinates: {lead.lat}, {lead.lng}
-                </p>
-              </div>
+              <LocationMap 
+                lat={lead.lat} 
+                lng={lead.lng} 
+                address={lead.address_text}
+              />
             </div>
           )}
         </div>
