@@ -7,13 +7,31 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import DashboardClient from './DashboardClient'
+import OpsDashboard from '@/components/dashboard/OpsDashboard'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
   const supabase = createClient()
 
-  // Redirect ops-only users to ops dashboard
+  // Check user's dashboard_view preference
+  // If set to 'ops', render the Ops Dashboard
+  if (profile.dashboard_view === 'ops') {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Nav />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+          <div className="mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Operations Dashboard</h1>
+            <p className="text-gray-600 mt-1">Overview of jobs, materials, and work orders</p>
+          </div>
+          <OpsDashboard profile={profile} />
+        </div>
+      </div>
+    )
+  }
+
+  // Legacy redirect for operations role (fallback)
   if (profile.role === 'operations') {
     redirect('/ops/dashboard')
   }

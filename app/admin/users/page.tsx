@@ -83,6 +83,7 @@ export default function UsersPage() {
   const [formCanvassVisibility, setFormCanvassVisibility] = useState<'own' | 'team' | 'region' | 'org'>('org')
   const [formShowInReports, setFormShowInReports] = useState(true)
   const [formCanReceiveAppointments, setFormCanReceiveAppointments] = useState<boolean | null>(null)
+  const [formDashboardView, setFormDashboardView] = useState<'sales' | 'ops'>('sales')
   const [formEmail, setFormEmail] = useState('')
   const [formPhone, setFormPhone] = useState('')
   const [formFullName, setFormFullName] = useState('')
@@ -315,6 +316,7 @@ export default function UsersPage() {
     setFormCanvassVisibility((user as any).canvass_pin_visibility || 'org')
     setFormShowInReports((user as any).show_in_reports !== false) // Default true if not set
     setFormCanReceiveAppointments((user as any).can_receive_appointments ?? null)
+    setFormDashboardView((user as any).dashboard_view || 'sales')
     setFormEmail(user.email || '')
     setFormPhone((user as any).phone || '')
     setFormFullName(user.full_name || '')
@@ -345,6 +347,7 @@ export default function UsersPage() {
           canvass_pin_visibility: formCanvassVisibility,
           show_in_reports: formShowInReports,
           can_receive_appointments: formCanReceiveAppointments,
+          dashboard_view: formDashboardView,
         }),
       })
 
@@ -797,6 +800,7 @@ export default function UsersPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reports To</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Region</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dashboard</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
@@ -836,6 +840,15 @@ export default function UsersPage() {
                       </td>
                       <td className="px-6 py-4 text-gray-600">
                         {user.region?.name || '-'}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          (user as any).dashboard_view === 'ops'
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {(user as any).dashboard_view === 'ops' ? 'Ops' : 'Sales'}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -1611,6 +1624,46 @@ export default function UsersPage() {
                         </div>
                       </label>
                     </div>
+                  </div>
+                </div>
+
+                {/* Dashboard View */}
+                <div className="border-t pt-4 mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Dashboard View
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Choose which dashboard this user sees when they log in.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormDashboardView('sales')}
+                      className={`p-3 rounded-lg border text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                        formDashboardView === 'sales'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                      Sales Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormDashboardView('ops')}
+                      className={`p-3 rounded-lg border text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                        formDashboardView === 'ops'
+                          ? 'border-purple-500 bg-purple-50 text-purple-700'
+                          : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                      Ops Dashboard
+                    </button>
                   </div>
                 </div>
 

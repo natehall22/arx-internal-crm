@@ -96,6 +96,10 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
     const nextIndex = (currentIndex + 1) % statusOrder.length
     const nextStatus = statusOrder[nextIndex]
 
+    // Optimistic update
+    setOrders(prev => prev.map(o => 
+      o.id === order.id ? { ...o, status: nextStatus } : o
+    ))
     setUpdatingId(order.id)
 
     try {
@@ -105,13 +109,22 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
         body: JSON.stringify({ status: nextStatus }),
       })
 
-      if (response.ok) {
-        loadOrders()
-      } else {
+      if (!response.ok) {
+        // Revert on error
+        setOrders(prev => prev.map(o => 
+          o.id === order.id ? { ...o, status: order.status } : o
+        ))
         const error = await response.json()
         alert(error.error || 'Failed to update status')
+      } else {
+        // Recalculate total
+        loadOrders()
       }
     } catch (error) {
+      // Revert on error
+      setOrders(prev => prev.map(o => 
+        o.id === order.id ? { ...o, status: order.status } : o
+      ))
       console.error('Error updating status:', error)
       alert('Failed to update status')
     } finally {
@@ -251,7 +264,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
                     value={newOrder.description}
                     onChange={(e) => setNewOrder({ ...newOrder, description: e.target.value })}
                     className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
-                    placeholder="e.g., 30 squares GAF Timberline"
+                    placeholder="e.g., 40 squares architectural shingles"
                     autoFocus
                   />
                 </div>

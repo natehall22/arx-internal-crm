@@ -52,6 +52,8 @@ export interface Org {
   updated_at: string
 }
 
+export type DashboardViewType = 'sales' | 'ops'
+
 export interface User {
   id: string
   org_id: string
@@ -64,6 +66,7 @@ export interface User {
   phone: string | null
   email: string | null
   active: boolean
+  dashboard_view: DashboardViewType
   created_at: string
   updated_at: string
 }

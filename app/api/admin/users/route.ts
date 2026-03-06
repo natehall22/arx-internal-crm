@@ -314,7 +314,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { id, email, phone, full_name, role, custom_role_id, team_id, region_id, manager_user_id, active, canvass_pin_visibility, show_in_reports, can_receive_appointments } = body
+  const { id, email, phone, full_name, role, custom_role_id, team_id, region_id, manager_user_id, active, canvass_pin_visibility, show_in_reports, can_receive_appointments, dashboard_view } = body
 
   if (!id) {
     return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
@@ -375,6 +375,7 @@ export async function PUT(request: NextRequest) {
   if (canvass_pin_visibility !== undefined) updateData.canvass_pin_visibility = canvass_pin_visibility
   if (show_in_reports !== undefined) updateData.show_in_reports = show_in_reports
   if (can_receive_appointments !== undefined) updateData.can_receive_appointments = can_receive_appointments
+  if (dashboard_view !== undefined) updateData.dashboard_view = dashboard_view
 
   const { error: updateError } = await adminClient
     .from('users')
