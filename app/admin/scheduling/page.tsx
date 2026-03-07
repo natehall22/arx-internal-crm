@@ -236,7 +236,10 @@ export default function SchedulingPage() {
                   </div>
                   
                   <p className="text-sm text-gray-500">
-                    Your calendar is connected. The system can check your availability and create appointments.
+                    {isTokenExpired 
+                      ? 'Your calendar connection has expired. Click "Reconnect Calendar" to restore scheduling features.'
+                      : 'Your calendar is connected. The system can check your availability and create appointments.'
+                    }
                   </p>
 
                   <div className="flex gap-3">

@@ -207,6 +207,24 @@ export default function AdminSettingsPage() {
   const [userRole, setUserRole] = useState<string>('')
   const logoInputRef = useRef<HTMLInputElement>(null)
   
+  // Notification Templates state
+  interface NotificationTemplate {
+    id: string
+    name: string
+    type: string
+    active: boolean
+    subject?: string
+    body?: string
+  }
+  const [notificationTemplates, setNotificationTemplates] = useState<NotificationTemplate[]>([
+    { id: 'appointment_reminder', name: 'Appointment Reminder', type: 'SMS + Email', active: true, subject: 'Reminder: Your appointment is tomorrow', body: 'Hi {customer_name}, this is a reminder about your appointment scheduled for {appointment_date} at {appointment_time}.' },
+    { id: 'inspection_scheduled', name: 'Inspection Scheduled', type: 'Email', active: true, subject: 'Your inspection has been scheduled', body: 'Hi {customer_name}, your roof inspection has been scheduled for {appointment_date} at {appointment_time}.' },
+    { id: 'contract_ready', name: 'Contract Ready', type: 'Email', active: true, subject: 'Your contract is ready for signature', body: 'Hi {customer_name}, your contract is ready. Please click the link below to review and sign.' },
+    { id: 'project_complete', name: 'Project Complete', type: 'SMS + Email', active: false, subject: 'Your project is complete!', body: 'Hi {customer_name}, we are happy to inform you that your project has been completed.' },
+    { id: 'payment_received', name: 'Payment Received', type: 'Email', active: true, subject: 'Payment received - Thank you!', body: 'Hi {customer_name}, we have received your payment of {payment_amount}. Thank you for your business!' },
+  ])
+  const [editingTemplate, setEditingTemplate] = useState<NotificationTemplate | null>(null)
+  
   // External integrations state - organized by category with clear use cases
   interface IntegrationConfig {
     account?: string
@@ -3449,14 +3467,8 @@ export default function AdminSettingsPage() {
               <div className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
                 <p className="text-gray-500">Configure email and SMS notification templates.</p>
                 
-                {[
-                  { name: 'Appointment Reminder', type: 'SMS + Email', active: true },
-                  { name: 'Inspection Scheduled', type: 'Email', active: true },
-                  { name: 'Contract Ready', type: 'Email', active: true },
-                  { name: 'Project Complete', type: 'SMS + Email', active: false },
-                  { name: 'Payment Received', type: 'Email', active: true },
-                ].map((template, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                {notificationTemplates.map((template) => (
+                  <div key={template.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                     <div>
                       <h3 className="font-medium text-gray-900">{template.name}</h3>
                       <p className="text-sm text-gray-500">{template.type}</p>
@@ -3465,11 +3477,120 @@ export default function AdminSettingsPage() {
                       <span className={`px-2 py-1 text-xs rounded-full ${template.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                         {template.active ? 'Active' : 'Inactive'}
                       </span>
-                      <button className="text-indigo-600 hover:text-indigo-800 text-sm">Edit</button>
+                      <button 
+                        onClick={() => setEditingTemplate(template)}
+                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                      >
+                        Edit
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
+              
+              {/* Edit Template Modal */}
+              {editingTemplate && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                    <div className="p-6 border-b">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-gray-900">Edit {editingTemplate.name}</h3>
+                        <button 
+                          onClick={() => setEditingTemplate(null)}
+                          className="p-2 hover:bg-gray-100 rounded-lg"
+                        >
+                          <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="p-6 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Template Name</label>
+                        <input
+                          type="text"
+                          value={editingTemplate.name}
+                          onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Notification Type</label>
+                        <select
+                          value={editingTemplate.type}
+                          onChange={(e) => setEditingTemplate({ ...editingTemplate, type: e.target.value })}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                        >
+                          <option value="Email">Email</option>
+                          <option value="SMS">SMS</option>
+                          <option value="SMS + Email">SMS + Email</option>
+                        </select>
+                      </div>
+                      
+                      {(editingTemplate.type === 'Email' || editingTemplate.type === 'SMS + Email') && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Email Subject</label>
+                          <input
+                            type="text"
+                            value={editingTemplate.subject || ''}
+                            onChange={(e) => setEditingTemplate({ ...editingTemplate, subject: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                            placeholder="Email subject line"
+                          />
+                        </div>
+                      )}
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Message Body</label>
+                        <textarea
+                          value={editingTemplate.body || ''}
+                          onChange={(e) => setEditingTemplate({ ...editingTemplate, body: e.target.value })}
+                          rows={4}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                          placeholder="Message content..."
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Available variables: {'{customer_name}'}, {'{appointment_date}'}, {'{appointment_time}'}, {'{payment_amount}'}
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="template-active"
+                          checked={editingTemplate.active}
+                          onChange={(e) => setEditingTemplate({ ...editingTemplate, active: e.target.checked })}
+                          className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                        />
+                        <label htmlFor="template-active" className="text-sm text-gray-700">Active</label>
+                      </div>
+                    </div>
+                    
+                    <div className="p-6 border-t bg-gray-50 flex justify-end gap-3">
+                      <button
+                        onClick={() => setEditingTemplate(null)}
+                        className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg font-medium"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          setNotificationTemplates(templates => 
+                            templates.map(t => t.id === editingTemplate.id ? editingTemplate : t)
+                          )
+                          setEditingTemplate(null)
+                        }}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+                      >
+                        Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
