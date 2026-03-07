@@ -489,7 +489,7 @@ export default function Home() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Email</p>
-                    <p className="font-medium text-gray-900">hello@arxcrm.com</p>
+                    <p className="font-medium text-gray-900">info@arxroofing.com</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
