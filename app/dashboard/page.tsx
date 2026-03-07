@@ -103,10 +103,17 @@ export default async function DashboardPage() {
     teamMemberIds = []
   }
 
+  // Calculate week start date using shared utility
+  // Uses America/New_York timezone with Sunday as week start
+  const { start: weekStart, end: weekEnd } = getDateRangeForTimeFrame('week', 'America/New_York')
+
+  // Fetch leads created this week (filter in query to avoid Supabase row limits)
   let leadsQuery = supabase
     .from('leads')
     .select('id, status, source, canvass_disposition, created_at, owner_user_id')
     .eq('org_id', profile.org_id)
+    .gte('created_at', weekStart.toISOString())
+    .lt('created_at', weekEnd.toISOString())
   
   if (!isAdmin) {
     if (teamMemberIds.length > 1) {
@@ -117,10 +124,13 @@ export default async function DashboardPage() {
   }
   const { data: allLeads, error: leadsError } = await leadsQuery
 
+  // Fetch opportunities created this week for accurate attribution
   let oppsQuery = supabase
     .from('opportunities')
     .select('lead_id, status, inspection_outcome, created_at, owner_user_id, setter_user_id')
     .eq('org_id', profile.org_id)
+    .gte('created_at', weekStart.toISOString())
+    .lt('created_at', weekEnd.toISOString())
   
   // For opportunities, we need all org opportunities to properly attribute:
   // - inspections_set to setter_user_id
@@ -128,12 +138,14 @@ export default async function DashboardPage() {
   // So we don't filter by owner_user_id here for non-admins
   const { data: opportunities } = await oppsQuery
 
-  // Fetch scheduled_appointments for accurate inspection attribution
+  // Fetch scheduled_appointments created this week for accurate inspection attribution
   // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
   const { data: allAppointments } = await supabase
     .from('scheduled_appointments')
     .select('id, canvasser_user_id, lead_id, created_at')
     .eq('org_id', profile.org_id)
+    .gte('created_at', weekStart.toISOString())
+    .lt('created_at', weekEnd.toISOString())
 
   let projectsQuery = supabase
     .from('projects')
@@ -148,6 +160,71 @@ export default async function DashboardPage() {
     }
   }
   const { data: projects } = await projectsQuery
+
+  // Fetch all-time counts for Account Overview section
+  // These are separate from the weekly stats used for progress tracking
+  let allTimeLeadsQuery = supabase
+    .from('leads')
+    .select('id, status, source', { count: 'exact', head: true })
+    .eq('org_id', profile.org_id)
+    .neq('source', 'door_to_door') // Exclude raw door knocks from "Total Leads"
+  
+  if (!isAdmin) {
+    if (teamMemberIds.length > 1) {
+      allTimeLeadsQuery = allTimeLeadsQuery.in('owner_user_id', teamMemberIds)
+    } else {
+      allTimeLeadsQuery = allTimeLeadsQuery.eq('owner_user_id', profile.id)
+    }
+  }
+  const { count: totalLeadsCount } = await allTimeLeadsQuery
+
+  // Count new leads (status = 'new')
+  let newLeadsQuery = supabase
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', profile.org_id)
+    .eq('status', 'new')
+    .neq('source', 'door_to_door')
+  
+  if (!isAdmin) {
+    if (teamMemberIds.length > 1) {
+      newLeadsQuery = newLeadsQuery.in('owner_user_id', teamMemberIds)
+    } else {
+      newLeadsQuery = newLeadsQuery.eq('owner_user_id', profile.id)
+    }
+  }
+  const { count: newLeadsCount } = await newLeadsQuery
+
+  // Count all-time opportunities
+  let allTimeOppsQuery = supabase
+    .from('opportunities')
+    .select('id, status', { count: 'exact', head: true })
+    .eq('org_id', profile.org_id)
+  
+  if (!isAdmin) {
+    if (teamMemberIds.length > 1) {
+      allTimeOppsQuery = allTimeOppsQuery.in('owner_user_id', teamMemberIds)
+    } else {
+      allTimeOppsQuery = allTimeOppsQuery.eq('owner_user_id', profile.id)
+    }
+  }
+  const { count: totalOppsCount } = await allTimeOppsQuery
+
+  // Count open opportunities
+  let openOppsQuery = supabase
+    .from('opportunities')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', profile.org_id)
+    .eq('status', 'open')
+  
+  if (!isAdmin) {
+    if (teamMemberIds.length > 1) {
+      openOppsQuery = openOppsQuery.in('owner_user_id', teamMemberIds)
+    } else {
+      openOppsQuery = openOppsQuery.eq('owner_user_id', profile.id)
+    }
+  }
+  const { count: openOppsCount } = await openOppsQuery
 
   const { data: pendingPrompts } = await supabase
     .from('pending_status_prompts')
@@ -188,10 +265,6 @@ export default async function DashboardPage() {
   }
   const { data: recentActivities } = await activityQuery
 
-  // Calculate week start date using shared utility
-  // Uses America/New_York timezone with Sunday as week start
-  const { start: startOfWeek } = getDateRangeForTimeFrame('week', 'America/New_York')
-
   // Fetch team member stats for managers/admins
   let teamMemberStats: any[] = []
   if (isAdmin || isSalesManager || isRegionalManager) {
@@ -224,40 +297,34 @@ export default async function DashboardPage() {
 
     if (members && members.length > 0) {
       // Calculate stats for each member
+      // Data is already filtered by date in queries
       for (const member of members) {
-        const memberLeads = allLeads?.filter(l => l.owner_user_id === member.id) || []
-        
-        // Inspections OWNED by this member (closer gets credit for sales)
-        const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
-        
-        // Count doors knocked - all leads created this week
-        const memberWeekLeads = memberLeads.filter(l => 
-          new Date(l.created_at) >= startOfWeek
-        )
-        const rawDoors = memberWeekLeads.length
+        // Leads owned by this member (already filtered to this week)
+        const memberLeads = (allLeads || []).filter(l => l.owner_user_id === member.id)
+        const rawDoors = memberLeads.length
         
         // Count contacts - only dispositions where they talked to someone
-        const rawContacts = memberWeekLeads.filter(l => 
+        const rawContacts = memberLeads.filter(l => 
           l.canvass_disposition && contactDispositions.includes(l.canvass_disposition)
         ).length
         
         // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
-        const memberWeekAppointments = allAppointments?.filter(a => 
-          a.canvasser_user_id === member.id && new Date(a.created_at) >= startOfWeek
-        ) || []
-        const inspectionsSet = memberWeekAppointments.length
+        const memberAppointments = (allAppointments || []).filter(a => 
+          a.canvasser_user_id === member.id
+        )
+        const inspectionsSet = memberAppointments.length
         
         // Calculate bonus doors/contacts from inspections
         // Bonus = inspections that weren't already counted via a lead owned by this user
-        const inspectionBonusDoors = memberWeekAppointments.filter(a => {
+        const inspectionBonusDoors = memberAppointments.filter(a => {
           if (!a.lead_id) return true
-          const lead = memberWeekLeads.find(l => l.id === a.lead_id)
+          const lead = memberLeads.find(l => l.id === a.lead_id)
           return !lead
         }).length
         
-        const inspectionBonusContacts = memberWeekAppointments.filter(a => {
+        const inspectionBonusContacts = memberAppointments.filter(a => {
           if (!a.lead_id) return true
-          const lead = memberWeekLeads.find(l => l.id === a.lead_id)
+          const lead = memberLeads.find(l => l.id === a.lead_id)
           if (!lead) return true
           return !contactDispositions.includes(lead.canvass_disposition || '')
         }).length
@@ -265,16 +332,15 @@ export default async function DashboardPage() {
         const finalDoors = rawDoors + inspectionBonusDoors
         const finalContacts = rawContacts + inspectionBonusContacts
         
+        // Opportunities owned by this member (closer gets credit for sales)
+        const memberOwnedOpps = (opportunities || []).filter(o => o.owner_user_id === member.id)
+        
         // Sales this week - credit goes to CLOSER (owner)
-        const memberWeekSales = memberOwnedOpps.filter(o => 
-          o.inspection_outcome === 'sale' && new Date(o.created_at) >= startOfWeek
-        )
+        const memberSales = memberOwnedOpps.filter(o => o.inspection_outcome === 'sale')
         
         // Close rate based on inspections run this week by this closer
-        const weekInspectionsRun = memberOwnedOpps.filter(o => 
-          o.inspection_outcome && new Date(o.created_at) >= startOfWeek
-        ).length
-        const closeRate = weekInspectionsRun > 0 ? (memberWeekSales.length / weekInspectionsRun * 100) : 0
+        const inspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
+        const closeRate = inspectionsRun > 0 ? (memberSales.length / inspectionsRun * 100) : 0
         
         teamMemberStats.push({
           id: member.id,
@@ -283,7 +349,7 @@ export default async function DashboardPage() {
           doorsKnocked: finalDoors,
           contacts: finalContacts,
           inspectionsSet, // Credit to setter via scheduled_appointments.canvasser_user_id
-          sales: memberWeekSales.length, // Credit to closer
+          sales: memberSales.length, // Credit to closer
           closeRate: closeRate.toFixed(0),
         })
       }
@@ -297,21 +363,23 @@ export default async function DashboardPage() {
     }
   }
 
-  const thisWeekLeads = allLeads?.filter(l => new Date(l.created_at) >= startOfWeek) || []
+  // Data is already filtered by date in queries, so use directly
+  const thisWeekLeads = allLeads || []
   const rawDoorsKnocked = thisWeekLeads.length
+  const contactDisps = ['go_back', 'hot_lead', 'not_interested', 'renter']
   const rawContacts = thisWeekLeads.filter(l => 
-    ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
+    contactDisps.includes(l.canvass_disposition || '')
   ).length
   
   // Inspections set - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
-  const thisWeekAppointments = allAppointments?.filter(a => 
-    new Date(a.created_at) >= startOfWeek &&
-    (isAdmin || a.canvasser_user_id === profile.id || teamMemberIds.includes(a.canvasser_user_id || ''))
-  ) || []
+  // Filter by user role for non-admins
+  const thisWeekAppointments = (allAppointments || []).filter(a => 
+    isAdmin || a.canvasser_user_id === profile.id || teamMemberIds.includes(a.canvasser_user_id || '')
+  )
   const inspectionsSet = thisWeekAppointments.length
   
   // Calculate bonus doors/contacts from inspections
-  const contactDisps = ['go_back', 'hot_lead', 'not_interested', 'renter']
+  // Bonus = inspections that weren't already counted via a lead
   const inspectionBonusDoors = thisWeekAppointments.filter(a => {
     if (!a.lead_id) return true
     const lead = thisWeekLeads.find(l => l.id === a.lead_id)
@@ -328,16 +396,15 @@ export default async function DashboardPage() {
   const contacts = rawContacts + inspectionBonusContacts
   
   // Sales - credit to closer (filter by owner_user_id for current user)
-  const salesThisWeek = opportunities?.filter(o => 
-    o.inspection_outcome === 'sale' && 
-    new Date(o.created_at) >= startOfWeek &&
+  const salesThisWeek = (opportunities || []).filter(o => 
+    o.inspection_outcome === 'sale' &&
     (isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || ''))
-  ).length || 0
+  ).length
 
   // Close rate based on inspections run by closer (owner)
-  const userOwnedOpps = opportunities?.filter(o => 
+  const userOwnedOpps = (opportunities || []).filter(o => 
     isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || '')
-  ) || []
+  )
   const totalInspectionsRun = userOwnedOpps.filter(o => o.inspection_outcome).length
   const totalSales = userOwnedOpps.filter(o => o.inspection_outcome === 'sale').length
   const closeRate = totalInspectionsRun > 0 ? (totalSales / totalInspectionsRun * 100).toFixed(1) : '0'
@@ -350,29 +417,15 @@ export default async function DashboardPage() {
     sales: { current: salesThisWeek, goal: goals.sales },
   }
 
-  // Filter leads for "Total Leads" count:
-  // - Include all non-door_to_door leads (web, referral, call_in, etc.)
-  // - Include door_to_door leads ONLY if they have an opportunity (converted)
-  const leadIdsWithOpportunities = new Set(
-    opportunities?.map(o => o.lead_id).filter(Boolean) || []
-  )
-  
-  const legitimateLeads = (allLeads || []).filter(lead => {
-    // If not door_to_door, always include
-    if (lead.source !== 'door_to_door') {
-      return true
-    }
-    // For door_to_door leads, only include if they have an opportunity
-    return leadIdsWithOpportunities.has(lead.id)
-  })
-
   const stats = {
-    totalLeads: legitimateLeads.length,
-    newLeads: legitimateLeads.filter(l => l.status === 'new').length,
-    totalOpportunities: opportunities?.length || 0,
-    openOpportunities: opportunities?.filter(o => o.status === 'open').length || 0,
+    // All-time counts for Account Overview
+    totalLeads: totalLeadsCount || 0,
+    newLeads: newLeadsCount || 0,
+    totalOpportunities: totalOppsCount || 0,
+    openOpportunities: openOppsCount || 0,
     totalProjects: projects?.length || 0,
     activeProjects: projects?.filter(p => ['open', 'in_progress'].includes(p.status)).length || 0,
+    // Weekly stats
     closeRate: parseFloat(closeRate),
     doorsKnockedThisWeek: doorsKnocked,
     contactsThisWeek: contacts,

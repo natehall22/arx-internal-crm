@@ -12,7 +12,7 @@ export async function POST() {
 
     const supabase = createServiceClient()
 
-    // Get all pending prompts
+    // Get all PAST DUE pending prompts (prompt_at is in the past)
     const { data: prompts, error: promptsError } = await supabase
       .from('pending_status_prompts')
       .select(`
@@ -26,6 +26,7 @@ export async function POST() {
       .eq('org_id', profile.org_id)
       .eq('completed', false)
       .eq('dismissed', false)
+      .lte('prompt_at', new Date().toISOString())
 
     if (promptsError) {
       console.error('Error fetching prompts:', promptsError)
