@@ -27,7 +27,7 @@ export default function Home() {
               Sign In
             </Link>
             <Link
-              href="/login"
+              href="/trial"
               className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm"
             >
               Start Free Trial
@@ -53,7 +53,7 @@ export default function Home() {
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
-                href="/login"
+                href="/trial"
                 className="w-full sm:w-auto rounded-xl bg-indigo-600 px-8 py-4 text-base font-semibold text-white hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-200"
               >
                 Start Your Free 14-Day Trial
@@ -427,7 +427,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <Link
-                  href={plan.name === 'Enterprise' ? '#contact' : '/login'}
+                  href={plan.name === 'Enterprise' ? '#contact' : '/trial'}
                   className={`mt-8 block w-full rounded-lg py-3 text-center text-sm font-semibold transition-colors ${
                     plan.featured
                       ? 'bg-white text-indigo-600 hover:bg-indigo-50'
@@ -453,7 +453,7 @@ export default function Home() {
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/login"
+              href="/trial"
               className="w-full sm:w-auto rounded-xl bg-indigo-600 px-8 py-4 text-base font-semibold text-white hover:bg-indigo-700 transition-all"
             >
               Start Your Free Trial
