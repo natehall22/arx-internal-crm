@@ -13,7 +13,8 @@ function getSessionFromRequest(req: NextRequest) {
   const singleCookie = req.cookies.get(cookieName)
   if (singleCookie?.value) {
     try {
-      return JSON.parse(singleCookie.value)
+      const decoded = decodeURIComponent(singleCookie.value)
+      return JSON.parse(decoded)
     } catch {
       return null
     }
@@ -30,7 +31,8 @@ function getSessionFromRequest(req: NextRequest) {
   
   if (chunks.length > 0) {
     try {
-      return JSON.parse(chunks.join(''))
+      const decoded = decodeURIComponent(chunks.join(''))
+      return JSON.parse(decoded)
     } catch {
       return null
     }
