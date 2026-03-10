@@ -92,10 +92,10 @@ export default function DashboardClient({
   settings,
   teamMemberStats = [],
 }: DashboardClientProps) {
+  const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
   )
-  const [dismissedPrompts, setDismissedPrompts] = useState<string[]>([])
   const [customReports, setCustomReports] = useState<any[]>([])
   const [reportData, setReportData] = useState<Record<string, any[]>>({})
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('week')
@@ -121,6 +121,11 @@ export default function DashboardClient({
     loadWeeklyPay()
     loadCompPlanDetails()
   }, [])
+
+  useEffect(() => {
+    setPromptQueue(pendingPrompts)
+    setActivePrompt(pendingPrompts.length > 0 ? pendingPrompts[0] : null)
+  }, [pendingPrompts])
 
   useEffect(() => {
     // Always fetch fresh data from API for consistency
@@ -248,11 +253,13 @@ export default function DashboardClient({
       })
 
       if (res.ok) {
-        // Move to next prompt or close
-        const remainingPrompts = pendingPrompts.filter(
-          p => p.id !== activePrompt.id && !dismissedPrompts.includes(p.id)
-        )
-        setActivePrompt(remainingPrompts.length > 0 ? remainingPrompts[0] : null)
+        const completedPromptId = activePrompt?.id
+        const remainingPrompts = promptQueue.filter((p) => p.id !== completedPromptId)
+        setPromptQueue(remainingPrompts)
+        // Briefly show completion state, then advance/dismiss card.
+        setTimeout(() => {
+          setActivePrompt(remainingPrompts.length > 0 ? remainingPrompts[0] : null)
+        }, 700)
       } else {
         // API returned an error - throw to show error in the card
         const errorData = await res.json().catch(() => ({}))
@@ -343,6 +350,7 @@ export default function DashboardClient({
       {/* Status Update Modal */}
       {activePrompt && activePrompt.scheduled_appointments && (
         <InspectionStatusCard
+          key={activePrompt.id}
           appointment={{
             ...activePrompt.scheduled_appointments,
             lead: activePrompt.scheduled_appointments.leads,
@@ -920,7 +928,7 @@ export default function DashboardClient({
           {/* Sidebar */}
           <div className="space-y-4 sm:space-y-6">
             {/* Pending Status Updates */}
-            {pendingPrompts.length > 0 && (
+            {promptQueue.length > 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -929,10 +937,10 @@ export default function DashboardClient({
                   <h3 className="font-semibold text-amber-800">Status Updates Needed</h3>
                 </div>
                 <p className="text-sm text-amber-700 mb-3">
-                  You have {pendingPrompts.length} appointment{pendingPrompts.length > 1 ? 's' : ''} waiting for status updates.
+                  You have {promptQueue.length} appointment{promptQueue.length > 1 ? 's' : ''} waiting for status updates.
                 </p>
                 <button
-                  onClick={() => setActivePrompt(pendingPrompts[0])}
+                  onClick={() => setActivePrompt(promptQueue[0])}
                   className="w-full py-2 bg-amber-600 text-white font-medium rounded-lg hover:bg-amber-700 transition-colors"
                 >
                   Update Now

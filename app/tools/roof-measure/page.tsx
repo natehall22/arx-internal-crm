@@ -1891,10 +1891,6 @@ export default function RoofMeasurePage() {
                 </div>
               )}
               
-              {/* Formula verification note */}
-              <div className="text-xs text-gray-700 text-center">
-                Calculations use industry-standard formulas matching EagleView & GAF QuickMeasure
-              </div>
             </div>
             
             <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-between items-center">

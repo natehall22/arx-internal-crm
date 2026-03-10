@@ -92,6 +92,7 @@ export default function InspectionStatusCard({
   const [notes, setNotes] = useState('')
   const [setterFeedback, setSetterFeedback] = useState('')
   const [saving, setSaving] = useState(false)
+  const [completed, setCompleted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [scheduleFollowUp, setScheduleFollowUp] = useState(false)
   const [followUpDate, setFollowUpDate] = useState('')
@@ -102,6 +103,8 @@ export default function InspectionStatusCard({
   const showFollowUpOption = selectedOption?.needsFollowUp && selectedOutcome !== 'rescheduled'
 
   const handleSubmit = async () => {
+    if (completed) return
+
     if (!selectedOutcome) {
       setError('Please select an outcome')
       return
@@ -128,6 +131,8 @@ export default function InspectionStatusCard({
         scheduleFollowUp: scheduleFollowUp && !!followUpDateTime,
         followUpDate: followUpDateTime,
       })
+
+      setCompleted(true)
     } catch (err) {
       setError('Failed to save status update')
     } finally {
@@ -323,10 +328,16 @@ export default function InspectionStatusCard({
         <div className="px-6 py-4 bg-gray-50 border-t flex-shrink-0 pb-safe">
           <button
             onClick={handleSubmit}
-            disabled={!selectedOutcome || saving}
+            disabled={!selectedOutcome || saving || completed}
             className="w-full py-4 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
           >
-            {saving ? 'Saving...' : selectedOutcome === 'rescheduled' ? 'Continue to Reschedule' : 'Submit Status Update'}
+            {saving
+              ? 'Saving...'
+              : completed
+              ? 'Status Updated ✓'
+              : selectedOutcome === 'rescheduled'
+              ? 'Continue to Reschedule'
+              : 'Submit Status Update'}
           </button>
           <p className="mt-2 text-center text-xs text-gray-500">
             This information will be saved to the customer&apos;s file

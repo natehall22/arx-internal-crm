@@ -5,6 +5,15 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import OpsClient from './OpsClient'
 
+function sanitizeJobForRole(job: any, role: string) {
+  const isAdmin = role === 'admin'
+  if (isAdmin) return job
+
+  // Do not expose direct cost fields to non-admin roles on the job board payload.
+  const { labor_cost, material_cost, ...safeJob } = job
+  return safeJob
+}
+
 export default async function OpsPage() {
   const { profile } = await requireAuth()
   
@@ -66,7 +75,7 @@ export default async function OpsPage() {
       }
     }
 
-    return {
+    const transformed = {
       ...job,
       assigned_crew: Array.isArray(job.assigned_crew) ? job.assigned_crew[0] : job.assigned_crew,
       assigned_sub: Array.isArray(job.assigned_sub) ? job.assigned_sub[0] : job.assigned_sub,
@@ -74,6 +83,8 @@ export default async function OpsPage() {
       salesperson: Array.isArray(job.salesperson) ? job.salesperson[0] : job.salesperson,
       project: rawProject,
     }
+
+    return sanitizeJobForRole(transformed, profile.role)
   })
 
   return (
@@ -82,6 +93,7 @@ export default async function OpsPage() {
       initialCrews={crewsRes.data || []}
       initialSubs={subsRes.data || []}
       orgId={profile.org_id}
+      canViewProfitability={profile.role === 'admin'}
     />
   )
 }

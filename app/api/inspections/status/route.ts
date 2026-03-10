@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import nodemailer from 'nodemailer'
 import type { InspectionOutcome } from '@/lib/types/database'
 
 function getAdminClient() {
@@ -8,6 +9,18 @@ function getAdminClient() {
   
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
+function getMailTransport() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
   })
 }
 
@@ -464,6 +477,61 @@ export async function POST(request: NextRequest) {
         console.error('Failed to create setter notification:', notificationError)
       } else {
         console.log('Setter notification created successfully')
+      }
+
+      // Also email the setter with full inspection results/notes.
+      try {
+        const { data: setterUser } = await supabase
+          .from('users')
+          .select('email, full_name')
+          .eq('id', setterUserId)
+          .single()
+
+        if (setterUser?.email) {
+          const transporter = getMailTransport()
+          const setterName = setterUser.full_name || 'Setter'
+          const submittedAt = new Date().toLocaleString('en-US', {
+            dateStyle: 'full',
+            timeStyle: 'short',
+            timeZone: 'America/New_York',
+          })
+
+          await transporter.sendMail({
+            from: 'info@arxroofing.com',
+            to: setterUser.email,
+            subject: `Inspection update: ${outcomeLabels[outcome]} - ${customerName}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #111827; margin-bottom: 16px;">Inspection Status Update</h2>
+                <p style="color: #374151;">Hi ${setterName},</p>
+                <p style="color: #374151;">A closer has submitted an inspection update for your appointment.</p>
+                <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+                  <tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Customer:</td><td style="padding: 8px 0; color: #111827;">${customerName}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #6B7280;">Address:</td><td style="padding: 8px 0; color: #111827;">${customerAddress || 'N/A'}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #6B7280;">Outcome:</td><td style="padding: 8px 0; color: #111827; font-weight: 600;">${outcomeLabels[outcome]}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #6B7280;">Closer:</td><td style="padding: 8px 0; color: #111827;">${profile.full_name || 'Rep'}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #6B7280;">Submitted:</td><td style="padding: 8px 0; color: #111827;">${submittedAt} ET</td></tr>
+                </table>
+                ${setter_feedback ? `
+                  <div style="margin: 12px 0;">
+                    <p style="color: #374151; font-weight: 600; margin-bottom: 6px;">Feedback for Setter:</p>
+                    <div style="background: #F3F4F6; border-radius: 8px; padding: 12px; color: #111827;">${setter_feedback}</div>
+                  </div>
+                ` : ''}
+                ${notes && notes !== setter_feedback ? `
+                  <div style="margin: 12px 0;">
+                    <p style="color: #374151; font-weight: 600; margin-bottom: 6px;">Internal Notes:</p>
+                    <div style="background: #F9FAFB; border-radius: 8px; padding: 12px; color: #111827;">${notes}</div>
+                  </div>
+                ` : ''}
+                <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated update from ARX CRM.</p>
+              </div>
+            `,
+          })
+        }
+      } catch (emailErr) {
+        // Do not fail status update if email delivery fails.
+        console.error('Failed to send setter inspection email:', emailErr)
       }
       
       // Get setter's manager and notify them

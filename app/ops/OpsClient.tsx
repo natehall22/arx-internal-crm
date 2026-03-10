@@ -17,6 +17,8 @@ interface Job {
   job_type: string
   address_text: string
   sale_amount: number | null
+  labor_cost?: number | null
+  material_cost?: number | null
   sale_date: string | null
   scheduled_date: string | null
   materials_status: string
@@ -48,6 +50,7 @@ interface OpsClientProps {
   initialCrews: Crew[]
   initialSubs: SubContractor[]
   orgId: string
+  canViewProfitability: boolean
 }
 
 const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: string }> = {
@@ -72,7 +75,7 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   received: { label: 'Received', color: 'text-green-600' },
 }
 
-export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId }: OpsClientProps) {
+export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId, canViewProfitability }: OpsClientProps) {
   const router = useRouter()
   const [jobs, setJobs] = useState<Job[]>(initialJobs)
   const [crews] = useState<Crew[]>(initialCrews)
@@ -86,19 +89,9 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const supabase = createClientBrowser()
 
   const loadData = async () => {
-    const { data: jobsData } = await supabase
-      .from('production_jobs')
-      .select(`
-        *,
-        assigned_crew:crews(id, name, color),
-        assigned_sub:sub_contractors(id, company_name),
-        customer:customers(id, name, phone),
-        salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, customers(id, name, phone), leads(id, homeowner_name, phone))
-      `)
-      .eq('org_id', orgId)
-      .neq('status', 'collected')
-      .order('scheduled_date', { ascending: true, nullsFirst: false })
+    const response = await fetch('/api/ops/jobs')
+    if (!response.ok) return
+    const { jobs: jobsData } = await response.json()
 
     const transformedJobs = (jobsData || []).map((job: any) => {
       const rawProject = Array.isArray(job.project) ? job.project[0] : job.project
@@ -131,6 +124,24 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
       }
     })
     setJobs(transformedJobs)
+  }
+
+  const getProfitability = (job: Job) => {
+    const revenue = job.sale_amount ?? 0
+    const hasLabor = typeof job.labor_cost === 'number'
+    const hasMaterial = typeof job.material_cost === 'number'
+    const hasCompleteCosts = hasLabor && hasMaterial
+    const directCosts = (job.labor_cost ?? 0) + (job.material_cost ?? 0)
+    const profit = revenue - directCosts
+    const marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0
+
+    return {
+      revenue,
+      directCosts,
+      profit,
+      marginPercent,
+      hasCompleteCosts,
+    }
   }
 
   const getJobsByStatus = (status: JobStatus) => {
@@ -196,6 +207,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const JobCard = ({ job }: { job: Job }) => {
     const priority = priorityConfig[job.priority] || priorityConfig.normal
     const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
+    const profitability = getProfitability(job)
 
     // Status indicators
     const needsMaterials = job.materials_status === 'not_ordered'
@@ -255,6 +267,32 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           )}
           <span className={materials.color}>{materials.label}</span>
         </div>
+
+        {canViewProfitability && (
+          <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Profitability</p>
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div>
+                <p className="text-gray-500">Revenue</p>
+                <p className="font-semibold text-gray-800">${profitability.revenue.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Costs</p>
+                <p className="font-semibold text-gray-800">
+                  {profitability.hasCompleteCosts ? `$${profitability.directCosts.toLocaleString()}` : 'Incomplete'}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500">Profit</p>
+                <p className={`font-semibold ${profitability.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  {profitability.hasCompleteCosts
+                    ? `$${profitability.profit.toLocaleString()}`
+                    : 'TBD'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {(job.assigned_crew || job.assigned_sub) && (
           <div className="flex items-center gap-2 mb-3">
@@ -412,6 +450,17 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             </div>
             <div className="text-xs text-gray-500">Pipeline Value</div>
           </div>
+          {canViewProfitability && (
+            <div className="bg-white rounded-lg border p-4">
+              <div className="text-2xl font-bold text-green-700">
+                ${jobs
+                  .filter((j) => typeof j.labor_cost === 'number' && typeof j.material_cost === 'number')
+                  .reduce((sum, j) => sum + ((j.sale_amount || 0) - ((j.labor_cost || 0) + (j.material_cost || 0))), 0)
+                  .toLocaleString()}
+              </div>
+              <div className="text-xs text-gray-500">Gross Profit (Known)</div>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-lg border p-4 mb-6">
@@ -485,7 +534,82 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         )}
 
         {viewMode === 'list' && (
-          <div className="bg-white rounded-lg border overflow-hidden">
+          <>
+            <div className="md:hidden space-y-3">
+              {jobs.filter(job => {
+                if (filterType !== 'all' && job.job_type !== filterType) return false
+                if (searchQuery) {
+                  const search = searchQuery.toLowerCase()
+                  return (
+                    job.job_number.toLowerCase().includes(search) ||
+                    job.address_text.toLowerCase().includes(search) ||
+                    job.customer?.name?.toLowerCase().includes(search)
+                  )
+                }
+                return true
+              }).map(job => {
+                const config = statusConfig[job.status]
+                const profitability = getProfitability(job)
+                return (
+                  <div key={job.id} className="bg-white rounded-lg border p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-mono text-sm text-gray-900">{job.job_number}</p>
+                        <p className="text-sm text-gray-700">{job.customer?.name || '-'}</p>
+                        <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
+                      </div>
+                      <span className={`text-xs px-2 py-1 rounded-full ${config.bgColor} ${config.color}`}>
+                        {config.label}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <p className="text-gray-500">Value</p>
+                        <p className="font-semibold text-gray-900">{job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500">Scheduled</p>
+                        <p className="font-semibold text-gray-900">
+                          {job.scheduled_date
+                            ? new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
+                            : '-'}
+                        </p>
+                      </div>
+                    </div>
+                    {canViewProfitability && (
+                      <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-2.5">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Profitability</p>
+                        <div className="grid grid-cols-3 gap-2 text-[11px]">
+                          <div>
+                            <p className="text-gray-500">Revenue</p>
+                            <p className="font-semibold text-gray-800">${profitability.revenue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500">Costs</p>
+                            <p className="font-semibold text-gray-800">
+                              {profitability.hasCompleteCosts ? `$${profitability.directCosts.toLocaleString()}` : 'Incomplete'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500">Profit</p>
+                            <p className={`font-semibold ${profitability.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                              {profitability.hasCompleteCosts ? `$${profitability.profit.toLocaleString()}` : 'TBD'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-3 flex justify-end">
+                      <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
+                        View Job
+                      </Link>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="hidden md:block bg-white rounded-lg border overflow-hidden">
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
@@ -497,6 +621,9 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scheduled</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
+                  {canViewProfitability && (
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profitability</th>
+                  )}
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -516,6 +643,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                   const config = statusConfig[job.status]
                   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
                   const priority = priorityConfig[job.priority] || priorityConfig.normal
+                  const profitability = getProfitability(job)
 
                   return (
                     <tr key={job.id} className="hover:bg-gray-50">
@@ -573,6 +701,22 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
                       </td>
+                      {canViewProfitability && (
+                        <td className="px-4 py-3 text-xs">
+                          {profitability.hasCompleteCosts ? (
+                            <div>
+                              <div className={`font-semibold ${profitability.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                ${profitability.profit.toLocaleString()}
+                              </div>
+                              <div className="text-gray-500">
+                                Costs ${profitability.directCosts.toLocaleString()} · {profitability.marginPercent.toFixed(1)}%
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-amber-700 font-medium">Costs incomplete</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-2">
                           <button
@@ -595,6 +739,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 

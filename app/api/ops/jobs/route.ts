@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 
+function sanitizeJobsForRole(jobs: any[], role: string) {
+  if (role === 'admin') return jobs
+
+  return jobs.map((job) => {
+    const { labor_cost, material_cost, ...safeJob } = job
+    return safeJob
+  })
+}
+
 // POST - Create a production job from a project
 export async function POST(request: Request) {
   try {
@@ -178,7 +187,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch jobs' }, { status: 500 })
     }
 
-    return NextResponse.json({ jobs })
+    return NextResponse.json({ jobs: sanitizeJobsForRole(jobs || [], profile.role) })
 
   } catch (error) {
     console.error('Error in GET /api/ops/jobs:', error)
