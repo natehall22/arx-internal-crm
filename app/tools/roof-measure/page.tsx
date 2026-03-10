@@ -170,6 +170,7 @@ export default function RoofMeasurePage() {
   const [isDrawingLine, setIsDrawingLine] = useState(false)
   const [lineDrawingType, setLineDrawingType] = useState<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
   const [showLineTypeModal, setShowLineTypeModal] = useState(false)
+  const lineDrawingTypeRef = useRef<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
   const polylinesRef = useRef<Map<string, any>>(new Map())
 
   useEffect(() => {
@@ -538,6 +539,7 @@ export default function RoofMeasurePage() {
     if (!drawingManagerRef.current) return
     
     setLineDrawingType(type)
+    lineDrawingTypeRef.current = type
     const color = LINEAR_FEATURE_COLORS[type]
     
     drawingManagerRef.current.setOptions({
@@ -578,10 +580,11 @@ export default function RoofMeasurePage() {
     
     const newFeature: LinearFeature = {
       id: `line-${Date.now()}`,
-      type: lineDrawingType,
+      // Use ref so map event listener always gets latest selected type.
+      type: lineDrawingTypeRef.current,
       points,
       length_ft: lengthFt,
-      label: LINEAR_FEATURE_LABELS[lineDrawingType],
+      label: LINEAR_FEATURE_LABELS[lineDrawingTypeRef.current],
     }
     
     // Store polyline reference
