@@ -171,7 +171,17 @@ export default function RoofMeasurePage() {
   const [lineDrawingType, setLineDrawingType] = useState<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
   const [showLineTypeModal, setShowLineTypeModal] = useState(false)
   const lineDrawingTypeRef = useRef<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
+  const facetsRef = useRef<RoofFacet[]>([])
+  const linearFeaturesRef = useRef<LinearFeature[]>([])
   const polylinesRef = useRef<Map<string, any>>(new Map())
+
+  useEffect(() => {
+    facetsRef.current = facets
+  }, [facets])
+
+  useEffect(() => {
+    linearFeaturesRef.current = linearFeatures
+  }, [linearFeatures])
 
   useEffect(() => {
     const oppId = searchParams.get('opportunity_id') || searchParams.get('opportunity')
@@ -595,8 +605,11 @@ export default function RoofMeasurePage() {
       // Could add selection logic here
     })
     
-    setLinearFeatures(prev => [...prev, newFeature])
-    updateMeasurements(facets, [...linearFeatures, newFeature])
+    const currentFacets = facetsRef.current
+    const updatedFeatures = [...linearFeaturesRef.current, newFeature]
+
+    setLinearFeatures(updatedFeatures)
+    updateMeasurements(currentFacets, updatedFeatures)
   }
 
   // Delete a linear feature
