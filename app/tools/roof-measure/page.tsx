@@ -29,7 +29,7 @@ interface RoofFacet {
 // Linear features that can be manually drawn (step flashing, custom valleys, etc.)
 interface LinearFeature {
   id: string
-  type: 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'
+  type: 'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'
   points: Point[]
   length_ft: number
   label?: string
@@ -70,6 +70,7 @@ interface MeasurementData {
 
 // Colors for different linear feature types
 const LINEAR_FEATURE_COLORS: Record<string, string> = {
+  ridge: '#0EA5E9',         // sky
   step_flashing: '#F59E0B', // amber
   wall_flashing: '#8B5CF6', // purple
   valley: '#EF4444',        // red
@@ -77,6 +78,7 @@ const LINEAR_FEATURE_COLORS: Record<string, string> = {
 }
 
 const LINEAR_FEATURE_LABELS: Record<string, string> = {
+  ridge: 'Ridge',
   step_flashing: 'Step Flashing',
   wall_flashing: 'Wall Flashing',
   valley: 'Valley',
@@ -166,7 +168,7 @@ export default function RoofMeasurePage() {
   // Linear features state
   const [linearFeatures, setLinearFeatures] = useState<LinearFeature[]>([])
   const [isDrawingLine, setIsDrawingLine] = useState(false)
-  const [lineDrawingType, setLineDrawingType] = useState<'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
+  const [lineDrawingType, setLineDrawingType] = useState<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
   const [showLineTypeModal, setShowLineTypeModal] = useState(false)
   const polylinesRef = useRef<Map<string, any>>(new Map())
 
@@ -532,7 +534,7 @@ export default function RoofMeasurePage() {
   }
 
   // Start drawing a linear feature (step flashing, valley, etc.)
-  const startDrawingLine = (type: 'step_flashing' | 'wall_flashing' | 'valley' | 'custom') => {
+  const startDrawingLine = (type: 'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom') => {
     if (!drawingManagerRef.current) return
     
     setLineDrawingType(type)
@@ -888,6 +890,15 @@ export default function RoofMeasurePage() {
       const mainRidge = estimatedBuildingLength * 0.5
       const secondaryRidges = (facetCount - 4) * 8 // ~8ft per additional ridge section
       ridges = Math.round(mainRidge + secondaryRidges)
+    }
+    
+    // If ridge lines are manually drawn, use those as source of truth.
+    // Otherwise, fall back to geometry estimate.
+    const manualRidges = features
+      .filter(f => f.type === 'ridge')
+      .reduce((sum, f) => sum + f.length_ft, 0)
+    if (manualRidges > 0) {
+      ridges = Math.round(manualRidges)
     }
     
     // ---- EAVES CALCULATION ----
@@ -1339,6 +1350,14 @@ export default function RoofMeasurePage() {
                 </button>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => startDrawingLine('ridge')}
+                    disabled={isDrawing}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2 bg-sky-600/20 text-sky-400 border border-sky-600/50 rounded-lg text-xs font-medium hover:bg-sky-600/30 disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 bg-sky-500 rounded-full"></span>
+                    Ridge
+                  </button>
                   <button
                     onClick={() => startDrawingLine('step_flashing')}
                     disabled={isDrawing}
