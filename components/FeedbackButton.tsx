@@ -15,7 +15,8 @@ export default function FeedbackButton() {
       const { data: { user } } = await supabase.auth.getUser()
       
       if (user) {
-        setUserEmail(user.email || '')
+        const email = user.email || ''
+        setUserEmail(email)
         
         const { data: profile } = await supabase
           .from('users')
@@ -25,6 +26,14 @@ export default function FeedbackButton() {
         
         if (profile?.full_name) {
           setUserName(profile.full_name)
+        } else if (email) {
+          // Fallback to email username if no full_name set
+          const emailName = email.split('@')[0]
+          // Capitalize and replace dots/underscores with spaces
+          const formattedName = emailName
+            .replace(/[._]/g, ' ')
+            .replace(/\b\w/g, c => c.toUpperCase())
+          setUserName(formattedName)
         }
       }
     }
