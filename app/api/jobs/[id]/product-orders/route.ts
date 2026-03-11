@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import {
   buildFallbackInsert,
+  getSignedOrderAmount,
   isMissingJobProductOrdersTable,
   mapMaterialOrdersRowsToUi,
   syncJobMaterialCost,
@@ -54,17 +55,19 @@ export async function GET(
       }
 
       const mappedOrders = mapMaterialOrdersRowsToUi(fallbackData)
-      const total = mappedOrders
-        .filter(order => order.status !== 'returned')
-        .reduce((sum, order) => sum + Number(order.amount || 0), 0)
+      const total = mappedOrders.reduce(
+        (sum, order) => sum + getSignedOrderAmount(Number(order.amount || 0), order.status),
+        0
+      )
 
       return NextResponse.json({ orders: mappedOrders, total })
     }
 
-    // Calculate total (excluding returned orders)
-    const total = (data || [])
-      .filter(order => order.status !== 'returned')
-      .reduce((sum, order) => sum + Number(order.amount || 0), 0)
+    // Calculate net total (returns subtract from total cost).
+    const total = (data || []).reduce(
+      (sum, order) => sum + getSignedOrderAmount(Number(order.amount || 0), order.status),
+      0
+    )
 
     return NextResponse.json({ orders: data || [], total })
   } catch (error: any) {

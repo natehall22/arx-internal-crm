@@ -2,6 +2,11 @@ type AnyError = { code?: string; message?: string } | null | undefined
 
 export type UiProductOrderStatus = 'ordered' | 'received' | 'paid' | 'returned'
 
+export function getSignedOrderAmount(amount: number, status: UiProductOrderStatus) {
+  const numericAmount = Number(amount || 0)
+  return status === 'returned' ? -Math.abs(numericAmount) : numericAmount
+}
+
 export function isMissingJobProductOrdersTable(error: AnyError) {
   const message = error?.message || ''
   return (
@@ -95,9 +100,10 @@ export async function computeMaterialCostTotalForJob(
     .eq('job_id', jobId)
 
   if (!error) {
-    return (data || [])
-      .filter((row: any) => row.status !== 'returned')
-      .reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)
+    return (data || []).reduce(
+      (sum: number, row: any) => sum + getSignedOrderAmount(Number(row.amount || 0), row.status),
+      0
+    )
   }
 
   if (!isMissingJobProductOrdersTable(error)) {
@@ -114,9 +120,10 @@ export async function computeMaterialCostTotalForJob(
   }
 
   const mapped = mapMaterialOrdersRowsToUi(fallbackData)
-  return mapped
-    .filter((row: any) => row.status !== 'returned')
-    .reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)
+  return mapped.reduce(
+    (sum: number, row: any) => sum + getSignedOrderAmount(Number(row.amount || 0), row.status),
+    0
+  )
 }
 
 export async function syncJobMaterialCost(
