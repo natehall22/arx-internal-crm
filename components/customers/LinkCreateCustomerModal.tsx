@@ -27,13 +27,19 @@ interface SourceRecord {
 interface Props {
   isOpen: boolean
   onClose: () => void
+  forceShowAllOpportunities?: boolean
   preselectedSource?: {
     type: 'opportunity' | 'project' | 'job'
     id: string
   }
 }
 
-export default function LinkCreateCustomerModal({ isOpen, onClose, preselectedSource }: Props) {
+export default function LinkCreateCustomerModal({
+  isOpen,
+  onClose,
+  preselectedSource,
+  forceShowAllOpportunities = false,
+}: Props) {
   const router = useRouter()
   const [step, setStep] = useState<'search' | 'create_from_source' | 'manual'>('search')
   const [searchQuery, setSearchQuery] = useState('')
@@ -115,8 +121,11 @@ export default function LinkCreateCustomerModal({ isOpen, onClose, preselectedSo
     if (preselectedSource && isOpen) {
       setStep('create_from_source')
       setSourceType(preselectedSource.type)
+      if (forceShowAllOpportunities) {
+        setShowAllSources(true)
+      }
     }
-  }, [preselectedSource, isOpen])
+  }, [preselectedSource, isOpen, forceShowAllOpportunities])
 
   // Link existing customer to source
   const handleLinkCustomer = async (customer: Customer) => {
@@ -237,6 +246,7 @@ export default function LinkCreateCustomerModal({ isOpen, onClose, preselectedSo
     setManualAddress('')
     setError(null)
     setShowAdvanced(false)
+    setShowAllSources(false)
   }
 
   const handleClose = () => {
@@ -419,7 +429,7 @@ export default function LinkCreateCustomerModal({ isOpen, onClose, preselectedSo
               ) : currentSources.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <p>
-                    {sourceType === 'opportunity' && showAll
+                    {sourceType === 'opportunity' && showAllSources
                       ? `No ${sourceType}s found`
                       : `No ${sourceType}s without a linked customer`}
                   </p>
@@ -428,7 +438,7 @@ export default function LinkCreateCustomerModal({ isOpen, onClose, preselectedSo
                 <div className="space-y-2 mb-4">
                   <p className="text-sm text-gray-600">
                     {currentSources.length} record{currentSources.length !== 1 ? 's' : ''}{' '}
-                    {sourceType === 'opportunity' && showAll ? 'found' : 'without customer'}
+                    {sourceType === 'opportunity' && showAllSources ? 'found' : 'without customer'}
                   </p>
                   {currentSources.map((source) => (
                     <div

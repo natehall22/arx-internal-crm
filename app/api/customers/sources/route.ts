@@ -45,7 +45,7 @@ export async function GET(request: Request) {
         .select('id, name, status, address_text, contact_name, contact_email, contact_phone, created_at')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(200)
 
       if (!showAll) {
         oppQuery = oppQuery.is('customer_id', null)

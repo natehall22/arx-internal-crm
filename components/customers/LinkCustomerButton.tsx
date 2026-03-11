@@ -41,6 +41,7 @@ export default function LinkCustomerButton({
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           preselectedSource={{ type: sourceType, id: sourceId }}
+          forceShowAllOpportunities={!!currentCustomerId}
         />
       </div>
     )
@@ -59,6 +60,7 @@ export default function LinkCustomerButton({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         preselectedSource={{ type: sourceType, id: sourceId }}
+        forceShowAllOpportunities={false}
       />
     </>
   )

@@ -190,6 +190,10 @@ export async function PATCH(
       .eq('org_id', profile.org_id)
       .single()
 
+    if (!currentProposal) {
+      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+    }
+
     // Update proposal
     const { data: proposal, error: updateError } = await adminClient
       .from('proposals')
@@ -244,10 +248,14 @@ export async function PATCH(
             }
           }
           
-          // Update opportunity status to 'won'
+          // Mark opportunity as won and ensure approval is counted as a sale event.
           await adminClient
             .from('opportunities')
-            .update({ status: 'won' })
+            .update({
+              status: 'won',
+              inspection_outcome: 'sale',
+              inspection_outcome_at: new Date().toISOString(),
+            })
             .eq('id', currentProposal.opportunity_id)
         }
       }

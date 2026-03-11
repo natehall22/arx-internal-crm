@@ -80,6 +80,7 @@ export default async function DashboardPage() {
     widgets: ['stats', 'progress', 'appointments', 'activity'],
     goals: { doors_knocked: 100, inspections: 20, sales: 5 },
   }
+  const isSetterLikeRole = (role?: string | null) => role === 'canvasser' || role === 'setter'
 
   let teamMemberIds: string[] = [profile.id]
   if (isSalesManager && profile.team_id) {
@@ -127,7 +128,7 @@ export default async function DashboardPage() {
   // Fetch opportunities created this week for accurate attribution
   let oppsQuery = supabase
     .from('opportunities')
-    .select('lead_id, status, inspection_outcome, created_at, owner_user_id, setter_user_id')
+    .select('lead_id, status, inspection_outcome, inspection_outcome_at, created_at, owner_user_id, setter_user_id')
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())
@@ -137,6 +138,16 @@ export default async function DashboardPage() {
   // - sales/close_rate to owner_user_id (closer)
   // So we don't filter by owner_user_id here for non-admins
   const { data: opportunities } = await oppsQuery
+
+  // Sales events should be driven by when the deal is actually marked sold.
+  // Proposal approval sets inspection_outcome='sale' and inspection_outcome_at.
+  const { data: salesOpportunities } = await supabase
+    .from('opportunities')
+    .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
+    .eq('org_id', profile.org_id)
+    .eq('inspection_outcome', 'sale')
+    .gte('inspection_outcome_at', weekStart.toISOString())
+    .lt('inspection_outcome_at', weekEnd.toISOString())
 
   // Fetch scheduled_appointments created this week for accurate inspection attribution
   // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
@@ -332,11 +343,14 @@ export default async function DashboardPage() {
         const finalDoors = rawDoors + inspectionBonusDoors
         const finalContacts = rawContacts + inspectionBonusContacts
         
-        // Opportunities owned by this member (closer gets credit for sales)
         const memberOwnedOpps = (opportunities || []).filter(o => o.owner_user_id === member.id)
         
-        // Sales this week - credit goes to CLOSER (owner)
-        const memberSales = memberOwnedOpps.filter(o => o.inspection_outcome === 'sale')
+        // Sales attribution:
+        // - setter/canvasser rows get credit for opportunities where they were setter_user_id
+        // - all other roles get closer credit via owner_user_id
+        const memberSales = (salesOpportunities || []).filter(o =>
+          isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
+        )
         
         // Close rate based on inspections run this week by this closer
         const inspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
@@ -395,10 +409,13 @@ export default async function DashboardPage() {
   const doorsKnocked = rawDoorsKnocked + inspectionBonusDoors
   const contacts = rawContacts + inspectionBonusContacts
   
-  // Sales - credit to closer (filter by owner_user_id for current user)
-  const salesThisWeek = (opportunities || []).filter(o => 
-    o.inspection_outcome === 'sale' &&
-    (isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || ''))
+  // Sales attribution:
+  // - setter/canvasser users get credit for sales from their sets
+  // - other roles keep closer credit
+  const salesThisWeek = (salesOpportunities || []).filter(o =>
+    isSetterLikeRole(profile.role)
+      ? (isAdmin || o.setter_user_id === profile.id || teamMemberIds.includes(o.setter_user_id || ''))
+      : (isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || ''))
   ).length
 
   // Close rate based on inspections run by closer (owner)

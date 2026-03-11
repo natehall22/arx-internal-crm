@@ -67,6 +67,10 @@ function getAdminClient() {
   })
 }
 
+function isSetterLikeRole(role?: string | null) {
+  return role === 'canvasser' || role === 'setter'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -199,12 +203,23 @@ export async function GET(request: NextRequest) {
     // owner_user_id = the closer who ran the inspection
     const oppsQuery = supabase
       .from('opportunities')
-      .select('id, owner_user_id, setter_user_id, inspection_outcome, created_at')
+      .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
 
     const { data: opportunities } = await oppsQuery
+
+    // Sales are counted by sale event time, not opportunity creation time.
+    const salesOppsQuery = supabase
+      .from('opportunities')
+      .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
+      .eq('org_id', profile.org_id)
+      .eq('inspection_outcome', 'sale')
+      .gte('inspection_outcome_at', start.toISOString())
+      .lt('inspection_outcome_at', end.toISOString())
+
+    const { data: salesOpportunities } = await salesOppsQuery
 
     // Contact dispositions - where rep actually talked to someone
     const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
@@ -260,9 +275,12 @@ export async function GET(request: NextRequest) {
       const finalContacts = rawContacts + inspectionBonusContacts
 
       // ---- SALES ----
-      // Sales credit goes to CLOSER (opportunity.owner_user_id)
+      // Setter/canvasser rows are credited from setter_user_id on sold opportunities.
+      // Other roles are credited from owner_user_id (closer).
       const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
-      const sales = memberOwnedOpps.filter(o => o.inspection_outcome === 'sale').length
+      const sales = (salesOpportunities || []).filter(o =>
+        isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
+      ).length
 
       // ---- CLOSE RATE ----
       // Based on inspections RUN by this closer (not set)
@@ -320,6 +338,7 @@ export async function GET(request: NextRequest) {
         total_leads_in_range: leads?.length || 0,
         total_appointments_in_range: appointments?.length || 0,
         total_opportunities_in_range: opportunities?.length || 0,
+        total_sales_events_in_range: salesOpportunities?.length || 0,
         team_member_count: members.length,
         viewer_role: profile.role,
         viewer_team_id: profile.team_id,

@@ -151,11 +151,15 @@ export async function POST(
           }
         }
         
-        // Update opportunity status to 'won' if not already
-        if (opp.status !== 'won') {
+        // Mark opportunity as won and ensure approval is counted as a sale event.
+        if (opp.status !== 'won' || opp.inspection_outcome !== 'sale') {
           await adminClient
             .from('opportunities')
-            .update({ status: 'won' })
+            .update({
+              status: 'won',
+              inspection_outcome: 'sale',
+              inspection_outcome_at: new Date().toISOString(),
+            })
             .eq('id', proposal.opportunity_id)
         }
       }
