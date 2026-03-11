@@ -64,6 +64,10 @@ function getAdminClient() {
   })
 }
 
+function normalizeText(value?: string | null) {
+  return (value || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
 // POST - Create a project from an accepted proposal
 export async function POST(
   request: NextRequest,
@@ -162,6 +166,30 @@ export async function POST(
             })
             .eq('id', proposal.opportunity_id)
         }
+      }
+    }
+
+    // Guard against stale customer links on lead/opportunity.
+    // If the linked customer name conflicts with lead/proposal homeowner name, rebuild customer linkage.
+    const expectedCustomerName = leadData?.homeowner_name || proposal.customer_name
+    if (customerId && expectedCustomerName) {
+      const { data: linkedCustomer } = await adminClient
+        .from('customers')
+        .select('id, name')
+        .eq('id', customerId)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+
+      const existingName = normalizeText(linkedCustomer?.name)
+      const expectedName = normalizeText(expectedCustomerName)
+      if (existingName && expectedName && existingName !== expectedName) {
+        console.warn('Resetting stale customer link due to name mismatch:', {
+          opportunity_id: proposal.opportunity_id,
+          customer_id: customerId,
+          existing_name: linkedCustomer?.name,
+          expected_name: expectedCustomerName,
+        })
+        customerId = null
       }
     }
 

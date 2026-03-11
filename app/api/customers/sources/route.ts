@@ -42,7 +42,10 @@ export async function GET(request: Request) {
     if (sourceType === 'all' || sourceType === 'opportunity') {
       let oppQuery = adminClient
         .from('opportunities')
-        .select('id, name, status, address_text, contact_name, contact_email, contact_phone, created_at')
+        .select(`
+          id, name, status, address_text, contact_name, contact_email, contact_phone, created_at,
+          lead:leads(homeowner_name, email, phone)
+        `)
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
         .limit(200)
@@ -57,15 +60,21 @@ export async function GET(request: Request) {
       }
 
       const { data: opps } = await oppQuery
-      results.opportunities = (opps || []).map(o => ({
+      results.opportunities = (opps || []).map((o: any) => {
+        const lead = Array.isArray(o.lead) ? o.lead[0] : o.lead
+        const customerName = o.contact_name || lead?.homeowner_name
+        const customerEmail = o.contact_email || lead?.email
+        const customerPhone = o.contact_phone || lead?.phone
+        return {
         ...o,
         source_type: 'opportunity',
-        display_name: o.name || o.contact_name || o.address_text || 'Unnamed Opportunity',
-        customer_name: o.contact_name,
-        customer_email: o.contact_email,
-        customer_phone: o.contact_phone,
+        display_name: o.name || customerName || o.address_text || 'Unnamed Opportunity',
+        customer_name: customerName,
+        customer_email: customerEmail,
+        customer_phone: customerPhone,
         customer_address: o.address_text,
-      }))
+        }
+      })
     }
 
     // Fetch projects without customer_id

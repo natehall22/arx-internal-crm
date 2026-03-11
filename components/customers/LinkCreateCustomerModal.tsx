@@ -178,6 +178,8 @@ export default function LinkCreateCustomerModal({
           action: 'create_from_source',
           source_type: selectedSource.source_type,
           source_id: selectedSource.id,
+          link_target_type: preselectedSource?.type || selectedSource.source_type,
+          link_target_id: preselectedSource?.id || selectedSource.id,
         }),
       })
 
