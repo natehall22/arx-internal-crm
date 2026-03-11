@@ -418,12 +418,17 @@ export default function LinkCreateCustomerModal({ isOpen, onClose, preselectedSo
                 <div className="text-center py-4 text-gray-500">Loading...</div>
               ) : currentSources.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  <p>No {sourceType}s without a linked customer</p>
+                  <p>
+                    {sourceType === 'opportunity' && showAll
+                      ? `No ${sourceType}s found`
+                      : `No ${sourceType}s without a linked customer`}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2 mb-4">
                   <p className="text-sm text-gray-600">
-                    {currentSources.length} record{currentSources.length !== 1 ? 's' : ''} without customer
+                    {currentSources.length} record{currentSources.length !== 1 ? 's' : ''}{' '}
+                    {sourceType === 'opportunity' && showAll ? 'found' : 'without customer'}
                   </p>
                   {currentSources.map((source) => (
                     <div

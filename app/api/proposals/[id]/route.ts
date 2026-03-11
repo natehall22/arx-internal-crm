@@ -213,6 +213,7 @@ export async function PATCH(
       let opportunityData: any = null
       let leadId: string | null = null
       let customerId: string | null = null
+      let leadData: any = null
       
       if (currentProposal?.opportunity_id) {
         const { data: opp } = await adminClient
@@ -225,6 +226,23 @@ export async function PATCH(
           opportunityData = opp
           leadId = opp.lead_id
           customerId = opp.customer_id
+
+          if (leadId) {
+            const { data: lead } = await adminClient
+              .from('leads')
+              .select('id, customer_id, homeowner_name, email, phone, address_text')
+              .eq('id', leadId)
+              .eq('org_id', profile.org_id)
+              .maybeSingle()
+
+            if (lead) {
+              leadData = lead
+              // Prefer lead-linked customer over opportunity customer linkage.
+              if (lead.customer_id) {
+                customerId = lead.customer_id
+              }
+            }
+          }
           
           // Update opportunity status to 'won'
           await adminClient
@@ -234,7 +252,23 @@ export async function PATCH(
         }
       }
 
-      // Create or find customer from proposal data
+      // Create or find customer from lead data first, then proposal as fallback.
+      if (!customerId && leadData?.homeowner_name) {
+        try {
+          const { upsertCustomer } = await import('@/lib/customers')
+          const result = await upsertCustomer(adminClient, profile.org_id, {
+            name: leadData.homeowner_name,
+            email: leadData.email,
+            phone: leadData.phone,
+            address_text: leadData.address_text || currentProposal?.customer_address,
+          })
+          customerId = result.customer_id
+          console.log(`Customer ${result.created ? 'created' : 'found'} from lead:`, customerId)
+        } catch (err) {
+          console.error('Failed to upsert customer from lead:', err)
+        }
+      }
+
       if (!customerId && currentProposal?.customer_name) {
         try {
           const { upsertCustomer } = await import('@/lib/customers')
@@ -246,16 +280,25 @@ export async function PATCH(
           })
           customerId = result.customer_id
           console.log(`Customer ${result.created ? 'created' : 'found'}:`, customerId)
-          
-          // Update opportunity with customer_id if it exists
-          if (currentProposal.opportunity_id) {
-            await adminClient
-              .from('opportunities')
-              .update({ customer_id: customerId })
-              .eq('id', currentProposal.opportunity_id)
-          }
         } catch (err) {
           console.error('Failed to upsert customer:', err)
+        }
+      }
+
+      // Keep opportunity/lead customer link in sync with the resolved customer.
+      if (customerId && currentProposal.opportunity_id) {
+        await adminClient
+          .from('opportunities')
+          .update({ customer_id: customerId })
+          .eq('id', currentProposal.opportunity_id)
+          .eq('org_id', profile.org_id)
+
+        if (leadId) {
+          await adminClient
+            .from('leads')
+            .update({ customer_id: customerId })
+            .eq('id', leadId)
+            .eq('org_id', profile.org_id)
         }
       }
 

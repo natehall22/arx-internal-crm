@@ -37,15 +37,19 @@ export async function GET(request: Request) {
       jobs: [],
     }
 
-    // Fetch opportunities without customer_id
+    // Fetch opportunities for linking/customer creation.
+    // When show_all=true, include opportunities regardless of current customer linkage.
     if (sourceType === 'all' || sourceType === 'opportunity') {
       let oppQuery = adminClient
         .from('opportunities')
         .select('id, name, status, address_text, contact_name, contact_email, contact_phone, created_at')
         .eq('org_id', profile.org_id)
-        .is('customer_id', null)
         .order('created_at', { ascending: false })
         .limit(50)
+
+      if (!showAll) {
+        oppQuery = oppQuery.is('customer_id', null)
+      }
 
       if (!showAll) {
         // Filter to relevant stages
