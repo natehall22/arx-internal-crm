@@ -14,6 +14,7 @@ import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
+import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
@@ -750,6 +751,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 onTotalChange={setMaterialOrdersTotal}
               />
             </div>
+
+            <JobFileWorkspaceCard jobId={job.id} userRole={userRole} />
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
