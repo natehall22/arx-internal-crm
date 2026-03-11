@@ -117,6 +117,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   const [saving, setSaving] = useState(false)
+  const [savingLaborCost, setSavingLaborCost] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [newNoteText, setNewNoteText] = useState('')
   const [jobNotes, setJobNotes] = useState<JobNote[]>([])
@@ -125,6 +126,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
+  const [autoCollecting, setAutoCollecting] = useState(false)
   
   // Mention/tagging state
   const [orgUsers, setOrgUsers] = useState<OrgUser[]>([])
@@ -147,6 +149,42 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
     }
     loadPayments()
   }, [job.id])
+
+  // If a completed job is fully paid, auto-transition to "collected"
+  // so status and banner stay aligned with payment state.
+  useEffect(() => {
+    if (!paymentSummary) return
+    if (job.status !== 'complete') return
+    if (autoCollecting) return
+
+    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
+    const collectedCents = paymentSummary.collected_cents || 0
+
+    // Only auto-collect for paid jobs with an actual sale amount.
+    if (saleAmountCents <= 0) return
+    if (collectedCents < saleAmountCents) return
+
+    const markCollected = async () => {
+      setAutoCollecting(true)
+      try {
+        const response = await fetch(`/api/ops/jobs/${job.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'collected' }),
+        })
+
+        if (response.ok) {
+          await reloadJob()
+        }
+      } catch (error) {
+        console.error('Error auto-marking collected:', error)
+      } finally {
+        setAutoCollecting(false)
+      }
+    }
+
+    markCollected()
+  }, [job.id, job.status, job.sale_amount, paymentSummary, autoCollecting])
 
   // Load job notes
   useEffect(() => {
@@ -406,6 +444,31 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
     setSaving(false)
   }
 
+  const updateLaborCost = async (newLaborCost: number | null) => {
+    setSavingLaborCost(true)
+
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labor_cost: newLaborCost }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Failed to update labor cost:', error)
+        alert('Failed to update labor cost')
+      } else {
+        await reloadJob()
+      }
+    } catch (error) {
+      console.error('Error updating labor cost:', error)
+      alert('Failed to update labor cost')
+    } finally {
+      setSavingLaborCost(false)
+    }
+  }
+
   const deleteJob = async () => {
     if (!confirm(`Are you sure you want to delete job ${job.job_number}? This action cannot be undone.`)) {
       return
@@ -474,7 +537,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 disabled={saving}
                 className="min-h-[44px] px-3 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50"
               >
-                Mark Complete
+                Mark Job Complete
               </button>
             ) : job.status === 'scheduled' ? (
               <button
@@ -490,7 +553,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 disabled={saving || job.status === 'on_hold' || job.status === 'complete' || job.status === 'collected'}
                 className="min-h-[44px] px-3 py-2.5 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 text-sm font-medium disabled:opacity-50"
               >
-                Put On Hold
+                Pause Job
               </button>
             )}
           </div>
@@ -559,7 +622,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     disabled={saving}
                     className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
                   >
-                    Move to Materials
+                    Start Material Ordering
                   </button>
                 )}
                 {job.status === 'materials' && job.materials_status === 'received' && (
@@ -568,7 +631,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     disabled={saving}
                     className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
                   >
-                    Ready to Schedule
+                    Materials Ready - Schedule Job
                   </button>
                 )}
                 {job.status === 'scheduled' && (
@@ -586,7 +649,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     disabled={saving}
                     className="min-h-[44px] px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
                   >
-                    Mark Complete
+                    Mark Job Complete
                   </button>
                 )}
                 {job.status === 'complete' && (
@@ -595,7 +658,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     disabled={saving}
                     className="min-h-[44px] px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 text-sm"
                   >
-                    Mark Collected
+                    Mark as Collected
                   </button>
                 )}
                 {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
@@ -604,7 +667,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                     disabled={saving}
                     className="min-h-[44px] px-4 py-2 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 text-sm"
                   >
-                    Put On Hold
+                    Pause Job
                   </button>
                 )}
                 {userRole === 'admin' && (
@@ -617,53 +680,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   </button>
                 )}
               </div>
-            </div>
-
-            <div id="materials-section" className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Materials</h2>
-                <span className={`px-3 py-1 text-sm font-medium rounded-full ${
-                  job.materials_status === 'received' ? 'bg-green-100 text-green-700' :
-                  job.materials_status === 'ordered' ? 'bg-blue-100 text-blue-700' :
-                  job.materials_status === 'partial' ? 'bg-amber-100 text-amber-700' :
-                  'bg-gray-100 text-gray-600'
-                }`}>
-                  {materials.label}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mb-4">
-                {['not_ordered', 'ordered', 'partial', 'received'].map(s => (
-                  <button
-                    key={s}
-                    onClick={() => updateMaterialsStatus(s)}
-                    disabled={saving || job.materials_status === s}
-                    className={`min-h-[44px] px-3 py-2 text-sm rounded-lg border transition ${
-                      job.materials_status === s 
-                        ? 'bg-indigo-600 text-white border-indigo-600' 
-                        : 'border-gray-300 hover:bg-gray-50 text-gray-900'
-                    }`}
-                  >
-                    {materialsConfig[s]?.label || s}
-                  </button>
-                ))}
-              </div>
-
-              {job.materials_ordered_at && (
-                <p className="text-sm text-gray-900">
-                  Ordered: {new Date(job.materials_ordered_at).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
-                </p>
-              )}
-              {job.materials_eta && (
-                <p className="text-sm text-gray-900">
-                  ETA: {new Date(job.materials_eta).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
-                </p>
-              )}
-              {job.materials_notes && (
-                <p className="text-sm text-gray-700 mt-2 p-3 bg-gray-50 rounded-lg break-words">
-                  {job.materials_notes}
-                </p>
-              )}
             </div>
 
             {(job.project?.scope_of_work || job.project?.product_summary) && (
@@ -696,8 +712,23 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               showJobPacketButton={true}
             />
 
-            {/* Materials / Product Orders */}
-            <JobMaterialsCard jobId={job.id} userRole={userRole} />
+            {/* Materials / Labor / Product Orders */}
+            <div id="materials-section">
+              <JobMaterialsCard
+                jobId={job.id}
+                userRole={userRole}
+                title="Job Costs"
+                materialsStatus={job.materials_status}
+                onMaterialsStatusChange={updateMaterialsStatus}
+                updatingMaterialsStatus={saving}
+                laborCost={job.labor_cost}
+                onSaveLaborCost={updateLaborCost}
+                savingLaborCost={savingLaborCost}
+                materialsOrderedAt={job.materials_ordered_at}
+                materialsEta={job.materials_eta}
+                materialsNotes={job.materials_notes}
+              />
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>

@@ -69,7 +69,7 @@ function getNextAction(
   if (status === 'complete') {
     return {
       message: 'Ready to mark as collected',
-      buttonText: 'Mark Collected',
+      buttonText: 'Mark as Collected',
       color: 'green',
       action: 'done',
     }
@@ -89,7 +89,7 @@ function getNextAction(
   if (materialsStatus === 'not_ordered') {
     return {
       message: 'Order materials for this job',
-      buttonText: 'Update Materials',
+      buttonText: 'Open Job Costs',
       color: 'amber',
       action: 'materials',
     }
@@ -119,7 +119,7 @@ function getNextAction(
   if (status === 'in_progress') {
     return {
       message: 'Job in progress',
-      buttonText: 'Mark Complete',
+      buttonText: 'Mark Job Complete',
       color: 'blue',
       action: 'done',
     }

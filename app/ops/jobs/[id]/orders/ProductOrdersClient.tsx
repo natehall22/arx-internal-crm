@@ -22,7 +22,7 @@ interface ProductOrdersClientProps {
 
 const statusConfig = {
   ordered: { label: 'Ordered', bg: 'bg-blue-100', text: 'text-blue-700' },
-  received: { label: 'Received', bg: 'bg-green-100', text: 'text-green-700' },
+  received: { label: 'Delivered', bg: 'bg-green-100', text: 'text-green-700' },
   paid: { label: 'Paid', bg: 'bg-gray-100', text: 'text-gray-700' },
   returned: { label: 'Returned', bg: 'bg-red-100', text: 'text-red-700' },
 }
@@ -192,7 +192,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
           <div className="text-center py-8 text-gray-500">Loading orders...</div>
         ) : orders.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            No material orders yet. Tap the + button to add one.
+            No material orders added yet. Tap the + button to add one.
           </div>
         ) : (
           <div className="space-y-3">
@@ -257,7 +257,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
               <div className="p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    What was ordered *
+                    Material or Item *
                   </label>
                   <input
                     type="text"
@@ -303,7 +303,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
                     className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
                   >
                     <option value="ordered">Ordered</option>
-                    <option value="received">Received</option>
+                    <option value="received">Delivered</option>
                     <option value="paid">Paid</option>
                     <option value="returned">Returned</option>
                   </select>
@@ -321,7 +321,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
                   disabled={saving || !newOrder.description.trim() || !newOrder.amount}
                   className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 min-h-[44px]"
                 >
-                  {saving ? 'Adding...' : 'Add Order'}
+                  {saving ? 'Adding...' : 'Add Material Order'}
                 </button>
               </div>
             </div>

@@ -55,10 +55,10 @@ interface OpsClientProps {
 
 const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: string }> = {
   sold: { label: 'Sold', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
-  materials: { label: 'Materials', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  materials: { label: 'Material Ordering', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
   scheduled: { label: 'Scheduled', color: 'text-purple-700', bgColor: 'bg-purple-50 border-purple-200' },
   in_progress: { label: 'In Progress', color: 'text-indigo-700', bgColor: 'bg-indigo-50 border-indigo-200' },
-  complete: { label: 'Complete', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+  complete: { label: 'Completed', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
   collected: { label: 'Collected', color: 'text-gray-700', bgColor: 'bg-gray-50 border-gray-200' },
 }
 
@@ -71,8 +71,8 @@ const priorityConfig: Record<string, { icon: string; color: string }> = {
 const materialsConfig: Record<string, { label: string; color: string }> = {
   not_ordered: { label: 'Not Ordered', color: 'text-gray-500' },
   ordered: { label: 'Ordered', color: 'text-blue-600' },
-  partial: { label: 'Partial', color: 'text-amber-600' },
-  received: { label: 'Received', color: 'text-green-600' },
+  partial: { label: 'Partially Delivered', color: 'text-amber-600' },
+  received: { label: 'Fully Delivered', color: 'text-green-600' },
 }
 
 export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId, canViewProfitability }: OpsClientProps) {
@@ -335,7 +335,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'materials'); }}
               className="flex-1 text-xs py-1.5 px-2 bg-amber-50 text-amber-600 rounded hover:bg-amber-100"
             >
-              Materials
+              Start Materials
             </button>
           )}
           <button
@@ -349,7 +349,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'in_progress'); }}
               className="flex-1 text-xs py-1.5 px-2 bg-green-50 text-green-600 rounded hover:bg-green-100"
             >
-              Start
+              Start Job
             </button>
           )}
           {job.status === 'in_progress' && (
@@ -357,7 +357,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'complete'); }}
               className="flex-1 text-xs py-1.5 px-2 bg-green-50 text-green-600 rounded hover:bg-green-100"
             >
-              Complete
+              Mark Complete
             </button>
           )}
         </div>
@@ -377,7 +377,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               onClick={(e) => { e.stopPropagation(); updateMaterialsStatus(job.id, 'ordered'); }}
               className="text-xs py-1 px-2 bg-red-50 text-red-700 rounded hover:bg-red-100"
             >
-              Mark Ordered
+              Mark Materials Ordered
             </button>
           )}
           <button
@@ -405,7 +405,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Production Board</h1>
-            <p className="text-gray-500 text-sm">Manage jobs from sold to collected</p>
+            <p className="text-gray-500 text-sm">Track each job from sold through payment</p>
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -426,11 +426,11 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-blue-600">{stats.sold}</div>
-            <div className="text-xs text-gray-500">Ready to Schedule</div>
+            <div className="text-xs text-gray-500">Sold - Not Scheduled</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-amber-600">{stats.materials}</div>
-            <div className="text-xs text-gray-500">Awaiting Materials</div>
+            <div className="text-xs text-gray-500">Ordering Materials</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-purple-600">{stats.scheduled}</div>
@@ -442,7 +442,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-green-600">{stats.complete}</div>
-            <div className="text-xs text-gray-500">Ready to Collect</div>
+            <div className="text-xs text-gray-500">Completed - Awaiting Final Collection</div>
           </div>
           <div className="bg-white rounded-lg border p-4">
             <div className="text-2xl font-bold text-gray-900">
@@ -468,7 +468,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             <div className="flex-1">
               <input
                 type="text"
-                placeholder="Search by job #, address, or customer..."
+                placeholder="Search by job number, address, or customer..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
@@ -521,7 +521,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                   <div className="p-3 space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto">
                     {statusJobs.length === 0 ? (
                       <div className="text-center py-8 text-gray-400 text-sm">
-                        No jobs
+                        No jobs in this stage
                       </div>
                     ) : (
                       statusJobs.map(job => <JobCard key={job.id} job={job} />)
@@ -617,7 +617,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material Delivery</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scheduled</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
