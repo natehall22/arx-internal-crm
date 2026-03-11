@@ -197,6 +197,7 @@ export async function PATCH(
     if (!currentProposal) {
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
+    const proposalSnapshot = currentProposal
 
     // Update proposal
     const { data: proposal, error: updateError } = await adminClient
@@ -214,7 +215,7 @@ export async function PATCH(
 
     // If proposal was just accepted, create a project
     let projectId: string | null = null
-    if (body.status === 'accepted' && currentProposal?.status !== 'accepted') {
+    if (body.status === 'accepted' && proposalSnapshot.status !== 'accepted') {
       console.log('Proposal accepted, creating project...')
       
       // Get opportunity details if available
@@ -223,11 +224,11 @@ export async function PATCH(
       let customerId: string | null = null
       let leadData: any = null
       
-      if (currentProposal?.opportunity_id) {
+      if (proposalSnapshot.opportunity_id) {
         const { data: opp } = await adminClient
           .from('opportunities')
           .select('*, lead_id, customer_id')
-          .eq('id', currentProposal.opportunity_id)
+          .eq('id', proposalSnapshot.opportunity_id)
           .single()
         
         if (opp) {
@@ -260,13 +261,13 @@ export async function PATCH(
               inspection_outcome: 'sale',
               inspection_outcome_at: new Date().toISOString(),
             })
-            .eq('id', currentProposal.opportunity_id)
+            .eq('id', proposalSnapshot.opportunity_id)
         }
       }
 
       // Guard against stale customer links on lead/opportunity.
       // If the linked customer name conflicts with lead/proposal homeowner name, rebuild customer linkage.
-      const expectedCustomerName = leadData?.homeowner_name || currentProposal?.customer_name
+      const expectedCustomerName = leadData?.homeowner_name || proposalSnapshot.customer_name
       if (customerId && expectedCustomerName) {
         const { data: linkedCustomer } = await adminClient
           .from('customers')
@@ -279,7 +280,7 @@ export async function PATCH(
         const expectedName = normalizeText(expectedCustomerName)
         if (existingName && expectedName && existingName !== expectedName) {
           console.warn('Resetting stale customer link due to name mismatch:', {
-            opportunity_id: currentProposal?.opportunity_id,
+            opportunity_id: proposalSnapshot.opportunity_id,
             customer_id: customerId,
             existing_name: linkedCustomer?.name,
             expected_name: expectedCustomerName,
@@ -296,7 +297,7 @@ export async function PATCH(
             name: leadData.homeowner_name,
             email: leadData.email,
             phone: leadData.phone,
-            address_text: leadData.address_text || currentProposal?.customer_address,
+            address_text: leadData.address_text || proposalSnapshot.customer_address,
           })
           customerId = result.customer_id
           console.log(`Customer ${result.created ? 'created' : 'found'} from lead:`, customerId)
@@ -305,14 +306,14 @@ export async function PATCH(
         }
       }
 
-      if (!customerId && currentProposal?.customer_name) {
+      if (!customerId && proposalSnapshot.customer_name) {
         try {
           const { upsertCustomer } = await import('@/lib/customers')
           const result = await upsertCustomer(adminClient, profile.org_id, {
-            name: currentProposal.customer_name,
-            email: currentProposal.customer_email,
-            phone: currentProposal.customer_phone,
-            address_text: currentProposal.customer_address,
+            name: proposalSnapshot.customer_name,
+            email: proposalSnapshot.customer_email,
+            phone: proposalSnapshot.customer_phone,
+            address_text: proposalSnapshot.customer_address,
           })
           customerId = result.customer_id
           console.log(`Customer ${result.created ? 'created' : 'found'}:`, customerId)
@@ -322,11 +323,11 @@ export async function PATCH(
       }
 
       // Keep opportunity/lead customer link in sync with the resolved customer.
-      if (customerId && currentProposal.opportunity_id) {
+      if (customerId && proposalSnapshot.opportunity_id) {
         await adminClient
           .from('opportunities')
           .update({ customer_id: customerId })
-          .eq('id', currentProposal.opportunity_id)
+          .eq('id', proposalSnapshot.opportunity_id)
           .eq('org_id', profile.org_id)
 
         if (leadId) {
@@ -342,14 +343,14 @@ export async function PATCH(
       // Valid statuses: 'open', 'in_progress', 'on_hold', 'complete', 'collected'
       const projectPayload: any = {
         org_id: profile.org_id,
-        owner_user_id: currentProposal?.created_by || user.id,
+        owner_user_id: proposalSnapshot.created_by || user.id,
         status: 'open',
         project_type: opportunityData?.project_type || 'roofing',
-        address_text: currentProposal?.customer_address || opportunityData?.address_text,
+        address_text: proposalSnapshot.customer_address || opportunityData?.address_text,
         lat: opportunityData?.lat,
         lng: opportunityData?.lng,
         roof_squares: opportunityData?.roof_squares,
-        notes: `Created from accepted proposal. Total: $${currentProposal?.total?.toLocaleString() || 0}`,
+        notes: `Created from accepted proposal. Total: $${proposalSnapshot.total?.toLocaleString() || 0}`,
         lead_id: leadId,
         customer_id: customerId,
       }

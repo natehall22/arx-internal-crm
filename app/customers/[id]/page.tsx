@@ -6,6 +6,23 @@ import { notFound } from 'next/navigation'
 import ReferralsSection from '@/components/ReferralsSection'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+
+function mapJobStatusToProjectStatus(jobStatus: string) {
+  if (jobStatus === 'collected') return 'collected'
+  if (jobStatus === 'complete') return 'complete'
+  if (jobStatus === 'on_hold') return 'on hold'
+  return 'in progress'
+}
+
+function resolveProjectDisplayStatus(project: any) {
+  const jobs = Array.isArray(project.production_jobs) ? project.production_jobs : []
+  if (jobs.length > 0 && jobs[0]?.status) {
+    return mapJobStatusToProjectStatus(jobs[0].status)
+  }
+  return String(project.status || 'open').replace(/_/g, ' ')
+}
+
 const tabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'leads', label: 'Leads' },
@@ -41,7 +58,7 @@ export default async function CustomerDetailPage({
 
   let projectsQuery = supabase
     .from('projects')
-    .select('*')
+    .select('*, production_jobs(status, updated_at)')
     .eq('customer_id', params.id)
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
@@ -263,7 +280,7 @@ export default async function CustomerDetailPage({
                         {project.project_type}
                       </h2>
                       <p className="text-sm text-gray-500 capitalize">
-                        {project.status.replace('_', ' ')}
+                        {resolveProjectDisplayStatus(project)}
                       </p>
                     </div>
                     <Link
@@ -320,8 +337,22 @@ export default async function CustomerDetailPage({
               {files && files.length > 0 ? (
                 files.map((file: any) => (
                   <div key={file.id} className="flex items-center justify-between p-2 border rounded">
-                    <span className="text-sm text-gray-900">{file.file_name}</span>
-                    <span className="text-xs text-gray-500 capitalize">{file.tag}</span>
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-900 truncate">{file.file_name}</p>
+                      <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
+                    </div>
+                    {file.storage_path ? (
+                      <a
+                        href={`${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                      >
+                        Open
+                      </a>
+                    ) : (
+                      <span className="text-xs text-gray-400">No link</span>
+                    )}
                   </div>
                 ))
               ) : (

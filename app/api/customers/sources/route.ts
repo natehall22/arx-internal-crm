@@ -42,10 +42,7 @@ export async function GET(request: Request) {
     if (sourceType === 'all' || sourceType === 'opportunity') {
       let oppQuery = adminClient
         .from('opportunities')
-        .select(`
-          id, name, status, address_text, contact_name, contact_email, contact_phone, created_at,
-          lead:leads(homeowner_name, email, phone)
-        `)
+        .select('id, lead_id, name, status, address_text, contact_name, contact_email, contact_phone, created_at')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
         .limit(200)
@@ -59,9 +56,32 @@ export async function GET(request: Request) {
         oppQuery = oppQuery.in('status', ['qualified', 'proposal_sent', 'won', 'project_created', 'closed_won'])
       }
 
-      const { data: opps } = await oppQuery
+      const { data: opps, error: oppError } = await oppQuery
+      if (oppError) {
+        console.error('Error fetching opportunities for customer source modal:', oppError)
+      }
+
+      const leadIds = Array.from(
+        new Set((opps || []).map((o: any) => o.lead_id).filter(Boolean))
+      ) as string[]
+
+      let leadsById: Record<string, any> = {}
+      if (leadIds.length > 0) {
+        const { data: leads, error: leadsError } = await adminClient
+          .from('leads')
+          .select('id, homeowner_name, email, phone')
+          .in('id', leadIds)
+          .eq('org_id', profile.org_id)
+
+        if (leadsError) {
+          console.error('Error fetching lead details for customer source modal:', leadsError)
+        } else {
+          leadsById = Object.fromEntries((leads || []).map((lead: any) => [lead.id, lead]))
+        }
+      }
+
       results.opportunities = (opps || []).map((o: any) => {
-        const lead = Array.isArray(o.lead) ? o.lead[0] : o.lead
+        const lead = o.lead_id ? leadsById[o.lead_id] : null
         const customerName = o.contact_name || lead?.homeowner_name
         const customerEmail = o.contact_email || lead?.email
         const customerPhone = o.contact_phone || lead?.phone
