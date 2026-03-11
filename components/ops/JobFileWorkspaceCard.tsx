@@ -36,6 +36,7 @@ type CostLineRow = {
 interface JobFileWorkspaceCardProps {
   jobId: string
   userRole: string
+  registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
 }
 
 type StatusMessage = {
@@ -64,7 +65,11 @@ function formatUserDisplay(uploadedBy: string | null) {
   return `User ${uploadedBy.slice(0, 8)}`
 }
 
-export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspaceCardProps) {
+export default function JobFileWorkspaceCard({
+  jobId,
+  userRole,
+  registerOpenCostAttachmentShortcut,
+}: JobFileWorkspaceCardProps) {
   const supabase = useMemo(() => createClientBrowser(), [])
 
   const [loading, setLoading] = useState(true)
@@ -195,16 +200,18 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
   }, [jobId, supabase])
 
   useEffect(() => {
+    if (!registerOpenCostAttachmentShortcut) return
+
     const openCostAttachmentPicker = () => {
       if (tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
       costAttachmentInputRef.current?.click()
     }
 
-    window.addEventListener('job-files-open-cost-attachment', openCostAttachmentPicker)
+    registerOpenCostAttachmentShortcut(openCostAttachmentPicker)
     return () => {
-      window.removeEventListener('job-files-open-cost-attachment', openCostAttachmentPicker)
+      registerOpenCostAttachmentShortcut(null)
     }
-  }, [tableUnavailable, uploadingCostAttachment, costLines.length])
+  }, [registerOpenCostAttachmentShortcut, tableUnavailable, uploadingCostAttachment, costLines.length])
 
   const handlePhotoSelected = async (file?: File | null) => {
     if (!file) return

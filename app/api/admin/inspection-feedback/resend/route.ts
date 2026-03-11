@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 
+function isPromptDue(prompt: any, nowMs: number) {
+  const scheduledFor = prompt?.appointment?.scheduled_for ? Date.parse(prompt.appointment.scheduled_for) : NaN
+  const promptAt = prompt?.prompt_at ? Date.parse(prompt.prompt_at) : NaN
+
+  const appointmentIsDue = Number.isNaN(scheduledFor) || scheduledFor <= nowMs
+  const promptIsDue = Number.isNaN(promptAt) || promptAt <= nowMs
+
+  return appointmentIsDue && promptIsDue
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
@@ -35,6 +45,10 @@ export async function POST(request: NextRequest) {
 
     if (promptError || !prompt) {
       return NextResponse.json({ error: 'Prompt not found' }, { status: 404 })
+    }
+
+    if (!isPromptDue(prompt, Date.now())) {
+      return NextResponse.json({ error: 'Cannot resend feedback request for future appointments' }, { status: 400 })
     }
 
     // Reset the prompt_at to now so it shows up again

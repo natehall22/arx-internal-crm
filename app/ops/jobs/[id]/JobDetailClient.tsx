@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -129,6 +129,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
   const [autoCollecting, setAutoCollecting] = useState(false)
+  const openCostAttachmentShortcutRef = useRef<(() => void) | null>(null)
   
   // Mention/tagging state
   const [orgUsers, setOrgUsers] = useState<OrgUser[]>([])
@@ -534,11 +535,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
 
   const handleAttachReceiptInvoiceShortcut = () => {
+    openCostAttachmentShortcutRef.current?.()
+
     const workspaceEl = document.getElementById('job-files-workspace-section')
     if (workspaceEl) {
       workspaceEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
-    window.dispatchEvent(new CustomEvent('job-files-open-cost-attachment'))
   }
 
   return (
@@ -776,7 +778,13 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
             </div>
 
             <div id="job-files-workspace-section">
-              <JobFileWorkspaceCard jobId={job.id} userRole={userRole} />
+              <JobFileWorkspaceCard
+                jobId={job.id}
+                userRole={userRole}
+                registerOpenCostAttachmentShortcut={(openPicker) => {
+                  openCostAttachmentShortcutRef.current = openPicker
+                }}
+              />
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">

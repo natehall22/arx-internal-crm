@@ -2,6 +2,16 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 
+function isPromptDue(prompt: any, nowMs: number) {
+  const scheduledFor = prompt?.appointment?.scheduled_for ? Date.parse(prompt.appointment.scheduled_for) : NaN
+  const promptAt = prompt?.prompt_at ? Date.parse(prompt.prompt_at) : NaN
+
+  const appointmentIsDue = Number.isNaN(scheduledFor) || scheduledFor <= nowMs
+  const promptIsDue = Number.isNaN(promptAt) || promptAt <= nowMs
+
+  return appointmentIsDue && promptIsDue
+}
+
 export async function POST() {
   try {
     const { profile } = await requireAuthApi()
@@ -35,8 +45,15 @@ export async function POST() {
       return NextResponse.json({ count: 0 })
     }
 
+    const nowMs = Date.now()
+    const duePrompts = prompts.filter((prompt) => isPromptDue(prompt, nowMs))
+
+    if (duePrompts.length === 0) {
+      return NextResponse.json({ success: true, count: 0 })
+    }
+
     // Reset all prompt_at times to now
-    const promptIds = prompts.map(p => p.id)
+    const promptIds = duePrompts.map((p) => p.id)
     const { error: updateError } = await supabase
       .from('pending_status_prompts')
       .update({ 
@@ -51,7 +68,7 @@ export async function POST() {
     }
 
     // Create notifications for each closer
-    const notifications = prompts.map(prompt => {
+    const notifications = duePrompts.map((prompt) => {
       const leadName = prompt.appointment?.lead?.homeowner_name || 'Unknown'
       const address = prompt.appointment?.lead?.address_text || ''
 
@@ -80,7 +97,7 @@ export async function POST() {
 
     return NextResponse.json({ 
       success: true, 
-      count: prompts.length,
+      count: duePrompts.length,
     })
   } catch (error: any) {
     console.error('Resend all error:', error)
