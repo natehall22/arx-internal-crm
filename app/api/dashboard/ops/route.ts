@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
+import {
+  isMissingJobProductOrdersTable,
+  mapMaterialOrdersRowsToUi,
+} from '@/lib/ops-product-orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,11 +28,23 @@ export async function GET() {
       .not('status', 'in', '("completed","cancelled")')
 
     // Get pending materials count (orders with status 'ordered')
-    const { count: pendingMaterialsCount } = await supabase
+    const { count: pendingMaterialsCount, error: pendingMaterialsError } = await supabase
       .from('job_product_orders')
       .select('*', { count: 'exact', head: true })
       .eq('org_id', profile.org_id)
       .eq('status', 'ordered')
+
+    let resolvedPendingMaterialsCount = pendingMaterialsCount || 0
+    if (pendingMaterialsError && isMissingJobProductOrdersTable(pendingMaterialsError)) {
+      const { count: fallbackCount } = await supabase
+        .from('material_orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('org_id', profile.org_id)
+        .in('status', ['ordered', 'shipped'])
+      resolvedPendingMaterialsCount = fallbackCount || 0
+    } else if (pendingMaterialsError) {
+      throw pendingMaterialsError
+    }
 
     // Get outstanding payments (sum of remaining balances on active jobs)
     const { data: activeJobs } = await supabase
@@ -91,12 +107,25 @@ export async function GET() {
       .not('status', 'in', '("completed","cancelled")')
 
     // Get old pending material orders
-    const { data: oldOrders } = await supabase
+    const { data: oldOrders, error: oldOrdersError } = await supabase
       .from('job_product_orders')
       .select('job_id')
       .in('job_id', jobIds)
       .eq('status', 'ordered')
       .lt('created_at', threeDaysAgo.toISOString())
+
+    let resolvedOldOrders = oldOrders || []
+    if (oldOrdersError && isMissingJobProductOrdersTable(oldOrdersError)) {
+      const { data: fallbackOldOrders } = await supabase
+        .from('material_orders')
+        .select('job_id')
+        .in('job_id', jobIds)
+        .in('status', ['ordered', 'shipped'])
+        .lt('created_at', threeDaysAgo.toISOString())
+      resolvedOldOrders = fallbackOldOrders || []
+    } else if (oldOrdersError) {
+      throw oldOrdersError
+    }
 
     // Get payments for these jobs
     const { data: jobPayments } = await supabase
@@ -115,7 +144,7 @@ export async function GET() {
       workOrdersByJob[wo.job_id].push(wo)
     })
 
-    const oldOrdersByJob = new Set(oldOrders?.map(o => o.job_id) || [])
+    const oldOrdersByJob = new Set(resolvedOldOrders?.map(o => o.job_id) || [])
 
     const jobsNeedingAttention = (jobsWithIssues || [])
       .map(job => {
@@ -156,7 +185,7 @@ export async function GET() {
       .slice(0, 5)
 
     // Get recent material orders
-    const { data: recentOrders } = await supabase
+    const { data: recentOrders, error: recentOrdersError } = await supabase
       .from('job_product_orders')
       .select(`
         id,
@@ -172,19 +201,62 @@ export async function GET() {
       .order('created_at', { ascending: false })
       .limit(10)
 
-    const formattedRecentOrders = (recentOrders || []).map(order => {
-      const job = Array.isArray(order.job) ? order.job[0] : order.job
-      return {
+    let formattedRecentOrders: any[] = []
+    if (recentOrdersError && isMissingJobProductOrdersTable(recentOrdersError)) {
+      const { data: fallbackRecentOrders, error: fallbackRecentError } = await supabase
+        .from('material_orders')
+        .select(`
+          id,
+          job_id,
+          supplier,
+          items,
+          total_cost,
+          status,
+          notes,
+          created_at,
+          job:production_jobs(job_number)
+        `)
+        .eq('org_id', profile.org_id)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (fallbackRecentError) throw fallbackRecentError
+
+      const mappedOrders = mapMaterialOrdersRowsToUi(fallbackRecentOrders)
+      const jobById = new Map(
+        (fallbackRecentOrders || []).map((row: any) => {
+          const job = Array.isArray(row.job) ? row.job[0] : row.job
+          return [row.id, job]
+        })
+      )
+
+      formattedRecentOrders = mappedOrders.map((order: any) => ({
         id: order.id,
         job_id: order.job_id,
-        job_number: job?.job_number || 'Unknown',
+        job_number: jobById.get(order.id)?.job_number || 'Unknown',
         description: order.description,
         supplier: order.supplier,
         amount: parseFloat(order.amount) || 0,
         status: order.status,
         created_at: order.created_at,
-      }
-    })
+      }))
+    } else if (recentOrdersError) {
+      throw recentOrdersError
+    } else {
+      formattedRecentOrders = (recentOrders || []).map(order => {
+        const job = Array.isArray(order.job) ? order.job[0] : order.job
+        return {
+          id: order.id,
+          job_id: order.job_id,
+          job_number: job?.job_number || 'Unknown',
+          description: order.description,
+          supplier: order.supplier,
+          amount: parseFloat(order.amount) || 0,
+          status: order.status,
+          created_at: order.created_at,
+        }
+      })
+    }
 
     // Get open work orders
     const { data: openWOs } = await supabase
@@ -221,7 +293,7 @@ export async function GET() {
       stats: {
         activeJobs: activeJobsCount || 0,
         openWorkOrders: openWorkOrdersCount || 0,
-        pendingMaterials: pendingMaterialsCount || 0,
+        pendingMaterials: resolvedPendingMaterialsCount,
         outstandingPayments,
       },
       jobsNeedingAttention,

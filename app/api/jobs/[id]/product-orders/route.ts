@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
+import {
+  buildFallbackInsert,
+  isMissingJobProductOrdersTable,
+  mapMaterialOrdersRowsToUi,
+} from '@/lib/ops-product-orders'
 
 export async function GET(
   request: NextRequest,
@@ -30,15 +35,35 @@ export async function GET(
       .eq('job_id', jobId)
       .order('created_at', { ascending: false })
 
-    if (error) {
+    if (error && !isMissingJobProductOrdersTable(error)) {
       console.error('[Product Orders] Fetch error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    if (error && isMissingJobProductOrdersTable(error)) {
+      const { data: fallbackData, error: fallbackError } = await serviceSupabase
+        .from('material_orders')
+        .select('id, org_id, job_id, supplier, items, status, total_cost, notes, created_at')
+        .eq('job_id', jobId)
+        .order('created_at', { ascending: false })
+
+      if (fallbackError) {
+        console.error('[Product Orders] Fallback fetch error:', fallbackError)
+        return NextResponse.json({ error: fallbackError.message }, { status: 500 })
+      }
+
+      const mappedOrders = mapMaterialOrdersRowsToUi(fallbackData)
+      const total = mappedOrders
+        .filter(order => order.status !== 'returned')
+        .reduce((sum, order) => sum + Number(order.amount || 0), 0)
+
+      return NextResponse.json({ orders: mappedOrders, total })
     }
 
     // Calculate total (excluding returned orders)
     const total = (data || [])
       .filter(order => order.status !== 'returned')
-      .reduce((sum, order) => sum + parseFloat(order.amount || 0), 0)
+      .reduce((sum, order) => sum + Number(order.amount || 0), 0)
 
     return NextResponse.json({ orders: data || [], total })
   } catch (error: any) {
@@ -57,12 +82,13 @@ export async function POST(
     
     const body = await request.json()
     const { description, supplier, amount, status } = body
+    const numericAmount = Number(amount)
 
     if (!description?.trim()) {
       return NextResponse.json({ error: 'Description is required' }, { status: 400 })
     }
 
-    if (amount === undefined || amount === null || isNaN(parseFloat(amount))) {
+    if (amount === undefined || amount === null || Number.isNaN(numericAmount)) {
       return NextResponse.json({ error: 'Amount is required' }, { status: 400 })
     }
 
@@ -87,16 +113,42 @@ export async function POST(
         job_id: jobId,
         description: description.trim(),
         supplier: supplier?.trim() || null,
-        amount: parseFloat(amount),
+        amount: numericAmount,
         status: status || 'ordered',
         created_by: profile.id,
       })
       .select()
       .single()
 
-    if (error) {
+    if (error && !isMissingJobProductOrdersTable(error)) {
       console.error('[Product Orders] Insert error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    if (error && isMissingJobProductOrdersTable(error)) {
+      const fallbackPayload = buildFallbackInsert({
+        orgId: profile.org_id,
+        jobId,
+        description: description.trim(),
+        supplier,
+        amount: numericAmount,
+        status: status || 'ordered',
+        userId: profile.id,
+      })
+
+      const { data: fallbackData, error: fallbackError } = await serviceSupabase
+        .from('material_orders')
+        .insert(fallbackPayload)
+        .select('id, org_id, job_id, supplier, items, status, total_cost, notes, created_at')
+        .single()
+
+      if (fallbackError) {
+        console.error('[Product Orders] Fallback insert error:', fallbackError)
+        return NextResponse.json({ error: fallbackError.message }, { status: 500 })
+      }
+
+      const mapped = mapMaterialOrdersRowsToUi([fallbackData])[0]
+      return NextResponse.json(mapped)
     }
 
     return NextResponse.json(data)
