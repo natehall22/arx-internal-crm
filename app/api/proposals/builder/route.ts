@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
+const roundMoney = (value: number) => Math.round((Number(value) || 0) * 100) / 100
+
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
@@ -323,16 +325,16 @@ export async function POST(request: NextRequest) {
       opportunity_id: proposal.opportunity_id || null,
       title: proposal.title || 'Roofing Proposal',
       status: 'draft',
-      subtotal: proposal.subtotal || 0,
-      discount_amount: proposal.discount_amount || 0,
+      subtotal: roundMoney(proposal.subtotal || 0),
+      discount_amount: roundMoney(proposal.discount_amount || 0),
       discount_percent: proposal.discount_percent || 0,
       tax_rate: proposal.tax_rate || 0,
-      tax_amount: proposal.tax_amount || 0,
-      total: proposal.total || 0,
+      tax_amount: roundMoney(proposal.tax_amount || 0),
+      total: roundMoney(proposal.total || 0),
       financing_available: proposal.financing_available || false,
       financing_term_months: proposal.financing_term_months || null,
       financing_rate: proposal.financing_rate || null,
-      monthly_payment: proposal.monthly_payment || null,
+      monthly_payment: proposal.monthly_payment ? roundMoney(proposal.monthly_payment) : null,
       scope_of_work: proposal.scope_of_work || null,
       materials_description: proposal.materials_description || null,
       warranty_info: proposal.warranty_info || null,

@@ -931,37 +931,39 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Financials</h2>
-              <div className="space-y-3 text-sm sm:text-base">
-                <div className="flex justify-between">
-                  <span className="text-gray-900">Sale Amount</span>
-                  <span className="font-medium text-gray-900">
-                    {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-900">Labor Cost</span>
-                  <span className="font-medium text-gray-900">
-                    {job.labor_cost ? `$${job.labor_cost.toLocaleString()}` : '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-900">Material Cost</span>
-                  <span className="font-medium text-gray-900">
-                    {effectiveMaterialCost !== null ? `$${effectiveMaterialCost.toLocaleString()}` : '-'}
-                  </span>
-                </div>
-                {job.sale_amount && (job.labor_cost || effectiveMaterialCost) && (
-                  <div className="border-t pt-3 flex justify-between">
-                    <span className="text-gray-900">Gross Profit</span>
-                    <span className="font-bold text-green-600">
-                      ${grossProfit.toLocaleString()}
+            {userRole === 'admin' && (
+              <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Financials</h2>
+                <div className="space-y-3 text-sm sm:text-base">
+                  <div className="flex justify-between">
+                    <span className="text-gray-900">Sale Amount</span>
+                    <span className="font-medium text-gray-900">
+                      {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
                     </span>
                   </div>
-                )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-900">Labor Cost</span>
+                    <span className="font-medium text-gray-900">
+                      {job.labor_cost ? `$${job.labor_cost.toLocaleString()}` : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-900">Material Cost</span>
+                    <span className="font-medium text-gray-900">
+                      {effectiveMaterialCost !== null ? `$${effectiveMaterialCost.toLocaleString()}` : '-'}
+                    </span>
+                  </div>
+                  {job.sale_amount && (job.labor_cost || effectiveMaterialCost) && (
+                    <div className="border-t pt-3 flex justify-between">
+                      <span className="text-gray-900">Gross Profit</span>
+                      <span className="font-bold text-green-600">
+                        ${grossProfit.toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             <div id="payments-section">
               <JobPaymentsCard 

@@ -129,6 +129,27 @@ interface ProposalPDFProps {
   theme?: Theme
 }
 
+const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
+const fromCents = (cents: number) => cents / 100
+
+function getDisplayPricing(proposal: ProposalPDFData['proposal']) {
+  const subtotalCents = toCents(proposal.subtotal || 0)
+  let discountCents = proposal.discount_percent > 0
+    ? Math.round(subtotalCents * ((proposal.discount_percent || 0) / 100))
+    : toCents(proposal.discount_amount || 0)
+  discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
+  const afterDiscountCents = subtotalCents - discountCents
+  const taxCents = Math.round(afterDiscountCents * ((proposal.tax_rate || 0) / 100))
+  const totalCents = afterDiscountCents + taxCents
+
+  return {
+    subtotal: fromCents(subtotalCents),
+    discountAmount: fromCents(discountCents),
+    taxAmount: fromCents(taxCents),
+    total: fromCents(totalCents),
+  }
+}
+
 // ============================================================================
 // STYLE FACTORY
 // ============================================================================
@@ -752,6 +773,7 @@ const whyUsPoints = [
 export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
   const styles = createStyles(theme)
   const { proposal, lineItems, measurement, company, rep, financing, photos, inspectionNotes } = data
+  const displayPricing = getDisplayPricing(proposal)
 
   const hasPhotos = photos?.inspection && photos.inspection.length > 0
   const hasAdders = lineItems.filter(i => i.is_adder && i.show_to_customer).length > 0
@@ -1101,30 +1123,28 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           <View style={styles.pricingCard}>
             <View style={styles.pricingRow}>
               <Text style={styles.pricingLabel}>Subtotal</Text>
-              <Text style={styles.pricingValue}>{formatCurrency(proposal.subtotal)}</Text>
+              <Text style={styles.pricingValue}>{formatCurrency(displayPricing.subtotal)}</Text>
             </View>
 
-            {proposal.discount_amount > 0 && (
+            {displayPricing.discountAmount > 0 && (
               <View style={styles.pricingRow}>
                 <Text style={styles.pricingLabel}>Discount</Text>
                 <Text style={[styles.pricingValue, { color: '#22C55E' }]}>
-                  -{formatCurrency(proposal.discount_amount)}
+                  -{formatCurrency(displayPricing.discountAmount)}
                 </Text>
               </View>
             )}
 
-            {proposal.tax_amount > 0 && (
-              <View style={styles.pricingRow}>
-                <Text style={styles.pricingLabel}>Tax ({proposal.tax_rate}%)</Text>
-                <Text style={styles.pricingValue}>{formatCurrency(proposal.tax_amount)}</Text>
-              </View>
-            )}
+            <View style={styles.pricingRow}>
+              <Text style={styles.pricingLabel}>Tax ({proposal.tax_rate}%)</Text>
+              <Text style={styles.pricingValue}>{formatCurrency(displayPricing.taxAmount)}</Text>
+            </View>
 
             <View style={styles.pricingDivider} />
 
             <View style={styles.pricingTotal}>
               <Text style={styles.pricingTotalLabel}>Total Investment</Text>
-              <Text style={styles.pricingTotalValue}>{formatCurrency(proposal.total)}</Text>
+              <Text style={styles.pricingTotalValue}>{formatCurrency(displayPricing.total)}</Text>
             </View>
           </View>
 

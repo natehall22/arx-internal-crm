@@ -79,6 +79,9 @@ interface ProposalForm {
   roofing_type_id: string | null
 }
 
+const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
+const fromCents = (cents: number) => cents / 100
+
 const defaultForm: ProposalForm = {
   customer_name: '',
   customer_email: '',
@@ -445,23 +448,31 @@ export default function ProposalBuilderPage() {
   }
 
   const calculateTotals = () => {
-    // First calculate base subtotal (non-percentage items)
-    const baseSubtotal = lineItems
+    // First calculate base subtotal (non-percentage items) in cents for stable currency math.
+    const baseSubtotalCents = lineItems
       .filter(item => !isPercentageItem(item))
-      .reduce((sum, item) => sum + (item.line_total || 0), 0)
+      .reduce((sum, item) => sum + toCents(item.line_total || 0), 0)
     
-    // Then calculate percentage-based items as % of base subtotal
-    const percentageTotal = lineItems
+    // Then calculate percentage-based items as % of base subtotal (also in cents).
+    const percentageTotalCents = lineItems
       .filter(item => isPercentageItem(item))
-      .reduce((sum, item) => sum + (baseSubtotal * (item.unit_price / 100)), 0)
+      .reduce((sum, item) => sum + Math.round(baseSubtotalCents * ((item.unit_price || 0) / 100)), 0)
     
-    const subtotal = baseSubtotal + percentageTotal
-    const discountAmount = form.discount_percent > 0 
-      ? subtotal * (form.discount_percent / 100)
-      : (form.discount_amount || 0)
-    const afterDiscount = subtotal - discountAmount
-    const taxAmount = afterDiscount * ((form.tax_rate || 0) / 100)
-    const total = afterDiscount + taxAmount
+    const subtotalCents = baseSubtotalCents + percentageTotalCents
+    let discountCents = form.discount_percent > 0
+      ? Math.round(subtotalCents * ((form.discount_percent || 0) / 100))
+      : toCents(form.discount_amount || 0)
+    discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
+    const afterDiscountCents = subtotalCents - discountCents
+    const taxAmountCents = Math.round(afterDiscountCents * ((form.tax_rate || 0) / 100))
+    const totalCents = afterDiscountCents + taxAmountCents
+    const subtotal = fromCents(subtotalCents)
+    const baseSubtotal = fromCents(baseSubtotalCents)
+    const percentageTotal = fromCents(percentageTotalCents)
+    const discountAmount = fromCents(discountCents)
+    const afterDiscount = fromCents(afterDiscountCents)
+    const taxAmount = fromCents(taxAmountCents)
+    const total = fromCents(totalCents)
     const monthlyPayment = form.financing_available 
       ? calculateMonthlyPayment(total, form.financing_rate || 0, form.financing_term_months || 60)
       : 0
@@ -1469,7 +1480,7 @@ export default function ProposalBuilderPage() {
                   </div>
                   <div className="space-y-2">
                     <div className="flex justify-between text-gray-600">
-                      <span>Project Total</span>
+                      <span>Subtotal</span>
                       <span>${(totals.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </div>
                     {totals.discountAmount > 0 && (
@@ -1478,12 +1489,10 @@ export default function ProposalBuilderPage() {
                         <span>-${(totals.discountAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
                     )}
-                    {totals.taxAmount > 0 && (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Tax ({form.tax_rate}%)</span>
-                        <span>${(totals.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between text-gray-600">
+                      <span>Tax ({form.tax_rate}%)</span>
+                      <span>${(totals.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    </div>
                     <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
                       <span>Total Investment</span>
                       <span>${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>

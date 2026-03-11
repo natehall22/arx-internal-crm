@@ -214,7 +214,7 @@ export default function JobMaterialsCard({
 
           {onSaveLaborCost && (
             <div className="border rounded-lg p-3">
-              <p className="text-sm font-medium text-gray-900 mb-2">Subcontractor Labor Cost</p>
+              <p className="text-sm font-medium text-gray-900 mb-2">Labor Cost</p>
               <div className="flex gap-2">
                 <input
                   type="number"
@@ -233,7 +233,7 @@ export default function JobMaterialsCard({
                   {savingLaborCost ? 'Saving...' : 'Save Labor Cost'}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-2">Enter what you are paying the subcontractor for this job.</p>
+              <p className="text-xs text-gray-500 mt-2">Enter labor cost for this job.</p>
             </div>
           )}
         </div>

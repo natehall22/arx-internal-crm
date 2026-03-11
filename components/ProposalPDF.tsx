@@ -65,6 +65,27 @@ interface ProposalData {
   satelliteImageUrl?: string
 }
 
+const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
+const fromCents = (cents: number) => cents / 100
+
+function getDisplayPricing(proposal: ProposalData['proposal']) {
+  const subtotalCents = toCents(proposal.subtotal || 0)
+  let discountCents = proposal.discount_percent > 0
+    ? Math.round(subtotalCents * ((proposal.discount_percent || 0) / 100))
+    : toCents(proposal.discount_amount || 0)
+  discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
+  const afterDiscountCents = subtotalCents - discountCents
+  const taxCents = Math.round(afterDiscountCents * ((proposal.tax_rate || 0) / 100))
+  const totalCents = afterDiscountCents + taxCents
+
+  return {
+    subtotal: fromCents(subtotalCents),
+    discountAmount: fromCents(discountCents),
+    taxAmount: fromCents(taxCents),
+    total: fromCents(totalCents),
+  }
+}
+
 const styles = StyleSheet.create({
   page: {
     fontFamily: 'Helvetica',
@@ -473,6 +494,7 @@ const formatDate = (dateString: string) => {
 
 export const ProposalPDF = ({ data }: { data: ProposalData }) => {
   const { proposal, lineItems, measurement, company, rep, satelliteImageUrl } = data
+  const displayPricing = getDisplayPricing(proposal)
 
   return (
     <Document>
@@ -501,7 +523,7 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
           {/* Price Box */}
           <View style={styles.coverPrice}>
             <Text style={styles.coverPriceLabel}>Your Investment</Text>
-            <Text style={styles.coverPriceValue}>{formatCurrency(proposal.total)}</Text>
+            <Text style={styles.coverPriceValue}>{formatCurrency(displayPricing.total)}</Text>
           </View>
           
           {/* Date */}
@@ -638,23 +660,21 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
             <View style={styles.totalsBox}>
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Subtotal</Text>
-                <Text style={styles.totalValue}>{formatCurrency(proposal.subtotal)}</Text>
+                <Text style={styles.totalValue}>{formatCurrency(displayPricing.subtotal)}</Text>
               </View>
-              {proposal.discount_amount > 0 && (
+              {displayPricing.discountAmount > 0 && (
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>Discount</Text>
-                  <Text style={[styles.totalValue, { color: '#22c55e' }]}>-{formatCurrency(proposal.discount_amount)}</Text>
+                  <Text style={[styles.totalValue, { color: '#22c55e' }]}>-{formatCurrency(displayPricing.discountAmount)}</Text>
                 </View>
               )}
-              {proposal.tax_amount > 0 && (
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Tax ({proposal.tax_rate}%)</Text>
-                  <Text style={styles.totalValue}>{formatCurrency(proposal.tax_amount)}</Text>
-                </View>
-              )}
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Tax ({proposal.tax_rate}%)</Text>
+                <Text style={styles.totalValue}>{formatCurrency(displayPricing.taxAmount)}</Text>
+              </View>
               <View style={styles.grandTotalRow}>
                 <Text style={styles.grandTotalLabel}>Total Investment</Text>
-                <Text style={styles.grandTotalValue}>{formatCurrency(proposal.total)}</Text>
+                <Text style={styles.grandTotalValue}>{formatCurrency(displayPricing.total)}</Text>
               </View>
             </View>
           </View>

@@ -69,6 +69,27 @@ interface LineItem {
   show_to_customer?: boolean  // Whether this item should be shown on customer-facing proposal
 }
 
+const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
+const fromCents = (cents: number) => cents / 100
+
+function getDisplayPricing(proposal: Proposal) {
+  const subtotalCents = toCents(proposal.subtotal || 0)
+  let discountCents = proposal.discount_percent > 0
+    ? Math.round(subtotalCents * ((proposal.discount_percent || 0) / 100))
+    : toCents(proposal.discount_amount || 0)
+  discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
+  const afterDiscountCents = subtotalCents - discountCents
+  const taxCents = Math.round(afterDiscountCents * ((proposal.tax_rate || 0) / 100))
+  const totalCents = afterDiscountCents + taxCents
+
+  return {
+    subtotal: fromCents(subtotalCents),
+    discountAmount: fromCents(discountCents),
+    taxAmount: fromCents(taxCents),
+    total: fromCents(totalCents),
+  }
+}
+
 export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -530,6 +551,8 @@ export default function ProposalDetailPage() {
     )
   }
 
+  const displayPricing = getDisplayPricing(proposal)
+
   return (
     <div className="min-h-screen bg-gray-100">
       <Nav />
@@ -670,7 +693,7 @@ export default function ProposalDetailPage() {
                         </div>
                         <p className="text-xs text-blue-700">
                           Est. ${(() => {
-                            const principal = proposal.total
+                          const principal = displayPricing.total
                             const monthlyRate = financingInterestRate / 100 / 12
                             if (monthlyRate > 0) {
                               return (principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)).toFixed(2)
@@ -765,7 +788,7 @@ export default function ProposalDetailPage() {
               <div className="text-right">
                 <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Project Total</h3>
                 <p className="text-4xl font-bold" style={{ color: proposal.accent_color || '#4f46e5' }}>
-                  ${proposal.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  ${displayPricing.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </p>
                 {proposal.financing_available && proposal.monthly_payment && (
                   <p className="text-gray-900 mt-1">
@@ -1144,24 +1167,22 @@ export default function ProposalDetailPage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Investment Summary</h3>
               <div className="space-y-2">
                 <div className="flex justify-between text-gray-900">
-                  <span>Project Total</span>
-                  <span>${proposal.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>Subtotal</span>
+                  <span>${displayPricing.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
-                {proposal.discount_amount > 0 && (
+                {displayPricing.discountAmount > 0 && (
                   <div className="flex justify-between text-green-700">
                     <span>Discount</span>
-                    <span>-${proposal.discount_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>-${displayPricing.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
-                {proposal.tax_amount > 0 && (
-                  <div className="flex justify-between text-gray-900">
-                    <span>Tax ({proposal.tax_rate}%)</span>
-                    <span>${proposal.tax_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-gray-900">
+                  <span>Tax ({proposal.tax_rate}%)</span>
+                  <span>${displayPricing.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
                 <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
                   <span>Total Investment</span>
-                  <span>${proposal.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>${displayPricing.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>
