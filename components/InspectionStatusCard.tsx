@@ -19,6 +19,7 @@ interface InspectionStatusCardProps {
     followUpDate?: string
   }) => Promise<void>
   onReschedule: (appointmentId: string) => void
+  onFillLater?: () => Promise<void> | void
 }
 
 const outcomeOptions: { id: InspectionOutcome; label: string; description: string; color: string; icon: string; needsFollowUp?: boolean }[] = [
@@ -86,12 +87,14 @@ const outcomeOptions: { id: InspectionOutcome; label: string; description: strin
 export default function InspectionStatusCard({ 
   appointment, 
   onComplete,
-  onReschedule 
+  onReschedule,
+  onFillLater,
 }: InspectionStatusCardProps) {
   const [selectedOutcome, setSelectedOutcome] = useState<InspectionOutcome | null>(null)
   const [notes, setNotes] = useState('')
   const [setterFeedback, setSetterFeedback] = useState('')
   const [saving, setSaving] = useState(false)
+  const [snoozing, setSnoozing] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [scheduleFollowUp, setScheduleFollowUp] = useState(false)
@@ -137,6 +140,20 @@ export default function InspectionStatusCard({
       setError('Failed to save status update')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleFillLater = async () => {
+    if (!onFillLater || completed) return
+
+    setSnoozing(true)
+    setError(null)
+    try {
+      await onFillLater()
+    } catch (err) {
+      setError('Failed to snooze this reminder')
+    } finally {
+      setSnoozing(false)
     }
   }
 
@@ -327,8 +344,16 @@ export default function InspectionStatusCard({
         {/* Actions - Fixed at bottom */}
         <div className="px-6 py-4 bg-gray-50 border-t flex-shrink-0 pb-safe">
           <button
+            type="button"
+            onClick={handleFillLater}
+            disabled={saving || snoozing || completed || !onFillLater}
+            className="w-full mb-2 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {snoozing ? 'Snoozing...' : 'Fill Later'}
+          </button>
+          <button
             onClick={handleSubmit}
-            disabled={!selectedOutcome || saving || completed}
+            disabled={!selectedOutcome || saving || snoozing || completed}
             className="w-full py-4 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
           >
             {saving

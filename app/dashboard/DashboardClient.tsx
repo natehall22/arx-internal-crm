@@ -276,6 +276,30 @@ export default function DashboardClient({
     window.location.href = `/schedule?reschedule=${appointmentId}`
   }
 
+  const handleFillLater = async () => {
+    if (!activePrompt?.id) return
+
+    try {
+      const res = await fetch('/api/inspections/dismiss-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt_id: activePrompt.id }),
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to snooze prompt')
+      }
+
+      const remainingPrompts = promptQueue.filter((p) => p.id !== activePrompt.id)
+      setPromptQueue(remainingPrompts)
+      setActivePrompt(remainingPrompts.length > 0 ? remainingPrompts[0] : null)
+    } catch (error) {
+      console.error('Failed to snooze inspection prompt:', error)
+      throw error
+    }
+  }
+
   const ProgressBar = ({ 
     label, 
     current, 
@@ -357,6 +381,7 @@ export default function DashboardClient({
           }}
           onComplete={handleStatusComplete}
           onReschedule={handleReschedule}
+          onFillLater={handleFillLater}
         />
       )}
 
