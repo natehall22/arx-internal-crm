@@ -84,3 +84,56 @@ export function buildFallbackUpdate(existingNotes: string | null | undefined, st
     notes: normalizeNotesForStatus(existingNotes, status),
   }
 }
+
+export async function computeMaterialCostTotalForJob(
+  serviceSupabase: any,
+  jobId: string
+) {
+  const { data, error } = await serviceSupabase
+    .from('job_product_orders')
+    .select('amount, status')
+    .eq('job_id', jobId)
+
+  if (!error) {
+    return (data || [])
+      .filter((row: any) => row.status !== 'returned')
+      .reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)
+  }
+
+  if (!isMissingJobProductOrdersTable(error)) {
+    throw error
+  }
+
+  const { data: fallbackData, error: fallbackError } = await serviceSupabase
+    .from('material_orders')
+    .select('total_cost, status, notes, items, supplier, org_id, job_id, id, created_at')
+    .eq('job_id', jobId)
+
+  if (fallbackError) {
+    throw fallbackError
+  }
+
+  const mapped = mapMaterialOrdersRowsToUi(fallbackData)
+  return mapped
+    .filter((row: any) => row.status !== 'returned')
+    .reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)
+}
+
+export async function syncJobMaterialCost(
+  serviceSupabase: any,
+  orgId: string,
+  jobId: string
+) {
+  const total = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
+  const { error } = await serviceSupabase
+    .from('production_jobs')
+    .update({ material_cost: total })
+    .eq('id', jobId)
+    .eq('org_id', orgId)
+
+  if (error) {
+    throw error
+  }
+
+  return total
+}

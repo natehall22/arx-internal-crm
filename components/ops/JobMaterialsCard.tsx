@@ -25,6 +25,7 @@ interface JobMaterialsCardProps {
   materialsOrderedAt?: string | null
   materialsEta?: string | null
   materialsNotes?: string | null
+  onTotalChange?: (total: number) => void
 }
 
 const statusConfig = {
@@ -55,6 +56,7 @@ export default function JobMaterialsCard({
   materialsOrderedAt,
   materialsEta,
   materialsNotes,
+  onTotalChange,
 }: JobMaterialsCardProps) {
   const [orders, setOrders] = useState<ProductOrder[]>([])
   const [total, setTotal] = useState(0)
@@ -84,6 +86,7 @@ export default function JobMaterialsCard({
         const data = await response.json()
         setOrders(data.orders || [])
         setTotal(data.total || 0)
+        onTotalChange?.(data.total || 0)
       }
     } catch (error) {
       console.error('Error loading orders:', error)

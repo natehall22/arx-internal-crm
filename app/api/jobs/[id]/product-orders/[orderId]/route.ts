@@ -5,6 +5,7 @@ import {
   buildFallbackUpdate,
   isMissingJobProductOrdersTable,
   mapMaterialOrdersRowsToUi,
+  syncJobMaterialCost,
 } from '@/lib/ops-product-orders'
 
 export async function PATCH(
@@ -69,6 +70,11 @@ export async function PATCH(
       }
 
       const mapped = mapMaterialOrdersRowsToUi([fallbackUpdated])[0]
+      try {
+        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+      } catch (syncError) {
+        console.error('[Product Orders] Material cost sync error:', syncError)
+      }
       return NextResponse.json(mapped)
     }
 
@@ -88,6 +94,11 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    try {
+      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+    } catch (syncError) {
+      console.error('[Product Orders] Material cost sync error:', syncError)
+    }
     return NextResponse.json(data)
   } catch (error: any) {
     console.error('[Product Orders] Error:', error)
@@ -146,6 +157,11 @@ export async function DELETE(
         return NextResponse.json({ error: fallbackDeleteError.message }, { status: 500 })
       }
 
+      try {
+        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+      } catch (syncError) {
+        console.error('[Product Orders] Material cost sync error:', syncError)
+      }
       return NextResponse.json({ success: true })
     }
 
@@ -163,6 +179,11 @@ export async function DELETE(
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    try {
+      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+    } catch (syncError) {
+      console.error('[Product Orders] Material cost sync error:', syncError)
+    }
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('[Product Orders] Error:', error)

@@ -5,6 +5,7 @@ import {
   buildFallbackInsert,
   isMissingJobProductOrdersTable,
   mapMaterialOrdersRowsToUi,
+  syncJobMaterialCost,
 } from '@/lib/ops-product-orders'
 
 export async function GET(
@@ -148,9 +149,19 @@ export async function POST(
       }
 
       const mapped = mapMaterialOrdersRowsToUi([fallbackData])[0]
+      try {
+        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+      } catch (syncError) {
+        console.error('[Product Orders] Material cost sync error:', syncError)
+      }
       return NextResponse.json(mapped)
     }
 
+    try {
+      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+    } catch (syncError) {
+      console.error('[Product Orders] Material cost sync error:', syncError)
+    }
     return NextResponse.json(data)
   } catch (error: any) {
     console.error('[Product Orders] Error:', error)

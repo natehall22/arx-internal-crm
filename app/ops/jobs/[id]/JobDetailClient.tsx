@@ -116,6 +116,7 @@ interface OrgUser {
 export default function JobDetailClient({ initialJob, crews, subs, userRole }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
+  const [materialOrdersTotal, setMaterialOrdersTotal] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [savingLaborCost, setSavingLaborCost] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
@@ -148,6 +149,23 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
       }
     }
     loadPayments()
+  }, [job.id])
+
+  useEffect(() => {
+    const loadMaterialOrdersTotal = async () => {
+      try {
+        const response = await fetch(`/api/jobs/${job.id}/product-orders`)
+        if (!response.ok) return
+        const data = await response.json()
+        if (typeof data?.total === 'number') {
+          setMaterialOrdersTotal(data.total)
+        }
+      } catch (error) {
+        console.error('Error loading material totals:', error)
+      }
+    }
+
+    loadMaterialOrdersTotal()
   }, [job.id])
 
   // If a completed job is fully paid, auto-transition to "collected"
@@ -497,6 +515,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
 
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
+  const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
+  const grossProfit = (job.sale_amount || 0) - (job.labor_cost || 0) - (effectiveMaterialCost || 0)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -727,6 +747,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 materialsOrderedAt={job.materials_ordered_at}
                 materialsEta={job.materials_eta}
                 materialsNotes={job.materials_notes}
+                onTotalChange={setMaterialOrdersTotal}
               />
             </div>
 
@@ -928,14 +949,14 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 <div className="flex justify-between">
                   <span className="text-gray-900">Material Cost</span>
                   <span className="font-medium text-gray-900">
-                    {job.material_cost ? `$${job.material_cost.toLocaleString()}` : '-'}
+                    {effectiveMaterialCost !== null ? `$${effectiveMaterialCost.toLocaleString()}` : '-'}
                   </span>
                 </div>
-                {job.sale_amount && (job.labor_cost || job.material_cost) && (
+                {job.sale_amount && (job.labor_cost || effectiveMaterialCost) && (
                   <div className="border-t pt-3 flex justify-between">
                     <span className="text-gray-900">Gross Profit</span>
                     <span className="font-bold text-green-600">
-                      ${(job.sale_amount - (job.labor_cost || 0) - (job.material_cost || 0)).toLocaleString()}
+                      ${grossProfit.toLocaleString()}
                     </span>
                   </div>
                 )}
