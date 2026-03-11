@@ -12,8 +12,8 @@ export async function GET() {
 
     const supabase = createServiceClient()
 
-    // Get pending feedback prompts that are PAST DUE (prompt_at is in the past)
-    // This means the appointment has already happened and feedback is overdue
+    // Get all unresolved feedback prompts.
+    // Include dismissed/snoozed prompts so "Later" still appears as not completed in admin.
     const { data: pending, error: pendingError } = await supabase
       .from('pending_status_prompts')
       .select(`
@@ -26,8 +26,6 @@ export async function GET() {
       `)
       .eq('org_id', profile.org_id)
       .eq('completed', false)
-      .eq('dismissed', false)
-      .lte('prompt_at', new Date().toISOString())
       .order('prompt_at', { ascending: true })
 
     if (pendingError) {

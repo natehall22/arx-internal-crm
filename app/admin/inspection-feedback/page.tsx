@@ -218,7 +218,7 @@ export default function InspectionFeedbackAdmin() {
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-amber-600 font-medium mb-2">
-                      Waiting since {formatDate(item.prompt_at)}
+                      {item.dismissed ? 'Snoozed by rep' : `Waiting since ${formatDate(item.prompt_at)}`}
                     </div>
                     <button
                       onClick={() => resendPrompt(item.id)}
