@@ -522,9 +522,24 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const saleAmount = job.sale_amount || 0
   const laborCost = job.labor_cost || 0
   const materialCost = effectiveMaterialCost || 0
-  const commission = saleAmount * COMMISSION_RATE
-  const profit = saleAmount - laborCost - materialCost - commission
-  const profitPercent = saleAmount > 0 ? ((profit / saleAmount) * 100).toFixed(1) : '0.0'
+  const toCents = (value: number) => Math.round(value * 100)
+  const formatCents = (valueInCents: number) =>
+    `$${(valueInCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const saleAmountCents = toCents(saleAmount)
+  const laborCostCents = toCents(laborCost)
+  const materialCostCents = toCents(materialCost)
+  const commissionCents = Math.round(saleAmountCents * COMMISSION_RATE)
+  const profitCents = saleAmountCents - laborCostCents - materialCostCents - commissionCents
+  const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
+
+  const handleAttachReceiptInvoiceShortcut = () => {
+    const workspaceEl = document.getElementById('job-files-workspace-section')
+    if (workspaceEl) {
+      workspaceEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    window.dispatchEvent(new CustomEvent('job-files-open-cost-attachment'))
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -756,10 +771,13 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                 materialsEta={job.materials_eta}
                 materialsNotes={job.materials_notes}
                 onTotalChange={setMaterialOrdersTotal}
+                onAttachReceiptInvoice={handleAttachReceiptInvoiceShortcut}
               />
             </div>
 
-            <JobFileWorkspaceCard jobId={job.id} userRole={userRole} />
+            <div id="job-files-workspace-section">
+              <JobFileWorkspaceCard jobId={job.id} userRole={userRole} />
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
@@ -948,31 +966,31 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
                   <div className="flex justify-between">
                     <span className="text-gray-900">Sale Amount</span>
                     <span className="font-medium text-gray-900">
-                      {job.sale_amount !== null ? `$${saleAmount.toLocaleString()}` : '-'}
+                      {job.sale_amount !== null ? formatCents(saleAmountCents) : '-'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-900">Sales Commission (18%)</span>
                     <span className="font-medium text-gray-900">
-                      {job.sale_amount !== null ? `$${commission.toLocaleString()}` : '-'}
+                      {job.sale_amount !== null ? formatCents(commissionCents) : '-'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-900">Labor Cost</span>
                     <span className="font-medium text-gray-900">
-                      {job.labor_cost !== null ? `$${laborCost.toLocaleString()}` : '-'}
+                      {job.labor_cost !== null ? formatCents(laborCostCents) : '-'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-900">Material Cost</span>
                     <span className="font-medium text-gray-900">
-                      {effectiveMaterialCost !== null ? `$${materialCost.toLocaleString()}` : '-'}
+                      {effectiveMaterialCost !== null ? formatCents(materialCostCents) : '-'}
                     </span>
                   </div>
                   <div className="border-t pt-3 flex justify-between">
                     <span className="text-gray-900">Profit</span>
                     <span className={`font-bold ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
-                      {job.sale_amount !== null ? `$${profit.toLocaleString()}` : '-'}
+                      {job.sale_amount !== null ? formatCents(profitCents) : '-'}
                     </span>
                   </div>
                   <div className="flex justify-between">

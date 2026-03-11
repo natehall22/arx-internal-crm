@@ -194,6 +194,18 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, supabase])
 
+  useEffect(() => {
+    const openCostAttachmentPicker = () => {
+      if (tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+      costAttachmentInputRef.current?.click()
+    }
+
+    window.addEventListener('job-files-open-cost-attachment', openCostAttachmentPicker)
+    return () => {
+      window.removeEventListener('job-files-open-cost-attachment', openCostAttachmentPicker)
+    }
+  }, [tableUnavailable, uploadingCostAttachment, costLines.length])
+
   const handlePhotoSelected = async (file?: File | null) => {
     if (!file) return
     setUploadingPhoto(true)
