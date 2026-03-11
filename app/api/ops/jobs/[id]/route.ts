@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 
+function mapJobStatusToProjectStatus(jobStatus: string) {
+  if (jobStatus === 'collected') return 'collected'
+  if (jobStatus === 'complete') return 'complete'
+  if (jobStatus === 'on_hold') return 'on_hold'
+  return 'in_progress'
+}
+
 // PATCH - Update a production job
 export async function PATCH(
   request: Request,
@@ -29,7 +36,7 @@ export async function PATCH(
     // Verify job exists and belongs to user's org
     const { data: existingJob, error: fetchError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id')
+      .select('id, org_id, project_id')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -52,6 +59,20 @@ export async function PATCH(
     if (updateError) {
       console.error('Error updating job:', updateError)
       return NextResponse.json({ error: 'Failed to update job' }, { status: 500 })
+    }
+
+    // Keep linked project status aligned with job lifecycle status.
+    if (updatedJob?.project_id && updatedJob?.status) {
+      const mappedProjectStatus = mapJobStatusToProjectStatus(updatedJob.status)
+      const { error: projectStatusError } = await adminClient
+        .from('projects')
+        .update({ status: mappedProjectStatus })
+        .eq('id', updatedJob.project_id)
+        .eq('org_id', profile.org_id)
+
+      if (projectStatusError) {
+        console.error('Error syncing project status from job:', projectStatusError)
+      }
     }
 
     return NextResponse.json({ success: true, job: updatedJob })

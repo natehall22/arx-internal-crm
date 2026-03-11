@@ -3,13 +3,36 @@ import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 
+function mapJobStatusToProjectStatus(jobStatus: string) {
+  if (jobStatus === 'collected') return 'collected'
+  if (jobStatus === 'complete') return 'complete'
+  if (jobStatus === 'on_hold') return 'on hold'
+  return 'in progress'
+}
+
+function resolveDisplayStatus(project: any) {
+  const jobs = Array.isArray(project.production_jobs) ? project.production_jobs : []
+  if (jobs.length > 0 && jobs[0]?.status) {
+    return mapJobStatusToProjectStatus(jobs[0].status)
+  }
+  return String(project.status || 'open').replace('_', ' ')
+}
+
+function statusBadgeClass(status: string) {
+  if (status === 'collected') return 'bg-gray-100 text-gray-800'
+  if (status === 'complete') return 'bg-green-100 text-green-800'
+  if (status === 'on hold') return 'bg-orange-100 text-orange-800'
+  if (status === 'in progress') return 'bg-blue-100 text-blue-800'
+  return 'bg-blue-100 text-blue-800'
+}
+
 export default async function ProjectsPage() {
   const { profile } = await requireAuth()
   const supabase = createClient()
 
   let projectsQuery = supabase
     .from('projects')
-    .select('*, customers(name), leads(homeowner_name)')
+    .select('*, customers(name), leads(homeowner_name), production_jobs(status, updated_at)')
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
@@ -51,7 +74,9 @@ export default async function ProjectsPage() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {projects && projects.length > 0 ? (
-                projects.map((project: any) => (
+                projects.map((project: any) => {
+                  const displayStatus = resolveDisplayStatus(project)
+                  return (
                   <tr key={project.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">
@@ -67,8 +92,8 @@ export default async function ProjectsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 capitalize">
-                        {project.status.replace('_', ' ')}
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${statusBadgeClass(displayStatus)}`}>
+                        {displayStatus}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -80,7 +105,8 @@ export default async function ProjectsPage() {
                       </Link>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               ) : (
                 <tr>
                   <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
