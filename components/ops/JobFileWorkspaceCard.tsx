@@ -82,8 +82,8 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
   const [documentRole, setDocumentRole] = useState('')
   const [documentTitle, setDocumentTitle] = useState('')
   const [documentDescription, setDocumentDescription] = useState('')
+  const [pendingDocumentFile, setPendingDocumentFile] = useState<File | null>(null)
   const [selectedCostLineId, setSelectedCostLineId] = useState('')
-  const [replaceVersionNote, setReplaceVersionNote] = useState('')
   const [statusMessage, setStatusMessage] = useState<StatusMessage>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const documentInputRef = useRef<HTMLInputElement>(null)
@@ -226,8 +226,15 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
     }
   }
 
-  const handleDocumentSelected = async (file?: File | null) => {
+  const handleDocumentSelected = (file?: File | null) => {
     if (!file) return
+    setPendingDocumentFile(file)
+    setStatusMessage(null)
+    if (documentInputRef.current) documentInputRef.current.value = ''
+  }
+
+  const handleDocumentUpload = async () => {
+    if (!pendingDocumentFile) return
     setUploadingDocument(true)
     setStatusMessage(null)
     try {
@@ -236,7 +243,7 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
       if (documentRole) formData.append('document_role', documentRole)
       if (documentTitle) formData.append('title', documentTitle)
       if (documentDescription) formData.append('description', documentDescription)
-      formData.append('file', file)
+      formData.append('file', pendingDocumentFile)
 
       const response = await fetch(`/api/ops/jobs/${jobId}/documents`, {
         method: 'POST',
@@ -247,6 +254,9 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
 
       setDocumentTitle('')
       setDocumentDescription('')
+      setDocumentRole('')
+      setDocumentCategory('misc')
+      setPendingDocumentFile(null)
       setStatusMessage({
         type: 'success',
         text: 'Document uploaded successfully.',
@@ -259,7 +269,6 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
       })
     } finally {
       setUploadingDocument(false)
-      if (documentInputRef.current) documentInputRef.current.value = ''
     }
   }
 
@@ -302,7 +311,6 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
     try {
       const formData = new FormData()
       formData.append('file', file)
-      if (replaceVersionNote.trim()) formData.append('version_note', replaceVersionNote.trim())
 
       const response = await fetch(`/api/ops/jobs/${jobId}/documents/${documentId}/replace`, {
         method: 'POST',
@@ -311,7 +319,6 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to replace document')
 
-      setReplaceVersionNote('')
       setStatusMessage({
         type: 'success',
         text: 'New document version uploaded. Previous version is preserved in history.',
@@ -445,64 +452,85 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
               disabled={uploadingDocument || tableUnavailable}
               className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
             >
-              {uploadingDocument ? 'Uploading...' : 'Add Document'}
+              Upload File
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
-            <input
-              type="text"
-              value={documentTitle}
-              onChange={(e) => setDocumentTitle(e.target.value)}
-              placeholder="Title (optional)"
-              className="text-sm border rounded-lg px-2 py-2 text-gray-900"
-            />
-            <select
-              value={documentCategory}
-              onChange={(e) => setDocumentCategory(e.target.value)}
-              className="text-sm border rounded-lg px-2 py-2 text-gray-900"
-            >
-              <option value="misc">Misc</option>
-              <option value="contract">Contract</option>
-              <option value="change_order">Change Order</option>
-              <option value="permit">Permit</option>
-              <option value="invoice">Invoice</option>
-              <option value="warranty">Warranty</option>
-            </select>
-            <select
-              value={documentRole}
-              onChange={(e) => setDocumentRole(e.target.value)}
-              className="text-sm border rounded-lg px-2 py-2 text-gray-900"
-            >
-              <option value="">No linked role</option>
-              <option value="draft">Draft</option>
-              <option value="signed_executed">Signed / Executed</option>
-              <option value="supporting_attachment">Supporting Attachment</option>
-              <option value="customer_copy">Customer Copy</option>
-              <option value="internal_copy">Internal Copy</option>
-            </select>
-            <input
-              type="text"
-              value={documentDescription}
-              onChange={(e) => setDocumentDescription(e.target.value)}
-              placeholder="Description (optional)"
-              className="text-sm border rounded-lg px-2 py-2 text-gray-900"
-            />
-            <input
-              ref={documentInputRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => handleDocumentSelected(e.target.files?.[0])}
-            />
-          </div>
-          <div className="mb-2">
-            <input
-              type="text"
-              value={replaceVersionNote}
-              onChange={(e) => setReplaceVersionNote(e.target.value)}
-              placeholder="Version note (optional, used when replacing a document)"
-              className="w-full sm:w-1/2 text-sm border rounded-lg px-2 py-2 text-gray-900"
-            />
-          </div>
+          <input
+            ref={documentInputRef}
+            type="file"
+            className="hidden"
+            onChange={(e) => handleDocumentSelected(e.target.files?.[0])}
+          />
+          {pendingDocumentFile && (
+            <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <p className="text-sm text-gray-700 mb-2">
+                Selected file: <span className="font-medium">{pendingDocumentFile.name}</span>
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-2">
+                <input
+                  type="text"
+                  value={documentTitle}
+                  onChange={(e) => setDocumentTitle(e.target.value)}
+                  placeholder="Title (optional)"
+                  className="text-sm border rounded-lg px-2 py-2 text-gray-900"
+                />
+                <select
+                  value={documentCategory}
+                  onChange={(e) => setDocumentCategory(e.target.value)}
+                  className="text-sm border rounded-lg px-2 py-2 text-gray-900"
+                >
+                  <option value="misc">Misc</option>
+                  <option value="contract">Contract</option>
+                  <option value="change_order">Change Order</option>
+                  <option value="permit">Permit</option>
+                  <option value="invoice">Invoice</option>
+                  <option value="warranty">Warranty</option>
+                </select>
+                <select
+                  value={documentRole}
+                  onChange={(e) => setDocumentRole(e.target.value)}
+                  className="text-sm border rounded-lg px-2 py-2 text-gray-900"
+                >
+                  <option value="">No linked role</option>
+                  <option value="draft">Draft</option>
+                  <option value="signed_executed">Signed / Executed</option>
+                  <option value="supporting_attachment">Supporting Attachment</option>
+                  <option value="customer_copy">Customer Copy</option>
+                  <option value="internal_copy">Internal Copy</option>
+                </select>
+                <input
+                  type="text"
+                  value={documentDescription}
+                  onChange={(e) => setDocumentDescription(e.target.value)}
+                  placeholder="Description (optional)"
+                  className="text-sm border rounded-lg px-2 py-2 text-gray-900"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDocumentUpload}
+                  disabled={uploadingDocument || tableUnavailable}
+                  className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                >
+                  {uploadingDocument ? 'Uploading...' : 'Save Document'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingDocumentFile(null)}
+                  disabled={uploadingDocument}
+                  className="text-sm px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+          {!pendingDocumentFile && (
+            <div className="mb-3 rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-600">
+              Choose a document file first, then add optional details before saving.
+            </div>
+          )}
           <p className="text-xs text-gray-500 mb-3">
             Documents are versioned. Replacing a document keeps prior versions in history and never overwrites files.
           </p>
@@ -588,7 +616,7 @@ export default function JobFileWorkspaceCard({ jobId, userRole }: JobFileWorkspa
                 disabled={uploadingCostAttachment || costLines.length === 0 || tableUnavailable}
                 className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
-                {uploadingCostAttachment ? 'Uploading...' : 'Add Cost Line Attachment'}
+                {uploadingCostAttachment ? 'Uploading...' : 'Attach Receipt / Invoice'}
               </button>
               <input
                 ref={costAttachmentInputRef}

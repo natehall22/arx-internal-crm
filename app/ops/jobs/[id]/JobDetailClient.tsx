@@ -517,7 +517,14 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
   const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
-  const grossProfit = (job.sale_amount || 0) - (job.labor_cost || 0) - (effectiveMaterialCost || 0)
+  const canViewFinancials = userRole === 'admin' || userRole === 'owner' || userRole === 'operations'
+  const COMMISSION_RATE = 0.18
+  const saleAmount = job.sale_amount || 0
+  const laborCost = job.labor_cost || 0
+  const materialCost = effectiveMaterialCost || 0
+  const commission = saleAmount * COMMISSION_RATE
+  const profit = saleAmount - laborCost - materialCost - commission
+  const profitPercent = saleAmount > 0 ? ((profit / saleAmount) * 100).toFixed(1) : '0.0'
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -934,36 +941,46 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               )}
             </div>
 
-            {userRole === 'admin' && (
+            {canViewFinancials && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Financials</h2>
                 <div className="space-y-3 text-sm sm:text-base">
                   <div className="flex justify-between">
                     <span className="text-gray-900">Sale Amount</span>
                     <span className="font-medium text-gray-900">
-                      {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
+                      {job.sale_amount !== null ? `$${saleAmount.toLocaleString()}` : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-900">Sales Commission (18%)</span>
+                    <span className="font-medium text-gray-900">
+                      {job.sale_amount !== null ? `$${commission.toLocaleString()}` : '-'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-900">Labor Cost</span>
                     <span className="font-medium text-gray-900">
-                      {job.labor_cost ? `$${job.labor_cost.toLocaleString()}` : '-'}
+                      {job.labor_cost !== null ? `$${laborCost.toLocaleString()}` : '-'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-900">Material Cost</span>
                     <span className="font-medium text-gray-900">
-                      {effectiveMaterialCost !== null ? `$${effectiveMaterialCost.toLocaleString()}` : '-'}
+                      {effectiveMaterialCost !== null ? `$${materialCost.toLocaleString()}` : '-'}
                     </span>
                   </div>
-                  {job.sale_amount && (job.labor_cost || effectiveMaterialCost) && (
-                    <div className="border-t pt-3 flex justify-between">
-                      <span className="text-gray-900">Gross Profit</span>
-                      <span className="font-bold text-green-600">
-                        ${grossProfit.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
+                  <div className="border-t pt-3 flex justify-between">
+                    <span className="text-gray-900">Profit</span>
+                    <span className={`font-bold ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
+                      {job.sale_amount !== null ? `$${profit.toLocaleString()}` : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-900">Profit %</span>
+                    <span className="font-bold text-gray-900">
+                      {job.sale_amount !== null ? `${profitPercent}%` : '-'}
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
