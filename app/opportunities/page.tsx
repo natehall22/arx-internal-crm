@@ -205,8 +205,61 @@ export default function OpportunitiesPage() {
           {loading ? (
             <div className="p-8 text-center text-gray-500">Loading opportunities...</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
+            <>
+              {/* Mobile cards */}
+              <div className="md:hidden divide-y divide-gray-200">
+                {filteredOpportunities.length > 0 ? (
+                  filteredOpportunities.map((opportunity) => {
+                    const outcomeInfo = opportunity.inspection_outcome
+                      ? inspectionOutcomeLabels[opportunity.inspection_outcome]
+                      : null
+                    return (
+                      <div key={opportunity.id} className="p-4">
+                        <div className="text-sm font-semibold text-gray-900">
+                          {opportunity.leads?.homeowner_name || opportunity.customers?.name || 'N/A'}
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1 break-words">{opportunity.address_text || 'N/A'}</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
+                            {opportunity.project_type}
+                          </span>
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
+                            statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {opportunity.status.replace(/_/g, ' ')}
+                          </span>
+                          {outcomeInfo ? (
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${outcomeInfo.color}`}>
+                              {outcomeInfo.label}
+                            </span>
+                          ) : (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600">
+                              No Inspection
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">Owner: {opportunity.users?.full_name || 'Unassigned'}</div>
+                        <div className="mt-3">
+                          <Link
+                            href={`/opportunities/${opportunity.id}`}
+                            className="inline-flex min-h-[40px] items-center px-3 py-2 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="px-6 py-8 text-center text-gray-500">
+                    {hasActiveFilters ? 'No opportunities match your filters' : 'No opportunities found'}
+                  </div>
+                )}
+              </div>
+
+              {/* Desktop/tablet table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full min-w-[980px] divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -227,7 +280,7 @@ export default function OpportunitiesPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Owner
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="sticky right-0 z-10 bg-gray-50 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -276,10 +329,10 @@ export default function OpportunitiesPage() {
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {opportunity.users?.full_name || 'Unassigned'}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <td className="sticky right-0 bg-white px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <Link
                               href={`/opportunities/${opportunity.id}`}
-                              className="text-indigo-600 hover:text-indigo-900"
+                              className="inline-flex min-h-[36px] items-center px-2 py-1 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900"
                             >
                               View
                             </Link>
@@ -296,7 +349,8 @@ export default function OpportunitiesPage() {
                   )}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </div>
