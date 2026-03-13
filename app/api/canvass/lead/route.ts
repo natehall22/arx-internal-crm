@@ -871,14 +871,16 @@ export async function POST(request: Request) {
               from: 'info@arxroofing.com',
               to: closerProfile.email,
               subject: 'You were assigned an inspection',
-              text: `Hi ${closerName},\n\nYou were just assigned an inspection.\n\nAddress: ${leadRow.address_text || 'TBD'}\nScheduled: ${scheduledTime}\nSet by: ${setterName}\n\nOpen in CRM: ${recordUrl}`,
+              text: `Hi ${closerName},\n\nYou were just assigned an inspection.\n\nLead Name: ${leadRow.homeowner_name || 'Unknown'}\nAddress: ${leadRow.address_text || 'TBD'}\nPhone: ${leadRow.phone || 'N/A'}\nScheduled: ${scheduledTime}\nSet by: ${setterName}\n\nOpen in CRM: ${recordUrl}`,
               html: `
                 <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
                   <h2 style="margin: 0 0 12px; color: #111827;">You were assigned an inspection</h2>
                   <p style="color: #374151;">Hi ${closerName},</p>
                   <p style="color: #374151;">You were just assigned an inspection.</p>
                   <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+                    <tr><td style="padding: 6px 0; color: #6B7280; width: 120px;">Lead Name:</td><td style="padding: 6px 0; color: #111827;">${leadRow.homeowner_name || 'Unknown'}</td></tr>
                     <tr><td style="padding: 6px 0; color: #6B7280; width: 120px;">Address:</td><td style="padding: 6px 0; color: #111827;">${leadRow.address_text || 'TBD'}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6B7280;">Phone:</td><td style="padding: 6px 0; color: #111827;">${leadRow.phone || 'N/A'}</td></tr>
                     <tr><td style="padding: 6px 0; color: #6B7280;">Scheduled:</td><td style="padding: 6px 0; color: #111827;">${scheduledTime}</td></tr>
                     <tr><td style="padding: 6px 0; color: #6B7280;">Set by:</td><td style="padding: 6px 0; color: #111827;">${setterName}</td></tr>
                   </table>

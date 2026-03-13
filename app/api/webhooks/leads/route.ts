@@ -275,11 +275,14 @@ export async function POST(request: NextRequest) {
         from: 'info@arxroofing.com',
         to: 'nathan@arxroofing.com',
         subject: `${sourceLabel} (inbound lead)`,
-        text: `A new inbound lead was created.\n\nSource: ${sourceLabel}\nLead URL: ${leadUrl}`,
+        text: `A new inbound lead was created.\n\nSource: ${sourceLabel}\nLead Name: ${fullName || 'Unknown'}\nAddress: ${fullAddress || 'TBD'}\nPhone: ${phone || 'N/A'}\nLead URL: ${leadUrl}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
             <h2 style="margin: 0 0 12px; color: #111827;">New Inbound Lead</h2>
             <p style="color: #374151; margin: 0 0 10px;"><strong>Source:</strong> ${sourceLabel}</p>
+            <p style="color: #374151; margin: 0 0 6px;"><strong>Lead Name:</strong> ${fullName || 'Unknown'}</p>
+            <p style="color: #374151; margin: 0 0 6px;"><strong>Address:</strong> ${fullAddress || 'TBD'}</p>
+            <p style="color: #374151; margin: 0 0 10px;"><strong>Phone:</strong> ${phone || 'N/A'}</p>
             <p style="margin: 0;">
               <a href="${leadUrl}" style="color: #4f46e5; text-decoration: none;">Open lead in CRM</a>
             </p>
