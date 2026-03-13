@@ -86,11 +86,14 @@ export async function POST(request: NextRequest) {
     utm_term,
     utm_content,
     google_campaign_id,
+    google_ads_campaign_id,
     facebook_campaign_id,
     external_id,
     start_date,
     end_date,
   } = body
+
+  const resolvedGoogleCampaignId = google_campaign_id || google_ads_campaign_id || null
 
   if (!name?.trim()) {
     return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -110,7 +113,8 @@ export async function POST(request: NextRequest) {
       utm_campaign: utm_campaign || null,
       utm_term: utm_term || null,
       utm_content: utm_content || null,
-      google_campaign_id: google_campaign_id || null,
+      google_campaign_id: resolvedGoogleCampaignId,
+      google_ads_campaign_id: resolvedGoogleCampaignId,
       facebook_campaign_id: facebook_campaign_id || null,
       external_id: external_id || null,
       start_date: start_date || null,

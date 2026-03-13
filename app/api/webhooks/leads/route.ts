@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import nodemailer from 'nodemailer'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,18 @@ function getAdminClient() {
   
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
+function getMailTransport() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
   })
 }
 
@@ -250,6 +263,33 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('Lead created successfully:', lead.id)
+
+    // Notify internal team about inbound lead creation.
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+      const leadUrl = `${appUrl}/leads/${lead.id}`
+      const sourceLabel = String(source || 'web')
+
+      const transporter = getMailTransport()
+      await transporter.sendMail({
+        from: 'info@arxroofing.com',
+        to: 'nathan@arxroofing.com',
+        subject: `${sourceLabel} (inbound lead)`,
+        text: `A new inbound lead was created.\n\nSource: ${sourceLabel}\nLead URL: ${leadUrl}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+            <h2 style="margin: 0 0 12px; color: #111827;">New Inbound Lead</h2>
+            <p style="color: #374151; margin: 0 0 10px;"><strong>Source:</strong> ${sourceLabel}</p>
+            <p style="margin: 0;">
+              <a href="${leadUrl}" style="color: #4f46e5; text-decoration: none;">Open lead in CRM</a>
+            </p>
+          </div>
+        `,
+      })
+    } catch (emailError) {
+      // Non-blocking: lead intake should still succeed if email fails.
+      console.error('Failed to send inbound lead notification email:', emailError)
+    }
     
     return NextResponse.json({ 
       success: true,

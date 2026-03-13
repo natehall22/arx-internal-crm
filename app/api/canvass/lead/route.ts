@@ -8,6 +8,7 @@ import {
   isSlotAvailable,
   CalendarEvent 
 } from '@/lib/google-calendar'
+import nodemailer from 'nodemailer'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,18 @@ function getAdminClient() {
   
   return createServiceClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
+function getMailTransport() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
   })
 }
 
@@ -771,9 +784,46 @@ export async function POST(request: Request) {
         type: 'status_change',
         body: activityBody,
       })
+
+      // Alert if an inspection is scheduled without an assigned closer.
+      if (!closerUserId) {
+        try {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+          const leadUrl = `${appUrl}/leads/${leadRow.id}`
+          const scheduledTime = inspectionScheduledFor
+            ? new Date(inspectionScheduledFor).toLocaleString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })
+            : 'TBD'
+
+          const transporter = getMailTransport()
+          await transporter.sendMail({
+            from: 'info@arxroofing.com',
+            to: 'nathan@arxroofing.com',
+            subject: '!!!!!ATERT!!!!! Usassigned closer',
+            text: `An inspection was scheduled without an assigned closer.\n\nLead: ${leadRow.homeowner_name || 'Unknown'}\nAddress: ${leadRow.address_text || 'TBD'}\nScheduled: ${scheduledTime}\nLead URL: ${leadUrl}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                <h2 style="margin: 0 0 12px; color: #b91c1c;">Inspection Scheduled Without Closer</h2>
+                <p style="color: #374151; margin: 0 0 6px;"><strong>Lead:</strong> ${leadRow.homeowner_name || 'Unknown'}</p>
+                <p style="color: #374151; margin: 0 0 6px;"><strong>Address:</strong> ${leadRow.address_text || 'TBD'}</p>
+                <p style="color: #374151; margin: 0 0 12px;"><strong>Scheduled:</strong> ${scheduledTime}</p>
+                <p style="margin: 0;"><a href="${leadUrl}" style="color: #4f46e5; text-decoration: none;">Open lead in CRM</a></p>
+              </div>
+            `,
+          })
+        } catch (alertEmailError) {
+          // Non-blocking: scheduling should still complete.
+          console.error('Failed to send unassigned-closer alert email:', alertEmailError)
+        }
+      }
       
       // Notify the closer about the new appointment
-      if (closerUserId && closerUserId !== profile.id) {
+      if (closerUserId) {
         const { data: setterProfile } = await supabase
           .from('users')
           .select('full_name')
@@ -791,15 +841,56 @@ export async function POST(request: Request) {
             })
           : 'TBD'
         
-        await supabase.from('notifications').insert({
-          org_id: profile.org_id,
-          recipient_user_id: closerUserId,
-          actor_user_id: profile.id,
-          type: 'appointment_assigned',
-          title: 'New Inspection Assigned',
-          body: `${setterName} scheduled an inspection for you at ${leadRow.address_text || 'address TBD'} on ${scheduledTime}${!calendarSynced ? ' (Calendar not synced - please add manually)' : ''}`,
-          link_url: opportunityId ? `/opportunities/${opportunityId}` : `/leads/${leadRow.id}`,
-        })
+        if (closerUserId !== profile.id) {
+          await supabase.from('notifications').insert({
+            org_id: profile.org_id,
+            recipient_user_id: closerUserId,
+            actor_user_id: profile.id,
+            type: 'appointment_assigned',
+            title: 'New Inspection Assigned',
+            body: `${setterName} scheduled an inspection for you at ${leadRow.address_text || 'address TBD'} on ${scheduledTime}${!calendarSynced ? ' (Calendar not synced - please add manually)' : ''}`,
+            link_url: opportunityId ? `/opportunities/${opportunityId}` : `/leads/${leadRow.id}`,
+          })
+        }
+
+        // Also email assigned closer for canvass inspection assignment.
+        try {
+          const { data: closerProfile } = await supabase
+            .from('users')
+            .select('email, full_name')
+            .eq('id', closerUserId)
+            .single()
+
+          if (closerProfile?.email) {
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+            const recordUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/leads/${leadRow.id}`
+            const closerName = closerProfile.full_name || 'Closer'
+
+            const transporter = getMailTransport()
+            await transporter.sendMail({
+              from: 'info@arxroofing.com',
+              to: closerProfile.email,
+              subject: 'You were assigned an inspection',
+              text: `Hi ${closerName},\n\nYou were just assigned an inspection.\n\nAddress: ${leadRow.address_text || 'TBD'}\nScheduled: ${scheduledTime}\nSet by: ${setterName}\n\nOpen in CRM: ${recordUrl}`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                  <h2 style="margin: 0 0 12px; color: #111827;">You were assigned an inspection</h2>
+                  <p style="color: #374151;">Hi ${closerName},</p>
+                  <p style="color: #374151;">You were just assigned an inspection.</p>
+                  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+                    <tr><td style="padding: 6px 0; color: #6B7280; width: 120px;">Address:</td><td style="padding: 6px 0; color: #111827;">${leadRow.address_text || 'TBD'}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6B7280;">Scheduled:</td><td style="padding: 6px 0; color: #111827;">${scheduledTime}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6B7280;">Set by:</td><td style="padding: 6px 0; color: #111827;">${setterName}</td></tr>
+                  </table>
+                  <p><a href="${recordUrl}" style="color: #4f46e5; text-decoration: none;">Open in CRM</a></p>
+                </div>
+              `,
+            })
+          }
+        } catch (emailError) {
+          // Non-blocking: scheduling flow should still complete even if email fails.
+          console.error('Failed to send closer assignment email:', emailError)
+        }
       }
     }
 
