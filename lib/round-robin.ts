@@ -80,8 +80,10 @@ export async function assignNextAvailableCloser(
     console.log(`Round-robin: Found ${closers.length} active closers in team ${teamId}:`, 
       closers.map((c: any) => ({ id: c.user_id, name: c.user?.full_name, priority: c.priority })))
 
-    // Try each closer in priority order - only closers WITH calendars
-    for (const closer of closers as CloserWithToken[]) {
+    const orderedClosers = closers as CloserWithToken[]
+
+    // Try each closer in priority order - prefer closers with available calendars.
+    for (const closer of orderedClosers) {
       console.log(`Round-robin: Processing closer ${closer.user?.full_name} (${closer.user_id})`)
       
       // Get their Google token
@@ -291,8 +293,32 @@ export async function assignNextAvailableCloser(
       }
     }
 
-    console.log(`Round-robin: Checked ${closers.length} closers, none available at requested time`)
-    return { success: false, error: 'No closers with connected calendars available at this time' }
+    console.log(`Round-robin: Checked ${orderedClosers.length} closers, none available via calendar checks`)
+
+    // Fallback: assign next active closer in queue even without calendar token availability.
+    // This keeps inspection scheduling operational and avoids unassigned inspections.
+    const fallbackCloser = orderedClosers[0]
+    if (fallbackCloser) {
+      console.log(
+        `Round-robin: Fallback assignment to ${fallbackCloser.user?.full_name || fallbackCloser.user_id} (no calendar availability confirmation)`
+      )
+      const fallbackResult = await createAppointment(
+        supabase,
+        fallbackCloser,
+        scheduledFor,
+        durationMinutes,
+        leadId,
+        opportunityId,
+        address,
+        canvasserUserId,
+        orgId
+      )
+      if (fallbackResult.success) {
+        return fallbackResult
+      }
+    }
+
+    return { success: false, error: 'No active closers available for assignment' }
   } catch (error) {
     console.error('Round-robin assignment error:', error)
     return { success: false, error: 'Assignment failed' }

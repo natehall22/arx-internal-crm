@@ -56,7 +56,13 @@ export async function GET(request: NextRequest) {
   console.log('Team availability: Request started')
   
   try {
-    await requireAuthApi()
+    try {
+      await requireAuthApi()
+    } catch (authError: any) {
+      const elapsed = Date.now() - startTime
+      console.log(`Team availability: Unauthorized request after ${elapsed}ms:`, authError?.message || 'auth failed')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const adminClient = getAdminClient()
 
     const teamId = request.nextUrl.searchParams.get('team_id')
