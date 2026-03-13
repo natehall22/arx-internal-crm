@@ -518,6 +518,7 @@ export async function POST(request: Request) {
     let opportunityId: string | null = null
     let assignedCloserName: string | null = null
     let appointmentId: string | null = null
+    let roundRobinGoogleEventId: string | null = null
 
     // Round-robin assignment if no closer specified
     if (useRoundRobin && inspectionScheduledFor) {
@@ -564,6 +565,7 @@ export async function POST(request: Request) {
             closerUserId = assignment.closerId
             assignedCloserName = assignment.closerName || null
             appointmentId = assignment.appointmentId || null
+            roundRobinGoogleEventId = assignment.googleEventId || null
 
             // Update lead with assigned closer (but keep owner_user_id as setter)
             await supabase
@@ -657,13 +659,13 @@ export async function POST(request: Request) {
     // SKIP if round-robin was used - it already creates calendar events
     let calendarSynced = false
     let setterCalendarSynced = false
-    let googleEventId: string | null = null
+    let googleEventId: string | null = roundRobinGoogleEventId
     let calendarError: string | null = null
     let setterCalendarError: string | null = null
     
-    // Only sync calendars manually if round-robin was NOT used
-    // Round-robin already handles calendar event creation in assignNextAvailableCloser()
-    const roundRobinHandledCalendar = useRoundRobin && assignedCloserName
+    // Only skip manual sync if round-robin actually created a calendar event.
+    // If round-robin assigned without creating the event, run backup sync below.
+    const roundRobinHandledCalendar = useRoundRobin && Boolean(roundRobinGoogleEventId)
     
     console.log('=== CALENDAR SYNC DECISION ===')
     console.log('scheduleInspection:', scheduleInspection)
