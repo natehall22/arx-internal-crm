@@ -229,6 +229,10 @@ export default function JobFileWorkspaceCard({
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to upload photo')
 
+      if (data?.photo) {
+        setPhotos((prev) => [data.photo as PhotoRow, ...prev])
+      }
+
       setStatusMessage({
         type: 'success',
         text: 'Photo uploaded successfully.',

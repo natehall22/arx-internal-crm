@@ -221,7 +221,7 @@ export async function POST(
       })
 
       const mentionedUsers = allUsers.filter((orgUser: any) => {
-        if (!orgUser?.id || !orgUser?.email || orgUser.id === user.id) {
+        if (!orgUser?.id || !orgUser?.email) {
           return false
         }
         return (
