@@ -316,11 +316,22 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
     
     setSaving(true)
     try {
+      const noteText = newNoteText.trim()
+      const mentionedUserIds = orgUsers
+        .filter((u) => {
+          if (!u?.id || !u?.full_name) return false
+          const escapedName = u.full_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const mentionPattern = new RegExp(`(^|\\s)@${escapedName}(?=\\s|$|[.,!?;:])`, 'i')
+          return mentionPattern.test(noteText)
+        })
+        .map((u) => u.id)
+
       const response = await fetch(`/api/ops/jobs/${job.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          note: newNoteText.trim(),
+          note: noteText,
+          mentioned_user_ids: mentionedUserIds,
           page_url: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       })

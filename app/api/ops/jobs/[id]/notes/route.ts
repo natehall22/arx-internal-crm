@@ -131,7 +131,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { note, page_url } = body
+    const { note, page_url, mentioned_user_ids } = body
 
     if (!note || typeof note !== 'string' || !note.trim()) {
       return NextResponse.json({ error: 'Note is required' }, { status: 400 })
@@ -160,59 +160,65 @@ export async function POST(
 
     // Send email notifications for @mentions without blocking note creation.
     try {
-      const mentionCandidates = Array.from(
-        new Set(
-          (note.match(/@([A-Za-z][A-Za-z\s'-]{0,80})/g) || [])
-            .map((m: string) => m.slice(1).trim())
-            .filter(Boolean)
+      const { data: orgUsers } = await adminClient
+        .from('users')
+        .select('id, full_name, email')
+        .eq('org_id', profile.org_id)
+        .not('email', 'is', null)
+
+      const allUsers = orgUsers || []
+      const explicitMentionIds = Array.isArray(mentioned_user_ids)
+        ? mentioned_user_ids.filter((id: any) => typeof id === 'string')
+        : []
+
+      // Fallback parsing for manually typed mentions.
+      const parsedMentionUsers = allUsers.filter((orgUser: any) => {
+        if (!orgUser?.full_name) return false
+        const mentionPattern = new RegExp(
+          `(^|\\s)@${escapeRegExp(orgUser.full_name)}(?=\\s|$|[.,!?;:])`,
+          'i'
         )
-      )
+        return mentionPattern.test(note)
+      })
 
-      if (mentionCandidates.length > 0) {
-        const { data: orgUsers } = await adminClient
-          .from('users')
-          .select('id, full_name, email')
-          .eq('org_id', profile.org_id)
-          .not('email', 'is', null)
+      const mentionedUsers = allUsers.filter((orgUser: any) => {
+        if (!orgUser?.id || !orgUser?.email || orgUser.id === user.id) {
+          return false
+        }
+        return explicitMentionIds.includes(orgUser.id) || parsedMentionUsers.some((u: any) => u.id === orgUser.id)
+      })
 
-        const mentionedUsers = (orgUsers || []).filter((orgUser: any) => {
-          if (!orgUser?.full_name || !orgUser?.email || orgUser.id === user.id) {
-            return false
-          }
-          const mentionPattern = new RegExp(
-            `(^|\\s)@${escapeRegExp(orgUser.full_name)}(?=\\s|$|[.,!?;:])`,
-            'i'
+      if (mentionedUsers.length > 0) {
+        const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || ''
+        const fallbackJobPath = `/ops/jobs/${params.id}`
+        const pageLink = typeof page_url === 'string' && page_url.trim()
+          ? page_url.trim()
+          : `${origin}${fallbackJobPath}`
+
+        const transporter = getMailTransport()
+        const senderName = profile.full_name || 'ARX Team'
+        const subject = `You were mentioned in a job note`
+
+        const emailResults = await Promise.allSettled(
+          mentionedUsers.map((mentionedUser: any) =>
+            transporter.sendMail({
+              from: 'info@arxroofing.com',
+              to: mentionedUser.email,
+              subject,
+              html: `
+                <p>Hi ${mentionedUser.full_name || 'there'},</p>
+                <p><strong>${senderName}</strong> mentioned you in an internal note.</p>
+                <p><strong>Comment:</strong><br/>${escapeHtml(String(note)).replace(/\n/g, '<br/>')}</p>
+                <p><a href="${pageLink}">Open in CRM</a></p>
+              `,
+              text: `Hi ${mentionedUser.full_name || 'there'},\n\n${senderName} mentioned you in an internal note.\n\nComment:\n${note}\n\nOpen in CRM: ${pageLink}`,
+            })
           )
-          return mentionPattern.test(note)
-        })
+        )
 
-        if (mentionedUsers.length > 0) {
-          const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || ''
-          const fallbackJobPath = `/ops/jobs/${params.id}`
-          const pageLink = typeof page_url === 'string' && page_url.trim()
-            ? page_url.trim()
-            : `${origin}${fallbackJobPath}`
-
-          const transporter = getMailTransport()
-          const senderName = profile.full_name || 'ARX Team'
-          const subject = `You were mentioned in a job note`
-
-          await Promise.all(
-            mentionedUsers.map((mentionedUser: any) =>
-              transporter.sendMail({
-                from: 'info@arxroofing.com',
-                to: mentionedUser.email,
-                subject,
-                html: `
-                  <p>Hi ${mentionedUser.full_name || 'there'},</p>
-                  <p><strong>${senderName}</strong> mentioned you in an internal note.</p>
-                  <p><strong>Comment:</strong><br/>${escapeHtml(String(note)).replace(/\n/g, '<br/>')}</p>
-                  <p><a href="${pageLink}">Open in CRM</a></p>
-                `,
-                text: `Hi ${mentionedUser.full_name || 'there'},\n\n${senderName} mentioned you in an internal note.\n\nComment:\n${note}\n\nOpen in CRM: ${pageLink}`,
-              })
-            )
-          )
+        const failedCount = emailResults.filter((r) => r.status === 'rejected').length
+        if (failedCount > 0) {
+          console.error(`Failed sending ${failedCount} @mention email(s)`)
         }
       }
     } catch (mentionEmailError) {
