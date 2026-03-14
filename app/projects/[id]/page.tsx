@@ -177,7 +177,7 @@ export default async function ProjectDetailPage({
   try {
     const { data: coData } = await supabase
       .from('job_change_orders')
-      .select('id, co_number, signed_at, updated_total, pdf_url')
+      .select('id, co_number, signed_at, updated_total, pdf_url, status, signing_token, customer_signed_at')
       .eq('project_id', params.id)
       .order('created_at', { ascending: true })
 
@@ -207,6 +207,7 @@ export default async function ProjectDetailPage({
 
   // Get customer name for change orders
   const customerName = project.customers?.name || project.leads?.homeowner_name || 'Customer'
+  const customerEmail = project.customers?.email || project.leads?.email || null
 
   // Get the current contract total (latest change order or original)
   const currentContractTotal = changeOrders.length > 0
@@ -409,6 +410,7 @@ export default async function ProjectDetailPage({
             projectId={params.id}
             projectAddress={project.address_text || ''}
             customerName={customerName}
+            customerEmail={customerEmail}
             originalContractAmount={currentContractTotal}
             originalContractDate={originalContract?.created_at?.split('T')[0] || null}
             originalContractId={originalContract?.id || null}

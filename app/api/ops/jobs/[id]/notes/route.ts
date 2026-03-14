@@ -1,6 +1,32 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import nodemailer from 'nodemailer'
+
+function getMailTransport() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  })
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 export async function GET(
   request: Request,
@@ -105,7 +131,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { note } = body
+    const { note, page_url } = body
 
     if (!note || typeof note !== 'string' || !note.trim()) {
       return NextResponse.json({ error: 'Note is required' }, { status: 400 })
@@ -130,6 +156,68 @@ export async function POST(
     if (insertError) {
       console.error('Error inserting note:', insertError)
       return NextResponse.json({ error: 'Failed to add note' }, { status: 500 })
+    }
+
+    // Send email notifications for @mentions without blocking note creation.
+    try {
+      const mentionCandidates = Array.from(
+        new Set(
+          (note.match(/@([A-Za-z][A-Za-z\s'-]{0,80})/g) || [])
+            .map((m: string) => m.slice(1).trim())
+            .filter(Boolean)
+        )
+      )
+
+      if (mentionCandidates.length > 0) {
+        const { data: orgUsers } = await adminClient
+          .from('users')
+          .select('id, full_name, email')
+          .eq('org_id', profile.org_id)
+          .not('email', 'is', null)
+
+        const mentionedUsers = (orgUsers || []).filter((orgUser: any) => {
+          if (!orgUser?.full_name || !orgUser?.email || orgUser.id === user.id) {
+            return false
+          }
+          const mentionPattern = new RegExp(
+            `(^|\\s)@${escapeRegExp(orgUser.full_name)}(?=\\s|$|[.,!?;:])`,
+            'i'
+          )
+          return mentionPattern.test(note)
+        })
+
+        if (mentionedUsers.length > 0) {
+          const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || ''
+          const fallbackJobPath = `/ops/jobs/${params.id}`
+          const pageLink = typeof page_url === 'string' && page_url.trim()
+            ? page_url.trim()
+            : `${origin}${fallbackJobPath}`
+
+          const transporter = getMailTransport()
+          const senderName = profile.full_name || 'ARX Team'
+          const subject = `You were mentioned in a job note`
+
+          await Promise.all(
+            mentionedUsers.map((mentionedUser: any) =>
+              transporter.sendMail({
+                from: 'info@arxroofing.com',
+                to: mentionedUser.email,
+                subject,
+                html: `
+                  <p>Hi ${mentionedUser.full_name || 'there'},</p>
+                  <p><strong>${senderName}</strong> mentioned you in an internal note.</p>
+                  <p><strong>Comment:</strong><br/>${escapeHtml(String(note)).replace(/\n/g, '<br/>')}</p>
+                  <p><a href="${pageLink}">Open in CRM</a></p>
+                `,
+                text: `Hi ${mentionedUser.full_name || 'there'},\n\n${senderName} mentioned you in an internal note.\n\nComment:\n${note}\n\nOpen in CRM: ${pageLink}`,
+              })
+            )
+          )
+        }
+      }
+    } catch (mentionEmailError) {
+      console.error('Failed sending @mention emails:', mentionEmailError)
+      // Keep note save successful even if email fails.
     }
 
     // Return the note with user info

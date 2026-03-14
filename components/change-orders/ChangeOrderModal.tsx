@@ -9,6 +9,7 @@ interface ChangeOrderModalProps {
   projectId: string
   projectAddress: string
   customerName: string
+  customerEmail: string | null
   originalContractAmount: number
   originalContractDate: string | null
   originalContractId: string | null
@@ -26,6 +27,7 @@ export default function ChangeOrderModal({
   projectId,
   projectAddress,
   customerName,
+  customerEmail,
   originalContractAmount,
   originalContractDate,
   originalContractId,
@@ -49,6 +51,7 @@ export default function ChangeOrderModal({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [signingUrl, setSigningUrl] = useState<string | null>(null)
 
   const today = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
@@ -76,10 +79,11 @@ export default function ChangeOrderModal({
       setError(null)
       setSuccess(false)
       setPdfUrl(null)
+      setSigningUrl(null)
     }
   }, [isOpen, originalContractAmount, amountCollected, repName, isInsurance])
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (mode: 'in_person' | 'send_to_customer') => {
     setError(null)
 
     if (!description.trim()) {
@@ -94,8 +98,12 @@ export default function ChangeOrderModal({
       setError('Customer print name is required')
       return
     }
-    if (!customerSignature) {
+    if (mode === 'in_person' && !customerSignature) {
       setError('Customer signature is required')
+      return
+    }
+    if (mode === 'send_to_customer' && !customerEmail?.trim()) {
+      setError('Customer email is required to send for signature')
       return
     }
     if (!repPrintName.trim()) {
@@ -129,7 +137,9 @@ export default function ChangeOrderModal({
           originalContractDate,
           paymentMethod,
           customerName,
+          customerEmail,
           projectAddress,
+          signingMode: mode,
         }),
       })
 
@@ -141,6 +151,7 @@ export default function ChangeOrderModal({
 
       setSuccess(true)
       setPdfUrl(data.pdfUrl)
+      setSigningUrl(data.signingUrl || null)
       onSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create change order')
@@ -187,7 +198,16 @@ export default function ChangeOrderModal({
                   </svg>
                 </div>
                 <h3 className="text-xl font-bold text-gray-900 mb-2">Change Order Created!</h3>
-                <p className="text-gray-600 mb-6">{nextCoNumber} has been saved successfully.</p>
+                <p className="text-gray-600 mb-6">
+                  {signingUrl
+                    ? `${nextCoNumber} was sent to the customer for signature.`
+                    : `${nextCoNumber} has been saved successfully.`}
+                </p>
+                {signingUrl && (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    Customer signing link generated and emailed.
+                  </div>
+                )}
                 {pdfUrl && (
                   <a
                     href={pdfUrl}
@@ -396,23 +416,32 @@ export default function ChangeOrderModal({
                 </div>
 
                 {/* Submit Button */}
-                <button
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className="w-full py-4 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed min-h-[52px] text-base"
-                >
-                  {isSubmitting ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Generating...
-                    </span>
-                  ) : (
-                    'Generate & Save Change Order'
-                  )}
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => handleSubmit('in_person')}
+                    disabled={isSubmitting}
+                    className="w-full py-4 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed min-h-[52px] text-base"
+                  >
+                    {isSubmitting ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Generating...
+                      </span>
+                    ) : (
+                      'Generate & Save Change Order'
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleSubmit('send_to_customer')}
+                    disabled={isSubmitting}
+                    className="w-full py-3 border border-indigo-600 text-indigo-700 font-semibold rounded-lg hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed min-h-[48px] text-base"
+                  >
+                    {isSubmitting ? 'Sending...' : 'Email to Customer for Signature'}
+                  </button>
+                </div>
               </>
             )}
           </div>

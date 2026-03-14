@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
+import nodemailer from 'nodemailer'
+import crypto from 'crypto'
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,12 +27,28 @@ export async function POST(request: NextRequest) {
       originalContractDate,
       paymentMethod,
       customerName,
+      customerEmail,
       projectAddress,
+      signingMode,
     } = body
 
-    if (!projectId || !coNumber || !description || !customerPrintName || !customerSignature || !repName || !repSignature) {
+    const isSendToCustomer = signingMode === 'send_to_customer'
+
+    if (!projectId || !coNumber || !description || !customerPrintName || !repName || !repSignature) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 }
+      )
+    }
+    if (!isSendToCustomer && !customerSignature) {
+      return NextResponse.json(
+        { error: 'Customer signature is required for in-person signing' },
+        { status: 400 }
+      )
+    }
+    if (isSendToCustomer && !customerEmail) {
+      return NextResponse.json(
+        { error: 'Customer email is required to send for signature' },
         { status: 400 }
       )
     }
@@ -38,11 +56,14 @@ export async function POST(request: NextRequest) {
     const signedAt = new Date().toISOString()
     const today = new Date().toISOString().split('T')[0]
 
-    // Generate PDF
+    // Generate PDF for in-person mode only.
     let pdfUrl: string | null = null
     let pdfStoragePath: string | null = null
+    let signingToken: string | null = null
+    let tokenExpiresAt: string | null = null
 
-    try {
+    if (!isSendToCustomer) {
+      try {
       console.log('[Change Order] Starting PDF generation for:', coNumber)
       
       const pdfBuffer = await generateChangeOrderPdf({
@@ -55,7 +76,7 @@ export async function POST(request: NextRequest) {
         updatedRemaining,
         description,
         customerPrintName,
-        customerSignature,
+        customerSignature: customerSignature || '',
         repName,
         repSignature,
         originalContractDate,
@@ -80,8 +101,12 @@ export async function POST(request: NextRequest) {
         pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
         console.log('[Change Order] PDF uploaded:', pdfUrl)
       }
-    } catch (pdfError: any) {
-      console.error('[Change Order] PDF generation failed:', pdfError?.message || pdfError)
+      } catch (pdfError: any) {
+        console.error('[Change Order] PDF generation failed:', pdfError?.message || pdfError)
+      }
+    } else {
+      signingToken = crypto.randomBytes(32).toString('hex')
+      tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     }
 
     // Insert change order record
@@ -97,10 +122,16 @@ export async function POST(request: NextRequest) {
         updated_remaining: updatedRemaining,
         description,
         customer_print_name: customerPrintName,
-        customer_signature_data: customerSignature,
+        customer_signature_data: isSendToCustomer ? '' : customerSignature,
         rep_name: repName,
         rep_signature_data: repSignature,
         signed_at: signedAt,
+        status: isSendToCustomer ? 'pending_customer' : 'completed',
+        signing_token: signingToken,
+        token_expires_at: tokenExpiresAt,
+        customer_email: customerEmail || null,
+        sent_at: isSendToCustomer ? signedAt : null,
+        customer_signed_at: isSendToCustomer ? null : signedAt,
         pdf_url: pdfUrl,
         pdf_storage_path: pdfStoragePath,
         original_contract_id: originalContractId || null,
@@ -120,6 +151,32 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[Change Order] Record created:', changeOrder.id)
+
+    let signingUrl: string | null = null
+    if (isSendToCustomer && signingToken && customerEmail) {
+      signingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/change-orders/sign/${signingToken}`
+      try {
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port: Number(process.env.SMTP_PORT || 587),
+          secure: false,
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        })
+
+        await transporter.sendMail({
+          from: 'info@arxroofing.com',
+          to: customerEmail,
+          subject: `Please sign Change Order ${coNumber}`,
+          text: `Hi ${customerName},\n\nYour change order is ready for signature.\n\nPlease review and sign here:\n${signingUrl}\n\nProject: ${projectAddress}\nUpdated Total: $${Number(updatedTotal || 0).toLocaleString()}\n\nIf you have questions, call 704-313-8834.\n\n- ${repName}, ARX Roofing & Exteriors`,
+          html: `<p>Hi ${customerName},</p><p>Your change order is ready for signature.</p><p><a href="${signingUrl}">Review & Sign Change Order</a></p><p><strong>Project:</strong> ${projectAddress}<br/><strong>Updated Total:</strong> $${Number(updatedTotal || 0).toLocaleString()}</p><p>If you have questions, call 704-313-8834.</p><p>- ${repName}, ARX Roofing & Exteriors</p>`,
+        })
+      } catch (emailError) {
+        console.error('[Change Order] Failed to send signing email:', emailError)
+      }
+    }
 
     // Update project's sale amount if there's a linked production job
     if (jobId) {
@@ -145,13 +202,16 @@ export async function POST(request: NextRequest) {
       project_id: projectId,
       user_id: profile.id,
       type: 'status_change',
-      body: `Change Order ${coNumber} created. Updated total: $${updatedTotal.toLocaleString()}`,
+      body: isSendToCustomer
+        ? `Change Order ${coNumber} created and sent for customer signature. Updated total: $${updatedTotal.toLocaleString()}`
+        : `Change Order ${coNumber} created. Updated total: $${updatedTotal.toLocaleString()}`,
     })
 
     return NextResponse.json({
       success: true,
       changeOrderId: changeOrder.id,
       pdfUrl,
+      signingUrl,
     })
   } catch (error) {
     console.error('[Change Order] Error:', error)

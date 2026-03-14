@@ -7,14 +7,18 @@ interface ChangeOrder {
   id: string
   co_number: string
   signed_at: string
+  customer_signed_at?: string | null
   updated_total: number
   pdf_url: string | null
+  status?: string
+  signing_token?: string | null
 }
 
 interface ChangeOrdersSectionProps {
   projectId: string
   projectAddress: string
   customerName: string
+  customerEmail: string | null
   originalContractAmount: number
   originalContractDate: string | null
   originalContractId: string | null
@@ -29,6 +33,7 @@ export default function ChangeOrdersSection({
   projectId,
   projectAddress,
   customerName,
+  customerEmail,
   originalContractAmount,
   originalContractDate,
   originalContractId,
@@ -106,11 +111,26 @@ export default function ChangeOrdersSection({
                 <div>
                   <p className="font-semibold text-gray-900">{co.co_number}</p>
                   <p className="text-sm text-gray-600">
-                    {formatDate(co.signed_at)} • Updated Total: {formatCurrency(co.updated_total)}
+                    {formatDate(co.customer_signed_at || co.signed_at)} • Updated Total: {formatCurrency(co.updated_total)}
                   </p>
+                  {co.status === 'pending_customer' && (
+                    <p className="text-xs text-amber-700 mt-1">Awaiting customer signature</p>
+                  )}
                 </div>
               </div>
-              {co.pdf_url ? (
+              {co.status === 'pending_customer' && co.signing_token ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/change-orders/sign/${co.signing_token}`
+                    navigator.clipboard.writeText(url)
+                    alert('Signing link copied to clipboard.')
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 min-h-[44px]"
+                >
+                  Copy Signing Link
+                </button>
+              ) : co.pdf_url ? (
                 <a
                   href={co.pdf_url}
                   target="_blank"
@@ -142,6 +162,7 @@ export default function ChangeOrdersSection({
         projectId={projectId}
         projectAddress={projectAddress}
         customerName={customerName}
+        customerEmail={customerEmail}
         originalContractAmount={originalContractAmount}
         originalContractDate={originalContractDate}
         originalContractId={originalContractId}

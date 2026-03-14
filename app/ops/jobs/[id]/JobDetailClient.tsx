@@ -319,7 +319,10 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
       const response = await fetch(`/api/ops/jobs/${job.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: newNoteText.trim() }),
+        body: JSON.stringify({
+          note: newNoteText.trim(),
+          page_url: typeof window !== 'undefined' ? window.location.href : undefined,
+        }),
       })
       
       if (response.ok) {
