@@ -154,7 +154,8 @@ export async function POST(request: NextRequest) {
 
     let signingUrl: string | null = null
     if (isSendToCustomer && signingToken && customerEmail) {
-      signingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/change-orders/sign/${signingToken}`
+      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin || '').replace(/\/$/, '')
+      signingUrl = `${baseUrl}/change-orders/sign/${signingToken}`
       try {
         const transporter = nodemailer.createTransport({
           host: process.env.SMTP_HOST,
