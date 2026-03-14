@@ -33,6 +33,22 @@ function toEasternDatetimeLocal(isoString: string | null): string {
   return eastern.replace(', ', 'T')
 }
 
+function formatEasternDateTime(isoString: string | null): string {
+  if (!isoString) return 'N/A'
+  return new Date(isoString).toLocaleString('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'America/New_York',
+  })
+}
+
+function formatEasternDate(isoString: string | null): string {
+  if (!isoString) return 'N/A'
+  return new Date(isoString).toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+  })
+}
+
 export default async function LeadDetailPage({
   params,
 }: {
@@ -533,11 +549,7 @@ export default async function LeadDetailPage({
                 <div className="col-span-2">
                   <span className="text-gray-500">Inspection:</span>
                   <span className="ml-2 text-gray-900">
-                    {new Date(lead.inspection_scheduled_for).toLocaleString('en-US', { 
-                      dateStyle: 'medium', 
-                      timeStyle: 'short',
-                      timeZone: 'America/New_York'
-                    })}
+                    {formatEasternDateTime(lead.inspection_scheduled_for)}
                   </span>
                 </div>
               )}
@@ -708,7 +720,7 @@ export default async function LeadDetailPage({
                        inspectionUpdates[0].outcome?.replace('_', ' ')}
                     </span>
                     <span className="text-xs text-gray-500">
-                      {new Date(inspectionUpdates[0].created_at).toLocaleString('en-US', { timeZone: 'America/New_York' })}
+                      {formatEasternDateTime(inspectionUpdates[0].created_at)}
                     </span>
                   </div>
                   {inspectionUpdates[0].closer?.full_name && (
@@ -748,7 +760,7 @@ export default async function LeadDetailPage({
                               {update.outcome?.replace('_', ' ')}
                             </span>
                             <span className="text-xs text-gray-500">
-                              {new Date(update.created_at).toLocaleString('en-US', { timeZone: 'America/New_York' })}
+                              {formatEasternDateTime(update.created_at)}
                             </span>
                           </div>
                           {update.notes && (
@@ -776,20 +788,12 @@ export default async function LeadDetailPage({
                       {(appointments && appointments.length > 0 && appointments[0].scheduled_for) ? (
                         <span>
                           {' '}Inspection was scheduled for{' '}
-                          {new Date(appointments[0].scheduled_for).toLocaleString('en-US', { 
-                            dateStyle: 'medium', 
-                            timeStyle: 'short',
-                            timeZone: 'America/New_York' 
-                          })}.
+                          {formatEasternDateTime(appointments[0].scheduled_for)}.
                         </span>
                       ) : lead.inspection_scheduled_for ? (
                         <span>
                           {' '}Inspection was scheduled for{' '}
-                          {new Date(lead.inspection_scheduled_for).toLocaleString('en-US', { 
-                            dateStyle: 'medium', 
-                            timeStyle: 'short',
-                            timeZone: 'America/New_York' 
-                          })}.
+                          {formatEasternDateTime(lead.inspection_scheduled_for)}.
                         </span>
                       ) : null}
                     </p>
@@ -824,7 +828,7 @@ export default async function LeadDetailPage({
                         {activity.users?.full_name || 'Unknown'}
                       </span>
                       <span className="text-xs text-gray-500">
-                        {new Date(activity.created_at).toLocaleDateString()}
+                        {formatEasternDate(activity.created_at)}
                       </span>
                     </div>
                     <p className="text-sm text-gray-600 mt-1 capitalize">

@@ -219,13 +219,21 @@ export default function LeadModal({
 
   // Generate next 7 days for date selection
   const getDateOptions = () => {
+    const formatLocalYmd = (date: Date) => {
+      const y = date.getFullYear()
+      const m = String(date.getMonth() + 1).padStart(2, '0')
+      const d = String(date.getDate()).padStart(2, '0')
+      return `${y}-${m}-${d}`
+    }
+
     const dates = []
     const today = new Date()
     for (let i = 0; i < 7; i++) {
       const date = new Date(today)
       date.setDate(today.getDate() + i)
       dates.push({
-        value: date.toISOString().split('T')[0],
+        // Use local date components, not UTC ISO conversion, to avoid day-shift near midnight.
+        value: formatLocalYmd(date),
         label: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
       })
     }
