@@ -16,7 +16,7 @@ function getAdminClient() {
 // Get queue for a team
 export async function GET(request: NextRequest) {
   try {
-    await requireAuthApi()
+    const { profile } = await requireAuthApi()
     const adminClient = getAdminClient()
     
     const { searchParams } = new URL(request.url)
@@ -37,7 +37,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch queue' }, { status: 500 })
     }
     
-    return NextResponse.json({ queue: queueData || [] })
+    return NextResponse.json({
+      queue: queueData || [],
+      canEditBuffers: profile.role === 'admin',
+    })
   } catch (error) {
     console.error('Team closer queue GET error:', error)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
@@ -54,7 +57,14 @@ export async function POST(request: NextRequest) {
     const adminClient = getAdminClient()
     
     const body = await request.json()
-    const { team_id, user_id, buffer_minutes = 30, buffer_before = 0, buffer_after = 15 } = body
+    const isAdmin = profile.role === 'admin'
+    const {
+      team_id,
+      user_id,
+      buffer_minutes = 30,
+      buffer_before = 0,
+      buffer_after = 15,
+    } = body
     console.log('Team closer queue POST - body:', { team_id, user_id, buffer_before, buffer_after })
     
     if (!team_id || !user_id) {
@@ -84,9 +94,10 @@ export async function POST(request: NextRequest) {
         team_id,
         user_id,
         priority: nextPriority,
-        buffer_minutes,
-        buffer_before,
-        buffer_after,
+        // Only admins can set custom buffer values on creation.
+        buffer_minutes: isAdmin ? buffer_minutes : 30,
+        buffer_before: isAdmin ? buffer_before : 0,
+        buffer_after: isAdmin ? buffer_after : 15,
         active: true,
       })
       .select()
@@ -138,7 +149,7 @@ export async function DELETE(request: NextRequest) {
 // Update closer in queue (active status, buffer, priority)
 export async function PUT(request: NextRequest) {
   try {
-    await requireAuthApi()
+    const { profile } = await requireAuthApi()
     const adminClient = getAdminClient()
     
     const body = await request.json()
@@ -148,6 +159,12 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Queue entry id is required' }, { status: 400 })
     }
     
+    const isTryingToEditBuffers =
+      buffer_minutes !== undefined || buffer_before !== undefined || buffer_after !== undefined
+    if (isTryingToEditBuffers && profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can edit buffer settings' }, { status: 403 })
+    }
+
     const updateData: any = {}
     if (active !== undefined) updateData.active = active
     if (buffer_minutes !== undefined) updateData.buffer_minutes = buffer_minutes

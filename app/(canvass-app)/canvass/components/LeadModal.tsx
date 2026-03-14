@@ -514,6 +514,10 @@ export default function LeadModal({
                         No available time slots for this date
                       </p>
                     )}
+                    <p className="mt-2 text-xs text-gray-500">
+                      Buffer times are editable in <strong>Settings → Calendar</strong> (personal) or
+                      <strong> Admin → Teams → Closer Queue</strong> (team round-robin).
+                    </p>
                   </div>
                 )}
 

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { refreshAccessToken, isSlotAvailable, createCalendarEvent } from './google-calendar'
+import { refreshAccessToken, getFreeBusy, createCalendarEvent } from './google-calendar'
 import type { TeamCloserQueue, UserGoogleToken, ScheduledAppointment } from './types/database'
 
 type CloserWithToken = TeamCloserQueue & {
@@ -142,17 +142,20 @@ export async function assignNextAvailableCloser(
       // Check calendar availability
       const endTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
       
-      // Use buffer_minutes from queue settings, default to 15 if not set
-      const bufferMinutes = closer.buffer_minutes ?? 15
+      // Match canvass availability API behavior:
+      // use separate before/after queue buffers and fall back to legacy buffer_minutes.
+      const bufferBefore = closer.buffer_before ?? 0
+      const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? 15
       
       try {
-        console.log(`Round-robin: Checking availability for ${closer.user?.full_name} at ${scheduledFor.toISOString()} with buffer=${bufferMinutes}min`)
-        const available = await isSlotAvailable(
-          accessToken,
-          scheduledFor,
-          endTime,
-          bufferMinutes
+        console.log(
+          `Round-robin: Checking availability for ${closer.user?.full_name} at ${scheduledFor.toISOString()} with buffers before=${bufferBefore}min after=${bufferAfter}min`
         )
+
+        const bufferedStart = new Date(scheduledFor.getTime() - bufferBefore * 60 * 1000)
+        const bufferedEnd = new Date(endTime.getTime() + bufferAfter * 60 * 1000)
+        const busySlots = await getFreeBusy(accessToken, bufferedStart, bufferedEnd)
+        const available = busySlots.length === 0
 
         console.log(`Round-robin: ${closer.user?.full_name} availability: ${available ? 'AVAILABLE' : 'BUSY'}`)
 

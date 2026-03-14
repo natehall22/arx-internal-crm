@@ -22,6 +22,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
   const [showAddModal, setShowAddModal] = useState(false)
   const [selectedUserId, setSelectedUserId] = useState('')
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [canEditBuffers, setCanEditBuffers] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -79,6 +80,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
       
       const queueApiData = await queueResponse.json()
       const queueData = queueApiData.queue || []
+      setCanEditBuffers(Boolean(queueApiData.canEditBuffers))
       
       console.log('Closer queue - Queue from API:', queueData.length, 'closers')
 
@@ -254,7 +256,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
   }
 
   const handleUpdateBuffer = async (closer: CloserWithQueue, field: 'buffer_before' | 'buffer_after', minutes: number) => {
-    if (!closer.queue) return
+    if (!closer.queue || !canEditBuffers) return
 
     try {
       await fetch('/api/admin/team-closer-queue', {
@@ -341,6 +343,12 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
           </div>
         )}
 
+        {!canEditBuffers && (
+          <div className="mb-6 p-4 bg-amber-50 text-amber-800 rounded-lg">
+            Buffer settings are view-only. Only admins can edit buffer before/after values.
+          </div>
+        )}
+
         {closers.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
             <div className="text-gray-400 mb-4">
@@ -415,28 +423,40 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
                       </button>
                     </div>
                     <div className="col-span-2">
-                      <select
-                        value={closer.queue?.buffer_before ?? 0}
-                        onChange={(e) => handleUpdateBuffer(closer, 'buffer_before', parseInt(e.target.value))}
-                        className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-                      >
-                        <option value={0}>None</option>
-                        <option value={15}>15 min</option>
-                        <option value={30}>30 min</option>
-                        <option value={45}>45 min</option>
-                      </select>
+                      {canEditBuffers ? (
+                        <select
+                          value={closer.queue?.buffer_before ?? 0}
+                          onChange={(e) => handleUpdateBuffer(closer, 'buffer_before', parseInt(e.target.value))}
+                          className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                        >
+                          <option value={0}>None</option>
+                          <option value={15}>15 min</option>
+                          <option value={30}>30 min</option>
+                          <option value={45}>45 min</option>
+                        </select>
+                      ) : (
+                        <div className="px-2 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700">
+                          {(closer.queue?.buffer_before ?? 0) === 0 ? 'None' : `${closer.queue?.buffer_before ?? 0} min`}
+                        </div>
+                      )}
                     </div>
                     <div className="col-span-2">
-                      <select
-                        value={closer.queue?.buffer_after ?? 15}
-                        onChange={(e) => handleUpdateBuffer(closer, 'buffer_after', parseInt(e.target.value))}
-                        className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-                      >
-                        <option value={0}>None</option>
-                        <option value={15}>15 min</option>
-                        <option value={30}>30 min</option>
-                        <option value={45}>45 min</option>
-                      </select>
+                      {canEditBuffers ? (
+                        <select
+                          value={closer.queue?.buffer_after ?? 15}
+                          onChange={(e) => handleUpdateBuffer(closer, 'buffer_after', parseInt(e.target.value))}
+                          className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                        >
+                          <option value={0}>None</option>
+                          <option value={15}>15 min</option>
+                          <option value={30}>30 min</option>
+                          <option value={45}>45 min</option>
+                        </select>
+                      ) : (
+                        <div className="px-2 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700">
+                          {(closer.queue?.buffer_after ?? 15) === 0 ? 'None' : `${closer.queue?.buffer_after ?? 15} min`}
+                        </div>
+                      )}
                     </div>
                     <div className="col-span-2 flex items-center gap-2">
                       <button

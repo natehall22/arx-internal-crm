@@ -519,9 +519,37 @@ export async function POST(request: Request) {
     let assignedCloserName: string | null = null
     let appointmentId: string | null = null
     let roundRobinGoogleEventId: string | null = null
+    let reusedExistingAppointment = false
+
+    // Idempotency guard: if this lead already has an appointment at this exact slot,
+    // reuse it instead of creating/syncing duplicates.
+    if (scheduleInspection && inspectionScheduledFor) {
+      const { data: existingAppointment } = await supabase
+        .from('scheduled_appointments')
+        .select('id, closer_user_id, google_event_id')
+        .eq('org_id', profile.org_id)
+        .eq('lead_id', leadRow.id)
+        .eq('scheduled_for', inspectionScheduledFor)
+        .in('status', ['scheduled', 'confirmed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existingAppointment?.id) {
+        appointmentId = existingAppointment.id
+        closerUserId = closerUserId || existingAppointment.closer_user_id || null
+        roundRobinGoogleEventId = existingAppointment.google_event_id || null
+        reusedExistingAppointment = true
+        console.log('Reusing existing appointment to avoid duplicate scheduling:', {
+          appointmentId,
+          closerUserId,
+          hasGoogleEventId: Boolean(roundRobinGoogleEventId),
+        })
+      }
+    }
 
     // Round-robin assignment if no closer specified
-    if (useRoundRobin && inspectionScheduledFor) {
+    if (useRoundRobin && inspectionScheduledFor && !appointmentId) {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
       const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -677,7 +705,7 @@ export async function POST(request: Request) {
     console.log('roundRobinHandledCalendar:', roundRobinHandledCalendar)
     console.log('Will sync calendar:', scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar)
     
-    if (scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar) {
+    if (scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar && !googleEventId) {
       // Get closer's name for setter calendar event
       const { data: closerData } = await supabase
         .from('users')
@@ -764,6 +792,10 @@ export async function POST(request: Request) {
       calendarSynced = true
       setterCalendarSynced = true
       console.log('Calendar sync handled by round-robin assignment')
+    } else if (scheduleInspection && googleEventId) {
+      // Existing event already linked to this appointment slot.
+      calendarSynced = true
+      console.log('Skipping calendar sync because appointment already has Google event:', googleEventId)
     }
 
     if (scheduleInspection) {
@@ -913,6 +945,7 @@ export async function POST(request: Request) {
       opportunity_id: opportunityId,
       assigned_closer: assignedCloserName,
       appointment_id: appointmentId,
+      reused_existing_appointment: reusedExistingAppointment,
       calendar_synced: calendarSynced,
       calendar_error: calendarError,
       setter_calendar_synced: setterCalendarSynced,
