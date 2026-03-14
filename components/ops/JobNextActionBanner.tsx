@@ -11,6 +11,7 @@ interface JobNextActionBannerProps {
   status: JobStatus
   saleAmount: number | null
   depositRequiredPercent: number | null
+  paymentMethod?: string | null
   materialsStatus: string
   scheduledDate: string | null
   assignedCrewId: string | null
@@ -24,7 +25,7 @@ interface NextAction {
   message: string
   buttonText: string
   color: 'blue' | 'amber' | 'purple' | 'green' | 'gray'
-  action: 'deposit' | 'materials' | 'schedule' | 'assign' | 'collect' | 'done'
+  action: 'deposit' | 'materials' | 'schedule' | 'assign' | 'collect' | 'finance_submit' | 'done'
 }
 
 function getNextAction(
@@ -33,7 +34,9 @@ function getNextAction(
   scheduledDate: string | null,
   hasCrewOrSub: boolean,
   depositSatisfied: boolean,
-  remainingBalance: number
+  remainingBalance: number,
+  isFinanceJob: boolean,
+  financePaymentSubmitted: boolean
 ): NextAction {
   // Job on hold - special case
   if (status === 'on_hold') {
@@ -57,6 +60,14 @@ function getNextAction(
 
   // Complete but balance remaining
   if (status === 'complete' && remainingBalance > 0) {
+    if (isFinanceJob && !financePaymentSubmitted) {
+      return {
+        message: 'Submit for finance payment',
+        buttonText: 'Submit for Payment',
+        color: 'amber',
+        action: 'finance_submit',
+      }
+    }
     return {
       message: `Collect final payment: $${(remainingBalance / 100).toLocaleString()}`,
       buttonText: 'Record Payment',
@@ -67,9 +78,17 @@ function getNextAction(
 
   // Complete and paid
   if (status === 'complete') {
+    if (isFinanceJob && !financePaymentSubmitted) {
+      return {
+        message: 'Submit for finance payment',
+        buttonText: 'Submit for Payment',
+        color: 'amber',
+        action: 'finance_submit',
+      }
+    }
     return {
-      message: 'Ready to mark as collected',
-      buttonText: 'Mark as Collected',
+      message: isFinanceJob ? 'Finance payment submitted' : 'Ready to mark as collected',
+      buttonText: isFinanceJob ? 'Done' : 'Mark as Collected',
       color: 'green',
       action: 'done',
     }
@@ -165,6 +184,7 @@ export default function JobNextActionBanner({
   status,
   saleAmount,
   depositRequiredPercent,
+  paymentMethod = null,
   materialsStatus,
   scheduledDate,
   assignedCrewId,
@@ -175,6 +195,7 @@ export default function JobNextActionBanner({
 }: JobNextActionBannerProps) {
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [financePaymentSubmitted, setFinancePaymentSubmitted] = useState(false)
 
   useEffect(() => {
     const loadPayments = async () => {
@@ -224,7 +245,20 @@ export default function JobNextActionBanner({
     saleAmountCents,
     depositPercent
   )
-  const depositSatisfied = depositStatus.satisfied
+  const isFinanceJob = (paymentMethod || '').toLowerCase() === 'finance'
+  const depositSatisfied = isFinanceJob ? true : depositStatus.satisfied
+
+  useEffect(() => {
+    if (!isFinanceJob) {
+      setFinancePaymentSubmitted(false)
+      return
+    }
+
+    // Stubbed final finance-payment step state per job/session.
+    if (status !== 'complete') {
+      setFinancePaymentSubmitted(false)
+    }
+  }, [isFinanceJob, status, jobId])
   
   // Debug logging (can be removed in production)
   if (typeof window !== 'undefined' && (window as any).__DEBUG_NEXT_ACTION__) {
@@ -245,7 +279,9 @@ export default function JobNextActionBanner({
     scheduledDate,
     hasCrewOrSub,
     depositSatisfied,
-    remainingCents
+    remainingCents,
+    isFinanceJob,
+    financePaymentSubmitted
   )
 
   const handleClick = () => {
@@ -262,6 +298,9 @@ export default function JobNextActionBanner({
       case 'schedule':
       case 'assign':
         onSchedule?.()
+        break
+      case 'finance_submit':
+        setFinancePaymentSubmitted(true)
         break
       default:
         // No action needed

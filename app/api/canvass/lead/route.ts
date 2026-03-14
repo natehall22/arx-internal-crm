@@ -694,6 +694,13 @@ export async function POST(request: Request) {
     // Only skip manual sync if round-robin actually created a calendar event.
     // If round-robin assigned without creating the event, run backup sync below.
     const roundRobinHandledCalendar = useRoundRobin && Boolean(roundRobinGoogleEventId)
+    const shouldRunSecondaryCalendarSync = Boolean(
+      scheduleInspection &&
+      closerUserId &&
+      inspectionScheduledFor &&
+      !roundRobinHandledCalendar &&
+      !googleEventId
+    )
     
     console.log('=== CALENDAR SYNC DECISION ===')
     console.log('scheduleInspection:', scheduleInspection)
@@ -703,9 +710,9 @@ export async function POST(request: Request) {
     console.log('useRoundRobin:', useRoundRobin)
     console.log('assignedCloserName:', assignedCloserName)
     console.log('roundRobinHandledCalendar:', roundRobinHandledCalendar)
-    console.log('Will sync calendar:', scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar)
+    console.log('Will sync calendar:', shouldRunSecondaryCalendarSync)
     
-    if (scheduleInspection && closerUserId && inspectionScheduledFor && !roundRobinHandledCalendar && !googleEventId) {
+    if (shouldRunSecondaryCalendarSync) {
       // Get closer's name for setter calendar event
       const { data: closerData } = await supabase
         .from('users')

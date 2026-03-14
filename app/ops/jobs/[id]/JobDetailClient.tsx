@@ -60,7 +60,13 @@ interface Job {
   assigned_sub?: { id: string; company_name: string; contact_name: string; phone: string } | null
   customer?: { id: string; name: string; phone: string; email: string } | null
   salesperson?: { id: string; full_name: string } | null
-  project?: { id: string; scope_of_work: string; product_summary: string; ops_notes: string } | null
+  project?: {
+    id: string
+    scope_of_work: string
+    product_summary: string
+    ops_notes: string
+    payment_method?: string | null
+  } | null
   installation_agreement?: { pdf_url: string | null; status: string } | null
 }
 
@@ -576,6 +582,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
           status={job.status}
           saleAmount={job.sale_amount}
           depositRequiredPercent={job.deposit_required_percent}
+          paymentMethod={job.project?.payment_method || null}
           materialsStatus={job.materials_status}
           scheduledDate={job.scheduled_date}
           assignedCrewId={job.assigned_crew?.id || null}

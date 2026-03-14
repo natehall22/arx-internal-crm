@@ -3,6 +3,13 @@ import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import type { InspectionOutcome } from '@/lib/types/database'
 
+const OPPORTUNITY_TRIGGER_RESULTS = new Set([
+  'insurance_follow_up',
+  'moving_to_close',
+  'rescheduled',
+  'sale',
+])
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -238,7 +245,7 @@ export async function POST(request: NextRequest) {
       ? orgData!.settings.inspection_outcomes 
       : defaultInspectionOutcomes
     const outcomeConfig = inspectionOutcomes.find((o: any) => o.id === outcome)
-    const shouldCreateOpportunity = outcomeConfig?.converts_to_opportunity ?? false
+    const shouldCreateOpportunity = OPPORTUNITY_TRIGGER_RESULTS.has(String(outcome || '').toLowerCase())
     
     console.log('Outcome config:', outcomeConfig)
     console.log('Should create opportunity:', shouldCreateOpportunity)
@@ -254,7 +261,7 @@ export async function POST(request: NextRequest) {
     console.log('Final opportunityId:', opportunityId)
     console.log('leadId:', leadId)
 
-    // Create opportunity if outcome is configured to do so and no opportunity exists
+    // Create opportunity only for approved trigger outcomes and only when no opportunity exists.
     if (shouldCreateOpportunity && !opportunityId && leadId) {
       console.log('Creating opportunity from inspection outcome...')
       

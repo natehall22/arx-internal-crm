@@ -100,14 +100,30 @@ export default function JobFileWorkspaceCard({
     }
     setTableUnavailable(false)
 
+    const photosPromise = fetch(`/api/ops/jobs/${jobId}/photos`, {
+      method: 'GET',
+      cache: 'no-store',
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          return {
+            data: null,
+            error: {
+              message: data?.error || 'Failed to load photos',
+              code: data?.code || null,
+            },
+          }
+        }
+        return { data: (data?.photos || []) as PhotoRow[], error: null }
+      })
+      .catch((error: any) => ({
+        data: null,
+        error: { message: error?.message || 'Failed to load photos', code: null },
+      }))
+
     const [photosRes, docsRes, costRes] = await Promise.all([
-      supabase
-        .from('photos')
-        .select('id, photo_tag, filename, created_at, uploaded_by')
-        .eq('job_id', jobId)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-        .limit(12),
+      photosPromise,
       supabase
         .from('documents')
         .select('id, title, filename, category, document_role, version, status, is_protected, created_at, updated_at')

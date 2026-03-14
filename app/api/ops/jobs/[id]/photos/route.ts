@@ -5,6 +5,51 @@ import { FILES_BUCKET, buildJobPhotoStoragePath } from '@/lib/files/storage'
 
 export const runtime = 'nodejs'
 
+export async function GET(
+  _request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { profile } = await requireAuthApi()
+    const supabase = createServiceClient()
+    const jobId = params.id
+
+    const { data: job } = await supabase
+      .from('production_jobs')
+      .select('id')
+      .eq('id', jobId)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (!job) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    const { data: photos, error } = await supabase
+      .from('photos')
+      .select('id, photo_tag, filename, created_at, uploaded_by')
+      .eq('org_id', profile.org_id)
+      .eq('job_id', jobId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      return NextResponse.json(
+        { error: error.message, code: error.code || null },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ photos: photos || [] })
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || 'Failed to load photos' },
+      { status: 500 }
+    )
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
