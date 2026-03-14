@@ -332,6 +332,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
         body: JSON.stringify({
           note: noteText,
           mentioned_user_ids: mentionedUserIds,
+          customer_name: job.customer?.name || null,
+          customer_id: job.customer?.id || null,
+          job_number: job.job_number || null,
           page_url: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       })

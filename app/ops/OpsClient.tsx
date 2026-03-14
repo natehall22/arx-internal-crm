@@ -145,7 +145,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   }
 
   const getJobsByStatus = (status: JobStatus) => {
-    return jobs.filter(job => {
+    const filtered = jobs.filter(job => {
       if (job.status !== status) return false
       if (filterType !== 'all' && job.job_type !== filterType) return false
       if (searchQuery) {
@@ -158,6 +158,29 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
       }
       return true
     })
+
+    const priorityWeight: Record<string, number> = { urgent: 3, high: 2, normal: 1 }
+
+    // Keep "Sold" focused on active work by surfacing highest-action and most-recent accounts first.
+    if (status === 'sold') {
+      return [...filtered].sort((a, b) => {
+        const aNeedsMaterials = a.materials_status === 'not_ordered' ? 1 : 0
+        const bNeedsMaterials = b.materials_status === 'not_ordered' ? 1 : 0
+        if (aNeedsMaterials !== bNeedsMaterials) return bNeedsMaterials - aNeedsMaterials
+
+        const aPriority = priorityWeight[a.priority] ?? 0
+        const bPriority = priorityWeight[b.priority] ?? 0
+        if (aPriority !== bPriority) return bPriority - aPriority
+
+        const aSaleDate = a.sale_date ? new Date(a.sale_date).getTime() : 0
+        const bSaleDate = b.sale_date ? new Date(b.sale_date).getTime() : 0
+        if (aSaleDate !== bSaleDate) return bSaleDate - aSaleDate
+
+        return a.job_number.localeCompare(b.job_number)
+      })
+    }
+
+    return filtered
   }
 
   const openScheduleModal = (job: Job) => {
@@ -517,6 +540,11 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                       <h3 className={`font-semibold ${config.color}`}>{config.label}</h3>
                       <span className={`text-sm font-medium ${config.color}`}>{statusJobs.length}</span>
                     </div>
+                    {status === 'sold' && statusJobs.length > 1 && (
+                      <p className="mt-1 text-[11px] text-blue-700">
+                        Ordered by action needed, priority, and newest sale.
+                      </p>
+                    )}
                   </div>
                   <div className="p-3 space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto">
                     {statusJobs.length === 0 ? (

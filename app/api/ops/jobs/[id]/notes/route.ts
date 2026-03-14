@@ -28,6 +28,26 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+function normalizeName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractMentionFragments(noteText: string): string[] {
+  const matches = noteText.match(/@([^\n@]{1,80})/g) || []
+  return Array.from(
+    new Set(
+      matches
+        .map((m) => m.slice(1).trim())
+        .map((m) => m.replace(/[.,!?;:]+$/g, '').trim())
+        .filter(Boolean)
+    )
+  )
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -131,7 +151,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { note, page_url, mentioned_user_ids } = body
+    const { note, page_url, mentioned_user_ids, customer_name, customer_id, job_number } = body
 
     if (!note || typeof note !== 'string' || !note.trim()) {
       return NextResponse.json({ error: 'Note is required' }, { status: 400 })
@@ -166,10 +186,13 @@ export async function POST(
         .eq('org_id', profile.org_id)
         .not('email', 'is', null)
 
-      const allUsers = orgUsers || []
+      const allUsers = (orgUsers || []).filter(
+        (u: any) => u?.id && typeof u.full_name === 'string' && typeof u.email === 'string' && u.email.trim()
+      )
       const explicitMentionIds = Array.isArray(mentioned_user_ids)
         ? mentioned_user_ids.filter((id: any) => typeof id === 'string')
         : []
+      const mentionFragments = extractMentionFragments(note)
 
       // Fallback parsing for manually typed mentions.
       const parsedMentionUsers = allUsers.filter((orgUser: any) => {
@@ -181,11 +204,31 @@ export async function POST(
         return mentionPattern.test(note)
       })
 
+      const fuzzyMentionUsers = allUsers.filter((orgUser: any) => {
+        const normalizedUserName = normalizeName(orgUser.full_name || '')
+        if (!normalizedUserName) return false
+
+        return mentionFragments.some((fragment) => {
+          const normalizedFragment = normalizeName(fragment)
+          if (!normalizedFragment) return false
+
+          return (
+            normalizedUserName === normalizedFragment ||
+            normalizedUserName.startsWith(normalizedFragment) ||
+            normalizedFragment.startsWith(normalizedUserName)
+          )
+        })
+      })
+
       const mentionedUsers = allUsers.filter((orgUser: any) => {
         if (!orgUser?.id || !orgUser?.email || orgUser.id === user.id) {
           return false
         }
-        return explicitMentionIds.includes(orgUser.id) || parsedMentionUsers.some((u: any) => u.id === orgUser.id)
+        return (
+          explicitMentionIds.includes(orgUser.id) ||
+          parsedMentionUsers.some((u: any) => u.id === orgUser.id) ||
+          fuzzyMentionUsers.some((u: any) => u.id === orgUser.id)
+        )
       })
 
       if (mentionedUsers.length > 0) {
@@ -194,10 +237,25 @@ export async function POST(
         const pageLink = typeof page_url === 'string' && page_url.trim()
           ? page_url.trim()
           : `${origin}${fallbackJobPath}`
+        const customerLink =
+          typeof customer_id === 'string' && customer_id.trim()
+            ? `${origin}/customers/${customer_id.trim()}`
+            : null
 
         const transporter = getMailTransport()
         const senderName = profile.full_name || 'ARX Team'
-        const subject = `You were mentioned in a job note`
+        const customerLabel = typeof customer_name === 'string' && customer_name.trim()
+          ? customer_name.trim()
+          : 'Customer'
+        const jobLabel = typeof job_number === 'string' && job_number.trim()
+          ? job_number.trim()
+          : `Job ${params.id}`
+        const subject = `${customerLabel} • ${jobLabel} • New tagged note`
+
+        console.log(
+          'Sending @mention emails:',
+          mentionedUsers.map((u: any) => ({ id: u.id, email: u.email, full_name: u.full_name }))
+        )
 
         const emailResults = await Promise.allSettled(
           mentionedUsers.map((mentionedUser: any) =>
@@ -209,9 +267,10 @@ export async function POST(
                 <p>Hi ${mentionedUser.full_name || 'there'},</p>
                 <p><strong>${senderName}</strong> mentioned you in an internal note.</p>
                 <p><strong>Comment:</strong><br/>${escapeHtml(String(note)).replace(/\n/g, '<br/>')}</p>
-                <p><a href="${pageLink}">Open in CRM</a></p>
+                <p><a href="${pageLink}">Open Job in CRM</a></p>
+                ${customerLink ? `<p><a href="${customerLink}">Open Customer in CRM</a></p>` : ''}
               `,
-              text: `Hi ${mentionedUser.full_name || 'there'},\n\n${senderName} mentioned you in an internal note.\n\nComment:\n${note}\n\nOpen in CRM: ${pageLink}`,
+              text: `Hi ${mentionedUser.full_name || 'there'},\n\n${senderName} mentioned you in an internal note.\n\nComment:\n${note}\n\nOpen Job in CRM: ${pageLink}${customerLink ? `\nOpen Customer in CRM: ${customerLink}` : ''}`,
             })
           )
         )
