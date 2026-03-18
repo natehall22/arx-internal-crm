@@ -9,6 +9,7 @@ type PhotoRow = {
   filename: string
   created_at: string
   uploaded_by: string | null
+  uploaded_by_name?: string | null
 }
 
 type DocumentRow = {
@@ -60,9 +61,9 @@ function formatCurrency(amount: number) {
   }).format(amount || 0)
 }
 
-function formatUserDisplay(uploadedBy: string | null) {
-  if (!uploadedBy) return 'Unknown'
-  return `User ${uploadedBy.slice(0, 8)}`
+function formatUserDisplay(uploadedByName?: string | null) {
+  if (!uploadedByName) return 'Unknown'
+  return uploadedByName
 }
 
 export default function JobFileWorkspaceCard({
@@ -471,9 +472,18 @@ export default function JobFileWorkspaceCard({
                   {photos.map((photo) => (
                     <tr key={photo.id} className="border-t">
                       <td className="px-3 py-2 text-gray-700">{photo.photo_tag || 'general'}</td>
-                      <td className="px-3 py-2 text-gray-900">{photo.filename}</td>
+                      <td className="px-3 py-2">
+                        <a
+                          href={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
+                        >
+                          {photo.filename}
+                        </a>
+                      </td>
                       <td className="px-3 py-2 text-gray-700">{formatDate(photo.created_at)}</td>
-                      <td className="px-3 py-2 text-gray-700">{formatUserDisplay(photo.uploaded_by)}</td>
+                      <td className="px-3 py-2 text-gray-700">{formatUserDisplay(photo.uploaded_by_name)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -599,7 +609,14 @@ export default function JobFileWorkspaceCard({
                     <tr key={doc.id} className="border-t">
                       <td className="px-3 py-2 text-gray-900">
                         <div className="flex items-center gap-2">
-                          <span>{doc.title || doc.filename}</span>
+                          <a
+                            href={`/api/ops/jobs/${jobId}/documents/${doc.id}/download`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
+                          >
+                            {doc.title || doc.filename}
+                          </a>
                           {doc.is_protected && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Protected</span>
                           )}

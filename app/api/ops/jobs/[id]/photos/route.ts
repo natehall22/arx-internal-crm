@@ -41,7 +41,30 @@ export async function GET(
       )
     }
 
-    return NextResponse.json({ photos: photos || [] })
+    const photoRows = photos || []
+    const uploaderIds = Array.from(
+      new Set(photoRows.map((photo) => photo.uploaded_by).filter(Boolean))
+    ) as string[]
+
+    let uploaderNameById: Record<string, string> = {}
+    if (uploaderIds.length > 0) {
+      const { data: uploaders } = await supabase
+        .from('users')
+        .select('id, full_name')
+        .in('id', uploaderIds)
+        .eq('org_id', profile.org_id)
+
+      uploaderNameById = Object.fromEntries(
+        (uploaders || []).map((user) => [user.id, user.full_name || 'Unknown'])
+      )
+    }
+
+    const photosWithUploaderNames = photoRows.map((photo) => ({
+      ...photo,
+      uploaded_by_name: photo.uploaded_by ? uploaderNameById[photo.uploaded_by] || null : null,
+    }))
+
+    return NextResponse.json({ photos: photosWithUploaderNames })
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Failed to load photos' },
