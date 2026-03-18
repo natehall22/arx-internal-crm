@@ -12,6 +12,14 @@ interface Point {
   lng: number
 }
 
+type SectionType =
+  | 'main_roof'
+  | 'upper_roof'
+  | 'lower_roof'
+  | 'porch_roof'
+  | 'dormer'
+  | 'garage_roof'
+
 interface RoofFacet {
   id: string
   points: Point[]
@@ -23,6 +31,7 @@ interface RoofFacet {
   pitch_multiplier: number    // Slope factor used
   perimeter_ft: number        // Perimeter of this facet
   orientation: string         // Compass direction
+  section_type?: SectionType  // Optional classification for multi-level roofs
   color: string
 }
 
@@ -84,6 +93,15 @@ const LINEAR_FEATURE_LABELS: Record<string, string> = {
   valley: 'Valley',
   custom: 'Custom Line',
 }
+
+const SECTION_TYPE_OPTIONS: Array<{ value: SectionType; label: string }> = [
+  { value: 'main_roof', label: 'Main Roof' },
+  { value: 'upper_roof', label: 'Upper Roof' },
+  { value: 'lower_roof', label: 'Lower Roof' },
+  { value: 'porch_roof', label: 'Porch Roof' },
+  { value: 'dormer', label: 'Dormer' },
+  { value: 'garage_roof', label: 'Garage Roof' },
+]
 
 // Industry-standard pitch multipliers (slope factors)
 // Formula: √((rise/run)² + 1) = √(rise² + run²) / run
@@ -731,6 +749,7 @@ export default function RoofMeasurePage() {
       pitch_multiplier: pitchMultiplier,
       perimeter_ft: Math.round(perimeterFt),
       orientation: pendingFacet.orientation!,
+      section_type: 'main_roof',
       color: pendingFacet.color!,
     }
     
@@ -832,6 +851,68 @@ export default function RoofMeasurePage() {
         })
       }
     })
+  }
+
+  const updateFacetSectionType = (facetId: string, sectionType: SectionType) => {
+    const newFacets = facets.map((facet) =>
+      facet.id === facetId ? { ...facet, section_type: sectionType } : facet
+    )
+    setFacets(newFacets)
+    updateMeasurements(newFacets, linearFeatures)
+  }
+
+  const getFacetCentroid = (points: Point[]): Point => {
+    if (points.length === 0) return { lat: 0, lng: 0 }
+    return points.reduce(
+      (acc, p) => ({ lat: acc.lat + p.lat / points.length, lng: acc.lng + p.lng / points.length }),
+      { lat: 0, lng: 0 }
+    )
+  }
+
+  const getDistanceFeet = (a: Point, b: Point): number => {
+    if (window.google?.maps?.geometry?.spherical) {
+      const meters = google.maps.geometry.spherical.computeDistanceBetween(
+        new google.maps.LatLng(a.lat, a.lng),
+        new google.maps.LatLng(b.lat, b.lng)
+      )
+      return meters * 3.28084
+    }
+
+    // Fallback approximation if geometry library is unavailable.
+    const latDiff = (a.lat - b.lat) * 364000
+    const lngScale = Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180))
+    const lngDiff = (a.lng - b.lng) * 364000 * lngScale
+    return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff)
+  }
+
+  const estimateBoundingBoxAreaSqft = (points: Point[]): number | null => {
+    if (points.length < 2 || !window.google?.maps?.geometry?.spherical) return null
+
+    let minLat = Number.POSITIVE_INFINITY
+    let maxLat = Number.NEGATIVE_INFINITY
+    let minLng = Number.POSITIVE_INFINITY
+    let maxLng = Number.NEGATIVE_INFINITY
+
+    for (const p of points) {
+      minLat = Math.min(minLat, p.lat)
+      maxLat = Math.max(maxLat, p.lat)
+      minLng = Math.min(minLng, p.lng)
+      maxLng = Math.max(maxLng, p.lng)
+    }
+
+    if (!isFinite(minLat) || !isFinite(maxLat) || !isFinite(minLng) || !isFinite(maxLng)) return null
+
+    const midLat = (minLat + maxLat) / 2
+    const widthMeters = google.maps.geometry.spherical.computeDistanceBetween(
+      new google.maps.LatLng(midLat, minLng),
+      new google.maps.LatLng(midLat, maxLng)
+    )
+    const heightMeters = google.maps.geometry.spherical.computeDistanceBetween(
+      new google.maps.LatLng(minLat, minLng),
+      new google.maps.LatLng(maxLat, minLng)
+    )
+
+    return widthMeters * heightMeters * 10.7639
   }
 
   const updateMeasurements = (currentFacets: RoofFacet[], currentLinearFeatures?: LinearFeature[]) => {
@@ -1040,16 +1121,55 @@ export default function RoofMeasurePage() {
       confidence = 'medium'
       validationNotes.push('Single facet - consider adding more sections for accuracy')
     }
-    if (facetCount > 10) {
-      confidence = 'medium'
-      validationNotes.push('Many facets - verify no overlapping sections')
-    }
     
     // Verify linear footage totals are reasonable
     const linearTotal = ridges + eaves + rakes + hips + valleys
     const expectedLinearRatio = linearTotal / Math.sqrt(totalArea)
     if (expectedLinearRatio < 2 || expectedLinearRatio > 8) {
       validationNotes.push('Linear footage may need verification')
+      confidence = 'medium'
+    }
+
+    const isComplexRoof = facetCount >= 9
+    if (isComplexRoof && manualRidges === 0) {
+      validationNotes.push('Complex roof detected: ridge lines are estimated. Draw ridge lines for production accuracy.')
+      confidence = 'medium'
+    }
+    if (isComplexRoof && manualValleys === 0) {
+      validationNotes.push('Complex roof detected: valley lines are estimated. Draw valley lines to improve accuracy.')
+      confidence = 'medium'
+    }
+
+    // Warning-only duplicate detector: same level tag + similar pitch/area + nearby centroids.
+    for (let i = 0; i < currentFacets.length; i++) {
+      for (let j = i + 1; j < currentFacets.length; j++) {
+        const first = currentFacets[i]
+        const second = currentFacets[j]
+        if (!first.area_sqft || !second.area_sqft) continue
+        if (first.pitch !== second.pitch) continue
+
+        const firstSectionType = first.section_type || 'main_roof'
+        const secondSectionType = second.section_type || 'main_roof'
+        if (firstSectionType !== secondSectionType) continue
+
+        const areaDeltaPct = Math.abs(first.area_sqft - second.area_sqft) / Math.max(first.area_sqft, second.area_sqft)
+        if (areaDeltaPct > 0.2) continue
+
+        const centroidDistanceFt = getDistanceFeet(getFacetCentroid(first.points), getFacetCentroid(second.points))
+        if (centroidDistanceFt > 30) continue
+
+        validationNotes.push(
+          `Sections ${i + 1} and ${j + 1} look very similar (same pitch/size/level). Verify this is not a duplicate section.`
+        )
+        confidence = 'medium'
+      }
+    }
+
+    // Conservative footprint sanity check (warning only, no blocking).
+    const allPoints = currentFacets.flatMap((f) => f.points || [])
+    const estimatedFootprintSqft = estimateBoundingBoxAreaSqft(allPoints)
+    if (estimatedFootprintSqft && flatArea > estimatedFootprintSqft * 1.2) {
+      validationNotes.push('Total measured footprint appears 20%+ above estimated roof footprint. Check for duplicate same-level sections.')
       confidence = 'medium'
     }
     
@@ -1482,6 +1602,20 @@ export default function RoofMeasurePage() {
                         <span className="text-gray-300 ml-1">{(facet.area_sqft / 100).toFixed(2)}</span>
                       </div>
                     </div>
+                    <div className="mt-2">
+                      <label className="text-[11px] text-gray-500">Section Type</label>
+                      <select
+                        value={facet.section_type || 'main_roof'}
+                        onChange={(e) => updateFacetSectionType(facet.id, e.target.value as SectionType)}
+                        className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-200"
+                      >
+                        {SECTION_TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1522,6 +1656,21 @@ export default function RoofMeasurePage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {facets.length >= 9 && (
+              <div className="mt-4 p-3 bg-amber-900/20 rounded border border-amber-700/30">
+                {linearFeatures.filter((feature) => feature.type === 'ridge').length === 0 && (
+                  <p className="text-xs text-amber-300">
+                    Complex roof detected: ridge lines are estimated. Add ridge lines for better production accuracy.
+                  </p>
+                )}
+                {linearFeatures.filter((feature) => feature.type === 'valley').length === 0 && (
+                  <p className="text-xs text-amber-300 mt-1">
+                    Valley lines are estimated too. Add valley lines when available.
+                  </p>
+                )}
               </div>
             )}
           </div>
