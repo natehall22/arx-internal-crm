@@ -801,11 +801,15 @@ export async function POST(request: Request) {
     console.log('Will sync calendar:', shouldRunSecondaryCalendarSync)
     
     if (shouldRunSecondaryCalendarSync) {
+      const resolvedCloserUserId = closerUserId as string
+      const resolvedInspectionScheduledFor = inspectionScheduledFor as string
+      const resolvedInspectionLocalTime = inspectionLocalTime as string
+
       // Get closer's name for setter calendar event
       const { data: closerData } = await supabase
         .from('users')
         .select('full_name')
-        .eq('id', closerUserId)
+        .eq('id', resolvedCloserUserId)
         .single()
       const closerName = closerData?.full_name || assignedCloserName
       
@@ -813,8 +817,8 @@ export async function POST(request: Request) {
       // Use local time for Google Calendar API (not UTC)
       const calendarResult = await syncToGoogleCalendar(
         supabase,
-        closerUserId,
-        inspectionLocalTime!, // Use local time, not UTC
+        resolvedCloserUserId,
+        resolvedInspectionLocalTime, // Use local time, not UTC
         inspectionDuration,
         leadRow.homeowner_name,
         leadRow.address_text,
@@ -844,14 +848,14 @@ export async function POST(request: Request) {
       
       // Create pending status prompt for feedback after appointment
       if (appointmentId && closerUserId) {
-        const appointmentEndTime = new Date(new Date(inspectionScheduledFor).getTime() + 60 * 60 * 1000) // +1 hour
+        const appointmentEndTime = new Date(new Date(resolvedInspectionScheduledFor).getTime() + 60 * 60 * 1000) // +1 hour
         try {
           await supabase
             .from('pending_status_prompts')
             .insert({
               org_id: profile.org_id,
               appointment_id: appointmentId,
-              closer_user_id: closerUserId,
+              closer_user_id: resolvedCloserUserId,
               prompt_at: appointmentEndTime.toISOString(),
             })
         } catch (promptError) {
@@ -862,12 +866,12 @@ export async function POST(request: Request) {
       
       // Also sync to setter's calendar (for visibility - they can be double-booked)
       // Only if setter is different from closer
-      if (profile.id !== closerUserId) {
+      if (profile.id !== resolvedCloserUserId) {
         const setterResult = await syncToSetterCalendar(
           supabase,
           profile.id, // setter is the current user who scheduled
           closerName,
-          inspectionLocalTime!, // Use local time, not UTC
+          resolvedInspectionLocalTime, // Use local time, not UTC
           inspectionDuration,
           leadRow.homeowner_name,
           leadRow.address_text,
