@@ -20,6 +20,60 @@ interface AssignmentResult {
   error?: string
 }
 
+function hasBufferedConflict(
+  slotStart: Date,
+  slotEnd: Date,
+  existingStart: Date,
+  existingEnd: Date,
+  bufferBeforeMinutes: number,
+  bufferAfterMinutes: number
+): boolean {
+  const blockedStart = new Date(existingStart.getTime() - bufferAfterMinutes * 60 * 1000)
+  const blockedEnd = new Date(existingEnd.getTime() + bufferBeforeMinutes * 60 * 1000)
+  return slotStart < blockedEnd && slotEnd > blockedStart
+}
+
+async function hasDbConflictForCloser(
+  supabase: any,
+  closerUserId: string,
+  scheduledFor: Date,
+  durationMinutes: number,
+  bufferBeforeMinutes: number,
+  bufferAfterMinutes: number
+): Promise<boolean> {
+  const slotStart = scheduledFor
+  const slotEnd = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
+  const queryStart = new Date(slotStart.getTime() - 12 * 60 * 60 * 1000)
+  const queryEnd = new Date(slotEnd.getTime() + 12 * 60 * 60 * 1000)
+
+  const { data: existingAppointments, error } = await supabase
+    .from('scheduled_appointments')
+    .select('id, scheduled_for, duration_minutes')
+    .eq('closer_user_id', closerUserId)
+    .in('status', ['scheduled', 'confirmed'])
+    .gte('scheduled_for', queryStart.toISOString())
+    .lte('scheduled_for', queryEnd.toISOString())
+
+  if (error) {
+    console.error('Round-robin: Failed DB conflict query:', error)
+    // Fail closed to prevent overbooking when conflict check cannot run reliably.
+    return true
+  }
+
+  return (existingAppointments || []).some((appt: ScheduledAppointment) => {
+    const existingStart = new Date(appt.scheduled_for)
+    const existingEnd = new Date(existingStart.getTime() + appt.duration_minutes * 60 * 1000)
+    return hasBufferedConflict(
+      slotStart,
+      slotEnd,
+      existingStart,
+      existingEnd,
+      bufferBeforeMinutes,
+      bufferAfterMinutes
+    )
+  })
+}
+
 /**
  * Get the next available closer from the round-robin queue
  * Checks calendar availability if Google Calendar is connected
@@ -160,6 +214,20 @@ export async function assignNextAvailableCloser(
         console.log(`Round-robin: ${closer.user?.full_name} availability: ${available ? 'AVAILABLE' : 'BUSY'}`)
 
         if (available) {
+          const hasDbConflict = await hasDbConflictForCloser(
+            supabase,
+            closer.user_id,
+            scheduledFor,
+            durationMinutes,
+            bufferBefore,
+            bufferAfter
+          )
+
+          if (hasDbConflict) {
+            console.log(`Round-robin: ${closer.user?.full_name} has DB conflict at requested time`)
+            continue
+          }
+
           // Build rich description for calendar event
           const customerName = customerDetails?.homeownerName || 'Customer'
           const descriptionLines = [
@@ -288,7 +356,14 @@ export async function assignNextAvailableCloser(
             orgId,
             googleEventId
           )
-          return result
+          if (result.success) {
+            return result
+          }
+
+          console.log(
+            `Round-robin: Failed to create appointment for ${closer.user?.full_name}, trying next closer: ${result.error}`
+          )
+          continue
         }
       } catch (availabilityError: any) {
         console.error(`Round-robin: Failed to check availability for ${closer.user?.full_name}:`, availabilityError?.message || availabilityError)
@@ -297,31 +372,7 @@ export async function assignNextAvailableCloser(
     }
 
     console.log(`Round-robin: Checked ${orderedClosers.length} closers, none available via calendar checks`)
-
-    // Fallback: assign next active closer in queue even without calendar token availability.
-    // This keeps inspection scheduling operational and avoids unassigned inspections.
-    const fallbackCloser = orderedClosers[0]
-    if (fallbackCloser) {
-      console.log(
-        `Round-robin: Fallback assignment to ${fallbackCloser.user?.full_name || fallbackCloser.user_id} (no calendar availability confirmation)`
-      )
-      const fallbackResult = await createAppointment(
-        supabase,
-        fallbackCloser,
-        scheduledFor,
-        durationMinutes,
-        leadId,
-        opportunityId,
-        address,
-        canvasserUserId,
-        orgId
-      )
-      if (fallbackResult.success) {
-        return fallbackResult
-      }
-    }
-
-    return { success: false, error: 'No active closers available for assignment' }
+    return { success: false, error: 'No available closers at that time' }
   } catch (error) {
     console.error('Round-robin assignment error:', error)
     return { success: false, error: 'Assignment failed' }
@@ -340,6 +391,30 @@ async function createAppointment(
   orgId?: string,
   googleEventId?: string
 ): Promise<AssignmentResult> {
+  const slotStart = scheduledFor
+  const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60 * 1000)
+  const bufferBefore = closer.buffer_before ?? 0
+  const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? 15
+  const hasConflict = await hasDbConflictForCloser(
+    supabase,
+    closer.user_id,
+    slotStart,
+    durationMinutes,
+    bufferBefore,
+    bufferAfter
+  )
+
+  if (hasConflict) {
+    console.log('Round-robin: Aborting createAppointment due to detected DB conflict', {
+      closerUserId: closer.user_id,
+      start: slotStart.toISOString(),
+      end: slotEnd.toISOString(),
+      bufferBefore,
+      bufferAfter,
+    })
+    return { success: false, error: 'Appointment conflicts with existing schedule' }
+  }
+
   // Create appointment record
   const { data: appointment, error: appointmentError } = await supabase
     .from('scheduled_appointments')
@@ -360,6 +435,32 @@ async function createAppointment(
 
   if (appointmentError) {
     console.error('Failed to create appointment:', appointmentError)
+
+    // Idempotency fallback: if a duplicate request already created this slot,
+    // reuse it instead of failing the scheduling flow.
+    if (leadId) {
+      const { data: existingAppointment } = await supabase
+        .from('scheduled_appointments')
+        .select('id, google_event_id')
+        .eq('lead_id', leadId)
+        .eq('closer_user_id', closer.user_id)
+        .eq('scheduled_for', scheduledFor.toISOString())
+        .in('status', ['scheduled', 'confirmed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existingAppointment?.id) {
+        return {
+          success: true,
+          closerId: closer.user_id,
+          closerName: closer.user?.full_name || 'Unknown',
+          appointmentId: existingAppointment.id,
+          googleEventId: existingAppointment.google_event_id || googleEventId,
+        }
+      }
+    }
+
     return { success: false, error: 'Failed to create appointment' }
   }
 

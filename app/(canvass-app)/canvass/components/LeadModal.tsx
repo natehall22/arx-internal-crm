@@ -19,7 +19,7 @@ interface Props {
     schedule_inspection?: boolean
     closer_user_id?: string
     inspection_scheduled_for?: string
-  }) => void
+  }) => void | Promise<void>
   onDelete?: (pinId: string) => void
   onClose: () => void
   users?: Array<{ id: string; full_name: string; has_calendar?: boolean }>
@@ -94,6 +94,7 @@ export default function LeadModal({
   const [showComingSoon, setShowComingSoon] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   
   // Scheduling state
   const [showScheduling, setShowScheduling] = useState(false)
@@ -179,8 +180,9 @@ export default function LeadModal({
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSaving) return
     
     const saveData: any = { ...formData }
     
@@ -190,7 +192,12 @@ export default function LeadModal({
       saveData.inspection_scheduled_for = selectedTime
     }
     
-    onSave(saveData)
+    setIsSaving(true)
+    try {
+      await onSave(saveData)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleDispositionSelect = (value: string) => {
@@ -573,16 +580,18 @@ export default function LeadModal({
           <div className="p-4 border-t bg-gray-50 safe-area-bottom space-y-3">
             <button
               type="submit"
-              disabled={showScheduling && canSchedule && !selectedTime ? true : false}
+              disabled={(showScheduling && canSchedule && !selectedTime) || isSaving}
               className={`w-full py-4 rounded-xl font-semibold text-lg ${
-                showScheduling && canSchedule && !selectedTime
+                (showScheduling && canSchedule && !selectedTime) || isSaving
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : showScheduling && selectedTime
                   ? 'bg-green-600 text-white active:bg-green-700'
                   : 'bg-indigo-600 text-white active:bg-indigo-700'
               }`}
             >
-              {showScheduling && selectedTime
+              {isSaving
+                ? 'Saving...'
+                : showScheduling && selectedTime
                 ? 'Schedule Inspection'
                 : showScheduling && canSchedule
                 ? 'Select a Time'

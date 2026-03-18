@@ -288,31 +288,75 @@ async function checkCloserAvailability(
   durationMinutes: number
 ): Promise<{ available: boolean; hasCalendar: boolean; error?: string }> {
   try {
-    const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
-    
-    if (!googleAccessToken) {
-      // No calendar connected - assume available
-      return { available: true, hasCalendar: false }
-    }
-
-    // Get closer's buffer settings
-    const { data: settings } = await adminClient
-      .from('user_settings')
-      .select('appointment_buffer_minutes')
-      .eq('user_id', closerUserId)
-      .single()
-
-    const bufferMinutes = settings?.appointment_buffer_minutes || 30
-
     const startTime = new Date(scheduledFor)
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000)
 
-    const available = await isSlotAvailable(googleAccessToken, startTime, endTime, bufferMinutes)
+    // Pull buffer settings using the same precedence as availability APIs.
+    const [{ data: queueEntry }, { data: settings }] = await Promise.all([
+      adminClient
+        .from('team_closer_queue')
+        .select('buffer_before, buffer_after, buffer_minutes')
+        .eq('user_id', closerUserId)
+        .eq('active', true)
+        .limit(1)
+        .maybeSingle(),
+      adminClient
+        .from('user_settings')
+        .select('appointment_buffer_minutes, appointment_buffer_before, appointment_buffer_after')
+        .eq('user_id', closerUserId)
+        .maybeSingle(),
+    ])
+
+    const bufferBefore = queueEntry?.buffer_before ?? settings?.appointment_buffer_before ?? 0
+    const bufferAfter = queueEntry?.buffer_after ?? settings?.appointment_buffer_after ?? settings?.appointment_buffer_minutes ?? 15
+
+    // Always enforce DB conflict checks, even when calendar tokens fail.
+    const queryStart = new Date(startTime.getTime() - 12 * 60 * 60 * 1000)
+    const queryEnd = new Date(endTime.getTime() + 12 * 60 * 60 * 1000)
+    const { data: existingAppointments, error: dbError } = await adminClient
+      .from('scheduled_appointments')
+      .select('scheduled_for, duration_minutes')
+      .eq('closer_user_id', closerUserId)
+      .in('status', ['scheduled', 'confirmed'])
+      .gte('scheduled_for', queryStart.toISOString())
+      .lte('scheduled_for', queryEnd.toISOString())
+
+    if (dbError) {
+      console.error('Closer availability DB check error:', dbError)
+      return { available: false, hasCalendar: false, error: 'Unable to verify schedule conflicts' }
+    }
+
+    const hasDbConflict = (existingAppointments || []).some((appt: any) => {
+      const apptStart = new Date(appt.scheduled_for)
+      const apptEnd = new Date(apptStart.getTime() + (appt.duration_minutes || 60) * 60 * 1000)
+      const blockedStart = new Date(apptStart.getTime() - bufferAfter * 60 * 1000)
+      const blockedEnd = new Date(apptEnd.getTime() + bufferBefore * 60 * 1000)
+      return startTime < blockedEnd && endTime > blockedStart
+    })
+
+    if (hasDbConflict) {
+      return { available: false, hasCalendar: true, error: 'Closer already has an appointment at this time' }
+    }
+
+    const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
+    
+    if (!googleAccessToken) {
+      // No calendar connected - DB check above is still authoritative.
+      return { available: true, hasCalendar: false }
+    }
+
+    // isSlotAvailable uses symmetric buffer. Use the stricter side to avoid under-blocking.
+    const available = await isSlotAvailable(
+      googleAccessToken,
+      startTime,
+      endTime,
+      Math.max(bufferBefore, bufferAfter)
+    )
     return { available, hasCalendar: true }
   } catch (error) {
     console.error('Availability check error:', error)
-    // On error, assume available to not block scheduling
-    return { available: true, hasCalendar: false, error: error instanceof Error ? error.message : 'Check failed' }
+    // Fail closed to prevent double-booking when availability cannot be verified.
+    return { available: false, hasCalendar: false, error: error instanceof Error ? error.message : 'Check failed' }
   }
 }
 
@@ -650,6 +694,25 @@ export async function POST(request: Request) {
       // Create scheduled_appointments record if not already created by round-robin
       // This ensures appointments are tracked even when closer is manually selected
       if (!appointmentId && closerUserId && inspectionScheduledFor) {
+        const availabilityCheck = await checkCloserAvailability(
+          supabase,
+          closerUserId,
+          inspectionScheduledFor,
+          inspectionDuration
+        )
+
+        if (!availabilityCheck.available) {
+          return NextResponse.json(
+            {
+              error: availabilityCheck.error || 'Selected closer is not available at that time',
+              code: 'SCHEDULING_CONFLICT',
+              closer_user_id: closerUserId,
+              scheduled_for: inspectionScheduledFor,
+            },
+            { status: 409 }
+          )
+        }
+
         const { data: createdAppointment, error: apptError } = await supabase
           .from('scheduled_appointments')
           .insert({
@@ -668,6 +731,31 @@ export async function POST(request: Request) {
 
         if (apptError) {
           console.error('Appointment creation error:', apptError)
+          const { data: existingAfterConflict } = await supabase
+            .from('scheduled_appointments')
+            .select('id, google_event_id')
+            .eq('org_id', profile.org_id)
+            .eq('lead_id', leadRow.id)
+            .eq('closer_user_id', closerUserId)
+            .eq('scheduled_for', inspectionScheduledFor)
+            .in('status', ['scheduled', 'confirmed'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (existingAfterConflict?.id) {
+            appointmentId = existingAfterConflict.id
+            roundRobinGoogleEventId = existingAfterConflict.google_event_id || roundRobinGoogleEventId
+            reusedExistingAppointment = true
+          } else {
+            return NextResponse.json(
+              {
+                error: 'Failed to create appointment',
+                details: apptError.message,
+              },
+              { status: 400 }
+            )
+          }
         } else {
           appointmentId = createdAppointment?.id ?? null
           console.log('Created scheduled appointment:', appointmentId)
