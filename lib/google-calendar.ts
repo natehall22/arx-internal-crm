@@ -282,9 +282,15 @@ export async function isSlotAvailable(
 export async function createCalendarEvent(
   accessToken: string,
   event: CalendarEvent,
-  calendarId: string = 'primary'
+  calendarId: string = 'primary',
+  sendUpdates: 'all' | 'externalOnly' | 'none' = 'none'
 ): Promise<CalendarEvent> {
-  const response = await fetch(`${GOOGLE_CALENDAR_API}/calendars/${calendarId}/events`, {
+  const eventUrl = new URL(`${GOOGLE_CALENDAR_API}/calendars/${calendarId}/events`)
+  if (sendUpdates !== 'none') {
+    eventUrl.searchParams.set('sendUpdates', sendUpdates)
+  }
+
+  const response = await fetch(eventUrl.toString(), {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,

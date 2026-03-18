@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { createClientBrowser } from '@/lib/supabase/client'
 
 interface WorkOrderPhoto {
@@ -72,11 +73,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadWorkOrders()
-  }, [jobId, projectId])
-
-  const loadWorkOrders = async () => {
+  const loadWorkOrders = useCallback(async () => {
     try {
       const supabase = createClientBrowser()
       
@@ -145,7 +142,11 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
     } finally {
       setLoading(false)
     }
-  }
+  }, [jobId, projectId])
+
+  useEffect(() => {
+    loadWorkOrders()
+  }, [loadWorkOrders])
 
   const openWorkOrders = workOrders.filter(wo => !['completed', 'cancelled'].includes(wo.status))
   const completedWorkOrders = workOrders.filter(wo => wo.status === 'completed')
@@ -302,9 +303,12 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                       rel="noopener noreferrer"
                                       className="aspect-square bg-gray-100 rounded overflow-hidden"
                                     >
-                                      <img
+                                      <Image
                                         src={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
                                         alt="Work done"
+                                        width={96}
+                                        height={96}
+                                        unoptimized
                                         className="w-full h-full object-cover"
                                       />
                                     </a>
@@ -332,9 +336,12 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                       rel="noopener noreferrer"
                                       className="aspect-square bg-gray-100 rounded overflow-hidden"
                                     >
-                                      <img
+                                      <Image
                                         src={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
                                         alt="Cleanup"
+                                        width={96}
+                                        height={96}
+                                        unoptimized
                                         className="w-full h-full object-cover"
                                       />
                                     </a>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   JobPayment, 
   JobPaymentSummary, 
@@ -25,7 +25,7 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
 
-  const loadPayments = async () => {
+  const loadPayments = useCallback(async () => {
     try {
       const response = await fetch(`/api/ops/jobs/${jobId}/payments`, {
         cache: 'no-store',
@@ -39,11 +39,11 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
     } finally {
       setLoading(false)
     }
-  }
+  }, [jobId])
 
   useEffect(() => {
     loadPayments()
-  }, [jobId])
+  }, [loadPayments])
 
   const handlePaymentAdded = () => {
     setShowModal(false)

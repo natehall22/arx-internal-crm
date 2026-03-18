@@ -129,8 +129,9 @@ async function syncToGoogleCalendar(
   canvassNotes: string | null,
   leadId: string,
   opportunityId: string | null,
-  setterName: string | null = null
-): Promise<{ synced: boolean; eventId?: string; error?: string }> {
+  setterName: string | null = null,
+  setterEmail: string | null = null
+): Promise<{ synced: boolean; eventId?: string; error?: string; setterInvited?: boolean }> {
   console.log('=== SYNC TO GOOGLE CALENDAR ===')
   console.log('closerUserId:', closerUserId)
   console.log('scheduledFor:', scheduledFor)
@@ -190,6 +191,7 @@ async function syncToGoogleCalendar(
         dateTime: endDateTime,
         timeZone: timezone,
       },
+      attendees: setterEmail ? [{ email: setterEmail }] : undefined,
     }
 
     console.log('Creating Google Calendar event:', {
@@ -199,9 +201,14 @@ async function syncToGoogleCalendar(
       scheduledForInput: scheduledFor,
     })
 
-    const createdEvent = await createCalendarEvent(googleAccessToken, event)
+    const createdEvent = await createCalendarEvent(
+      googleAccessToken,
+      event,
+      'primary',
+      setterEmail ? 'all' : 'none'
+    )
     console.log('Google Calendar event created:', createdEvent.id)
-    return { synced: true, eventId: createdEvent.id }
+    return { synced: true, eventId: createdEvent.id, setterInvited: Boolean(setterEmail) }
   } catch (error) {
     console.error('Google Calendar sync error:', error)
     return { synced: false, error: error instanceof Error ? error.message : 'Calendar sync failed' }
@@ -813,7 +820,23 @@ export async function POST(request: Request) {
         .single()
       const closerName = closerData?.full_name || assignedCloserName
       
-      // Sync to closer's calendar (they need to be available)
+      let setterInviteEmail: string | null = null
+      if (profile.id !== resolvedCloserUserId) {
+        if (typeof profile.email === 'string' && profile.email.includes('@')) {
+          setterInviteEmail = profile.email
+        } else {
+          const { data: setterData } = await supabase
+            .from('users')
+            .select('email')
+            .eq('id', profile.id)
+            .maybeSingle()
+          if (setterData?.email && setterData.email.includes('@')) {
+            setterInviteEmail = setterData.email
+          }
+        }
+      }
+
+      // Sync to closer's calendar and add setter as attendee to send one invite.
       // Use local time for Google Calendar API (not UTC)
       const calendarResult = await syncToGoogleCalendar(
         supabase,
@@ -827,7 +850,8 @@ export async function POST(request: Request) {
         leadRow.canvass_notes,
         leadRow.id,
         opportunityId,
-        profile.full_name // Setter name
+        profile.full_name, // Setter name
+        setterInviteEmail
       )
       
       calendarSynced = calendarResult.synced
@@ -836,6 +860,18 @@ export async function POST(request: Request) {
       
       if (!calendarSynced) {
         console.log('Closer calendar sync failed:', calendarError)
+      }
+
+      if (profile.id === resolvedCloserUserId) {
+        setterCalendarSynced = true
+      } else if (setterInviteEmail) {
+        setterCalendarSynced = Boolean(calendarResult.setterInvited)
+        if (!setterCalendarSynced) {
+          setterCalendarError = 'Setter was not included as an invite attendee'
+        }
+      } else {
+        setterCalendarSynced = false
+        setterCalendarError = 'Setter has no email configured for calendar invite'
       }
       
       // Store Google event ID in the appointment if we have one
@@ -864,28 +900,6 @@ export async function POST(request: Request) {
         }
       }
       
-      // Also sync to setter's calendar (for visibility - they can be double-booked)
-      // Only if setter is different from closer
-      if (profile.id !== resolvedCloserUserId) {
-        const setterResult = await syncToSetterCalendar(
-          supabase,
-          profile.id, // setter is the current user who scheduled
-          closerName,
-          resolvedInspectionLocalTime, // Use local time, not UTC
-          inspectionDuration,
-          leadRow.homeowner_name,
-          leadRow.address_text,
-          leadRow.phone,
-          leadRow.id,
-          opportunityId
-        )
-        setterCalendarSynced = setterResult.synced
-        setterCalendarError = setterResult.error || null
-        
-        if (!setterCalendarSynced) {
-          console.log('Setter calendar sync failed:', setterCalendarError)
-        }
-      }
     } else if (roundRobinHandledCalendar) {
       // Round-robin already synced calendars
       calendarSynced = true

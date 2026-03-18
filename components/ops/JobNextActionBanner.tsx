@@ -227,10 +227,6 @@ export default function JobNextActionBanner({
     loadPayments()
   }, [jobId, refreshKey])
 
-  if (loading) {
-    return null
-  }
-
   // Use sale_amount_cents from API for consistency, fallback to prop calculation
   const saleAmountCents = paymentSummary?.sale_amount_cents ?? Math.round((saleAmount || 0) * 100)
   const collectedCents = paymentSummary?.collected_cents || 0
@@ -259,6 +255,10 @@ export default function JobNextActionBanner({
       setFinancePaymentSubmitted(false)
     }
   }, [isFinanceJob, status, jobId])
+
+  if (loading) {
+    return null
+  }
   
   // Debug logging (can be removed in production)
   if (typeof window !== 'undefined' && (window as any).__DEBUG_NEXT_ACTION__) {

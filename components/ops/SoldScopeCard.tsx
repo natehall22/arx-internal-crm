@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import GenerateJobPacketButton from './GenerateJobPacketButton'
@@ -75,14 +75,7 @@ export default function SoldScopeCard({
   const [newItem, setNewItem] = useState({ description: '', quantity: '1', unit: 'each', unit_price: '0' })
   const [savingItem, setSavingItem] = useState(false)
 
-  useEffect(() => {
-    loadSoldScope()
-    if (jobId) {
-      loadAdditionalScope()
-    }
-  }, [projectId, acceptedProposalId, acceptedEstimateId, linkedProposalId, opportunityId, jobId])
-
-  const loadSoldScope = async () => {
+  const loadSoldScope = useCallback(async () => {
     const supabase = createClientBrowser()
 
     try {
@@ -251,9 +244,9 @@ export default function SoldScopeCard({
     } finally {
       setLoading(false)
     }
-  }
+  }, [acceptedEstimateId, acceptedProposalId, linkedProposalId, opportunityId, projectId])
 
-  const loadAdditionalScope = async () => {
+  const loadAdditionalScope = useCallback(async () => {
     if (!jobId) return
     
     try {
@@ -265,7 +258,14 @@ export default function SoldScopeCard({
     } catch (err) {
       console.log('Additional scope not available')
     }
-  }
+  }, [jobId])
+
+  useEffect(() => {
+    loadSoldScope()
+    if (jobId) {
+      loadAdditionalScope()
+    }
+  }, [jobId, loadSoldScope, loadAdditionalScope])
 
   const loadAvailableProposals = async () => {
     const supabase = createClientBrowser()

@@ -230,6 +230,18 @@ export async function assignNextAvailableCloser(
 
           // Build rich description for calendar event
           const customerName = customerDetails?.homeownerName || 'Customer'
+          let setterInviteEmail: string | null = null
+          if (canvasserUserId && canvasserUserId !== closer.user_id) {
+            const { data: setterUser } = await supabase
+              .from('users')
+              .select('email')
+              .eq('id', canvasserUserId)
+              .maybeSingle()
+            if (setterUser?.email && setterUser.email.includes('@')) {
+              setterInviteEmail = setterUser.email
+            }
+          }
+
           const descriptionLines = [
             `Customer: ${customerName}`,
             customerDetails?.phone ? `Phone: ${customerDetails.phone}` : '',
@@ -260,7 +272,7 @@ export async function assignNextAvailableCloser(
           const startLocalTime = formatForCalendar(scheduledFor, teamTimezone)
           const endLocalTime = formatForCalendar(endTime, teamTimezone)
 
-          // Create calendar event for closer (NO attendees to avoid duplicate invites)
+          // Create one closer-owned event and include setter as attendee when available.
           let googleEventId: string | undefined
           try {
             console.log(`Round-robin: Creating calendar event for ${closer.user?.full_name}:`, {
@@ -268,80 +280,30 @@ export async function assignNextAvailableCloser(
               start: { dateTime: startLocalTime, timeZone: teamTimezone },
               end: { dateTime: endLocalTime, timeZone: teamTimezone },
             })
-            const event = await createCalendarEvent(accessToken, {
-              summary: `Inspection: ${customerName}`,
-              description: descriptionLines,
-              location: address,
-              start: {
-                dateTime: startLocalTime,
-                timeZone: teamTimezone,
+            const event = await createCalendarEvent(
+              accessToken,
+              {
+                summary: `Inspection: ${customerName}`,
+                description: descriptionLines,
+                location: address,
+                start: {
+                  dateTime: startLocalTime,
+                  timeZone: teamTimezone,
+                },
+                end: {
+                  dateTime: endLocalTime,
+                  timeZone: teamTimezone,
+                },
+                attendees: setterInviteEmail ? [{ email: setterInviteEmail }] : undefined,
               },
-              end: {
-                dateTime: endLocalTime,
-                timeZone: teamTimezone,
-              },
-            })
+              'primary',
+              setterInviteEmail ? 'all' : 'none'
+            )
             googleEventId = event.id
             console.log(`Round-robin: Calendar event created successfully, ID: ${googleEventId}`)
           } catch (calendarError: any) {
             console.error('Failed to create calendar event:', calendarError?.message || calendarError)
             // Continue anyway - appointment can still be created
-          }
-
-          // Create calendar event for setter ONLY if they are different from the closer
-          // Skip if closer is self-setting (they already have the event on their calendar)
-          const isSelfSet = canvasserUserId === closer.user_id
-          
-          if (canvasserUserId && !isSelfSet) {
-            try {
-              const { data: setterToken } = await supabase
-                .from('user_google_tokens')
-                .select('*')
-                .eq('user_id', canvasserUserId)
-                .single()
-
-              if (setterToken) {
-                let setterAccessToken = setterToken.access_token
-                // Refresh token if expired
-                if (new Date(setterToken.expires_at) < new Date()) {
-                  const refreshed = await refreshAccessToken(setterToken.refresh_token)
-                  setterAccessToken = refreshed.access_token
-                  await supabase
-                    .from('user_google_tokens')
-                    .update({
-                      access_token: refreshed.access_token,
-                      expires_at: refreshed.expires_at.toISOString(),
-                    })
-                    .eq('id', setterToken.id)
-                }
-
-                // Create event on setter's calendar (for their visibility)
-                const setterDescription = [
-                  'Appointment you scheduled',
-                  `Closer: ${closer.user?.full_name || 'Assigned closer'}`,
-                  `Customer: ${customerName}`,
-                  customerDetails?.phone ? `Phone: ${customerDetails.phone}` : '',
-                  address ? `Address: ${address}` : '',
-                ].filter(Boolean).join('\n')
-
-                await createCalendarEvent(setterAccessToken, {
-                  summary: `[Set] ${customerName} → ${closer.user?.full_name || 'Closer'}`,
-                  description: setterDescription,
-                  location: address,
-                  start: {
-                    dateTime: startLocalTime,
-                    timeZone: teamTimezone,
-                  },
-                  end: {
-                    dateTime: endLocalTime,
-                    timeZone: teamTimezone,
-                  },
-                })
-              }
-            } catch (setterCalendarError) {
-              console.error('Failed to create setter calendar event:', setterCalendarError)
-              // Non-critical, continue
-            }
           }
 
           const result = await createAppointment(
