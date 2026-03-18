@@ -215,78 +215,6 @@ async function syncToGoogleCalendar(
   }
 }
 
-// Helper to sync appointment to setter's Google Calendar (visibility only, can be double-booked)
-async function syncToSetterCalendar(
-  adminClient: any,
-  setterUserId: string,
-  closerName: string | null,
-  scheduledFor: string,
-  durationMinutes: number,
-  homeownerName: string | null,
-  addressText: string | null,
-  phone: string | null,
-  leadId: string,
-  opportunityId: string | null
-): Promise<{ synced: boolean; eventId?: string; error?: string }> {
-  try {
-    const googleAccessToken = await getValidAccessToken(adminClient, setterUserId)
-    
-    if (!googleAccessToken) {
-      return { synced: false, error: 'Setter does not have Google Calendar connected' }
-    }
-
-    // Get timezone from setter's team
-    const timezone = await getTimezoneForUser(adminClient, setterUserId)
-
-    // scheduledFor is in format "YYYY-MM-DDTHH:MM" (local time)
-    // We need to send it to Google Calendar with the timezone, NOT as UTC
-    const startDateTime = scheduledFor.includes(':') && scheduledFor.length === 16 
-      ? `${scheduledFor}:00`  // Add seconds if not present
-      : scheduledFor
-    
-    // Calculate end time by parsing the local time and adding duration
-    const [datePart, timePart] = scheduledFor.split('T')
-    const [hourStr, minStr] = timePart.split(':')
-    let endHour = parseInt(hourStr, 10)
-    let endMin = parseInt(minStr, 10) + durationMinutes
-    
-    // Handle minute overflow
-    while (endMin >= 60) {
-      endMin -= 60
-      endHour += 1
-    }
-    
-    const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
-
-    // Different title for setter - shows it's their set appointment
-    const event: CalendarEvent = {
-      summary: `[Set] ${homeownerName || 'Customer'}${closerName ? ` → ${closerName}` : ''}`,
-      description: [
-        'Appointment you scheduled',
-        closerName ? `Closer: ${closerName}` : '',
-        `Customer: ${homeownerName || 'N/A'}`,
-        phone ? `Phone: ${phone}` : '',
-        addressText ? `Address: ${addressText}` : '',
-      ].filter(Boolean).join('\n'),
-      location: addressText || undefined,
-      start: {
-        dateTime: startDateTime,
-        timeZone: timezone,
-      },
-      end: {
-        dateTime: endDateTime,
-        timeZone: timezone,
-      },
-    }
-
-    const createdEvent = await createCalendarEvent(googleAccessToken, event)
-    return { synced: true, eventId: createdEvent.id }
-  } catch (error) {
-    console.error('Setter calendar sync error:', error)
-    return { synced: false, error: error instanceof Error ? error.message : 'Setter calendar sync failed' }
-  }
-}
-
 // Helper to check closer availability via Google Calendar
 async function checkCloserAvailability(
   adminClient: any,
@@ -812,14 +740,6 @@ export async function POST(request: Request) {
       const resolvedInspectionScheduledFor = inspectionScheduledFor as string
       const resolvedInspectionLocalTime = inspectionLocalTime as string
 
-      // Get closer's name for setter calendar event
-      const { data: closerData } = await supabase
-        .from('users')
-        .select('full_name')
-        .eq('id', resolvedCloserUserId)
-        .single()
-      const closerName = closerData?.full_name || assignedCloserName
-      
       let setterInviteEmail: string | null = null
       if (profile.id !== resolvedCloserUserId) {
         if (typeof profile.email === 'string' && profile.email.includes('@')) {
