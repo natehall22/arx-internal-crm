@@ -117,21 +117,45 @@ export default function CalendarPage() {
       return
     }
 
-    const { data: profile } = await supabase
+    const { data: profileBase, error: profileError } = await supabase
       .from('users')
-      .select(`
-        *,
-        custom_role:custom_roles(
+      .select('id, org_id, role, team_id, region_id, custom_role_id, dashboard_view')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profileBase?.org_id) {
+      console.error('Calendar profile load error:', profileError)
+      setLoading(false)
+      return
+    }
+
+    let customRole: any = null
+    if (profileBase.custom_role_id) {
+      const { data: customRoleData, error: customRoleError } = await supabase
+        .from('custom_roles')
+        .select(`
           id,
           name,
           display_name,
           role_permissions(
             permission:permissions(name)
           )
-        )
-      `)
-      .eq('id', user.id)
-      .single()
+        `)
+        .eq('id', profileBase.custom_role_id)
+        .single()
+
+      if (customRoleError) {
+        // Best effort only; calendar must still load for users without custom-role read access.
+        console.warn('Calendar custom-role load skipped:', customRoleError.message)
+      } else {
+        customRole = customRoleData
+      }
+    }
+
+    const profile = {
+      ...profileBase,
+      custom_role: customRole,
+    }
 
     setCurrentUser(profile)
     const desktopView: 'sales' | 'ops' = profile?.dashboard_view === 'ops' ? 'ops' : 'sales'
