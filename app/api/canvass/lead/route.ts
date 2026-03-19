@@ -553,7 +553,7 @@ export async function POST(request: Request) {
             new Date(inspectionScheduledFor),
             inspectionDuration,
             leadRow.id,
-            undefined, // opportunity_id - will be created below
+            undefined, // opportunity_id is created from inspection status flow
             leadRow.address_text,
             profile.id, // canvasser
             profile.org_id,
@@ -592,39 +592,14 @@ export async function POST(request: Request) {
     }
 
     if (scheduleInspection) {
+      // Do not create opportunities during scheduling.
+      // Opportunities are created from inspection status flow card updates only.
       const { data: existingOpportunity } = await supabase
         .from('opportunities')
         .select('id')
         .eq('lead_id', leadRow.id)
         .maybeSingle()
-
-      if (existingOpportunity?.id) {
-        opportunityId = existingOpportunity.id
-      } else {
-        // The setter is the original lead owner (canvasser who set the appointment)
-        const setterId = leadRow.owner_user_id || profile.id
-        const { data: createdOpportunity, error: oppError } = await supabase
-          .from('opportunities')
-          .insert({
-            org_id: profile.org_id,
-            lead_id: leadRow.id,
-            owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
-            setter_user_id: setterId, // Track the setter for comp plans
-            status: 'open',
-            project_type: 'roofing',
-            address_text: leadRow.address_text,
-            lat: leadRow.lat,
-            lng: leadRow.lng,
-            notes: leadRow.notes,
-          })
-          .select('id')
-          .single()
-
-        if (oppError) {
-          console.error('Opportunity creation error:', oppError)
-        }
-        opportunityId = createdOpportunity?.id ?? null
-      }
+      opportunityId = existingOpportunity?.id ?? null
 
       // Create scheduled_appointments record if not already created by round-robin
       // This ensures appointments are tracked even when closer is manually selected
@@ -961,16 +936,6 @@ export async function POST(request: Request) {
           console.error('Failed to send closer assignment email:', emailError)
         }
       }
-    }
-
-    if (opportunityId) {
-      await supabase.from('activities').insert({
-        org_id: profile.org_id,
-        opportunity_id: opportunityId,
-        user_id: profile.id,
-        type: 'status_change',
-        body: 'Opportunity created from canvassing inspection.',
-      })
     }
 
     const result = {

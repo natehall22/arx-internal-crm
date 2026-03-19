@@ -3,8 +3,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import Nav from '@/components/Nav'
 import { createClientBrowser } from '@/lib/supabase/client'
+import TeamLaneView from '@/components/calendar/TeamLaneView'
 
-type ViewMode = 'day' | 'week' | 'month' | 'agenda'
+type ViewMode = 'day' | 'week' | 'month' | 'agenda' | 'team'
 
 interface Appointment {
   id: string
@@ -36,7 +37,22 @@ interface User {
   id: string
   full_name: string | null
   role: string
+  team_id?: string | null
+  region_id?: string | null
 }
+
+interface Team {
+  id: string
+  name: string
+  region_id?: string | null
+}
+
+interface Region {
+  id: string
+  name: string
+}
+
+const TEAM_MEMBER_ROLE_ALLOWLIST = ['sales_rep', 'rep', 'sales_manager', 'setter_manager']
 
 export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
@@ -45,7 +61,12 @@ export default function CalendarPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [regions, setRegions] = useState<Region[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
+  const [selectedRegionId, setSelectedRegionId] = useState<string>('')
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('')
+  const [selectedMemberId, setSelectedMemberId] = useState<string>('')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [selectedJob, setSelectedJob] = useState<ScheduledJob | null>(null)
@@ -73,15 +94,65 @@ export default function CalendarPage() {
       .single()
 
     setCurrentUser(profile)
+    const role = profile?.role || ''
+    const canAccessTeamCalendar =
+      ['admin', 'owner', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(role)
+    const isCalendarAdmin = ['admin', 'owner'].includes(role)
+    const isCalendarRegional = ['regional_manager', 'regional_setter_manager'].includes(role)
+    const isCalendarTeamManager = ['sales_manager', 'setter_manager'].includes(role)
 
     // Get users for filter
     const { data: usersData } = await supabase
       .from('users')
-      .select('id, full_name, role')
+      .select('id, full_name, role, team_id, region_id')
       .eq('org_id', profile?.org_id)
       .order('full_name')
 
     setUsers(usersData || [])
+
+    if (canAccessTeamCalendar) {
+      if (isCalendarAdmin || isCalendarRegional) {
+        const regionsQuery = supabase
+          .from('regions')
+          .select('id, name')
+          .eq('org_id', profile?.org_id)
+          .order('name')
+        const { data: regionsData } = await regionsQuery
+        setRegions(regionsData || [])
+      } else {
+        setRegions([])
+      }
+
+      let teamsQuery = supabase
+        .from('teams')
+        .select('id, name, region_id')
+        .eq('org_id', profile?.org_id)
+        .order('name')
+
+      if (isCalendarRegional && profile?.region_id) {
+        teamsQuery = teamsQuery.eq('region_id', profile.region_id)
+      }
+
+      if (isCalendarTeamManager && profile?.team_id) {
+        teamsQuery = teamsQuery.eq('id', profile.team_id)
+      }
+
+      const { data: teamsData } = await teamsQuery
+      setTeams(teamsData || [])
+
+      if (isCalendarRegional) {
+        setSelectedRegionId(profile?.region_id || '')
+      } else if (isCalendarTeamManager) {
+        setSelectedRegionId('')
+        setSelectedTeamId(profile?.team_id || '')
+      }
+    } else {
+      setRegions([])
+      setTeams([])
+      setSelectedRegionId('')
+      setSelectedTeamId('')
+      setSelectedMemberId('')
+    }
 
     // Calculate date range based on view
     const startDate = new Date(currentDate)
@@ -115,11 +186,11 @@ export default function CalendarPage() {
       .order('scheduled_for', { ascending: true })
 
     // For non-admin roles, default to showing only their appointments
-    const isAdminOrManager = ['admin', 'regional_manager', 'operations', 'manager', 'owner', 'sales_manager'].includes(profile?.role || '')
-    
+    const canSeeAllAppointments = ['admin', 'regional_manager', 'operations', 'manager', 'owner', 'sales_manager'].includes(role)
+
     if (selectedUserId !== 'all') {
       query = query.eq('closer_user_id', selectedUserId)
-    } else if (!isAdminOrManager) {
+    } else if (!canSeeAllAppointments) {
       // Non-admins see only their own appointments by default
       query = query.eq('closer_user_id', user.id)
     }
@@ -294,9 +365,60 @@ export default function CalendarPage() {
 
   const isToday = (date: Date) => date.toDateString() === new Date().toDateString()
   const isCurrentMonth = (date: Date) => date.getMonth() === currentDate.getMonth()
+  const viewerRole = currentUser?.role || ''
+  const isCalendarAdmin = ['admin', 'owner'].includes(viewerRole)
+  const isCalendarRegional = ['regional_manager', 'regional_setter_manager'].includes(viewerRole)
+  const isCalendarTeamManager = ['sales_manager', 'setter_manager'].includes(viewerRole)
+  const canAccessTeamCalendar = isCalendarAdmin || isCalendarRegional || isCalendarTeamManager
+  const viewerRegionId = currentUser?.region_id || ''
+  const viewerTeamId = currentUser?.team_id || ''
+
+  const scopedTeams = useMemo(() => {
+    if (isCalendarTeamManager && viewerTeamId) {
+      return teams.filter((team) => team.id === viewerTeamId)
+    }
+    if (isCalendarRegional && viewerRegionId) {
+      return teams.filter((team) => team.region_id === viewerRegionId)
+    }
+    if (isCalendarAdmin && selectedRegionId) {
+      return teams.filter((team) => team.region_id === selectedRegionId)
+    }
+    return teams
+  }, [isCalendarAdmin, isCalendarRegional, isCalendarTeamManager, selectedRegionId, teams, viewerRegionId, viewerTeamId])
+
+  const scopedMembers = useMemo(() => {
+    let pool = users.filter((user) => TEAM_MEMBER_ROLE_ALLOWLIST.includes(user.role))
+
+    if (isCalendarTeamManager && viewerTeamId) {
+      pool = pool.filter((user) => user.team_id === viewerTeamId)
+    } else if (isCalendarRegional && viewerRegionId) {
+      pool = pool.filter((user) => user.region_id === viewerRegionId)
+      if (selectedTeamId) {
+        pool = pool.filter((user) => user.team_id === selectedTeamId)
+      }
+    } else if (isCalendarAdmin) {
+      if (selectedRegionId) {
+        pool = pool.filter((user) => user.region_id === selectedRegionId)
+      }
+      if (selectedTeamId) {
+        pool = pool.filter((user) => user.team_id === selectedTeamId)
+      }
+    }
+
+    return pool
+  }, [
+    isCalendarAdmin,
+    isCalendarRegional,
+    isCalendarTeamManager,
+    selectedRegionId,
+    selectedTeamId,
+    users,
+    viewerRegionId,
+    viewerTeamId,
+  ])
 
   const headerTitle = useMemo(() => {
-    if (viewMode === 'day') {
+    if (viewMode === 'day' || viewMode === 'team') {
       return currentDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     } else if (viewMode === 'week') {
       const start = weekDays[0]
@@ -308,6 +430,33 @@ export default function CalendarPage() {
     }
     return currentDate.toLocaleDateString([], { month: 'long', year: 'numeric' })
   }, [currentDate, viewMode, weekDays])
+
+  useEffect(() => {
+    if (isCalendarTeamManager) {
+      setSelectedRegionId('')
+      setSelectedTeamId(viewerTeamId || '')
+    } else if (isCalendarRegional) {
+      setSelectedRegionId(viewerRegionId || '')
+    }
+  }, [isCalendarRegional, isCalendarTeamManager, viewerRegionId, viewerTeamId])
+
+  useEffect(() => {
+    if (selectedTeamId && !scopedTeams.some((team) => team.id === selectedTeamId)) {
+      setSelectedTeamId('')
+    }
+  }, [scopedTeams, selectedTeamId])
+
+  useEffect(() => {
+    if (selectedMemberId && !scopedMembers.some((member) => member.id === selectedMemberId)) {
+      setSelectedMemberId('')
+    }
+  }, [scopedMembers, selectedMemberId])
+
+  useEffect(() => {
+    if (viewMode === 'team' && !canAccessTeamCalendar) {
+      setViewMode('month')
+    }
+  }, [canAccessTeamCalendar, viewMode])
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -361,24 +510,90 @@ export default function CalendarPage() {
                   {mode}
                 </button>
               ))}
+              {canAccessTeamCalendar && (
+                <button
+                  onClick={() => setViewMode('team')}
+                  className={`px-3 py-2 text-sm font-medium capitalize ${
+                    viewMode === 'team'
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Team
+                </button>
+              )}
             </div>
           </div>
         </div>
 
         {/* User filter */}
         <div className="mb-4">
-          <select
-            value={selectedUserId}
-            onChange={(e) => setSelectedUserId(e.target.value)}
-            className="px-4 py-2 border rounded-lg bg-white text-sm"
-          >
-            <option value="all">All Team Members</option>
-            {users.map(user => (
-              <option key={user.id} value={user.id}>
-                {user.full_name || 'Unknown'} ({user.role})
-              </option>
-            ))}
-          </select>
+          {canAccessTeamCalendar && viewMode === 'team' ? (
+            <div className="flex flex-wrap gap-2">
+              {isCalendarAdmin && (
+                <select
+                  value={selectedRegionId}
+                  onChange={(e) => {
+                    setSelectedRegionId(e.target.value)
+                    setSelectedTeamId('')
+                    setSelectedMemberId('')
+                  }}
+                  className="px-4 py-2 border rounded-lg bg-white text-sm"
+                >
+                  <option value="">All Regions</option>
+                  {regions.map((region) => (
+                    <option key={region.id} value={region.id}>
+                      {region.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {(isCalendarAdmin || isCalendarRegional) && (
+                <select
+                  value={selectedTeamId}
+                  onChange={(e) => {
+                    setSelectedTeamId(e.target.value)
+                    setSelectedMemberId('')
+                  }}
+                  className="px-4 py-2 border rounded-lg bg-white text-sm"
+                >
+                  <option value="">All Teams</option>
+                  {scopedTeams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <select
+                value={selectedMemberId}
+                onChange={(e) => setSelectedMemberId(e.target.value)}
+                className="px-4 py-2 border rounded-lg bg-white text-sm"
+              >
+                <option value="">All Members</option>
+                {scopedMembers.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.full_name || 'Unknown'} ({member.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              className="px-4 py-2 border rounded-lg bg-white text-sm"
+            >
+              <option value="all">All Team Members</option>
+              {users.map(user => (
+                <option key={user.id} value={user.id}>
+                  {user.full_name || 'Unknown'} ({user.role})
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Calendar content */}
@@ -387,6 +602,17 @@ export default function CalendarPage() {
             <div className="flex items-center justify-center h-96">
               <div className="text-gray-500">Loading calendar...</div>
             </div>
+          ) : viewMode === 'team' && canAccessTeamCalendar ? (
+            <TeamLaneView
+              viewerRole={viewerRole}
+              viewerRegionId={viewerRegionId}
+              viewerTeamId={viewerTeamId}
+              regionId={isCalendarAdmin ? selectedRegionId : isCalendarRegional ? viewerRegionId : ''}
+              teamId={selectedTeamId}
+              memberId={selectedMemberId}
+              date={currentDate}
+              orgId={currentUser?.org_id || ''}
+            />
           ) : viewMode === 'month' ? (
             /* Month View */
             <div className="h-full flex flex-col">

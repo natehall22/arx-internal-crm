@@ -120,6 +120,21 @@ textarea::placeholder {
   color: #9ca3af;
 }
 
+/* Ensure login page dark inputs always show typed text clearly. */
+.login-dark input,
+.login-dark textarea,
+.login-dark select {
+  color: #ffffff !important;
+  background-color: #020617 !important; /* slate-950 */
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+}
+
+.login-dark input::placeholder,
+.login-dark textarea::placeholder {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

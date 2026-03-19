@@ -19,7 +19,7 @@ export default function LoginPage({
   const errorMessage = searchParams?.error || ''
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="login-dark min-h-screen bg-slate-950 text-white">
       <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6 py-12">
         <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
           <div className="mb-6 text-center">
