@@ -116,7 +116,7 @@ export default function TeamLaneView({
         .from('users')
         .select('id, full_name, team_id, region_id')
         .eq('org_id', orgId)
-        .in('role', ['sales_rep', 'rep', 'sales_manager', 'setter_manager'])
+        .in('role', ['sales_rep', 'rep', 'sales_manager', 'setter_manager', 'admin'])
         .order('full_name')
 
       if (isCalendarTeamManager && viewerTeamId) {

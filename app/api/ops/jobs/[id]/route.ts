@@ -2,6 +2,24 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 
+const jobSelectWithPaymentMethod = `
+  *,
+  assigned_crew:crews(id, name, color, phone),
+  assigned_sub:sub_contractors(id, company_name, contact_name, phone),
+  customer:customers(id, name, phone, email),
+  salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
+  project:projects(id, scope_of_work, product_summary, ops_notes, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+`
+
+const jobSelectWithoutPaymentMethod = `
+  *,
+  assigned_crew:crews(id, name, color, phone),
+  assigned_sub:sub_contractors(id, company_name, contact_name, phone),
+  customer:customers(id, name, phone, email),
+  salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
+  project:projects(id, scope_of_work, product_summary, ops_notes, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+`
+
 function mapJobStatusToProjectStatus(jobStatus: string) {
   if (jobStatus === 'collected') return 'collected'
   if (jobStatus === 'complete') return 'complete'
@@ -107,19 +125,26 @@ export async function GET(
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    const { data: job, error } = await adminClient
+    const jobResWithPaymentMethod = await adminClient
       .from('production_jobs')
-      .select(`
-        *,
-        assigned_crew:crews(id, name, color, phone),
-        assigned_sub:sub_contractors(id, company_name, contact_name, phone),
-        customer:customers(id, name, phone, email),
-        salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
-      `)
+      .select(jobSelectWithPaymentMethod)
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
+
+    const shouldFallbackToLegacyProjectShape = !!jobResWithPaymentMethod.error
+
+    const jobRes = shouldFallbackToLegacyProjectShape
+      ? await adminClient
+          .from('production_jobs')
+          .select(jobSelectWithoutPaymentMethod)
+          .eq('id', params.id)
+          .eq('org_id', profile.org_id)
+          .single()
+      : jobResWithPaymentMethod
+
+    const job = jobRes.data
+    const error = jobRes.error
 
     if (error || !job) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })

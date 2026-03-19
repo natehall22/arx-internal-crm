@@ -52,7 +52,7 @@ interface Region {
   name: string
 }
 
-const TEAM_MEMBER_ROLE_ALLOWLIST = ['sales_rep', 'rep', 'sales_manager', 'setter_manager']
+const TEAM_MEMBER_ROLE_ALLOWLIST = ['sales_rep', 'rep', 'sales_manager', 'setter_manager', 'admin']
 
 type CalendarAccessLevel = 'none' | 'team' | 'regional' | 'admin'
 
@@ -227,7 +227,8 @@ export default function CalendarPage() {
       .order('scheduled_for', { ascending: true })
 
     // For non-admin roles, default to showing only their appointments
-    const canSeeAllAppointments = ['admin', 'regional_manager', 'operations', 'manager', 'owner', 'sales_manager'].includes(role)
+    const canSeeAllAppointments =
+      calendarAccess !== 'none' || ['operations', 'manager'].includes(role)
 
     if (selectedUserId !== 'all') {
       query = query.eq('closer_user_id', selectedUserId)

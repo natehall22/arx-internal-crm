@@ -10,6 +10,24 @@ interface PageProps {
   params: { id: string }
 }
 
+const jobSelectWithPaymentMethod = `
+  *,
+  assigned_crew:crews(id, name, color, phone),
+  assigned_sub:sub_contractors(id, company_name, contact_name, phone),
+  customer:customers(id, name, phone, email),
+  salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
+  project:projects(id, scope_of_work, product_summary, ops_notes, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+`
+
+const jobSelectWithoutPaymentMethod = `
+  *,
+  assigned_crew:crews(id, name, color, phone),
+  assigned_sub:sub_contractors(id, company_name, contact_name, phone),
+  customer:customers(id, name, phone, email),
+  salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
+  project:projects(id, scope_of_work, product_summary, ops_notes, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+`
+
 export default async function JobDetailPage({ params }: PageProps) {
   const { profile } = await requireAuth()
   const supabase = createClient()
@@ -28,20 +46,27 @@ export default async function JobDetailPage({ params }: PageProps) {
     customRoleDisplayName: customRole?.display_name,
   })
 
+  const jobQueryWithPaymentMethod = supabase
+    .from('production_jobs')
+    .select(jobSelectWithPaymentMethod)
+    .eq('id', params.id)
+    .eq('org_id', profile.org_id)
+    .single()
+
+  const jobResWithPaymentMethod = await jobQueryWithPaymentMethod
+  const shouldFallbackToLegacyProjectShape = !!jobResWithPaymentMethod.error
+
+  const jobResult = shouldFallbackToLegacyProjectShape
+    ? await supabase
+        .from('production_jobs')
+        .select(jobSelectWithoutPaymentMethod)
+        .eq('id', params.id)
+        .eq('org_id', profile.org_id)
+        .single()
+    : jobResWithPaymentMethod
+
   const [jobRes, crewsRes, subsRes] = await Promise.all([
-    supabase
-      .from('production_jobs')
-      .select(`
-        *,
-        assigned_crew:crews(id, name, color, phone),
-        assigned_sub:sub_contractors(id, company_name, contact_name, phone),
-        customer:customers(id, name, phone, email),
-        salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
-      `)
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-      .single(),
+    Promise.resolve(jobResult),
     supabase
       .from('crews')
       .select('id, name, crew_type, color, daily_capacity')
