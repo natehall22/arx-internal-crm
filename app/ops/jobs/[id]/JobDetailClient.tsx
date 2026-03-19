@@ -106,6 +106,7 @@ interface JobDetailClientProps {
   crews: Crew[]
   subs: SubContractor[]
   userRole: string
+  canViewJobBilling: boolean
 }
 
 interface JobNote {
@@ -120,7 +121,7 @@ interface OrgUser {
   full_name: string
 }
 
-export default function JobDetailClient({ initialJob, crews, subs, userRole }: JobDetailClientProps) {
+export default function JobDetailClient({ initialJob, crews, subs, userRole, canViewJobBilling }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   const [materialOrdersTotal, setMaterialOrdersTotal] = useState<number | null>(null)
@@ -145,6 +146,11 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
 
   // Load payment summary for balance check
   useEffect(() => {
+    if (!canViewJobBilling) {
+      setPaymentSummary(null)
+      return
+    }
+
     const loadPayments = async () => {
       try {
         const response = await fetch(`/api/ops/jobs/${job.id}/payments`)
@@ -157,7 +163,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
       }
     }
     loadPayments()
-  }, [job.id])
+  }, [job.id, canViewJobBilling])
 
   useEffect(() => {
     const loadMaterialOrdersTotal = async () => {
@@ -1035,22 +1041,26 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole }: J
               </div>
             )}
 
-            <div id="payments-section">
-              <JobPaymentsCard 
-                jobId={job.id} 
-                saleAmount={job.sale_amount} 
-                onPaymentChange={() => setPaymentsRefreshKey(k => k + 1)}
-              />
-            </div>
+            {canViewJobBilling && (
+              <div id="payments-section">
+                <JobPaymentsCard
+                  jobId={job.id}
+                  saleAmount={job.sale_amount}
+                  onPaymentChange={() => setPaymentsRefreshKey(k => k + 1)}
+                />
+              </div>
+            )}
 
-            <div id="invoices-section">
-              <JobInvoicesCard
-                jobId={job.id}
-                saleAmount={job.sale_amount}
-                customerEmail={job.customer?.email}
-                onInvoiceChange={() => setPaymentsRefreshKey(k => k + 1)}
-              />
-            </div>
+            {canViewJobBilling && (
+              <div id="invoices-section">
+                <JobInvoicesCard
+                  jobId={job.id}
+                  saleAmount={job.sale_amount}
+                  customerEmail={job.customer?.email}
+                  onInvoiceChange={() => setPaymentsRefreshKey(k => k + 1)}
+                />
+              </div>
+            )}
 
             <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
 

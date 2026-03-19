@@ -115,7 +115,7 @@ export async function GET(
         assigned_sub:sub_contractors(id, company_name, contact_name, phone),
         customer:customers(id, name, phone, email),
         salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+        project:projects(id, scope_of_work, product_summary, ops_notes, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
       `)
       .eq('id', params.id)
       .eq('org_id', profile.org_id)

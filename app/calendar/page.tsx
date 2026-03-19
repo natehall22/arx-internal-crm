@@ -54,6 +54,36 @@ interface Region {
 
 const TEAM_MEMBER_ROLE_ALLOWLIST = ['sales_rep', 'rep', 'sales_manager', 'setter_manager']
 
+type CalendarAccessLevel = 'none' | 'team' | 'regional' | 'admin'
+
+function deriveCalendarAccess(profile: any): CalendarAccessLevel {
+  const role = profile?.role || ''
+  const customRole = Array.isArray(profile?.custom_role) ? profile.custom_role[0] : profile?.custom_role
+  const rolePermissions = Array.isArray(customRole?.role_permissions) ? customRole.role_permissions : []
+  const customPermissionNames = new Set(
+    rolePermissions
+      .map((rp: any) => rp?.permission?.name)
+      .filter(Boolean)
+  )
+
+  const hasAdminAccess =
+    ['admin', 'owner'].includes(role) ||
+    customPermissionNames.has('admin:full')
+  if (hasAdminAccess) return 'admin'
+
+  const hasRegionalAccess =
+    ['regional_manager', 'regional_setter_manager'].includes(role) ||
+    customPermissionNames.has('scheduling:manage_region')
+  if (hasRegionalAccess) return 'regional'
+
+  const hasTeamAccess =
+    ['sales_manager', 'setter_manager'].includes(role) ||
+    customPermissionNames.has('scheduling:manage_team')
+  if (hasTeamAccess) return 'team'
+
+  return 'none'
+}
+
 export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -89,17 +119,28 @@ export default function CalendarPage() {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('*')
+      .select(`
+        *,
+        custom_role:custom_roles(
+          id,
+          name,
+          display_name,
+          role_permissions(
+            permission:permissions(name)
+          )
+        )
+      `)
       .eq('id', user.id)
       .single()
 
     setCurrentUser(profile)
+    const desktopView: 'sales' | 'ops' = profile?.dashboard_view === 'ops' ? 'ops' : 'sales'
     const role = profile?.role || ''
-    const canAccessTeamCalendar =
-      ['admin', 'owner', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(role)
-    const isCalendarAdmin = ['admin', 'owner'].includes(role)
-    const isCalendarRegional = ['regional_manager', 'regional_setter_manager'].includes(role)
-    const isCalendarTeamManager = ['sales_manager', 'setter_manager'].includes(role)
+    const calendarAccess = deriveCalendarAccess(profile)
+    const canAccessTeamCalendar = calendarAccess !== 'none'
+    const isCalendarAdmin = calendarAccess === 'admin'
+    const isCalendarRegional = calendarAccess === 'regional'
+    const isCalendarTeamManager = calendarAccess === 'team'
 
     // Get users for filter
     const { data: usersData } = await supabase
@@ -236,8 +277,9 @@ export default function CalendarPage() {
     
     setAppointments(enrichedAppointments)
 
-    // Fetch scheduled production jobs - only for ops/admin roles
-    const canSeeJobs = ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile?.role || '')
+    // Show scheduled production jobs only when user's desktop view is set to Ops.
+    // Sales desktop view focuses on appointment scheduling only.
+    const canSeeJobs = desktopView === 'ops'
     
     if (canSeeJobs) {
       const { data: jobsData } = await supabase
@@ -270,6 +312,7 @@ export default function CalendarPage() {
       setScheduledJobs(transformedJobs)
     } else {
       setScheduledJobs([])
+      setSelectedJob(null)
     }
     setLoading(false)
   }
@@ -365,10 +408,10 @@ export default function CalendarPage() {
 
   const isToday = (date: Date) => date.toDateString() === new Date().toDateString()
   const isCurrentMonth = (date: Date) => date.getMonth() === currentDate.getMonth()
-  const viewerRole = currentUser?.role || ''
-  const isCalendarAdmin = ['admin', 'owner'].includes(viewerRole)
-  const isCalendarRegional = ['regional_manager', 'regional_setter_manager'].includes(viewerRole)
-  const isCalendarTeamManager = ['sales_manager', 'setter_manager'].includes(viewerRole)
+  const calendarAccess = deriveCalendarAccess(currentUser)
+  const isCalendarAdmin = calendarAccess === 'admin'
+  const isCalendarRegional = calendarAccess === 'regional'
+  const isCalendarTeamManager = calendarAccess === 'team'
   const canAccessTeamCalendar = isCalendarAdmin || isCalendarRegional || isCalendarTeamManager
   const viewerRegionId = currentUser?.region_id || ''
   const viewerTeamId = currentUser?.team_id || ''
@@ -604,7 +647,7 @@ export default function CalendarPage() {
             </div>
           ) : viewMode === 'team' && canAccessTeamCalendar ? (
             <TeamLaneView
-              viewerRole={viewerRole}
+              calendarAccess={calendarAccess}
               viewerRegionId={viewerRegionId}
               viewerTeamId={viewerTeamId}
               regionId={isCalendarAdmin ? selectedRegionId : isCalendarRegional ? viewerRegionId : ''}

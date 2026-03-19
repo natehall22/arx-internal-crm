@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
+import { canAccessJobBilling } from '@/lib/finance-access'
 
 interface PageProps {
   params: { id: string }
@@ -12,6 +13,20 @@ interface PageProps {
 export default async function JobDetailPage({ params }: PageProps) {
   const { profile } = await requireAuth()
   const supabase = createClient()
+
+  const customRole = profile.custom_role_id
+    ? (await supabase
+        .from('custom_roles')
+        .select('name, display_name')
+        .eq('id', profile.custom_role_id)
+        .single()).data
+    : null
+
+  const canViewJobBilling = canAccessJobBilling({
+    role: profile.role,
+    customRoleName: customRole?.name,
+    customRoleDisplayName: customRole?.display_name,
+  })
 
   const [jobRes, crewsRes, subsRes] = await Promise.all([
     supabase
@@ -22,7 +37,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         assigned_sub:sub_contractors(id, company_name, contact_name, phone),
         customer:customers(id, name, phone, email),
         salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+        project:projects(id, scope_of_work, product_summary, ops_notes, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
       `)
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
@@ -158,6 +173,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       crews={crewsRes.data || []}
       subs={subsRes.data || []}
       userRole={profile.role}
+      canViewJobBilling={canViewJobBilling}
     />
   )
 }

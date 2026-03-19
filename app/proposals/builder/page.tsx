@@ -111,6 +111,12 @@ const adderCategories = [
   'Other',
 ]
 
+const BUNDLES_PER_SQUARE = 3
+
+function toHalfPercent(value: number): number {
+  return Math.round(value * 2) / 2
+}
+
 export default function ProposalBuilderPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -216,6 +222,13 @@ export default function ProposalBuilderPage() {
       // Apply measurement data
       if (data.measurement) {
         setMeasurementData(data.measurement)
+
+        if (typeof data.measurement.suggested_waste_percent === 'number') {
+          const suggested = Number(data.measurement.suggested_waste_percent)
+          if (Number.isFinite(suggested) && suggested > 0) {
+            setWastePercent(toHalfPercent(suggested))
+          }
+        }
         
         if (data.measurement.address_text) {
           setForm(prev => ({
@@ -244,10 +257,63 @@ export default function ProposalBuilderPage() {
 
   // Calculate base squares from measurement data
   const baseSquares = measurementData?.total_squares || parseFloat(urlSquares || '0')
-  
+  const measuredSuggestedWaste = Number(measurementData?.suggested_waste_percent || 0)
+  const effectiveWastePercent =
+    measuredSuggestedWaste > 0
+      ? Math.max(toHalfPercent(wastePercent), toHalfPercent(measuredSuggestedWaste))
+      : toHalfPercent(wastePercent)
+  const adjustedByMeasuredFloor = measuredSuggestedWaste > 0 && effectiveWastePercent > toHalfPercent(wastePercent)
+
   // Calculate waste squares and total squares
-  const wasteSquares = baseSquares * (wastePercent / 100)
+  const wasteSquares = baseSquares * (effectiveWastePercent / 100)
   const totalSquaresWithWaste = baseSquares + wasteSquares
+  const rawBundleCount = totalSquaresWithWaste * BUNDLES_PER_SQUARE
+  const roundedBundles = Math.ceil(rawBundleCount)
+  const bundleRoundedSquares = roundedBundles / BUNDLES_PER_SQUARE
+  const recommendedOrderSquares = Math.ceil(bundleRoundedSquares)
+
+  useEffect(() => {
+    if (!baseSquares) return
+    // Temporary debug output per roof for ordering audits.
+    console.log('[RoofOrderDebug]', {
+      measuredSquaresBeforeWaste: Number(baseSquares.toFixed(2)),
+      userWastePercent: wastePercent,
+      measuredSuggestedWastePercent: measuredSuggestedWaste || null,
+      effectiveWastePercent,
+      wasteReason: adjustedByMeasuredFloor
+        ? 'Raised to measured suggested waste floor'
+        : measurementData?.waste_category || 'Manual/default waste',
+      complexityTier: measurementData?.waste_category || 'N/A',
+      finalOrderSquaresRaw: Number(totalSquaresWithWaste.toFixed(3)),
+      bundleRounding: {
+        bundlesPerSquare: BUNDLES_PER_SQUARE,
+        rawBundles: Number(rawBundleCount.toFixed(3)),
+        roundedBundles,
+        squaresFromBundleRounding: Number(bundleRoundedSquares.toFixed(3)),
+      },
+      recommendedOrderSquares,
+      pitch: measurementData?.predominant_pitch || null,
+      valleysLf: Number(measurementData?.valleys_lf || 0),
+      ridgesLf: Number(measurementData?.ridges_lf || 0),
+      sectionCount: Number(measurementData?.facet_count || 0),
+    })
+  }, [
+    baseSquares,
+    bundleRoundedSquares,
+    adjustedByMeasuredFloor,
+    effectiveWastePercent,
+    measurementData?.facet_count,
+    measurementData?.predominant_pitch,
+    measurementData?.ridges_lf,
+    measurementData?.waste_category,
+    measurementData?.valleys_lf,
+    measuredSuggestedWaste,
+    rawBundleCount,
+    recommendedOrderSquares,
+    roundedBundles,
+    totalSquaresWithWaste,
+    wastePercent,
+  ])
 
   // Convert quantity based on unit type
   // 1 square = 100 sq ft
@@ -778,7 +844,7 @@ export default function ProposalBuilderPage() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Waste Factor</p>
-                  <p className="text-2xl font-bold text-amber-600">+{wastePercent}%</p>
+                  <p className="text-2xl font-bold text-amber-600">+{effectiveWastePercent}%</p>
                   <p className="text-xs text-gray-400">{wasteSquares.toFixed(1)} squares</p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
@@ -803,7 +869,7 @@ export default function ProposalBuilderPage() {
                     key={percent}
                     onClick={() => setWastePercent(percent)}
                     className={`py-4 px-3 rounded-xl font-semibold border-2 transition-all ${
-                      wastePercent === percent
+                      effectiveWastePercent === percent
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
                     }`}
@@ -840,15 +906,40 @@ export default function ProposalBuilderPage() {
                   <span className="font-semibold text-gray-900">{baseSquares.toFixed(1)} squares</span>
                 </div>
                 <div className="flex justify-between items-center text-amber-700">
-                  <span>Waste ({wastePercent}%)</span>
+                  <span>Waste ({effectiveWastePercent}%)</span>
                   <span className="font-semibold">+{wasteSquares.toFixed(1)} squares</span>
                 </div>
                 <div className="border-t border-indigo-200 pt-3 flex justify-between items-center">
                   <span className="font-semibold text-gray-900">Total Material Needed</span>
                   <span className="text-xl font-bold text-indigo-600">{totalSquaresWithWaste.toFixed(1)} squares</span>
                 </div>
+                <div className="flex justify-between items-center text-gray-700">
+                  <span>Recommended order (bundle-rounded)</span>
+                  <span className="font-semibold">{recommendedOrderSquares} squares</span>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {roundedBundles} bundles ({BUNDLES_PER_SQUARE} bundles/square), rounded up from {rawBundleCount.toFixed(2)} bundles.
+                </div>
               </div>
             </div>
+
+            {measurementData && (
+              <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                <p className="text-sm font-semibold text-gray-800 mb-2">Order Debug (Temporary)</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-700">
+                  <p>Measured squares before waste: <strong>{baseSquares.toFixed(2)}</strong></p>
+                  <p>Waste % used: <strong>{effectiveWastePercent}%</strong></p>
+                  <p>Waste reason / tier: <strong>{measurementData.waste_category || 'N/A'}</strong>{adjustedByMeasuredFloor ? ' (raised to measured suggested floor)' : ''}</p>
+                  <p>Final order squares (pre-round): <strong>{totalSquaresWithWaste.toFixed(3)}</strong></p>
+                  <p>Bundle rounding: <strong>{rawBundleCount.toFixed(2)}</strong> {'->'} <strong>{roundedBundles}</strong> bundles</p>
+                  <p>Recommended order squares: <strong>{recommendedOrderSquares}</strong></p>
+                  <p>Pitch: <strong>{measurementData.predominant_pitch || '-'}</strong></p>
+                  <p>Valleys LF: <strong>{measurementData.valleys_lf ?? 0}</strong></p>
+                  <p>Ridges LF: <strong>{measurementData.ridges_lf ?? 0}</strong></p>
+                  <p>Section count: <strong>{measurementData.facet_count ?? 0}</strong></p>
+                </div>
+              </div>
+            )}
 
             <div className="mt-8 flex justify-between">
               <button
@@ -898,13 +989,13 @@ export default function ProposalBuilderPage() {
                         // Auto-populate line items based on roofing type (using total with waste)
                         if (totalSquaresWithWaste > 0) {
                           const lineTotal = totalSquaresWithWaste * (type.price_per_square || 0)
-                          console.log('Creating line item:', totalSquaresWithWaste, 'squares x $', type.price_per_square, '= $', lineTotal)
+                          console.log('Creating line item:', totalSquaresWithWaste, 'squares x $', type.price_per_square, '= $', lineTotal, '(recommended order:', recommendedOrderSquares, 'sq)')
                           const newLineItem: LineItem = {
                             id: `roofing-${type.id}`,
                             pricebook_item_id: null,
                             category: 'Roofing',
                             name: `${type.name} Installation`,
-                            description: `${baseSquares.toFixed(1)} sq + ${wastePercent}% waste = ${totalSquaresWithWaste.toFixed(1)} sq`,
+                            description: `${baseSquares.toFixed(2)} sq + ${effectiveWastePercent}% waste = ${totalSquaresWithWaste.toFixed(2)} sq (order rec: ${recommendedOrderSquares} sq)`,
                             unit: 'square',
                             quantity: totalSquaresWithWaste,
                             unit_price: type.price_per_square || 0,

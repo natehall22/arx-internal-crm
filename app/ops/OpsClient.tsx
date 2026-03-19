@@ -85,6 +85,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [filterType, setFilterType] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [completedSearchQuery, setCompletedSearchQuery] = useState('')
 
   const supabase = createClientBrowser()
 
@@ -144,19 +145,28 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     }
   }
 
+  const activeJobs = jobs.filter((job) => job.status !== 'collected')
+  const completedJobs = jobs.filter((job) => job.status === 'collected')
+
+  const matchesSearch = (job: Job, query: string) => {
+    if (!query) return true
+    const search = query.toLowerCase()
+    return (
+      job.job_number.toLowerCase().includes(search) ||
+      job.address_text.toLowerCase().includes(search) ||
+      job.customer?.name?.toLowerCase().includes(search)
+    )
+  }
+
+  const matchesActiveFilters = (job: Job) => {
+    if (filterType !== 'all' && job.job_type !== filterType) return false
+    return matchesSearch(job, searchQuery)
+  }
+
   const getJobsByStatus = (status: JobStatus) => {
-    const filtered = jobs.filter(job => {
+    const filtered = activeJobs.filter(job => {
       if (job.status !== status) return false
-      if (filterType !== 'all' && job.job_type !== filterType) return false
-      if (searchQuery) {
-        const search = searchQuery.toLowerCase()
-        return (
-          job.job_number.toLowerCase().includes(search) ||
-          job.address_text.toLowerCase().includes(search) ||
-          job.customer?.name?.toLowerCase().includes(search)
-        )
-      }
-      return true
+      return matchesActiveFilters(job)
     })
 
     const priorityWeight: Record<string, number> = { urgent: 3, high: 2, normal: 1 }
@@ -182,6 +192,9 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
 
     return filtered
   }
+
+  const filteredActiveJobs = activeJobs.filter(matchesActiveFilters)
+  const filteredCompletedJobs = completedJobs.filter((job) => matchesSearch(job, completedSearchQuery))
 
   const openScheduleModal = (job: Job) => {
     setSelectedJob(job)
@@ -216,7 +229,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     scheduled: getJobsByStatus('scheduled').length,
     inProgress: getJobsByStatus('in_progress').length,
     complete: getJobsByStatus('complete').length,
-    totalValue: jobs.reduce((sum, j) => sum + (j.sale_amount || 0), 0),
+    totalValue: activeJobs.reduce((sum, j) => sum + (j.sale_amount || 0), 0),
   }
 
   const updateMaterialsStatus = async (jobId: string, newStatus: string) => {
@@ -477,6 +490,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             <div className="bg-white rounded-lg border p-4">
               <div className="text-2xl font-bold text-green-700">
                 ${jobs
+                  .filter((j) => j.status !== 'collected')
                   .filter((j) => typeof j.labor_cost === 'number' && typeof j.material_cost === 'number')
                   .reduce((sum, j) => sum + ((j.sale_amount || 0) - ((j.labor_cost || 0) + (j.material_cost || 0))), 0)
                   .toLocaleString()}
@@ -565,16 +579,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           <>
             <div className="md:hidden space-y-3">
               {jobs.filter(job => {
-                if (filterType !== 'all' && job.job_type !== filterType) return false
-                if (searchQuery) {
-                  const search = searchQuery.toLowerCase()
-                  return (
-                    job.job_number.toLowerCase().includes(search) ||
-                    job.address_text.toLowerCase().includes(search) ||
-                    job.customer?.name?.toLowerCase().includes(search)
-                  )
-                }
-                return true
+                return matchesActiveFilters(job)
               }).map(job => {
                 const config = statusConfig[job.status]
                 const profitability = getProfitability(job)
@@ -656,18 +661,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {jobs.filter(job => {
-                  if (filterType !== 'all' && job.job_type !== filterType) return false
-                  if (searchQuery) {
-                    const search = searchQuery.toLowerCase()
-                    return (
-                      job.job_number.toLowerCase().includes(search) ||
-                      job.address_text.toLowerCase().includes(search) ||
-                      job.customer?.name?.toLowerCase().includes(search)
-                    )
-                  }
-                  return true
-                }).map(job => {
+                {filteredActiveJobs.map(job => {
                   const config = statusConfig[job.status]
                   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
                   const priority = priorityConfig[job.priority] || priorityConfig.normal
@@ -769,6 +763,103 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           </div>
           </>
         )}
+
+        <div className="mt-8 bg-white rounded-lg border p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Completed Jobs</h2>
+              <p className="text-xs text-gray-500">Fully closed-out jobs (collected)</p>
+            </div>
+            <div className="w-full sm:w-[360px]">
+              <input
+                type="text"
+                placeholder="Search completed by job #, customer, or address..."
+                value={completedSearchQuery}
+                onChange={(e) => setCompletedSearchQuery(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="md:hidden space-y-3">
+            {filteredCompletedJobs.length === 0 ? (
+              <div className="text-sm text-gray-500 py-4">No completed jobs found.</div>
+            ) : (
+              filteredCompletedJobs.map((job) => (
+                <div key={job.id} className="rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-mono text-sm text-gray-900">{job.job_number}</p>
+                      <p className="text-sm text-gray-700">{job.customer?.name || '-'}</p>
+                      <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-gray-700">
+                      Collected
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <p className="text-gray-500">Value</p>
+                      <p className="font-semibold text-gray-900">{job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Job Type</p>
+                      <p className="font-semibold text-gray-900 capitalize">{job.job_type}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
+                      View Job
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="hidden md:block rounded-lg border overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Address</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filteredCompletedJobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-6 text-sm text-gray-500 text-center">
+                      No completed jobs found.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCompletedJobs.map((job) => (
+                    <tr key={job.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <div className="font-mono text-sm text-gray-900">{job.job_number}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{job.customer?.name || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 max-w-[360px] truncate">{job.address_text}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 capitalize">{job.job_type}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800">
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {showScheduleModal && selectedJob && (

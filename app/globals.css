@@ -135,6 +135,19 @@ textarea::placeholder {
   color: #94a3b8 !important; /* slate-400 */
 }
 
+/* Keep browser autofill readable on dark login form. */
+.login-dark input:-webkit-autofill,
+.login-dark input:-webkit-autofill:hover,
+.login-dark input:-webkit-autofill:focus,
+.login-dark textarea:-webkit-autofill,
+.login-dark select:-webkit-autofill {
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0px 1000px #020617 inset !important; /* slate-950 */
+  box-shadow: 0 0 0px 1000px #020617 inset !important;
+  transition: background-color 9999s ease-out 0s !important;
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

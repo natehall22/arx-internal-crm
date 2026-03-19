@@ -37,7 +37,6 @@ export default async function OpsPage() {
         project:projects(id, scope_of_work, product_summary, customers(id, name, phone), leads(id, homeowner_name, phone))
       `)
       .eq('org_id', profile.org_id)
-      .neq('status', 'collected')
       .order('scheduled_date', { ascending: true, nullsFirst: false }),
     supabase
       .from('crews')

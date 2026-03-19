@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { enqueuePaymentRecorded } from '@/lib/integrations'
+import { canAccessJobBilling } from '@/lib/finance-access'
 
 // GET - Get all payments for a job with summary
 export async function GET(
@@ -20,12 +21,24 @@ export async function GET(
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
       .eq('id', user.id)
       .single()
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const customRole = Array.isArray((profile as any).custom_role)
+      ? (profile as any).custom_role[0]
+      : (profile as any).custom_role
+
+    if (!canAccessJobBilling({
+      role: (profile as any).role,
+      customRoleName: customRole?.name,
+      customRoleDisplayName: customRole?.display_name,
+    })) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Verify job exists and belongs to user's org
@@ -92,12 +105,24 @@ export async function POST(
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
       .eq('id', user.id)
       .single()
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const customRole = Array.isArray((profile as any).custom_role)
+      ? (profile as any).custom_role[0]
+      : (profile as any).custom_role
+
+    if (!canAccessJobBilling({
+      role: (profile as any).role,
+      customRoleName: customRole?.name,
+      customRoleDisplayName: customRole?.display_name,
+    })) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Verify job exists and belongs to user's org

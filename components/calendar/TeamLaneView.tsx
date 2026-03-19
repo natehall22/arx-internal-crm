@@ -34,7 +34,7 @@ type DisplayAppointment = AppointmentRow & {
 }
 
 interface TeamLaneViewProps {
-  viewerRole: string
+  calendarAccess: 'none' | 'team' | 'regional' | 'admin'
   viewerRegionId: string
   viewerTeamId: string
   regionId: string
@@ -81,7 +81,7 @@ function statusColor(status: string): string {
 }
 
 export default function TeamLaneView({
-  viewerRole,
+  calendarAccess,
   viewerRegionId,
   viewerTeamId,
   regionId,
@@ -96,9 +96,9 @@ export default function TeamLaneView({
   const [appointments, setAppointments] = useState<DisplayAppointment[]>([])
   const [selectedAppointment, setSelectedAppointment] = useState<DisplayAppointment | null>(null)
 
-  const isCalendarAdmin = ['admin', 'owner'].includes(viewerRole)
-  const isCalendarRegional = ['regional_manager', 'regional_setter_manager'].includes(viewerRole)
-  const isCalendarTeamManager = ['sales_manager', 'setter_manager'].includes(viewerRole)
+  const isCalendarAdmin = calendarAccess === 'admin'
+  const isCalendarRegional = calendarAccess === 'regional'
+  const isCalendarTeamManager = calendarAccess === 'team'
   const canAccessTeamCalendar = isCalendarAdmin || isCalendarRegional || isCalendarTeamManager
 
   useEffect(() => {
