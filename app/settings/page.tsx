@@ -61,6 +61,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
+  const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
+  const [aiSuggestionsEnabled, setAiSuggestionsEnabled] = useState(defaultSettings.ai_suggestions_enabled)
+  const [aiAutoNotes, setAiAutoNotes] = useState(defaultSettings.ai_auto_notes)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'display'>('notifications')
@@ -125,11 +128,14 @@ export default function SettingsPage() {
           working_hours_start: data.userSettings.working_hours_start || '08:00',
           working_hours_end: data.userSettings.working_hours_end || '20:00',
           working_days: data.userSettings.working_days || [1, 2, 3, 4, 5],
-          ai_enabled: data.userSettings.ai_enabled,
-          ai_suggestions_enabled: data.userSettings.ai_suggestions_enabled,
-          ai_auto_notes: data.userSettings.ai_auto_notes,
+          ai_enabled: data.userSettings.ai_enabled ?? defaultSettings.ai_enabled,
+          ai_suggestions_enabled: data.userSettings.ai_suggestions_enabled ?? defaultSettings.ai_suggestions_enabled,
+          ai_auto_notes: data.userSettings.ai_auto_notes ?? defaultSettings.ai_auto_notes,
           theme: data.userSettings.theme || 'light',
         })
+        setAiEnabled(data.userSettings.ai_enabled ?? defaultSettings.ai_enabled)
+        setAiSuggestionsEnabled(data.userSettings.ai_suggestions_enabled ?? defaultSettings.ai_suggestions_enabled)
+        setAiAutoNotes(data.userSettings.ai_auto_notes ?? defaultSettings.ai_auto_notes)
       }
 
       if (data.googleToken) {
@@ -151,7 +157,12 @@ export default function SettingsPage() {
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          ...settings,
+          ai_enabled: aiEnabled,
+          ai_suggestions_enabled: aiSuggestionsEnabled,
+          ai_auto_notes: aiAutoNotes,
+        }),
       })
 
       if (!response.ok) {
@@ -510,13 +521,13 @@ export default function SettingsPage() {
                   </div>
                   <input
                     type="checkbox"
-                    checked={settings.ai_enabled}
-                    onChange={(e) => setSettings(prev => ({ ...prev, ai_enabled: e.target.checked }))}
+                    checked={aiEnabled}
+                    onChange={(e) => setAiEnabled(e.target.checked)}
                     className="w-5 h-5 rounded border-gray-300 text-indigo-600"
                   />
                 </label>
 
-                {settings.ai_enabled && (
+                {aiEnabled && (
                   <>
                     <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
@@ -525,8 +536,8 @@ export default function SettingsPage() {
                       </div>
                       <input
                         type="checkbox"
-                        checked={settings.ai_suggestions_enabled}
-                        onChange={(e) => setSettings(prev => ({ ...prev, ai_suggestions_enabled: e.target.checked }))}
+                        checked={aiSuggestionsEnabled}
+                        onChange={(e) => setAiSuggestionsEnabled(e.target.checked)}
                         className="w-5 h-5 rounded border-gray-300 text-indigo-600"
                       />
                     </label>
@@ -538,8 +549,8 @@ export default function SettingsPage() {
                       </div>
                       <input
                         type="checkbox"
-                        checked={settings.ai_auto_notes}
-                        onChange={(e) => setSettings(prev => ({ ...prev, ai_auto_notes: e.target.checked }))}
+                        checked={aiAutoNotes}
+                        onChange={(e) => setAiAutoNotes(e.target.checked)}
                         className="w-5 h-5 rounded border-gray-300 text-indigo-600"
                       />
                     </label>

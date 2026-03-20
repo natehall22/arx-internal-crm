@@ -91,18 +91,6 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getAdminClient()
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, full_name')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      console.log('=== AUTH FAILED: No profile ===')
-      return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
-    }
-
     const body = await request.json()
     const { 
       appointment_id, 
@@ -120,6 +108,63 @@ export async function POST(request: NextRequest) {
       setter_feedback?: string
       schedule_follow_up?: boolean
       follow_up_date?: string
+    }
+
+    let { data: profile } = await supabase
+      .from('users')
+      .select('org_id, full_name')
+      .eq('id', user.id)
+      .single()
+
+    // Self-heal environments where auth user exists but public.users row is missing.
+    if (!profile?.org_id) {
+      let derivedOrgId: string | null = null
+
+      if (appointment_id) {
+        const { data: apptOrg } = await supabase
+          .from('scheduled_appointments')
+          .select('org_id')
+          .eq('id', appointment_id)
+          .maybeSingle()
+        derivedOrgId = apptOrg?.org_id || null
+      }
+
+      if (!derivedOrgId && directLeadId) {
+        const { data: leadOrg } = await supabase
+          .from('leads')
+          .select('org_id')
+          .eq('id', directLeadId)
+          .maybeSingle()
+        derivedOrgId = leadOrg?.org_id || null
+      }
+
+      if (!derivedOrgId) {
+        console.log('=== AUTH FAILED: No profile and unable to derive org ===')
+        return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
+      }
+
+      const fallbackName =
+        (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+        user.email ||
+        'User'
+
+      const { data: recoveredProfile } = await supabase
+        .from('users')
+        .upsert(
+          {
+            id: user.id,
+            org_id: derivedOrgId,
+            role: 'rep',
+            full_name: fallbackName,
+            email: user.email || null,
+            active: true,
+          },
+          { onConflict: 'id' }
+        )
+        .select('org_id, full_name')
+        .single()
+
+      profile = recoveredProfile || { org_id: derivedOrgId, full_name: fallbackName }
     }
 
     if ((!appointment_id && !directLeadId) || !outcome) {

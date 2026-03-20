@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import GenerateJobPacketButton from './GenerateJobPacketButton'
+import AIJobPacketModal from '@/components/jobs/AIJobPacketModal'
 
 interface LineItem {
   id: string
@@ -29,7 +30,24 @@ interface AvailableProposal {
   id: string
   proposal_number: string
   total: number
+  scope_of_work?: string | null
   accepted_at: string | null
+}
+
+interface JobCostLine {
+  id: string
+  description: string
+  amount: number
+  cost_type: string | null
+  status: string | null
+}
+
+interface JobNoteForAI {
+  id: string
+  note: string
+  is_internal: boolean
+  created_at: string
+  user?: { full_name?: string | null } | null
 }
 
 interface SoldScopeCardProps {
@@ -41,6 +59,8 @@ interface SoldScopeCardProps {
   jobId?: string
   orgId?: string
   showJobPacketButton?: boolean
+  jobScopeOfWork?: string | null
+  jobMaterialsNotes?: string | null
 }
 
 export default function SoldScopeCard({ 
@@ -51,7 +71,9 @@ export default function SoldScopeCard({
   opportunityId,
   jobId,
   orgId,
-  showJobPacketButton = false
+  showJobPacketButton = false,
+  jobScopeOfWork = null,
+  jobMaterialsNotes = null,
 }: SoldScopeCardProps) {
   const [loading, setLoading] = useState(true)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
@@ -61,6 +83,7 @@ export default function SoldScopeCard({
     id: string
     proposal_number: string
     total: number
+    scope_of_work?: string | null
     accepted_at?: string | null 
   } | null>(null)
   const [estimateInfo, setEstimateInfo] = useState<{ id: string; total: number } | null>(null)
@@ -74,6 +97,9 @@ export default function SoldScopeCard({
   const [showAddForm, setShowAddForm] = useState(false)
   const [newItem, setNewItem] = useState({ description: '', quantity: '1', unit: 'each', unit_price: '0' })
   const [savingItem, setSavingItem] = useState(false)
+  const [packetModalOpen, setPacketModalOpen] = useState(false)
+  const [jobCostLines, setJobCostLines] = useState<JobCostLine[]>([])
+  const [notes, setNotes] = useState<JobNoteForAI[]>([])
 
   const loadSoldScope = useCallback(async () => {
     const supabase = createClientBrowser()
@@ -95,6 +121,7 @@ export default function SoldScopeCard({
             id: proposal.id, 
             proposal_number: proposal.proposal_number, 
             total: proposal.total,
+            scope_of_work: proposal.scope_of_work,
             accepted_at: proposal.accepted_at
           })
           setScopeText(proposal.scope_of_work)
@@ -160,6 +187,7 @@ export default function SoldScopeCard({
             id: proposal.id, 
             proposal_number: proposal.proposal_number, 
             total: proposal.total,
+            scope_of_work: proposal.scope_of_work,
             accepted_at: proposal.accepted_at
           })
           setScopeText(proposal.scope_of_work)
@@ -192,6 +220,7 @@ export default function SoldScopeCard({
             id: proposal.id, 
             proposal_number: proposal.proposal_number, 
             total: proposal.total,
+            scope_of_work: proposal.scope_of_work,
             accepted_at: proposal.accepted_at
           })
           setScopeText(proposal.scope_of_work)
@@ -264,8 +293,9 @@ export default function SoldScopeCard({
     loadSoldScope()
     if (jobId) {
       loadAdditionalScope()
+      loadAIContextData()
     }
-  }, [jobId, loadSoldScope, loadAdditionalScope])
+  }, [jobId, loadSoldScope, loadAdditionalScope, loadAIContextData])
 
   const loadAvailableProposals = async () => {
     const supabase = createClientBrowser()
@@ -274,7 +304,7 @@ export default function SoldScopeCard({
       // Find accepted proposals from the same opportunity or org
       let query = supabase
         .from('proposals')
-        .select('id, proposal_number, total, accepted_at')
+        .select('id, proposal_number, total, scope_of_work, accepted_at')
         .not('accepted_at', 'is', null)
         .order('accepted_at', { ascending: false })
         .limit(20)
@@ -289,6 +319,36 @@ export default function SoldScopeCard({
       console.error('Error loading available proposals:', err)
     }
   }
+
+  const loadAIContextData = useCallback(async () => {
+    if (!jobId) return
+
+    const supabase = createClientBrowser()
+
+    try {
+      const { data: notesData } = await supabase
+        .from('production_job_notes')
+        .select('id, note, is_internal, created_at, user:users(full_name)')
+        .eq('job_id', jobId)
+        .order('created_at', { ascending: true })
+        .limit(20)
+      setNotes((notesData as JobNoteForAI[]) || [])
+    } catch {
+      setNotes([])
+    }
+
+    try {
+      const { data: costData } = await supabase
+        .from('production_job_cost_lines')
+        .select('id, description, amount, cost_type, status')
+        .eq('job_id', jobId)
+        .order('created_at', { ascending: true })
+        .limit(50)
+      setJobCostLines((costData as JobCostLine[]) || [])
+    } catch {
+      setJobCostLines([])
+    }
+  }, [jobId])
 
   const handleLinkProposal = async (proposalId: string) => {
     if (!jobId) return
@@ -406,6 +466,14 @@ export default function SoldScopeCard({
           )}
           {showJobPacketButton && jobId && (
             <GenerateJobPacketButton jobId={jobId} />
+          )}
+          {showJobPacketButton && jobId && (
+            <button
+              onClick={() => setPacketModalOpen(true)}
+              className="min-h-[44px] px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
+            >
+              ✨ AI Summary
+            </button>
           )}
         </div>
       </div>
@@ -658,6 +726,18 @@ export default function SoldScopeCard({
           </div>
         </div>
       )}
+      <AIJobPacketModal
+        isOpen={packetModalOpen}
+        onClose={() => setPacketModalOpen(false)}
+        job={{
+          scope_of_work: jobScopeOfWork,
+          materials_notes: jobMaterialsNotes,
+        }}
+        proposals={proposalInfo ? [proposalInfo] : []}
+        proposalLineItems={lineItems}
+        jobCostLines={jobCostLines}
+        notes={notes}
+      />
     </div>
   )
 }

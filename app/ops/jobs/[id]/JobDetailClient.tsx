@@ -9,6 +9,9 @@ import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
+import AINextActionBanner from '@/components/jobs/AINextActionBanner'
+import AIProfitRiskCard from '@/components/jobs/AIProfitRiskCard'
+import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
@@ -28,6 +31,7 @@ interface Job {
   job_type: string
   address_text: string
   sale_amount: number | null
+  deposit: number | null
   deposit_required_percent: number | null
   sale_date: string | null
   materials_status: string
@@ -47,6 +51,14 @@ interface Job {
   internal_notes: string | null
   labor_cost: number | null
   material_cost: number | null
+  final_front: boolean
+  final_back: boolean
+  final_left: boolean
+  final_right: boolean
+  final_slope_1: boolean
+  final_slope_2: boolean
+  flashing_detail: boolean
+  pipe_boots: boolean
   before_photos: string[]
   progress_photos: string[]
   after_photos: string[]
@@ -112,6 +124,7 @@ interface JobDetailClientProps {
 interface JobNote {
   id: string
   note: string
+  is_internal: boolean
   created_at: string
   user: { full_name: string } | null
 }
@@ -596,6 +609,28 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
           refreshKey={paymentsRefreshKey}
           onSchedule={() => setShowScheduleModal(true)}
         />
+        <AINextActionBanner
+          job={{
+            status: job.status,
+            deposit: job.deposit,
+            deposit_required_percent: job.deposit_required_percent ?? 0,
+            materials_status: job.materials_status,
+            scheduled_date: job.scheduled_date,
+            assigned_sub_id: job.assigned_sub?.id || null,
+            assigned_crew_id: job.assigned_crew?.id || null,
+            final_front: !!job.final_front,
+            final_back: !!job.final_back,
+            final_left: !!job.final_left,
+            final_right: !!job.final_right,
+            final_slope_1: !!job.final_slope_1,
+            final_slope_2: !!job.final_slope_2,
+            flashing_detail: !!job.flashing_detail,
+            pipe_boots: !!job.pipe_boots,
+            labor_cost: job.labor_cost,
+            material_cost: job.material_cost,
+            sale_amount: job.sale_amount ?? 0,
+          }}
+        />
 
         {/* Mobile Quick Actions - visible only on small screens */}
         <div className="lg:hidden mb-4 bg-white rounded-xl shadow-sm border p-4">
@@ -785,6 +820,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               jobId={job.id}
               orgId={job.org_id}
               showJobPacketButton={true}
+              jobScopeOfWork={job.project?.scope_of_work || null}
+              jobMaterialsNotes={job.materials_notes}
             />
 
             {/* Materials / Labor / Product Orders */}
@@ -822,6 +859,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               
               {/* Add new note */}
               <div className="mb-4 relative">
+                <AINoteSummary notes={jobNotes} />
                 <textarea
                   value={newNoteText}
                   onChange={handleNoteChange}
@@ -1039,6 +1077,17 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                   </div>
                 </div>
               </div>
+            )}
+            {canViewFinancials && (
+              <AIProfitRiskCard
+                job={{
+                  sale_amount: job.sale_amount ?? 0,
+                  labor_cost: job.labor_cost,
+                  material_cost: effectiveMaterialCost,
+                  job_type: job.job_type,
+                  scope_of_work: job.project?.scope_of_work || '',
+                }}
+              />
             )}
 
             {canViewJobBilling && (

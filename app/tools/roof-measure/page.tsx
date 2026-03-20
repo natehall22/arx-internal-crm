@@ -77,6 +77,51 @@ interface MeasurementData {
   validation_notes: string[]
 }
 
+interface AIDraftSection {
+  id: string
+  type: 'facet' | 'ridge' | 'valley' | 'step_flash' | 'wall_flash'
+  vertices?: [number, number][]
+  points?: [number, number][]
+  confidence: number
+  estimated_sq_ft?: number
+  status: 'pending' | 'accepted' | 'rejected'
+}
+
+interface EstimateConfig {
+  roofType: string
+  wasteFactor: number
+  layers: number
+  manufacturer: string
+  productLine: string
+  preferredColor?: string
+  replaceDecking: 'always' | 'if_needed' | 'never'
+}
+
+interface GeneratedEstimateLine {
+  id: string
+  category: string | null
+  description: string
+  quantity: number
+  unit: string
+  unit_price: number
+  total_price: number
+  notes: string | null
+}
+
+interface GeneratedEstimateResult {
+  estimate: {
+    id: string
+    status: string
+    subtotal: number
+    overhead_pct: number
+    overhead_amount: number
+    total: number
+  }
+  line_items: GeneratedEstimateLine[]
+  ai_flags: string[]
+  scope_summary: string
+}
+
 // Colors for different linear feature types
 const LINEAR_FEATURE_COLORS: Record<string, string> = {
   ridge: '#0EA5E9',         // sky
@@ -163,6 +208,9 @@ export default function RoofMeasurePage() {
   const drawingManagerRef = useRef<any>(null)
   const polygonsRef = useRef<Map<string, any>>(new Map())
   const labelsRef = useRef<Map<string, any>>(new Map())
+  const aiDraftPolygonsRef = useRef<Map<string, any>>(new Map())
+  const aiDraftBoundaryRef = useRef<Map<string, any>>(new Map())
+  const aiDraftLinesRef = useRef<Map<string, any>>(new Map())
   
   const [loading, setLoading] = useState(true)
   const [address, setAddress] = useState('')
@@ -182,6 +230,21 @@ export default function RoofMeasurePage() {
   const [mapsLoaded, setMapsLoaded] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [googleLoaded, setGoogleLoaded] = useState(false)
+  const [isDetecting, setIsDetecting] = useState(false)
+  const [aiDraftSections, setAiDraftSections] = useState<AIDraftSection[]>([])
+  const [aiNotes, setAiNotes] = useState('')
+  const [showEstimateConfigModal, setShowEstimateConfigModal] = useState(false)
+  const [isGeneratingEstimate, setIsGeneratingEstimate] = useState(false)
+  const [generatedEstimate, setGeneratedEstimate] = useState<GeneratedEstimateResult | null>(null)
+  const [estimateConfig, setEstimateConfig] = useState<EstimateConfig>({
+    roofType: 'asphalt_shingle',
+    wasteFactor: 12,
+    layers: 1,
+    manufacturer: '',
+    productLine: '',
+    preferredColor: '',
+    replaceDecking: 'if_needed',
+  })
   
   // Linear features state
   const [linearFeatures, setLinearFeatures] = useState<LinearFeature[]>([])
@@ -532,6 +595,358 @@ export default function RoofMeasurePage() {
         alert('Could not find address. Status: ' + status)
       }
     })
+  }
+
+  const clearAIDraftOverlays = () => {
+    aiDraftPolygonsRef.current.forEach((polygon) => polygon.setMap(null))
+    aiDraftBoundaryRef.current.forEach((line) => line.setMap(null))
+    aiDraftLinesRef.current.forEach((line) => line.setMap(null))
+    aiDraftPolygonsRef.current.clear()
+    aiDraftBoundaryRef.current.clear()
+    aiDraftLinesRef.current.clear()
+  }
+
+  const captureStaticMapBase64 = async (lat: number, lng: number, zoom: number): Promise<string | null> => {
+    const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!mapsKey) return null
+
+    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=640x640&maptype=satellite&key=${mapsKey}`
+    const response = await fetch(url)
+    if (!response.ok) return null
+
+    const blob = await response.blob()
+    return await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result
+        if (typeof result !== 'string') {
+          resolve(null)
+          return
+        }
+        const base64 = result.split(',')[1] || null
+        resolve(base64)
+      }
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  const detectRoofWithAI = async () => {
+    if (!googleMapRef.current) return
+
+    try {
+      setIsDetecting(true)
+      setAiDraftSections([])
+      setAiNotes('')
+      clearAIDraftOverlays()
+
+      const center = googleMapRef.current.getCenter()
+      const zoom = googleMapRef.current.getZoom()
+      if (!center || typeof zoom !== 'number') {
+        throw new Error('Map not ready')
+      }
+
+      const lat = center.lat()
+      const lng = center.lng()
+      const imageBase64 = await captureStaticMapBase64(lat, lng, zoom)
+      if (!imageBase64) {
+        throw new Error('Failed to capture map image')
+      }
+
+      const response = await fetch('/api/ai/detect-roof', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64,
+          lat,
+          lng,
+          zoom,
+          opportunityId: opportunityId || '',
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('AI roof detection failed')
+      }
+
+      const data = await response.json()
+
+      const draftFacets: AIDraftSection[] = (data.facets || []).map((facet: any, idx: number) => ({
+        id: facet.id || `ai_facet_${idx + 1}`,
+        type: 'facet',
+        points: (facet.lat_lng_vertices || []).map((p: any) => [Number(p.lat), Number(p.lng)] as [number, number]),
+        confidence: Number(facet.confidence) || 0,
+        estimated_sq_ft: typeof facet.estimated_sq_ft === 'number' ? facet.estimated_sq_ft : undefined,
+        status: 'pending',
+      }))
+
+      const mapLines = (items: any[], type: AIDraftSection['type'], prefix: string): AIDraftSection[] =>
+        (items || []).map((item: any, idx: number) => ({
+          id: item.id || `${prefix}_${idx + 1}`,
+          type,
+          points: (item.lat_lng_points || []).map((p: any) => [Number(p.lat), Number(p.lng)] as [number, number]),
+          confidence: Number(item.confidence) || 0,
+          status: 'pending',
+        }))
+
+      const allDrafts = [
+        ...draftFacets,
+        ...mapLines(data.ridges, 'ridge', 'ai_ridge'),
+        ...mapLines(data.valleys, 'valley', 'ai_valley'),
+        ...mapLines(data.step_flashing, 'step_flash', 'ai_step'),
+        ...mapLines(data.wall_flashing, 'wall_flash', 'ai_wall'),
+      ]
+
+      setAiDraftSections(allDrafts)
+      setAiNotes(data.notes || '')
+    } catch (error) {
+      console.error('AI detect error:', error)
+      alert('AI roof detection failed. Please try again.')
+    } finally {
+      setIsDetecting(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!googleMapRef.current || !window.google?.maps) return
+
+    clearAIDraftOverlays()
+    const map = googleMapRef.current
+    const dashSymbol = {
+      path: 'M 0,-1 0,1',
+      strokeOpacity: 1,
+      scale: 3,
+    }
+
+    aiDraftSections
+      .filter((item) => item.status === 'pending')
+      .forEach((item) => {
+        if (item.type === 'facet' && item.points && item.points.length >= 3) {
+          const path = item.points.map(([lat, lng]) => ({ lat, lng }))
+          const polygon = new google.maps.Polygon({
+            paths: path,
+            fillColor: '#60A5FA',
+            fillOpacity: 0.15,
+            strokeOpacity: 0,
+            map,
+          })
+
+          const closedPath = [...path, path[0]]
+          const boundary = new google.maps.Polyline({
+            path: closedPath,
+            strokeOpacity: 0,
+            icons: [{ icon: dashSymbol, offset: '0', repeat: '14px' }],
+            strokeColor: item.confidence < 0.75 ? '#F59E0B' : '#2563EB',
+            strokeWeight: 2,
+            map,
+          })
+
+          aiDraftPolygonsRef.current.set(item.id, polygon)
+          aiDraftBoundaryRef.current.set(item.id, boundary)
+          return
+        }
+
+        if (item.points && item.points.length >= 2) {
+          const line = new google.maps.Polyline({
+            path: item.points.map(([lat, lng]) => ({ lat, lng })),
+            strokeOpacity: 0,
+            icons: [{ icon: dashSymbol, offset: '0', repeat: '14px' }],
+            strokeColor: item.confidence < 0.75 ? '#F59E0B' : '#2563EB',
+            strokeWeight: 3,
+            map,
+          })
+          aiDraftLinesRef.current.set(item.id, line)
+        }
+      })
+
+    return () => {
+      clearAIDraftOverlays()
+    }
+  }, [aiDraftSections])
+
+  const acceptDraftItem = (itemId: string) => {
+    const draft = aiDraftSections.find((item) => item.id === itemId)
+    if (!draft || draft.status !== 'pending') return
+
+    if (draft.type === 'facet' && draft.points && draft.points.length >= 3) {
+      const areaMeters = google.maps.geometry.spherical.computeArea(
+        draft.points.map(([lat, lng]) => new google.maps.LatLng(lat, lng))
+      )
+      const flatAreaSqft = Math.max(Math.round(areaMeters * 10.7639), draft.estimated_sq_ft || 0)
+      const defaultPitch = PITCH_OPTIONS.find((p) => p.value === '6/12') || PITCH_OPTIONS[6]
+      const areaSqft = Math.round(flatAreaSqft * defaultPitch.multiplier)
+      const perimeterFt = calculatePerimeter(draft.points.map(([lat, lng]) => ({ lat, lng })))
+      const colorIndex = facetsRef.current.length % FACET_COLORS.length
+
+      const newFacet: RoofFacet = {
+        id: `facet-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        points: draft.points.map(([lat, lng]) => ({ lat, lng })),
+        flat_area_sqft: flatAreaSqft,
+        area_sqft: areaSqft,
+        pitch: defaultPitch.value,
+        pitch_rise: defaultPitch.rise,
+        pitch_degrees: defaultPitch.degrees,
+        pitch_multiplier: defaultPitch.multiplier,
+        perimeter_ft: Math.round(perimeterFt),
+        orientation: calculateOrientation(draft.points.map(([lat, lng]) => ({ lat, lng }))),
+        section_type: 'main_roof',
+        color: FACET_COLORS[colorIndex],
+      }
+
+      const polygon = new google.maps.Polygon({
+        paths: newFacet.points.map((p) => ({ lat: p.lat, lng: p.lng })),
+        fillColor: newFacet.color,
+        fillOpacity: 0.45,
+        strokeColor: '#FFFFFF',
+        strokeWeight: 3,
+        editable: true,
+        map: googleMapRef.current,
+      })
+
+      polygonsRef.current.set(newFacet.id, polygon)
+      polygon.addListener('click', () => setSelectedFacet(newFacet.id))
+
+      const facetIndex = facetsRef.current.length + 1
+      const centroid = newFacet.points.reduce(
+        (acc, p) => ({ lat: acc.lat + p.lat / newFacet.points.length, lng: acc.lng + p.lng / newFacet.points.length }),
+        { lat: 0, lng: 0 }
+      )
+      const labelMarker = new google.maps.Marker({
+        position: centroid,
+        map: googleMapRef.current,
+        label: {
+          text: `${facetIndex}`,
+          color: '#FFFFFF',
+          fontSize: '14px',
+          fontWeight: 'bold',
+        },
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 16,
+          fillColor: newFacet.color,
+          fillOpacity: 0.9,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+        },
+        clickable: false,
+      })
+      labelsRef.current.set(newFacet.id, labelMarker)
+
+      const nextFacets = [...facetsRef.current, newFacet]
+      setFacets(nextFacets)
+      updateMeasurements(nextFacets, linearFeaturesRef.current)
+    } else if (draft.points && draft.points.length >= 2) {
+      const points: Point[] = draft.points.map(([lat, lng]) => ({ lat, lng }))
+      let lengthMeters = 0
+      for (let i = 0; i < points.length - 1; i++) {
+        lengthMeters += google.maps.geometry.spherical.computeDistanceBetween(
+          new google.maps.LatLng(points[i].lat, points[i].lng),
+          new google.maps.LatLng(points[i + 1].lat, points[i + 1].lng)
+        )
+      }
+
+      const typeMap: Record<AIDraftSection['type'], LinearFeature['type']> = {
+        facet: 'custom',
+        ridge: 'ridge',
+        valley: 'valley',
+        step_flash: 'step_flashing',
+        wall_flash: 'wall_flashing',
+      }
+      const mappedType = typeMap[draft.type]
+      const newFeature: LinearFeature = {
+        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type: mappedType,
+        points,
+        length_ft: Math.round(lengthMeters * 3.28084),
+        label: LINEAR_FEATURE_LABELS[mappedType],
+      }
+
+      const polyline = new google.maps.Polyline({
+        path: points,
+        strokeColor: LINEAR_FEATURE_COLORS[mappedType],
+        strokeWeight: 4,
+        strokeOpacity: 0.9,
+        editable: true,
+        map: googleMapRef.current,
+      })
+      polylinesRef.current.set(newFeature.id, polyline)
+
+      const nextFeatures = [...linearFeaturesRef.current, newFeature]
+      setLinearFeatures(nextFeatures)
+      updateMeasurements(facetsRef.current, nextFeatures)
+    }
+
+    setAiDraftSections((prev) => prev.map((item) => (item.id === itemId ? { ...item, status: 'accepted' } : item)))
+  }
+
+  const rejectDraftItem = (itemId: string) => {
+    setAiDraftSections((prev) => prev.map((item) => (item.id === itemId ? { ...item, status: 'rejected' } : item)))
+  }
+
+  const acceptAllAIDrafts = () => {
+    aiDraftSections
+      .filter((item) => item.status === 'pending')
+      .forEach((item) => acceptDraftItem(item.id))
+  }
+
+  const discardAIDrafts = () => {
+    setAiDraftSections([])
+    setAiNotes('')
+    clearAIDraftOverlays()
+  }
+
+  const generateSmartEstimate = async () => {
+    if (!opportunityId) {
+      alert('Opportunity is required to generate an estimate.')
+      return
+    }
+
+    const roofSections = [
+      ...facets.map((facet) => ({
+        id: facet.id,
+        type: 'facet',
+        area_sqft: facet.area_sqft,
+      })),
+      ...linearFeatures.map((feature) => ({
+        id: feature.id,
+        type:
+          feature.type === 'step_flashing'
+            ? 'step_flash'
+            : feature.type === 'wall_flashing'
+              ? 'wall_flash'
+              : feature.type,
+        length_ft: feature.length_ft,
+      })),
+    ]
+
+    if (roofSections.length === 0) {
+      alert('Add roof sections first.')
+      return
+    }
+
+    try {
+      setIsGeneratingEstimate(true)
+      const response = await fetch('/api/ai/generate-estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          opportunityId,
+          roofSections,
+          config: estimateConfig,
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to generate estimate')
+      }
+
+      setGeneratedEstimate(data)
+      setShowEstimateConfigModal(false)
+    } catch (error: any) {
+      alert(error?.message || 'Failed to generate estimate')
+    } finally {
+      setIsGeneratingEstimate(false)
+    }
   }
 
   const startDrawing = () => {
@@ -1346,11 +1761,14 @@ export default function RoofMeasurePage() {
     // Clear polylines (linear features)
     polylinesRef.current.forEach(polyline => polyline.setMap(null))
     polylinesRef.current.clear()
+    clearAIDraftOverlays()
     
     setFacets([])
     setLinearFeatures([])
     setMeasurements(null)
     setSelectedFacet(null)
+    setAiDraftSections([])
+    setAiNotes('')
   }
 
   // Show error page only for configuration errors (like missing API key)
@@ -1430,6 +1848,69 @@ export default function RoofMeasurePage() {
           {/* Drawing Tools */}
           <div className="p-4 border-b border-gray-700">
             <h3 className="text-sm font-medium text-gray-300 mb-3">Drawing Tools</h3>
+            <button
+              onClick={detectRoofWithAI}
+              disabled={isDetecting || !googleMapRef.current}
+              className="w-full mb-3 min-h-[44px] px-3 py-2 rounded-lg font-medium text-sm bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
+            >
+              {isDetecting ? 'Detecting Roof...' : 'AI Detect Roof'}
+            </button>
+
+            {aiDraftSections.length > 0 && (
+              <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-900/20 p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-sm font-medium text-sky-300">AI Draft - Review & Confirm</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={acceptAllAIDrafts}
+                      className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+                    >
+                      Accept All
+                    </button>
+                    <button
+                      onClick={discardAIDrafts}
+                      className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+
+                {aiNotes && <p className="text-xs text-sky-200 mb-2">{aiNotes}</p>}
+
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {aiDraftSections.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between text-xs bg-gray-900/30 rounded px-2 py-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-200">{item.type.replace('_', ' ')}</span>
+                        <span className={`${item.confidence < 0.75 ? 'text-amber-300' : 'text-sky-300'}`}>
+                          {(item.confidence * 100).toFixed(0)}%
+                        </span>
+                        {item.confidence < 0.75 && <span className="text-amber-300">low confidence</span>}
+                        <span className="text-gray-400">({item.status})</span>
+                      </div>
+                      {item.status === 'pending' && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => acceptDraftItem(item.id)}
+                            className="px-2 py-0.5 rounded bg-green-700 text-white hover:bg-green-600"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => rejectDraftItem(item.id)}
+                            className="px-2 py-0.5 rounded bg-red-700 text-white hover:bg-red-600"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">Edit individually by accepting items, then adjust with existing tools.</p>
+              </div>
+            )}
             
             {/* Roof Facet Drawing */}
             <div className="flex gap-2 mb-3">
@@ -1787,6 +2268,90 @@ export default function RoofMeasurePage() {
               >
                 Save Measurement
               </button>
+              <button
+                onClick={() => setShowEstimateConfigModal(true)}
+                disabled={!opportunityId}
+                className="w-full mt-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Generate Estimate
+              </button>
+              {!opportunityId && (
+                <p className="text-xs text-amber-300 mt-2">
+                  Generate Estimate requires an opportunity context.
+                </p>
+              )}
+            </div>
+          )}
+
+          {generatedEstimate && (
+            <div className="p-4 border-t border-gray-700 bg-gray-800/50">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-200">Generated Estimate</h3>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/40 text-amber-300 border border-amber-700/50">
+                  AI Draft - Needs Review
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                <div className="bg-gray-700/50 rounded p-2">
+                  <div className="text-gray-400">Subtotal</div>
+                  <div className="text-white font-medium">${(generatedEstimate.estimate.subtotal || 0).toLocaleString()}</div>
+                </div>
+                <div className="bg-gray-700/50 rounded p-2">
+                  <div className="text-gray-400">Overhead</div>
+                  <div className="text-white font-medium">
+                    ${(generatedEstimate.estimate.overhead_amount || 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="bg-indigo-900/30 border border-indigo-700/40 rounded p-2">
+                  <div className="text-indigo-300">Total</div>
+                  <div className="text-white font-semibold">${(generatedEstimate.estimate.total || 0).toLocaleString()}</div>
+                </div>
+              </div>
+
+              {generatedEstimate.ai_flags?.length > 0 && (
+                <div className="mb-3 p-2 rounded border border-amber-700/40 bg-amber-900/20">
+                  <p className="text-xs text-amber-300 font-medium mb-1">AI Flags</p>
+                  {generatedEstimate.ai_flags.map((flag, idx) => (
+                    <p key={`${flag}-${idx}`} className="text-xs text-amber-200">- {flag}</p>
+                  ))}
+                </div>
+              )}
+
+              {generatedEstimate.scope_summary && (
+                <div className="mb-3 p-2 rounded border border-sky-700/40 bg-sky-900/20">
+                  <p className="text-xs text-sky-300 font-medium mb-1">Scope Summary</p>
+                  <p className="text-xs text-sky-100">{generatedEstimate.scope_summary}</p>
+                </div>
+              )}
+
+              <div className="space-y-2 max-h-56 overflow-y-auto">
+                {Object.entries(
+                  (generatedEstimate.line_items || []).reduce((acc, item) => {
+                    const key = item.category || 'other'
+                    if (!acc[key]) acc[key] = []
+                    acc[key].push(item)
+                    return acc
+                  }, {} as Record<string, GeneratedEstimateLine[]>)
+                ).map(([category, items]) => (
+                  <div key={category} className="rounded border border-gray-700/60 bg-gray-900/30 p-2">
+                    <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{category}</p>
+                    <div className="space-y-1">
+                      {items.map((item) => (
+                        <div key={item.id} className="flex items-start justify-between gap-2 text-xs">
+                          <div className="text-gray-200 min-w-0">
+                            <p className="truncate">{item.description}</p>
+                            <p className="text-gray-500">
+                              {item.quantity} {item.unit} @ ${item.unit_price}
+                            </p>
+                          </div>
+                          <p className="text-gray-100 font-medium">${item.total_price.toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -1894,6 +2459,112 @@ export default function RoofMeasurePage() {
                 className="px-4 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEstimateConfigModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full">
+            <div className="p-6 border-b border-gray-700">
+              <h2 className="text-xl font-bold text-white">Generate Estimate</h2>
+              <p className="text-gray-400 text-sm mt-1">Configure AI draft settings</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Roof Type</label>
+                  <input
+                    value={estimateConfig.roofType}
+                    onChange={(e) => setEstimateConfig((prev) => ({ ...prev, roofType: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Waste Factor (%)</label>
+                  <input
+                    type="number"
+                    value={estimateConfig.wasteFactor}
+                    onChange={(e) =>
+                      setEstimateConfig((prev) => ({ ...prev, wasteFactor: Number(e.target.value) || 0 }))
+                    }
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Layers</label>
+                  <input
+                    type="number"
+                    value={estimateConfig.layers}
+                    onChange={(e) => setEstimateConfig((prev) => ({ ...prev, layers: Number(e.target.value) || 1 }))}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Replace Decking</label>
+                  <select
+                    value={estimateConfig.replaceDecking}
+                    onChange={(e) =>
+                      setEstimateConfig((prev) => ({
+                        ...prev,
+                        replaceDecking: e.target.value as EstimateConfig['replaceDecking'],
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                  >
+                    <option value="always">always</option>
+                    <option value="if_needed">if_needed</option>
+                    <option value="never">never</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Manufacturer</label>
+                  <input
+                    value={estimateConfig.manufacturer}
+                    onChange={(e) => setEstimateConfig((prev) => ({ ...prev, manufacturer: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                    placeholder="Owens Corning"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Product Line</label>
+                  <input
+                    value={estimateConfig.productLine}
+                    onChange={(e) => setEstimateConfig((prev) => ({ ...prev, productLine: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                    placeholder="Duration"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Preferred Color (optional)</label>
+                <input
+                  value={estimateConfig.preferredColor || ''}
+                  onChange={(e) => setEstimateConfig((prev) => ({ ...prev, preferredColor: e.target.value }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                  placeholder="Estate Gray"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-700 flex justify-end gap-3">
+              <button
+                onClick={() => setShowEstimateConfigModal(false)}
+                className="px-4 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={generateSmartEstimate}
+                disabled={isGeneratingEstimate}
+                className="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {isGeneratingEstimate ? 'Generating...' : 'Generate Estimate'}
               </button>
             </div>
           </div>
