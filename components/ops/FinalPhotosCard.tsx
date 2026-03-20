@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 const PHOTO_TAGS = [
   { value: 'final_front', label: 'Front' },
@@ -18,8 +17,7 @@ const PHOTO_TAGS = [
 
 interface FinalPhoto {
   id: string
-  file_name: string
-  storage_path: string
+  filename: string
   photo_tag: string | null
   created_at: string
 }
@@ -36,25 +34,24 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
   const [uploading, setUploading] = useState(false)
   const [selectedTag, setSelectedTag] = useState('final_front')
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-
   useEffect(() => {
     loadPhotos()
   }, [jobId, projectId])
 
   const loadPhotos = async () => {
-    const supabase = createClientBrowser()
-
-    // Load photos tagged as final photos for this job or project
-    const { data } = await supabase
-      .from('files')
-      .select('id, file_name, storage_path, photo_tag, created_at')
-      .or(`job_id.eq.${jobId},project_id.eq.${projectId}`)
-      .like('photo_tag', 'final_%')
-      .order('created_at', { ascending: false })
-
-    setPhotos(data || [])
-    setLoading(false)
+    try {
+      const response = await fetch(`/api/ops/jobs/${jobId}/photos`)
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load photos')
+      }
+      setPhotos((data.photos || []) as FinalPhoto[])
+    } catch (err) {
+      console.error('Load photos error:', err)
+      setPhotos([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -62,38 +59,25 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
     if (!file) return
 
     setUploading(true)
-    const supabase = createClientBrowser()
 
     try {
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${selectedTag}_${Date.now()}.${fileExt}`
-      const storagePath = `${orgId}/jobs/${jobId}/final/${fileName}`
+      const formData = new FormData()
+      formData.append('photo_tag', selectedTag)
+      formData.append('file', file)
 
-      const { error: uploadError } = await supabase.storage
-        .from('files')
-        .upload(storagePath, file)
-
-      if (uploadError) throw uploadError
-
-      const { error: insertError } = await supabase
-        .from('files')
-        .insert({
-          org_id: orgId,
-          job_id: jobId,
-          project_id: projectId,
-          file_name: file.name,
-          storage_path: storagePath,
-          mime_type: file.type,
-          photo_tag: selectedTag,
-          tag: 'final_photo',
-        })
-
-      if (insertError) throw insertError
+      const response = await fetch(`/api/ops/jobs/${jobId}/photos`, {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to upload photo')
+      }
 
       await loadPhotos()
     } catch (err) {
       console.error('Upload error:', err)
-      alert('Failed to upload photo')
+      alert(err instanceof Error ? err.message : 'Failed to upload photo')
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
@@ -217,14 +201,14 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
           {photos.map(photo => (
             <a
               key={photo.id}
-              href={`${supabaseUrl}/storage/v1/object/public/files/${photo.storage_path}`}
+              href={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
               target="_blank"
               rel="noopener noreferrer"
               className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group min-h-[80px]"
             >
               <img
-                src={`${supabaseUrl}/storage/v1/object/public/files/${photo.storage_path}`}
-                alt={photo.file_name}
+                src={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
+                alt={photo.filename}
                 className="w-full h-full object-cover"
                 loading="lazy"
               />
