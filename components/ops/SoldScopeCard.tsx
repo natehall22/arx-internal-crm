@@ -83,8 +83,8 @@ export default function SoldScopeCard({
     id: string
     proposal_number: string
     total: number
-    scope_of_work?: string | null
-    accepted_at?: string | null 
+    scope_of_work: string | null
+    accepted_at: string | null
   } | null>(null)
   const [estimateInfo, setEstimateInfo] = useState<{ id: string; total: number } | null>(null)
   
@@ -289,14 +289,6 @@ export default function SoldScopeCard({
     }
   }, [jobId])
 
-  useEffect(() => {
-    loadSoldScope()
-    if (jobId) {
-      loadAdditionalScope()
-      loadAIContextData()
-    }
-  }, [jobId, loadSoldScope, loadAdditionalScope, loadAIContextData])
-
   const loadAvailableProposals = async () => {
     const supabase = createClientBrowser()
     
@@ -349,6 +341,14 @@ export default function SoldScopeCard({
       setJobCostLines([])
     }
   }, [jobId])
+
+  useEffect(() => {
+    loadSoldScope()
+    if (jobId) {
+      loadAdditionalScope()
+      loadAIContextData()
+    }
+  }, [jobId, loadSoldScope, loadAdditionalScope, loadAIContextData])
 
   const handleLinkProposal = async (proposalId: string) => {
     if (!jobId) return
