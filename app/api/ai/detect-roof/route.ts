@@ -80,6 +80,32 @@ function toDataUrl(imageBase64: string): string {
   return `data:image/png;base64,${imageBase64}`
 }
 
+async function fetchStaticMapBase64(lat: number, lng: number, zoom: number): Promise<string> {
+  const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+  if (!mapsKey) {
+    throw new Error('Google Maps API key missing on server')
+  }
+
+  const url =
+    `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}` +
+    `&zoom=${zoom}&size=640x640&maptype=satellite&key=${mapsKey}`
+
+  const response = await fetch(url)
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`Static map fetch failed (${response.status}): ${text || 'unknown error'}`)
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  if (contentType.includes('text/')) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`Static map returned text response: ${text || 'unknown error'}`)
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer())
+  return buffer.toString('base64')
+}
+
 async function callDetectionModel(imageBase64: string): Promise<RawDetection> {
   const systemPrompt = `You are a roofing measurement AI.
 Analyze a satellite image and identify:
@@ -161,9 +187,6 @@ export async function POST(request: Request) {
       opportunityId?: string
     }
 
-    if (!imageBase64 || typeof imageBase64 !== 'string') {
-      return NextResponse.json({ error: 'imageBase64 required' }, { status: 400 })
-    }
     if (typeof lat !== 'number' || typeof lng !== 'number' || typeof zoom !== 'number') {
       return NextResponse.json({ error: 'lat, lng, zoom required' }, { status: 400 })
     }
@@ -171,7 +194,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'opportunityId required' }, { status: 400 })
     }
 
-    const raw = await callDetectionModel(imageBase64)
+    const resolvedImageBase64 =
+      typeof imageBase64 === 'string' && imageBase64.trim().length > 0
+        ? imageBase64
+        : await fetchStaticMapBase64(lat, lng, zoom)
+
+    const raw = await callDetectionModel(resolvedImageBase64)
 
     const imageWidth = 640
     const imageHeight = 640
@@ -214,6 +242,7 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('AI roof detect error:', error)
-    return NextResponse.json({ error: 'Failed to detect roof' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Failed to detect roof'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

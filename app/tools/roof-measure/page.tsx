@@ -606,30 +606,6 @@ export default function RoofMeasurePage() {
     aiDraftLinesRef.current.clear()
   }
 
-  const captureStaticMapBase64 = async (lat: number, lng: number, zoom: number): Promise<string | null> => {
-    const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-    if (!mapsKey) return null
-
-    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=640x640&maptype=satellite&key=${mapsKey}`
-    const response = await fetch(url)
-    if (!response.ok) return null
-
-    const blob = await response.blob()
-    return await new Promise((resolve) => {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const result = reader.result
-        if (typeof result !== 'string') {
-          resolve(null)
-          return
-        }
-        const base64 = result.split(',')[1] || null
-        resolve(base64)
-      }
-      reader.readAsDataURL(blob)
-    })
-  }
-
   const detectRoofWithAI = async () => {
     if (!googleMapRef.current) return
 
@@ -647,16 +623,11 @@ export default function RoofMeasurePage() {
 
       const lat = center.lat()
       const lng = center.lng()
-      const imageBase64 = await captureStaticMapBase64(lat, lng, zoom)
-      if (!imageBase64) {
-        throw new Error('Failed to capture map image')
-      }
 
       const response = await fetch('/api/ai/detect-roof', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageBase64,
           lat,
           lng,
           zoom,
@@ -665,7 +636,8 @@ export default function RoofMeasurePage() {
       })
 
       if (!response.ok) {
-        throw new Error('AI roof detection failed')
+        const errorPayload = await response.json().catch(() => ({}))
+        throw new Error(errorPayload?.error || 'AI roof detection failed')
       }
 
       const data = await response.json()
@@ -700,7 +672,8 @@ export default function RoofMeasurePage() {
       setAiNotes(data.notes || '')
     } catch (error) {
       console.error('AI detect error:', error)
-      alert('AI roof detection failed. Please try again.')
+      const message = error instanceof Error ? error.message : 'AI roof detection failed. Please try again.'
+      alert(message)
     } finally {
       setIsDetecting(false)
     }
