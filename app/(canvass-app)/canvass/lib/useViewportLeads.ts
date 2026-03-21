@@ -115,6 +115,12 @@ export function useViewportLeads(): UseViewportLeadsReturn {
   const fetchedTilesRef = useRef<Set<string>>(new Set())
   const abortControllerRef = useRef<AbortController | null>(null)
   const lastBoundsRef = useRef<string | null>(null)
+  const pinsCountRef = useRef(0)
+
+  // Keep pins count in ref for use in fetchForBounds (avoids stale closure)
+  useEffect(() => {
+    pinsCountRef.current = state.pins.size
+  }, [state.pins.size])
 
   // Load cached tile keys on mount
   useEffect(() => {
@@ -153,10 +159,16 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     const tileKey = getTileKey(bounds, zoom)
     
     // Skip if we've already fetched this tile (and no filter change)
+    // IMPORTANT: Don't skip when we have no pins in memory - e.g. after app switch/background
+    // when React state was lost but sessionStorage tile cache was restored
     const filterKey = dispositionFilter || 'all'
     const fullTileKey = `${tileKey}:${filterKey}`
     
-    if (fetchedTilesRef.current.has(fullTileKey) && lastBoundsRef.current === fullTileKey) {
+    if (
+      fetchedTilesRef.current.has(fullTileKey) &&
+      lastBoundsRef.current === fullTileKey &&
+      pinsCountRef.current > 0
+    ) {
       return
     }
 

@@ -233,6 +233,24 @@ export default function CanvassMap({
     })
   }, [mapLoaded, currentPosition, onBoundsChanged])
 
+  // Refetch markers when user returns to app (fixes markers disappearing after app switch)
+  useEffect(() => {
+    if (!onBoundsChanged || !isViewportMode) return
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && mapInstanceRef.current) {
+        const bounds = mapInstanceRef.current.getBounds()
+        const zoom = mapInstanceRef.current.getZoom()
+        if (bounds && zoom !== undefined) {
+          onBoundsChanged(bounds, zoom)
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [onBoundsChanged, isViewportMode])
+
   // Reset map to north-facing
   const handleResetHeading = () => {
     if (mapInstanceRef.current) {
