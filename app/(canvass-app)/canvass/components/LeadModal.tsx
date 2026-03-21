@@ -280,8 +280,8 @@ export default function LeadModal({
 
   const hasRequiredName = !!(formData.first_name?.trim() && formData.last_name?.trim())
   const canSchedule = hasRequiredName && formData.phone?.trim() && formData.address_text?.trim()
-  // Allow Drop Pin / Update Pin with at least first name; require both for scheduling
-  const canSubmit = !!formData.first_name?.trim()
+  // No name required for Drop Pin / Update Pin; only require names when scheduling
+  const canSubmit = !showScheduling || canSchedule
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
@@ -378,7 +378,7 @@ export default function LeadModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-900 mb-1">
-                  First Name <span className="text-red-500">*</span>
+                  First Name {showScheduling && <span className="text-red-500">*</span>}
                 </label>
                 <input
                   type="text"
