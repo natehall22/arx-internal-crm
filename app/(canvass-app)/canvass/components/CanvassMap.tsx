@@ -33,6 +33,7 @@ interface Props {
   viewportLoading?: boolean
   totalPinsLoaded?: number
   onRefreshArea?: () => void
+  refetchTrigger?: number  // When this changes, refetch bounds (e.g. when modal closes)
   // Disposition filter
   dispositionFilter?: string | null
   onDispositionFilterChange?: (d: string | null) => void
@@ -95,6 +96,7 @@ export default function CanvassMap({
   viewportLoading,
   totalPinsLoaded,
   onRefreshArea,
+  refetchTrigger,
   dispositionFilter,
   onDispositionFilterChange,
   dispositions = [],
@@ -250,6 +252,17 @@ export default function CanvassMap({
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [onBoundsChanged, isViewportMode])
+
+  // Refetch when modal closes (fixes pins disappearing after scheduling)
+  useEffect(() => {
+    if (!onBoundsChanged || !isViewportMode || !refetchTrigger) return
+    if (!mapInstanceRef.current) return
+    const bounds = mapInstanceRef.current.getBounds()
+    const zoom = mapInstanceRef.current.getZoom()
+    if (bounds && zoom !== undefined) {
+      onBoundsChanged(bounds, zoom)
+    }
+  }, [refetchTrigger, onBoundsChanged, isViewportMode])
 
   // Reset map to north-facing
   const handleResetHeading = () => {

@@ -5,7 +5,6 @@ import { useRouter, useParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { pdf } from '@react-pdf/renderer'
-import ProposalPDF from '@/components/ProposalPDF'
 import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import SignaturePadInline from '@/components/SignaturePadInline'
@@ -112,10 +111,9 @@ export default function ProposalDetailPage() {
   const [imageUrlInput, setImageUrlInput] = useState('')
   const [showSatelliteEditor, setShowSatelliteEditor] = useState(false)
   
-  // New PDF v2 options
+  // PDF options
   const [showPdfOptions, setShowPdfOptions] = useState(false)
   const [pdfTheme, setPdfTheme] = useState<'dark' | 'print'>('print')
-  const [useNewPdf, setUseNewPdf] = useState(true)
   
   // Financing options
   const [financingType, setFinancingType] = useState<'cash' | 'financed'>('cash')
@@ -297,83 +295,62 @@ export default function ProposalDetailPage() {
       }
       console.log('PDF Generation - Company for PDF:', companyForPdf)
 
-      // Prepare data for PDF
-      const pdfData = {
+      // Calculate monthly payment if financing
+      let monthlyPayment: number | undefined
+      if (financingType === 'financed' && financingTermMonths > 0) {
+        const principal = proposal.total
+        const monthlyRate = financingInterestRate / 100 / 12
+        if (monthlyRate > 0) {
+          monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)
+        } else {
+          monthlyPayment = principal / financingTermMonths
+        }
+      }
+
+      // Convert inspection photos to base64
+      const inspectionPhotosBase64: string[] = []
+      for (const photoUrl of inspectionPhotos) {
+        const base64 = await imageUrlToBase64(photoUrl)
+        if (base64) inspectionPhotosBase64.push(base64)
+      }
+
+      const pdfDataV2 = {
         proposal: {
-          ...proposal,
-          accent_color: proposal.accent_color || '#4f46e5',
-          discount_percent: proposal.discount_percent ?? 0,
+          id: proposal.id,
+          proposal_number: proposal.proposal_number,
+          customer_name: proposal.customer_name,
+          customer_email: proposal.customer_email,
+          customer_phone: proposal.customer_phone,
+          customer_address: proposal.customer_address,
+          title: proposal.title,
+          status: proposal.status,
+          subtotal: proposal.subtotal,
+          discount_amount: proposal.discount_amount,
+          discount_percent: proposal.discount_percent,
+          tax_rate: proposal.tax_rate,
+          tax_amount: proposal.tax_amount,
+          total: proposal.total,
+          scope_of_work: proposal.scope_of_work,
+          created_at: proposal.created_at,
         },
         lineItems,
         measurement,
         company: companyForPdf,
         rep,
-        satelliteImageUrl: imageForPdf,
+        financing: {
+          enabled: financingType === 'financed',
+          type: financingType,
+          term_months: financingTermMonths,
+          interest_rate: financingInterestRate,
+          monthly_payment: monthlyPayment,
+        },
+        photos: {
+          property: imageForPdf,
+          inspection: inspectionPhotosBase64.length > 0 ? inspectionPhotosBase64 : undefined,
+        },
+        inspectionNotes: inspectionNotes.length > 0 ? inspectionNotes : undefined,
       }
-      console.log('PDF Generation - Full PDF data:', pdfData)
-
-      // Generate PDF blob - use new or old PDF based on toggle
-      let blob: Blob
-      if (useNewPdf) {
-        // Calculate monthly payment if financing
-        let monthlyPayment: number | undefined
-        if (financingType === 'financed' && financingTermMonths > 0) {
-          const principal = proposal.total
-          const monthlyRate = financingInterestRate / 100 / 12
-          if (monthlyRate > 0) {
-            monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)
-          } else {
-            monthlyPayment = principal / financingTermMonths
-          }
-        }
-
-        // Convert inspection photos to base64
-        const inspectionPhotosBase64: string[] = []
-        for (const photoUrl of inspectionPhotos) {
-          const base64 = await imageUrlToBase64(photoUrl)
-          if (base64) inspectionPhotosBase64.push(base64)
-        }
-
-        const pdfDataV2 = {
-          proposal: {
-            id: proposal.id,
-            proposal_number: proposal.proposal_number,
-            customer_name: proposal.customer_name,
-            customer_email: proposal.customer_email,
-            customer_phone: proposal.customer_phone,
-            customer_address: proposal.customer_address,
-            title: proposal.title,
-            status: proposal.status,
-            subtotal: proposal.subtotal,
-            discount_amount: proposal.discount_amount,
-            discount_percent: proposal.discount_percent,
-            tax_rate: proposal.tax_rate,
-            tax_amount: proposal.tax_amount,
-            total: proposal.total,
-            scope_of_work: proposal.scope_of_work,
-            created_at: proposal.created_at,
-          },
-          lineItems,
-          measurement,
-          company: companyForPdf,
-          rep,
-          financing: {
-            enabled: financingType === 'financed',
-            type: financingType,
-            term_months: financingTermMonths,
-            interest_rate: financingInterestRate,
-            monthly_payment: monthlyPayment,
-          },
-          photos: {
-            property: imageForPdf,
-            inspection: inspectionPhotosBase64.length > 0 ? inspectionPhotosBase64 : undefined,
-          },
-          inspectionNotes: inspectionNotes.length > 0 ? inspectionNotes : undefined,
-        }
-        blob = await pdf(<ProposalPDFv2 data={pdfDataV2} theme={pdfTheme} />).toBlob()
-      } else {
-        blob = await pdf(<ProposalPDF data={pdfData} />).toBlob()
-      }
+      const blob = await pdf(<ProposalPDFv2 data={pdfDataV2} theme={pdfTheme} />).toBlob()
       
       // Create filename
       const filename = `${proposal.proposal_number}_${proposal.customer_name.replace(/\s+/g, '_')}.pdf`
@@ -721,28 +698,6 @@ export default function ProposalDetailPage() {
                         </p>
                       </div>
                     )}
-                  </div>
-                  
-                  {/* Use New PDF Toggle */}
-                  <div className="mb-4 pt-3 border-t">
-                    <label className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-700">Use New PDF Design</span>
-                      <button
-                        onClick={() => setUseNewPdf(!useNewPdf)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          useNewPdf ? 'bg-indigo-600' : 'bg-gray-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            useNewPdf ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </label>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {useNewPdf ? '6-page ARX branded proposal' : 'Legacy 2-page proposal'}
-                    </p>
                   </div>
                   
                   <button

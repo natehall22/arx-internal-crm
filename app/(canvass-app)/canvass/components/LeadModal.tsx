@@ -103,6 +103,7 @@ export default function LeadModal({
   const [selectedTime, setSelectedTime] = useState('')
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
+  const [slotsError, setSlotsError] = useState<string | null>(null)
   const [closerTimezone, setCloserTimezone] = useState('America/New_York')
 
   useEffect(() => {
@@ -142,9 +143,11 @@ export default function LeadModal({
   // Load time slots when closer and date are selected
   useEffect(() => {
     if (selectedCloser && selectedDate && isOnline) {
+      setSlotsError(null)
       loadTimeSlots(selectedCloser, selectedDate)
     } else {
       setTimeSlots([])
+      setSlotsError(null)
     }
   }, [selectedCloser, selectedDate, isOnline])
 
@@ -155,8 +158,9 @@ export default function LeadModal({
     setTimeSlots([])
   }, [selectedCloser])
 
-  const loadTimeSlots = async (closerOrTeamId: string, date: string) => {
+  const loadTimeSlots = async (closerOrTeamId: string, date: string, isRetry = false) => {
     setLoadingSlots(true)
+    setSlotsError(null)
     try {
       let res: Response
       
@@ -169,11 +173,23 @@ export default function LeadModal({
       
       if (res.ok) {
         const data = await res.json()
-        setTimeSlots(data.slots || [])
+        const slots = data.slots || []
+        setTimeSlots(slots)
         setCloserTimezone(data.timezone || 'America/New_York')
+        if (slots.length === 0 && !isRetry && data.hasCalendar !== false) {
+          // First attempt returned empty - retry once after short delay (fixes cold-start / auth race)
+          await new Promise(r => setTimeout(r, 800))
+          await loadTimeSlots(closerOrTeamId, date, true)
+        }
+      } else {
+        const errData = await res.json().catch(() => ({}))
+        const msg = errData.error || `Failed to load (${res.status})`
+        setSlotsError(msg)
+        setTimeSlots([])
       }
     } catch (error) {
       console.error('Failed to load time slots:', error)
+      setSlotsError('Network error. Tap Refresh to retry.')
       setTimeSlots([])
     } finally {
       setLoadingSlots(false)
@@ -496,13 +512,35 @@ export default function LeadModal({
                 {/* Time Slots */}
                 {selectedDate && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Time ({closerTimezone.replace('America/', '').replace('_', ' ')})
-                    </label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-900">
+                        Time ({closerTimezone.replace('America/', '').replace('_', ' ')})
+                      </label>
+                      {!loadingSlots && selectedCloser && (
+                        <button
+                          type="button"
+                          onClick={() => loadTimeSlots(selectedCloser, selectedDate)}
+                          className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                        >
+                          Refresh
+                        </button>
+                      )}
+                    </div>
                     {loadingSlots ? (
                       <div className="flex items-center justify-center py-4">
                         <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
                         <span className="ml-2 text-sm text-gray-500">Loading available times...</span>
+                      </div>
+                    ) : slotsError ? (
+                      <div className="py-4 px-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <p className="text-sm text-amber-800">{slotsError}</p>
+                        <button
+                          type="button"
+                          onClick={() => loadTimeSlots(selectedCloser, selectedDate)}
+                          className="mt-2 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                        >
+                          Tap to retry
+                        </button>
                       </div>
                     ) : timeSlots.length > 0 ? (
                       <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
@@ -526,7 +564,7 @@ export default function LeadModal({
                       </div>
                     ) : (
                       <p className="text-sm text-gray-500 text-center py-4">
-                        No available time slots for this date
+                        No available time slots. Tap Refresh above to try again.
                       </p>
                     )}
                     <p className="mt-2 text-xs text-gray-500">

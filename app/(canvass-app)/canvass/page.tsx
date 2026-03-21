@@ -95,6 +95,7 @@ export default function CanvassPage() {
   
   // State for loading pin details (viewport mode)
   const [loadingPinDetails, setLoadingPinDetails] = useState(false)
+  const [refetchTrigger, setRefetchTrigger] = useState(0)
 
   // Load settings on mount to determine map data mode
   useEffect(() => {
@@ -473,6 +474,7 @@ export default function CanvassPage() {
     setSelectedPin(null)
     setNewPinLocation(null)
     setPrefillAddress('')
+    setRefetchTrigger(t => t + 1)
   }
 
   const handleDropPinAtLocation = () => {
@@ -504,6 +506,7 @@ export default function CanvassPage() {
         
         setShowLeadModal(false)
         setSelectedPin(null)
+        setRefetchTrigger(t => t + 1)
       } else {
         const data = await response.json()
         alert(data.error || 'Failed to delete pin')
@@ -556,6 +559,7 @@ export default function CanvassPage() {
             viewportLoading={viewportLoading || loadingPinDetails}
             totalPinsLoaded={viewportTotalLoaded}
             onRefreshArea={mapDataMode === 'VIEWPORT' ? clearViewportCache : undefined}
+            refetchTrigger={refetchTrigger}
             dispositionFilter={dispositionFilter}
             onDispositionFilterChange={setDispositionFilter}
             dispositions={dispositions}
@@ -660,6 +664,7 @@ export default function CanvassPage() {
             setSelectedPin(null)
             setNewPinLocation(null)
             setPrefillAddress('')
+            setRefetchTrigger(t => t + 1)
           }}
           users={users}
           teams={teams}
