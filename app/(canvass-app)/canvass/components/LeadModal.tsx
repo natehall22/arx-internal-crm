@@ -207,9 +207,9 @@ export default function LeadModal({
     e.preventDefault()
     if (isSaving) return
 
-    const homeowner_name = `${formData.first_name.trim()} ${formData.last_name.trim()}`.trim()
+    const homeowner_name = [formData.first_name.trim(), formData.last_name.trim()].filter(Boolean).join(' ').trim() || null
     const saveData: any = {
-      homeowner_name,
+      homeowner_name: homeowner_name || '',
       phone: formData.phone,
       email: formData.email,
       address_text: formData.address_text,
@@ -280,7 +280,8 @@ export default function LeadModal({
 
   const hasRequiredName = !!(formData.first_name?.trim() && formData.last_name?.trim())
   const canSchedule = hasRequiredName && formData.phone?.trim() && formData.address_text?.trim()
-  const canSubmit = hasRequiredName
+  // Allow Drop Pin / Update Pin with at least first name; require both for scheduling
+  const canSubmit = !!formData.first_name?.trim()
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
@@ -389,7 +390,7 @@ export default function LeadModal({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-900 mb-1">
-                  Last Name <span className="text-red-500">*</span>
+                  Last Name {showScheduling && <span className="text-red-500">*</span>}
                 </label>
                 <input
                   type="text"
