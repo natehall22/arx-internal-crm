@@ -84,7 +84,8 @@ export default function LeadModal({
         icon: d.icon,
       }))
   const [formData, setFormData] = useState({
-    homeowner_name: '',
+    first_name: '',
+    last_name: '',
     phone: '',
     email: '',
     address_text: '',
@@ -108,8 +109,14 @@ export default function LeadModal({
 
   useEffect(() => {
     if (pin) {
+      // Parse homeowner_name into first/last (split on first space)
+      const full = (pin.homeowner_name || '').trim()
+      const spaceIdx = full.indexOf(' ')
+      const first_name = spaceIdx > 0 ? full.slice(0, spaceIdx) : full
+      const last_name = spaceIdx > 0 ? full.slice(spaceIdx + 1) : ''
       setFormData({
-        homeowner_name: pin.homeowner_name || '',
+        first_name,
+        last_name,
         phone: pin.phone || '',
         email: pin.email || '',
         address_text: pin.address_text || '',
@@ -199,15 +206,23 @@ export default function LeadModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSaving) return
-    
-    const saveData: any = { ...formData }
-    
+
+    const homeowner_name = `${formData.first_name.trim()} ${formData.last_name.trim()}`.trim()
+    const saveData: any = {
+      homeowner_name,
+      phone: formData.phone,
+      email: formData.email,
+      address_text: formData.address_text,
+      disposition: formData.disposition,
+      notes: formData.notes,
+    }
+
     if (showScheduling && selectedTime) {
       saveData.schedule_inspection = true
       saveData.closer_user_id = selectedCloser
       saveData.inspection_scheduled_for = selectedTime
     }
-    
+
     setIsSaving(true)
     try {
       await onSave(saveData)
@@ -263,7 +278,9 @@ export default function LeadModal({
     return dates
   }
 
-  const canSchedule = formData.homeowner_name && formData.phone && formData.address_text
+  const hasRequiredName = !!(formData.first_name?.trim() && formData.last_name?.trim())
+  const canSchedule = hasRequiredName && formData.phone?.trim() && formData.address_text?.trim()
+  const canSubmit = hasRequiredName
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
@@ -357,17 +374,31 @@ export default function LeadModal({
             </div>
 
             {/* Contact Info */}
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-1">
-                Homeowner Name {showScheduling && <span className="text-red-500">*</span>}
-              </label>
-              <input
-                type="text"
-                value={formData.homeowner_name}
-                onChange={(e) => setFormData(prev => ({ ...prev, homeowner_name: e.target.value }))}
-                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="John Smith"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">
+                  First Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
+                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="John"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">
+                  Last Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
+                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Smith"
+                />
+              </div>
             </div>
 
             <div>
@@ -443,7 +474,7 @@ export default function LeadModal({
                 
                 {!canSchedule && showScheduling && (
                   <p className="text-sm text-amber-600 mt-2">
-                    Name, phone, and address are required to schedule an inspection.
+                    First name, last name, phone, and address are required to schedule an inspection.
                   </p>
                 )}
               </div>
@@ -618,9 +649,9 @@ export default function LeadModal({
           <div className="p-4 border-t bg-gray-50 safe-area-bottom space-y-3">
             <button
               type="submit"
-              disabled={(showScheduling && canSchedule && !selectedTime) || isSaving}
+              disabled={!canSubmit || (showScheduling && canSchedule && !selectedTime) || isSaving}
               className={`w-full py-4 rounded-xl font-semibold text-lg ${
-                (showScheduling && canSchedule && !selectedTime) || isSaving
+                !canSubmit || (showScheduling && canSchedule && !selectedTime) || isSaving
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : showScheduling && selectedTime
                   ? 'bg-green-600 text-white active:bg-green-700'
