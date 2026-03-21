@@ -55,6 +55,7 @@ interface Proposal {
   rep_signed_at?: string
   declined_at?: string
   declined_reason?: string
+  inspection_notes?: string[]
 }
 
 interface LineItem {
@@ -176,11 +177,27 @@ export default function ProposalDetailPage() {
       setRep(data.rep)
       setMeasurement(data.measurement)
       setUserRole(data.role || '')
+      // Restore inspection notes from proposal (persisted in DB)
+      const notes = data.proposal?.inspection_notes
+      setInspectionNotes(Array.isArray(notes) ? notes : [])
     } catch (err) {
       console.error('Error loading proposal:', err)
       setError('Failed to load proposal')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const saveInspectionNotes = async (notes: string[]) => {
+    if (!proposalId) return
+    try {
+      await fetch(`/api/proposals/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inspection_notes: notes }),
+      })
+    } catch (err) {
+      console.error('Failed to save inspection notes:', err)
     }
   }
 
@@ -371,16 +388,17 @@ export default function ProposalDetailPage() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
 
-      // Update proposal with PDF generated timestamp via API
+      // Update proposal with PDF generated timestamp and inspection notes via API
       await fetch(`/api/proposals/${proposalId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pdf_generated_at: new Date().toISOString(),
+          inspection_notes: inspectionNotes,
         })
       })
 
-      // Reload to show updated PDF info
+      // Reload to show updated PDF info (inspection notes will be restored from API)
       await loadProposal()
       
     } catch (error) {
@@ -959,7 +977,11 @@ export default function ProposalDetailPage() {
                         <span className="text-amber-500 mt-0.5">•</span>
                         <span className="flex-1 text-gray-700">{note}</span>
                         <button
-                          onClick={() => setInspectionNotes(prev => prev.filter((_, i) => i !== index))}
+                          onClick={() => {
+                            const next = inspectionNotes.filter((_, i) => i !== index)
+                            setInspectionNotes(next)
+                            saveInspectionNotes(next)
+                          }}
                           className="text-gray-400 hover:text-red-500"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -975,10 +997,12 @@ export default function ProposalDetailPage() {
                     type="text"
                     value={newInspectionNote}
                     onChange={(e) => setNewInspectionNote(e.target.value)}
-                    onKeyPress={(e) => {
+                    onKeyDown={(e) => {
                       if (e.key === 'Enter' && newInspectionNote.trim()) {
-                        setInspectionNotes(prev => [...prev, newInspectionNote.trim()])
+                        const next = [...inspectionNotes, newInspectionNote.trim()]
+                        setInspectionNotes(next)
                         setNewInspectionNote('')
+                        saveInspectionNotes(next)
                       }
                     }}
                     placeholder="Add inspection finding (e.g., 'Missing shingles on north slope')"
@@ -987,8 +1011,10 @@ export default function ProposalDetailPage() {
                   <button
                     onClick={() => {
                       if (newInspectionNote.trim()) {
-                        setInspectionNotes(prev => [...prev, newInspectionNote.trim()])
+                        const next = [...inspectionNotes, newInspectionNote.trim()]
+                        setInspectionNotes(next)
                         setNewInspectionNote('')
+                        saveInspectionNotes(next)
                       }
                     }}
                     disabled={!newInspectionNote.trim()}
