@@ -3,13 +3,6 @@ import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import type { InspectionOutcome } from '@/lib/types/database'
 
-const OPPORTUNITY_TRIGGER_RESULTS = new Set([
-  'insurance_follow_up',
-  'moving_to_close',
-  'rescheduled',
-  'sale',
-])
-
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -273,11 +266,12 @@ export async function POST(request: NextRequest) {
       .eq('id', profile.org_id)
       .single()
     
-    // Default inspection outcomes - only sale and moving_to_close create opportunities
+    // Default inspection outcomes used only when org settings are missing.
+    // Match requested baseline: sale, moving_to_close, insurance_follow_up.
     const defaultInspectionOutcomes = [
       { id: 'sale', converts_to_opportunity: true },
       { id: 'moving_to_close', converts_to_opportunity: true },
-      { id: 'insurance_follow_up', converts_to_opportunity: false },
+      { id: 'insurance_follow_up', converts_to_opportunity: true },
       { id: 'said_no', converts_to_opportunity: false },
       { id: 'not_home', converts_to_opportunity: false },
       { id: 'no_problems_found', converts_to_opportunity: false },
@@ -285,21 +279,19 @@ export async function POST(request: NextRequest) {
       { id: 'rescheduled', converts_to_opportunity: false },
     ]
     
-    // Use org settings if available, otherwise use defaults
-    const inspectionOutcomes = (orgData?.settings?.inspection_outcomes?.length ?? 0) > 0 
+    // Use org settings when present so admins fully control opportunity creation behavior.
+    const hasConfiguredOutcomes = (orgData?.settings?.inspection_outcomes?.length ?? 0) > 0
+    const inspectionOutcomes = hasConfiguredOutcomes
       ? orgData!.settings.inspection_outcomes 
       : defaultInspectionOutcomes
     const outcomeConfig = inspectionOutcomes.find(
       (o: any) => String(o.id || '').toLowerCase() === String(outcome || '').toLowerCase()
     )
-    const shouldCreateOpportunity =
-      typeof outcomeConfig?.converts_to_opportunity === 'boolean'
-        ? outcomeConfig.converts_to_opportunity
-        : OPPORTUNITY_TRIGGER_RESULTS.has(String(outcome || '').toLowerCase())
+    const shouldCreateOpportunity = Boolean(outcomeConfig?.converts_to_opportunity)
     
     console.log('Outcome config:', outcomeConfig)
     console.log('Should create opportunity:', shouldCreateOpportunity)
-    console.log('Using default outcomes:', !orgData?.settings?.inspection_outcomes?.length)
+    console.log('Using default outcomes:', !hasConfiguredOutcomes)
 
     const leadId = appointment?.lead_id || directLeadId || lead?.id || null
     let opportunityId = appointment?.opportunity_id || opportunity?.id || null

@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache'
 import LeadAIHelper from '@/components/LeadAIHelper'
 import LeadReferralInfo from '@/components/LeadReferralInfo'
 import DeleteLeadButton from '@/components/DeleteLeadButton'
+import CreateOpportunityFromLeadButton from '@/components/leads/CreateOpportunityFromLeadButton'
 import LocationMap from '@/components/LocationMap'
 import { 
   createCalendarEvent, 
@@ -863,6 +864,13 @@ export default async function LeadDetailPage({
 
       {/* AI Assistant */}
       <LeadAIHelper leadId={params.id} />
+
+      <div className="mt-20 pt-10 border-t border-gray-100">
+        <CreateOpportunityFromLeadButton
+          leadId={params.id}
+          hasOpportunity={Boolean(opportunity)}
+        />
+      </div>
     </div>
   )
 }

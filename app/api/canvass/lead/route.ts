@@ -553,7 +553,7 @@ export async function POST(request: Request) {
             new Date(inspectionScheduledFor),
             inspectionDuration,
             leadRow.id,
-            undefined, // opportunity_id is created from inspection status flow
+            undefined, // opportunity_id is linked after we resolve/create it below
             leadRow.address_text,
             profile.id, // canvasser
             profile.org_id,
@@ -592,14 +592,52 @@ export async function POST(request: Request) {
     }
 
     if (scheduleInspection) {
-      // Do not create opportunities during scheduling.
-      // Opportunities are created from inspection status flow card updates only.
       const { data: existingOpportunity } = await supabase
         .from('opportunities')
         .select('id')
+        .eq('org_id', profile.org_id)
         .eq('lead_id', leadRow.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle()
       opportunityId = existingOpportunity?.id ?? null
+
+      // Restore legacy behavior: scheduling an inspection should create an opportunity.
+      if (!opportunityId) {
+        const opportunityInsertPayload = {
+          org_id: profile.org_id,
+          lead_id: leadRow.id,
+          customer_id: leadRow.customer_id || null,
+          owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
+          status: 'open',
+          project_type: 'roofing',
+          address_text: leadRow.address_text || null,
+          lat: leadRow.lat ?? null,
+          lng: leadRow.lng ?? null,
+          notes: leadRow.notes || null,
+        }
+
+        const { data: newOpportunity, error: newOpportunityError } = await supabase
+          .from('opportunities')
+          .insert(opportunityInsertPayload)
+          .select('id')
+          .single()
+
+        if (newOpportunityError) {
+          console.error('Failed to create opportunity during inspection scheduling:', newOpportunityError)
+          const { data: fallbackOpportunity } = await supabase
+            .from('opportunities')
+            .select('id')
+            .eq('org_id', profile.org_id)
+            .eq('lead_id', leadRow.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          opportunityId = fallbackOpportunity?.id ?? null
+        } else {
+          opportunityId = newOpportunity?.id ?? null
+        }
+      }
 
       // Create scheduled_appointments record if not already created by round-robin
       // This ensures appointments are tracked even when closer is manually selected
