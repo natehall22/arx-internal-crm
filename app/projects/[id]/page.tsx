@@ -545,7 +545,7 @@ export default async function ProjectDetailPage({
 
           <div className="bg-white shadow rounded-lg p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Files & Photos</h2>
-            <ProjectFileUpload projectId={project.id} orgId={profile.org_id} />
+            <ProjectFileUpload projectId={project.id} />
             <div className="space-y-2 mt-4">
               {files && files.length > 0 ? (
                 files.map((file: any) => {

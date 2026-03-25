@@ -214,7 +214,7 @@ export default function Nav() {
                 <img
                   src={companyLogo}
                   alt={companyName}
-                  className="w-8 h-8 rounded object-contain bg-white/10"
+                  className="h-10 sm:h-11 w-auto max-w-[180px] object-contain"
                   onError={(e) => {
                     console.error('Logo failed to load:', companyLogo)
                     setCompanyLogo(null)

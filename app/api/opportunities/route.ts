@@ -117,6 +117,9 @@ export async function GET(request: NextRequest) {
         address_text,
         project_type,
         status,
+        inspection_outcome,
+        inspection_outcome_at,
+        inspection_notes,
         created_at,
         updated_at
       `)
@@ -220,30 +223,95 @@ export async function GET(request: NextRequest) {
         })
       }
       
-      // Fetch latest inspection status for each opportunity
+      // Latest inspection rows from inspection_status_updates (by opportunity, and by lead when opportunity_id was null)
       const { data: inspectionStatuses } = await adminClient
         .from('inspection_status_updates')
-        .select('opportunity_id, outcome, notes, created_at')
+        .select('opportunity_id, lead_id, outcome, notes, created_at')
         .in('opportunity_id', oppIdList)
         .order('created_at', { ascending: false })
-      
-      // Build map of opportunity_id -> latest inspection outcome
+
       const inspectionMap: Record<string, { outcome: string; notes: string | null; created_at: string }> = {}
       ;(inspectionStatuses || []).forEach((status: any) => {
         if (status.opportunity_id && !inspectionMap[status.opportunity_id]) {
           inspectionMap[status.opportunity_id] = {
             outcome: status.outcome,
             notes: status.notes,
-            created_at: status.created_at
+            created_at: status.created_at,
           }
         }
       })
-      
+
+      let leadInspectionMap: Record<string, { outcome: string; notes: string | null; created_at: string }> = {}
+      if (leadIdList.length > 0) {
+        const { data: leadOnlyStatuses } = await adminClient
+          .from('inspection_status_updates')
+          .select('lead_id, outcome, notes, created_at')
+          .in('lead_id', leadIdList)
+          .is('opportunity_id', null)
+          .order('created_at', { ascending: false })
+
+        ;(leadOnlyStatuses || []).forEach((status: any) => {
+          if (status.lead_id && !leadInspectionMap[status.lead_id]) {
+            leadInspectionMap[status.lead_id] = {
+              outcome: status.outcome,
+              notes: status.notes,
+              created_at: status.created_at,
+            }
+          }
+        })
+      }
+
+      const mergeInspectionDisplay = (opp: any) => {
+        type Row = { outcome: string; notes: string | null; created_at: string }
+        const candidates: Row[] = []
+        const byOpp = inspectionMap[opp.id]
+        if (byOpp?.outcome) {
+          candidates.push({
+            outcome: byOpp.outcome,
+            notes: byOpp.notes,
+            created_at: byOpp.created_at,
+          })
+        }
+        if (opp.lead_id) {
+          const byLead = leadInspectionMap[opp.lead_id]
+          if (byLead?.outcome) {
+            candidates.push({
+              outcome: byLead.outcome,
+              notes: byLead.notes,
+              created_at: byLead.created_at,
+            })
+          }
+        }
+        if (opp.inspection_outcome) {
+          const at =
+            opp.inspection_outcome_at ||
+            opp.updated_at ||
+            opp.created_at
+          candidates.push({
+            outcome: opp.inspection_outcome,
+            notes: opp.inspection_notes ?? null,
+            created_at: at,
+          })
+        }
+        if (candidates.length === 0) {
+          return { inspection_outcome: null, inspection_notes: null, inspection_date: null }
+        }
+        candidates.sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        const best = candidates[0]
+        return {
+          inspection_outcome: best.outcome,
+          inspection_notes: best.notes,
+          inspection_date: best.created_at,
+        }
+      }
+
       enrichedOpportunities.forEach((opp: any) => {
-        const inspection = inspectionMap[opp.id]
-        opp.inspection_outcome = inspection?.outcome || null
-        opp.inspection_notes = inspection?.notes || null
-        opp.inspection_date = inspection?.created_at || null
+        const merged = mergeInspectionDisplay(opp)
+        opp.inspection_outcome = merged.inspection_outcome
+        opp.inspection_notes = merged.inspection_notes
+        opp.inspection_date = merged.inspection_date
       })
       
       // Filter by inspection outcome if specified

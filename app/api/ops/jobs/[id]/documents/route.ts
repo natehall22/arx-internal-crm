@@ -20,6 +20,48 @@ function resolveDocumentFolder(linkedRecordType: LinkedRecordType) {
   return 'documents'
 }
 
+export async function GET(
+  _request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { profile } = await requireAuthApi()
+    const supabase = createServiceClient()
+    const jobId = params.id
+
+    const { data: job } = await supabase
+      .from('production_jobs')
+      .select('id')
+      .eq('id', jobId)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (!job) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    const { data: documents, error } = await supabase
+      .from('documents')
+      .select('id, title, filename, category, document_role, version, status, is_protected, created_at, updated_at')
+      .eq('job_id', jobId)
+      .eq('org_id', profile.org_id)
+      .is('deleted_at', null)
+      .order('updated_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      return NextResponse.json({ error: error.message, code: (error as any).code || null }, { status: 500 })
+    }
+
+    return NextResponse.json({ documents: documents || [] })
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || 'Failed to load documents' },
+      { status: 500 }
+    )
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }

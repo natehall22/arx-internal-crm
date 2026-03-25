@@ -125,13 +125,27 @@ export default function JobFileWorkspaceCard({
 
     const [photosRes, docsRes, costRes] = await Promise.all([
       photosPromise,
-      supabase
-        .from('documents')
-        .select('id, title, filename, category, document_role, version, status, is_protected, created_at, updated_at')
-        .eq('job_id', jobId)
-        .is('deleted_at', null)
-        .order('updated_at', { ascending: false })
-        .limit(20),
+      fetch(`/api/ops/jobs/${jobId}/documents`, {
+        method: 'GET',
+        cache: 'no-store',
+      })
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}))
+          if (!response.ok) {
+            return {
+              data: null,
+              error: {
+                message: data?.error || 'Failed to load documents',
+                code: data?.code || null,
+              },
+            }
+          }
+          return { data: (data?.documents || []) as DocumentRow[], error: null }
+        })
+        .catch((error: any) => ({
+          data: null,
+          error: { message: error?.message || 'Failed to load documents', code: null },
+        })),
       supabase
         .from('job_cost_lines')
         .select('id, description, amount, cost_type, status, vendors(name)')

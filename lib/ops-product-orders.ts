@@ -90,6 +90,23 @@ export function buildFallbackUpdate(existingNotes: string | null | undefined, st
   }
 }
 
+/** Full edit of a material_orders row (fallback table) — description, supplier, amount, status */
+export function buildFallbackFullUpdate(input: {
+  description: string
+  supplier: string | null
+  amount: number
+  status: UiProductOrderStatus
+}) {
+  const desc = input.description.trim()
+  return {
+    supplier: input.supplier?.trim() || 'Unknown',
+    items: [{ description: desc }],
+    total_cost: input.amount,
+    status: mapUiStatusToFallback(input.status),
+    notes: normalizeNotesForStatus(desc, input.status),
+  }
+}
+
 export async function computeMaterialCostTotalForJob(
   serviceSupabase: any,
   jobId: string

@@ -29,6 +29,8 @@ interface JobMaterialsCardProps {
   onAttachReceiptInvoice?: () => void
 }
 
+type OrderStatus = ProductOrder['status']
+
 const statusConfig = {
   ordered: { label: 'Ordered', bg: 'bg-blue-100', text: 'text-blue-700' },
   received: { label: 'Received', bg: 'bg-green-100', text: 'text-green-700' },
@@ -69,9 +71,19 @@ export default function JobMaterialsCard({
     description: '',
     supplier: '',
     amount: '',
-    status: 'ordered' as const,
+    status: 'ordered' as OrderStatus,
   })
+  const [editingOrder, setEditingOrder] = useState<ProductOrder | null>(null)
+  const [editForm, setEditForm] = useState({
+    description: '',
+    supplier: '',
+    amount: '',
+    status: 'ordered' as OrderStatus,
+  })
+  const [savingEdit, setSavingEdit] = useState(false)
   const [laborCostInput, setLaborCostInput] = useState(laborCost?.toString() || '')
+
+  const isAdmin = userRole === 'admin'
 
   useEffect(() => {
     setLaborCostInput(laborCost != null ? laborCost.toString() : '')
@@ -121,6 +133,64 @@ export default function JobMaterialsCard({
       alert('Failed to add order')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openEdit = (order: ProductOrder) => {
+    setEditingOrder(order)
+    setEditForm({
+      description: order.description,
+      supplier: order.supplier ?? '',
+      amount: String(order.amount),
+      status: order.status,
+    })
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingOrder) return
+    if (!editForm.description.trim() || !editForm.amount) return
+    setSavingEdit(true)
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/product-orders/${editingOrder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: editForm.description.trim(),
+          supplier: editForm.supplier.trim() || null,
+          amount: Number(editForm.amount),
+          status: editForm.status,
+        }),
+      })
+      if (response.ok) {
+        setEditingOrder(null)
+        loadOrders()
+      } else {
+        const error = await response.json()
+        alert(error.error || 'Failed to update order')
+      }
+    } catch (error) {
+      console.error('Error updating order:', error)
+      alert('Failed to update order')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const handleDelete = async (orderId: string) => {
+    if (!confirm('Delete this order?')) return
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/product-orders/${orderId}`, {
+        method: 'DELETE',
+      })
+      if (response.ok) {
+        loadOrders()
+      } else {
+        const error = await response.json()
+        alert(error.error || 'Failed to delete order')
+      }
+    } catch (error) {
+      console.error('Error deleting order:', error)
+      alert('Failed to delete order')
     }
   }
 
@@ -294,13 +364,29 @@ export default function JobMaterialsCard({
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="text-sm font-medium text-gray-900">
                     {formatCurrency(order.amount)}
                   </span>
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.bg} ${config.text}`}>
                     {config.label}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => openEdit(order)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 min-h-[36px] px-2"
+                  >
+                    Edit
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(order.id)}
+                      className="text-sm text-red-600 hover:text-red-800 min-h-[36px] px-2"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -367,7 +453,9 @@ export default function JobMaterialsCard({
                 </label>
                 <select
                   value={newOrder.status}
-                  onChange={(e) => setNewOrder({ ...newOrder, status: e.target.value as any })}
+                  onChange={(e) =>
+                    setNewOrder({ ...newOrder, status: e.target.value as OrderStatus })
+                  }
                   className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
                 >
                   <option value="ordered">Ordered</option>
@@ -390,6 +478,81 @@ export default function JobMaterialsCard({
                 className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 min-h-[44px]"
               >
                 {saving ? 'Adding...' : 'Add Order'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Material Order</h3>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Material or Item *
+                </label>
+                <input
+                  type="text"
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+                <input
+                  type="text"
+                  value={editForm.supplier}
+                  onChange={(e) => setEditForm({ ...editForm, supplier: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
+                  placeholder="e.g., ABC Supply"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={editForm.status}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, status: e.target.value as OrderStatus })
+                  }
+                  className="w-full px-3 py-2 border rounded-lg text-black min-h-[44px]"
+                >
+                  <option value="ordered">Ordered</option>
+                  <option value="received">Received</option>
+                  <option value="paid">Paid</option>
+                  <option value="returned">Returned</option>
+                </select>
+              </div>
+            </div>
+            <div className="p-4 border-t flex gap-3">
+              <button
+                type="button"
+                onClick={() => setEditingOrder(null)}
+                className="flex-1 px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-50 min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={savingEdit || !editForm.description.trim() || !editForm.amount}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 min-h-[44px]"
+              >
+                {savingEdit ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

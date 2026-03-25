@@ -1,15 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
 interface ProjectFileUploadProps {
   projectId: string
-  orgId: string
 }
 
-export default function ProjectFileUpload({ projectId, orgId }: ProjectFileUploadProps) {
+export default function ProjectFileUpload({ projectId }: ProjectFileUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [selectedTag, setSelectedTag] = useState('document')
   const router = useRouter()
@@ -20,44 +18,18 @@ export default function ProjectFileUpload({ projectId, orgId }: ProjectFileUploa
 
     setUploading(true)
     try {
-      const supabase = createClientBrowser()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        alert('Please log in to upload files')
-        return
-      }
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('tag', selectedTag)
 
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${Date.now()}-${file.name}`
-      const storagePath = `org/${orgId}/projects/${projectId}/${fileName}`
-
-      const { error: uploadError } = await supabase.storage
-        .from('files')
-        .upload(storagePath, file, {
-          contentType: file.type,
-          upsert: false,
-        })
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError)
-        alert('Failed to upload file: ' + uploadError.message)
-        return
-      }
-
-      const { error: dbError } = await supabase.from('files').insert({
-        org_id: orgId,
-        project_id: projectId,
-        file_name: file.name,
-        storage_path: storagePath,
-        mime_type: file.type,
-        size_bytes: file.size,
-        tag: selectedTag,
-        uploaded_by: user.id,
+      const res = await fetch(`/api/projects/${projectId}/files`, {
+        method: 'POST',
+        body: formData,
       })
 
-      if (dbError) {
-        console.error('DB error:', dbError)
-        alert('Failed to save file record')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error || 'Failed to upload file')
         return
       }
 

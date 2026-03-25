@@ -244,6 +244,10 @@ export default function CanvassMap({
         const bounds = mapInstanceRef.current.getBounds()
         const zoom = mapInstanceRef.current.getZoom()
         if (bounds && zoom !== undefined) {
+          // Signal that we need a fresh fetch (clears tile cache in useViewportLeads)
+          if (onRefreshArea) {
+            onRefreshArea()
+          }
           onBoundsChanged(bounds, zoom)
         }
       }
@@ -251,7 +255,7 @@ export default function CanvassMap({
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [onBoundsChanged, isViewportMode])
+  }, [onBoundsChanged, onRefreshArea, isViewportMode])
 
   // Refetch when modal closes (fixes pins disappearing after scheduling)
   useEffect(() => {

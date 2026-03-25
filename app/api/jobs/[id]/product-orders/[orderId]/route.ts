@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import {
+  buildFallbackFullUpdate,
   buildFallbackUpdate,
   isMissingJobProductOrdersTable,
   mapMaterialOrdersRowsToUi,
@@ -17,15 +18,32 @@ export async function PATCH(
     const { id: jobId, orderId } = params
     
     const body = await request.json()
-    const { status } = body
+    const { status, description, supplier, amount } = body
 
-    if (!status) {
-      return NextResponse.json({ error: 'Status is required' }, { status: 400 })
+    const validStatuses = ['ordered', 'received', 'paid', 'returned'] as const
+    const hasFullEdit =
+      description !== undefined ||
+      supplier !== undefined ||
+      amount !== undefined ||
+      status !== undefined
+
+    if (!hasFullEdit) {
+      return NextResponse.json(
+        { error: 'Provide at least one of: description, supplier, amount, status' },
+        { status: 400 }
+      )
     }
 
-    const validStatuses = ['ordered', 'received', 'paid', 'returned']
-    if (!validStatuses.includes(status)) {
+    if (status !== undefined && !validStatuses.includes(status)) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+    }
+
+    if (description !== undefined && !String(description).trim()) {
+      return NextResponse.json({ error: 'Description cannot be empty' }, { status: 400 })
+    }
+
+    if (amount !== undefined && (amount === null || Number.isNaN(Number(amount)))) {
+      return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
     }
 
     const serviceSupabase = createServiceClient()
@@ -33,7 +51,7 @@ export async function PATCH(
     // Verify order belongs to user's org
     const { data: order, error: orderError } = await serviceSupabase
       .from('job_product_orders')
-      .select('id, org_id')
+      .select('id, org_id, description, supplier, amount, status')
       .eq('id', orderId)
       .eq('job_id', jobId)
       .eq('org_id', profile.org_id)
@@ -46,7 +64,7 @@ export async function PATCH(
     if (orderError && isMissingJobProductOrdersTable(orderError)) {
       const { data: fallbackOrder, error: fallbackLookupError } = await serviceSupabase
         .from('material_orders')
-        .select('id, org_id, notes')
+        .select('id, org_id, notes, supplier, items, total_cost, status')
         .eq('id', orderId)
         .eq('job_id', jobId)
         .eq('org_id', profile.org_id)
@@ -56,7 +74,26 @@ export async function PATCH(
         return NextResponse.json({ error: 'Order not found' }, { status: 404 })
       }
 
-      const updatePayload = buildFallbackUpdate(fallbackOrder.notes, status)
+      const mappedExisting = mapMaterialOrdersRowsToUi([fallbackOrder])[0]
+      const nextDesc =
+        description !== undefined ? String(description).trim() : mappedExisting.description
+      const nextSupplier =
+        supplier !== undefined ? (supplier === null || supplier === '' ? null : String(supplier).trim()) : mappedExisting.supplier
+      const nextAmount =
+        amount !== undefined ? Number(amount) : Number(mappedExisting.amount || 0)
+      const nextStatus =
+        status !== undefined ? status : mappedExisting.status
+
+      const updatePayload =
+        description !== undefined || supplier !== undefined || amount !== undefined
+          ? buildFallbackFullUpdate({
+              description: nextDesc,
+              supplier: nextSupplier,
+              amount: nextAmount,
+              status: nextStatus as (typeof validStatuses)[number],
+            })
+          : buildFallbackUpdate(fallbackOrder.notes, nextStatus as (typeof validStatuses)[number])
+
       const { data: fallbackUpdated, error: fallbackUpdateError } = await serviceSupabase
         .from('material_orders')
         .update(updatePayload)
@@ -82,9 +119,15 @@ export async function PATCH(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
 
+    const patch: Record<string, unknown> = {}
+    if (description !== undefined) patch.description = String(description).trim()
+    if (supplier !== undefined) patch.supplier = supplier === null || supplier === '' ? null : String(supplier).trim()
+    if (amount !== undefined) patch.amount = Number(amount)
+    if (status !== undefined) patch.status = status
+
     const { data, error } = await serviceSupabase
       .from('job_product_orders')
-      .update({ status })
+      .update(patch)
       .eq('id', orderId)
       .select()
       .single()

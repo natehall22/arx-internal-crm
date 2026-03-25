@@ -442,9 +442,14 @@ export default function CanvassPage() {
             if (data.calendar_synced) {
               console.log('Calendar synced successfully')
             }
+          } else {
+            // API failed - save to offline store so pin persists and can sync later
+            addLead(newPin)
           }
         } catch (error) {
           console.error('Failed to create lead:', error)
+          // Network error - save to offline store so pin persists
+          addLead(newPin)
         }
       } else {
         // Save to offline store (scheduling not available offline)
