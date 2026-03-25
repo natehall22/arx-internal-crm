@@ -289,15 +289,20 @@ export async function POST(request: NextRequest) {
     const inspectionOutcomes = (orgData?.settings?.inspection_outcomes?.length ?? 0) > 0 
       ? orgData!.settings.inspection_outcomes 
       : defaultInspectionOutcomes
-    const outcomeConfig = inspectionOutcomes.find((o: any) => o.id === outcome)
-    const shouldCreateOpportunity = OPPORTUNITY_TRIGGER_RESULTS.has(String(outcome || '').toLowerCase())
+    const outcomeConfig = inspectionOutcomes.find(
+      (o: any) => String(o.id || '').toLowerCase() === String(outcome || '').toLowerCase()
+    )
+    const shouldCreateOpportunity =
+      typeof outcomeConfig?.converts_to_opportunity === 'boolean'
+        ? outcomeConfig.converts_to_opportunity
+        : OPPORTUNITY_TRIGGER_RESULTS.has(String(outcome || '').toLowerCase())
     
     console.log('Outcome config:', outcomeConfig)
     console.log('Should create opportunity:', shouldCreateOpportunity)
     console.log('Using default outcomes:', !orgData?.settings?.inspection_outcomes?.length)
 
-    const leadId = appointment?.lead_id || directLeadId
-    let opportunityId = appointment?.opportunity_id || opportunity?.id
+    const leadId = appointment?.lead_id || directLeadId || lead?.id || null
+    let opportunityId = appointment?.opportunity_id || opportunity?.id || null
     let createdOpportunity = null
     
     console.log('=== OPPORTUNITY LOOKUP ===')
@@ -305,6 +310,20 @@ export async function POST(request: NextRequest) {
     console.log('opportunity?.id:', opportunity?.id)
     console.log('Final opportunityId:', opportunityId)
     console.log('leadId:', leadId)
+
+    // Resolve stale/deleted opportunity references before create/update decisions.
+    if (opportunityId) {
+      const { data: existingOpportunity } = await supabase
+        .from('opportunities')
+        .select('id')
+        .eq('id', opportunityId)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+
+      if (!existingOpportunity) {
+        opportunityId = null
+      }
+    }
 
     // Create opportunity only for approved trigger outcomes and only when no opportunity exists.
     if (shouldCreateOpportunity && !opportunityId && leadId) {
