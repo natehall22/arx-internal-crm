@@ -241,13 +241,14 @@ export async function GET(request: NextRequest) {
         }
       })
 
+      // Latest inspection per lead (any opportunity_id). Do NOT require opportunity_id IS NULL.
+      // Otherwise rows linked to a stale/duplicate opportunity id never merge onto the current opportunity row.
       let leadInspectionMap: Record<string, { outcome: string; notes: string | null; created_at: string }> = {}
       if (leadIdList.length > 0) {
         const { data: leadOnlyStatuses } = await adminClient
           .from('inspection_status_updates')
           .select('lead_id, outcome, notes, created_at')
           .in('lead_id', leadIdList)
-          .is('opportunity_id', null)
           .order('created_at', { ascending: false })
 
         ;(leadOnlyStatuses || []).forEach((status: any) => {

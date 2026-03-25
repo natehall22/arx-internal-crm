@@ -30,6 +30,16 @@ const inspectionOutcomeLabels: Record<string, { label: string; color: string }> 
   needs_repair: { label: 'Needs Repair', color: 'bg-orange-100 text-orange-800' },
   rescheduled: { label: 'Rescheduled', color: 'bg-purple-100 text-purple-800' },
   no_problems_found: { label: 'No Problems Found', color: 'bg-gray-100 text-gray-800' },
+  failed_credit: { label: 'Failed Credit', color: 'bg-rose-100 text-rose-800' },
+}
+
+function getInspectionOutcomeDisplay(outcome: string | null | undefined) {
+  if (!outcome) return null
+  const known = inspectionOutcomeLabels[outcome]
+  if (known) return known
+  const words = outcome.replace(/_/g, ' ')
+  const label = words.replace(/\b\w/g, (c) => c.toUpperCase())
+  return { label, color: 'bg-gray-100 text-gray-800' }
 }
 
 export default function OpportunitiesPage() {
@@ -57,7 +67,7 @@ export default function OpportunitiesPage() {
         url += `&inspection_outcome=${encodeURIComponent(filterInspectionOutcome)}`
       }
       
-      const response = await fetch(url)
+      const response = await fetch(url, { credentials: 'same-origin' })
       if (!response.ok) {
         const data = await response.json()
         setError(data.error || 'Failed to load opportunities')
@@ -210,9 +220,7 @@ export default function OpportunitiesPage() {
               <div className="md:hidden divide-y divide-gray-200">
                 {filteredOpportunities.length > 0 ? (
                   filteredOpportunities.map((opportunity) => {
-                    const outcomeInfo = opportunity.inspection_outcome
-                      ? inspectionOutcomeLabels[opportunity.inspection_outcome]
-                      : null
+                    const outcomeInfo = getInspectionOutcomeDisplay(opportunity.inspection_outcome)
                     return (
                       <div key={opportunity.id} className="p-4">
                         <div className="text-sm font-semibold text-gray-900">
@@ -288,9 +296,7 @@ export default function OpportunitiesPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredOpportunities.length > 0 ? (
                     filteredOpportunities.map((opportunity) => {
-                      const outcomeInfo = opportunity.inspection_outcome 
-                        ? inspectionOutcomeLabels[opportunity.inspection_outcome] 
-                        : null
+                      const outcomeInfo = getInspectionOutcomeDisplay(opportunity.inspection_outcome)
                       return (
                         <tr key={opportunity.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
