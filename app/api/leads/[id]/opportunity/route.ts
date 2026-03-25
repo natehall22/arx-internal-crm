@@ -131,6 +131,7 @@ export async function POST(
     const ownerUserId = lead.closer_user_id || profile.id
     const setterUserId = lead.owner_user_id || null
 
+    // Omit `source` — some DBs have no `source` on opportunities (see canvass/lead insert).
     const { data: created, error: insertError } = await adminClient
       .from('opportunities')
       .insert({
@@ -140,7 +141,6 @@ export async function POST(
         owner_user_id: ownerUserId,
         setter_user_id: setterUserId,
         status: 'open',
-        source: (lead as { source?: string | null }).source || 'manual_from_lead',
         project_type: 'roofing',
         address_text: lead.address_text || null,
         lat: lead.lat ?? null,
