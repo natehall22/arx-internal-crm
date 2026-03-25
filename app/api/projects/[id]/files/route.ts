@@ -60,23 +60,48 @@ export async function POST(
       return NextResponse.json({ error: uploadError.message }, { status: 500 })
     }
 
-    const { data: inserted, error: insertError } = await supabase
-      .from('files')
-      .insert({
-        org_id: profile.org_id,
-        project_id: projectId,
-        file_name: file.name,
-        storage_path: storagePath,
-        mime_type: file.type,
-        size_bytes: file.size,
-        tag,
-        uploaded_by: user.id,
-      })
-      .select('id')
-      .single()
+    const basePayload = {
+      org_id: profile.org_id,
+      project_id: projectId,
+      file_name: file.name,
+      storage_path: storagePath,
+      mime_type: file.type,
+      tag,
+    }
 
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    const insertAttempts: Record<string, unknown>[] = [
+      { ...basePayload, size_bytes: file.size, uploaded_by: user.id },
+      { ...basePayload, uploaded_by: user.id },
+      { ...basePayload, size_bytes: file.size, user_id: user.id },
+      { ...basePayload, user_id: user.id },
+    ]
+
+    let inserted: { id: string } | null = null
+    let lastInsertError: any = null
+
+    for (const payload of insertAttempts) {
+      const { data, error } = await supabase
+        .from('files')
+        .insert(payload)
+        .select('id')
+        .single()
+
+      if (!error && data) {
+        inserted = data
+        lastInsertError = null
+        break
+      }
+
+      lastInsertError = error
+    }
+
+    if (!inserted) {
+      // Keep storage clean if metadata insert fails on all schema variants.
+      await supabase.storage.from('files').remove([storagePath])
+      return NextResponse.json(
+        { error: lastInsertError?.message || 'Failed to save file record' },
+        { status: 500 }
+      )
     }
 
     return NextResponse.json({ success: true, id: inserted.id })
