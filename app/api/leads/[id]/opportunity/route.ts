@@ -1,22 +1,96 @@
-import { NextResponse } from 'next/server'
-import { requireAuthApi } from '@/lib/auth'
-import { createServiceClient } from '@/lib/supabase/service'
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 
 export const dynamic = 'force-dynamic'
 
+function getSessionFromRequest(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
+  const cookieName = `sb-${projectRef}-auth-token`
+
+  const singleCookie = req.cookies.get(cookieName)
+  if (singleCookie?.value) {
+    try {
+      const decoded = decodeURIComponent(singleCookie.value)
+      return JSON.parse(decoded)
+    } catch {
+      return null
+    }
+  }
+
+  const chunks: string[] = []
+  let i = 0
+  while (true) {
+    const chunk = req.cookies.get(`${cookieName}.${i}`)
+    if (!chunk?.value) break
+    chunks.push(chunk.value)
+    i++
+  }
+
+  if (chunks.length > 0) {
+    try {
+      const decoded = decodeURIComponent(chunks.join(''))
+      return JSON.parse(decoded)
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
 export async function POST(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { profile } = await requireAuthApi()
-    const supabase = createServiceClient()
-    const leadId = params.id
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const sessionData = getSessionFromRequest(request)
 
-    let leadQuery = supabase
+    if (!sessionData?.access_token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const authClient = createClient(supabaseUrl, supabaseKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${sessionData.access_token}` } },
+    })
+
+    const {
+      data: { user },
+      error: userError,
+    } = await authClient.auth.getUser(sessionData.access_token)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile, error: profileError } = await adminClient
+      .from('users')
+      .select('id, org_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile?.org_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    }
+
+    const leadId = params.id
+    let leadQuery = adminClient
       .from('leads')
-      .select('id, org_id, owner_user_id, closer_user_id, customer_id, homeowner_name, phone, address_text, email, lat, lng, notes, source')
+      .select('*')
       .eq('id', leadId)
       .eq('org_id', profile.org_id)
 
@@ -26,11 +100,19 @@ export async function POST(
 
     const { data: lead, error: leadError } = await leadQuery.maybeSingle()
 
-    if (leadError || !lead) {
+    if (leadError) {
+      console.error('Create opportunity from lead — lead query error:', leadError)
+      return NextResponse.json(
+        { error: 'Could not load lead', details: leadError.message },
+        { status: 500 }
+      )
+    }
+
+    if (!lead) {
       return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
     }
 
-    const { data: existingOpp } = await supabase
+    const { data: existingOpp } = await adminClient
       .from('opportunities')
       .select('id')
       .eq('org_id', profile.org_id)
@@ -49,16 +131,16 @@ export async function POST(
     const ownerUserId = lead.closer_user_id || profile.id
     const setterUserId = lead.owner_user_id || null
 
-    const { data: created, error: insertError } = await supabase
+    const { data: created, error: insertError } = await adminClient
       .from('opportunities')
       .insert({
         org_id: profile.org_id,
         lead_id: leadId,
-        customer_id: lead.customer_id || null,
+        customer_id: (lead as { customer_id?: string | null }).customer_id || null,
         owner_user_id: ownerUserId,
         setter_user_id: setterUserId,
         status: 'open',
-        source: lead.source || 'manual_from_lead',
+        source: (lead as { source?: string | null }).source || 'manual_from_lead',
         project_type: 'roofing',
         address_text: lead.address_text || null,
         lat: lead.lat ?? null,
@@ -76,14 +158,14 @@ export async function POST(
       )
     }
 
-    await supabase
+    await adminClient
       .from('scheduled_appointments')
       .update({ opportunity_id: created.id })
       .eq('org_id', profile.org_id)
       .eq('lead_id', leadId)
       .is('opportunity_id', null)
 
-    await supabase.from('activities').insert({
+    await adminClient.from('activities').insert({
       org_id: profile.org_id,
       lead_id: leadId,
       opportunity_id: created.id,
@@ -97,8 +179,10 @@ export async function POST(
 
     return NextResponse.json({ opportunity_id: created.id, already_exists: false })
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'Unauthorized'
-    const status = message === 'Unauthorized' ? 401 : 500
-    return NextResponse.json({ error: message }, { status })
+    console.error('POST /api/leads/[id]/opportunity', e)
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Internal server error' },
+      { status: 500 }
+    )
   }
 }

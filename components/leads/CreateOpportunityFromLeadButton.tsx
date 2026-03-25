@@ -23,6 +23,7 @@ export default function CreateOpportunityFromLeadButton({
     try {
       const res = await fetch(`/api/leads/${leadId}/opportunity`, {
         method: 'POST',
+        credentials: 'same-origin',
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {

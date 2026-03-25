@@ -27,9 +27,13 @@ function getSessionFromCookies() {
   
   if (singleCookie?.value) {
     try {
-      sessionData = JSON.parse(singleCookie.value)
+      sessionData = JSON.parse(decodeURIComponent(singleCookie.value))
     } catch {
-      // Failed to parse
+      try {
+        sessionData = JSON.parse(singleCookie.value)
+      } catch {
+        // Failed to parse
+      }
     }
   }
 
@@ -44,10 +48,15 @@ function getSessionFromCookies() {
       i++
     }
     if (chunks.length > 0) {
+      const joined = chunks.join('')
       try {
-        sessionData = JSON.parse(chunks.join(''))
+        sessionData = JSON.parse(decodeURIComponent(joined))
       } catch {
-        // Failed to parse
+        try {
+          sessionData = JSON.parse(joined)
+        } catch {
+          // Failed to parse
+        }
       }
     }
   }
