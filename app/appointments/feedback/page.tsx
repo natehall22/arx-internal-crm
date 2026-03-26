@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 
 type FeedbackOutcome = 'sale' | 'moving_to_close' | 'insurance_follow_up' | 'said_no' | 'not_home' | 'no_problems_found' | 'needs_repair' | 'rescheduled'
 
@@ -53,10 +54,15 @@ export default function AppointmentFeedbackPage() {
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
   
-  // Moving to close state (schedule close appointment)
+  // Moving to close: canvass-style scheduling (team RR vs individual closer)
   const [showCloseSchedule, setShowCloseSchedule] = useState(false)
-  const [closeDate, setCloseDate] = useState('')
-  const [closeTime, setCloseTime] = useState('')
+  const [showCloseModal, setShowCloseModal] = useState(false)
+  const [closeSchedulePayload, setCloseSchedulePayload] = useState<CloseScheduleConfirm | null>(null)
+  const [schedulingUsers, setSchedulingUsers] = useState<
+    Array<{ id: string; full_name: string; has_calendar?: boolean }>
+  >([])
+  const [schedulingTeams, setSchedulingTeams] = useState<Array<{ id: string; name: string }>>([])
+  const [closeDurationMinutes, setCloseDurationMinutes] = useState(60)
 
   // Insurance follow-up: schedule next touchpoint (required date + time)
   const [showInsuranceSchedule, setShowInsuranceSchedule] = useState(false)
@@ -73,6 +79,38 @@ export default function AppointmentFeedbackPage() {
       setError('No appointment or lead ID provided')
     }
   }, [appointmentId, leadId])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/canvass/data')
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        if (Array.isArray(data.users)) {
+          setSchedulingUsers(
+            data.users.map((u: { id: string; full_name: string; has_calendar?: boolean }) => ({
+              id: u.id,
+              full_name: u.full_name,
+              has_calendar: u.has_calendar,
+            }))
+          )
+        }
+        if (Array.isArray(data.teams)) {
+          setSchedulingTeams(data.teams.map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })))
+        }
+        if (typeof data.closeDurationMinutes === 'number' && data.closeDurationMinutes > 0) {
+          setCloseDurationMinutes(data.closeDurationMinutes)
+        }
+      } catch {
+        /* non-fatal */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const loadAppointment = async () => {
     try {
@@ -131,8 +169,16 @@ export default function AppointmentFeedbackPage() {
   const handleOutcomeChange = (newOutcome: FeedbackOutcome) => {
     setOutcome(newOutcome)
     setShowReschedule(newOutcome === 'rescheduled')
-    setShowCloseSchedule(newOutcome === 'moving_to_close')
+    const isClose = newOutcome === 'moving_to_close'
+    setShowCloseSchedule(isClose)
     setShowInsuranceSchedule(newOutcome === 'insurance_follow_up')
+    if (!isClose) {
+      setCloseSchedulePayload(null)
+      setShowCloseModal(false)
+    } else if (appointmentId) {
+      setCloseSchedulePayload(null)
+      setShowCloseModal(true)
+    }
   }
 
   const handleSubmit = async () => {
@@ -152,8 +198,8 @@ export default function AppointmentFeedbackPage() {
       return
     }
 
-    if (outcome === 'moving_to_close' && (!closeDate || !closeTime)) {
-      setError('Please select a date and time for the close appointment')
+    if (outcome === 'moving_to_close' && appointmentId && !closeSchedulePayload) {
+      setError('Open “Schedule close” and pick a team or closer and time slot')
       return
     }
 
@@ -210,18 +256,24 @@ export default function AppointmentFeedbackPage() {
         }
 
         // Then schedule the close appointment (only if we have an appointment)
-        if (appointmentId) {
-          const localDateTime = `${closeDate}T${closeTime}`
-          
+        if (appointmentId && closeSchedulePayload) {
+          const body: Record<string, unknown> = {
+            original_appointment_id: appointmentId,
+            scheduled_for: closeSchedulePayload.scheduledLocal,
+            notes: feedbackNotes || 'Close appointment scheduled from inspection',
+            use_round_robin: closeSchedulePayload.useRoundRobin,
+          }
+          if (closeSchedulePayload.useRoundRobin && closeSchedulePayload.teamId) {
+            body.team_id = closeSchedulePayload.teamId
+          }
+          if (!closeSchedulePayload.useRoundRobin && closeSchedulePayload.closerUserId) {
+            body.closer_user_id = closeSchedulePayload.closerUserId
+          }
+
           const scheduleResponse = await fetch('/api/inspections/schedule-close', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              original_appointment_id: appointmentId,
-              scheduled_for: localDateTime,
-              notes: feedbackNotes || 'Close appointment scheduled from inspection',
-              use_round_robin: true,
-            }),
+            body: JSON.stringify(body),
           })
 
           if (!scheduleResponse.ok) {
@@ -659,36 +711,48 @@ export default function AppointmentFeedbackPage() {
             </div>
           )}
 
-          {/* Schedule Close Appointment */}
+          {/* Schedule Close Appointment — same model as canvass (team RR vs individual) */}
           {showCloseSchedule && (
             <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
-              <h3 className="font-medium text-green-800 mb-3">Schedule Close Appointment</h3>
-              <p className="text-sm text-green-700 mb-3">
-                Pick when the customer wants a closer to come back. The closer is assigned using your
-                team&apos;s round-robin rules (same as canvass / scheduling settings). If no one is
-                available at that time, you&apos;ll see an error—try another slot.
-              </p>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={closeDate}
-                    onChange={(e) => setCloseDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
-                  <input
-                    type="time"
-                    value={closeTime}
-                    onChange={(e) => setCloseTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                  />
-                </div>
-              </div>
+              <h3 className="font-medium text-green-800 mb-2">Schedule close appointment</h3>
+              {!appointmentId ? (
+                <p className="text-sm text-amber-800">
+                  Link this feedback to an appointment to schedule a close slot. Without an appointment id, only
+                  the outcome is saved.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-green-800 mb-3">
+                    Choose a team (round-robin) or a specific closer, then pick a free time—same flow as the
+                    canvass scheduling modal. Uses your close duration from Admin → Scheduling.
+                  </p>
+                  {closeSchedulePayload ? (
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-green-900">
+                      <span className="font-medium">Ready:</span>
+                      <span>
+                        {closeSchedulePayload.useRoundRobin
+                          ? `Team round-robin · ${closeSchedulePayload.scheduledLocal.replace('T', ' ')}`
+                          : `Closer assigned · ${closeSchedulePayload.scheduledLocal.replace('T', ' ')}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowCloseModal(true)}
+                        className="text-indigo-600 font-medium hover:underline"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowCloseModal(true)}
+                      className="mt-1 px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
+                    >
+                      Schedule close (team or closer)
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -724,6 +788,18 @@ export default function AppointmentFeedbackPage() {
           </button>
         </div>
       </div>
+
+      <CloseScheduleModal
+        open={showCloseModal}
+        onClose={() => setShowCloseModal(false)}
+        onConfirm={(params) => {
+          setCloseSchedulePayload(params)
+          setShowCloseModal(false)
+        }}
+        closeDurationMinutes={closeDurationMinutes}
+        users={schedulingUsers}
+        teams={schedulingTeams}
+      />
     </div>
   )
 }

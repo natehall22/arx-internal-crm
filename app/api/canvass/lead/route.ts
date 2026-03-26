@@ -182,7 +182,7 @@ async function syncToGoogleCalendar(
         `Customer: ${homeownerName || 'N/A'}`,
         phone ? `Phone: ${phone}` : '',
         addressText ? `Address: ${addressText}` : '',
-        setterName ? `Set by: ${setterName}` : '',
+        setterName ? `Setter: ${setterName}` : '',
         '',
         canvassNotes ? `Canvass Notes:\n${canvassNotes}` : '',
         notes ? `Additional Notes:\n${notes}` : '',

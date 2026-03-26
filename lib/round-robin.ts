@@ -95,7 +95,12 @@ export async function assignNextAvailableCloser(
     homeownerName?: string | null
     phone?: string | null
     notes?: string | null
+    /** Lead setter (canvasser) — shown on the closer's calendar invite */
     setterName?: string | null
+    /** Inspection rep for the prior visit — show on close invites so the assigned closer sees context */
+    inspectorName?: string | null
+    /** Calendar title + wording: inspection (default) vs close follow-up */
+    eventLabel?: 'inspection' | 'close'
   },
   /** Fallback when closer queue has no buffer (Admin → default gap between appointments). */
   defaultSchedulingGapMinutes?: number,
@@ -247,13 +252,18 @@ export async function assignNextAvailableCloser(
             }
           }
 
+          const eventKind = customerDetails?.eventLabel === 'close' ? 'close' : 'inspection'
+          const titlePrefix = eventKind === 'close' ? 'Close' : 'Inspection'
           const descriptionLines = [
             `Customer: ${customerName}`,
             customerDetails?.phone ? `Phone: ${customerDetails.phone}` : '',
             address ? `Address: ${address}` : '',
-            customerDetails?.setterName ? `Set by: ${customerDetails.setterName}` : '',
-            customerDetails?.notes ? `\nNotes:\n${customerDetails.notes}` : '',
-          ].filter(Boolean).join('\n')
+            customerDetails?.setterName ? `Setter: ${customerDetails.setterName}` : '',
+            customerDetails?.inspectorName ? `Inspector: ${customerDetails.inspectorName}` : '',
+            customerDetails?.notes ? `Notes:\n${customerDetails.notes}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n')
 
           // Format datetime for Google Calendar API
           // Google expects local time format (YYYY-MM-DDTHH:MM:SS) with separate timezone field
@@ -281,14 +291,14 @@ export async function assignNextAvailableCloser(
           let googleEventId: string | undefined
           try {
             console.log(`Round-robin: Creating calendar event for ${closer.user?.full_name}:`, {
-              summary: `Inspection: ${customerName}`,
+              summary: `${titlePrefix}: ${customerName}`,
               start: { dateTime: startLocalTime, timeZone: teamTimezone },
               end: { dateTime: endLocalTime, timeZone: teamTimezone },
             })
             const event = await createCalendarEvent(
               accessToken,
               {
-                summary: `Inspection: ${customerName}`,
+                summary: `${titlePrefix}: ${customerName}`,
                 description: descriptionLines,
                 location: address,
                 start: {

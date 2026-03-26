@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   fetchOrgAppointmentTypesFromTable,
+  getCloseSlotDurationFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
 
@@ -249,6 +250,11 @@ export async function GET(request: NextRequest) {
     // Same rule as /api/canvass/lead: first active inspection-type row by sort_order (Admin → Scheduling)
     const appointmentTypeRows = await fetchOrgAppointmentTypesFromTable(adminClient, profile.org_id)
     const inspectionDuration = getInspectionDurationFromTable(appointmentTypeRows, 60)
+    const closeDurationMinutes = getCloseSlotDurationFromTable(
+      appointmentTypeRows,
+      'close',
+      60
+    )
 
     console.log('Canvass data response:', {
       leadsCount: leads?.length || 0,
@@ -268,6 +274,7 @@ export async function GET(request: NextRequest) {
       orgSettings: org?.settings || {},
       pinVisibility: visibility,
       inspectionDuration,
+      closeDurationMinutes,
     })
   } catch (err) {
     console.error('Canvass data error:', err)

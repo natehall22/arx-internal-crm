@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
 import { sendSetterEmail } from '@/lib/setter-email'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
@@ -8,6 +9,94 @@ import {
   getCloseSlotBufferAfterFromTable,
   getCloseSlotDurationFromTable,
 } from '@/lib/org-appointment-types'
+
+/** Setter = canvasser on the inspection appt, else lead owner. Inspector = inspection closer (prior visit). */
+async function resolveSetterAndInspectorDisplayNames(
+  admin: ReturnType<typeof createServiceClient>,
+  originalAppointment: {
+    canvasser_user_id: string | null
+    closer_user_id: string | null
+    leads?: { owner_user_id?: string | null } | null
+  }
+): Promise<{ setterName: string | null; inspectorName: string | null }> {
+  const lead = originalAppointment.leads
+  const setterId =
+    originalAppointment.canvasser_user_id || lead?.owner_user_id || null
+  const inspectorId = originalAppointment.closer_user_id || null
+
+  const rawIds = [setterId, inspectorId].filter((id): id is string => Boolean(id))
+  const ids = rawIds.filter((id, i) => rawIds.indexOf(id) === i)
+  if (ids.length === 0) return { setterName: null, inspectorName: null }
+
+  const { data: rows } = await admin.from('users').select('id, full_name').in('id', ids)
+  const map = new Map((rows || []).map((u) => [u.id, u.full_name as string | null]))
+
+  return {
+    setterName: setterId ? map.get(setterId) ?? null : null,
+    inspectorName: inspectorId ? map.get(inspectorId) ?? null : null,
+  }
+}
+
+function buildCloseCalendarDescription(params: {
+  customerName: string
+  address: string
+  notes?: string | null
+  setterName: string | null
+  inspectorName: string | null
+}): string {
+  const lines = [
+    `Customer: ${params.customerName}`,
+    params.address ? `Address: ${params.address}` : '',
+    params.setterName ? `Setter: ${params.setterName}` : '',
+    params.inspectorName ? `Inspector: ${params.inspectorName}` : '',
+    params.notes ? `Notes: ${params.notes}` : '',
+  ].filter(Boolean)
+  return lines.join('\n')
+}
+
+async function getValidAccessTokenForUser(admin: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
+  const { data: tokenData } = await admin
+    .from('user_google_tokens')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
+  if (!tokenData) return null
+
+  const expiresAt = new Date(tokenData.expires_at)
+  const now = new Date()
+
+  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+    try {
+      const refreshed = await refreshAccessToken(tokenData.refresh_token)
+      await admin
+        .from('user_google_tokens')
+        .update({
+          access_token: refreshed.access_token,
+          expires_at: refreshed.expires_at.toISOString(),
+        })
+        .eq('user_id', userId)
+      return refreshed.access_token
+    } catch {
+      return null
+    }
+  }
+
+  return tokenData.access_token
+}
+
+async function getTimezoneForCloser(admin: ReturnType<typeof createServiceClient>, userId: string): Promise<string> {
+  try {
+    const { data: userProfile } = await admin.from('users').select('team_id').eq('id', userId).single()
+    if (userProfile?.team_id) {
+      const { data: team } = await admin.from('teams').select('timezone').eq('id', userProfile.team_id).single()
+      if (team?.timezone) return team.timezone
+    }
+  } catch {
+    /* default */
+  }
+  return 'America/New_York'
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +124,7 @@ export async function POST(request: NextRequest) {
       notes,
       use_round_robin,
       team_id: teamIdOverride,
+      closer_user_id: closerUserIdBody,
     } = body as {
       original_appointment_id: string
       scheduled_for: string
@@ -42,6 +132,8 @@ export async function POST(request: NextRequest) {
       /** Use team round-robin (same as canvass / scheduling) to assign the closer — recommended from inspection feedback "Moving to Close". */
       use_round_robin?: boolean
       team_id?: string
+      /** When not using round-robin: assign this org closer (same as canvass individual). Omit to use the current user as closer. */
+      closer_user_id?: string
     }
 
     if (!original_appointment_id || !scheduled_for) {
@@ -74,6 +166,9 @@ export async function POST(request: NextRequest) {
       'close',
       originalAppointment.duration_minutes ?? 60
     )
+
+    const { setterName: setterDisplayName, inspectorName: inspectorDisplayName } =
+      await resolveSetterAndInspectorDisplayNames(admin, originalAppointment)
 
     // Parse the scheduled_for - it's a local time string like "YYYY-MM-DDTHH:MM"
     let scheduledForISO: string
@@ -146,7 +241,9 @@ export async function POST(request: NextRequest) {
           homeownerName: originalAppointment.leads?.homeowner_name,
           phone: originalAppointment.leads?.phone,
           notes: notes || undefined,
-          setterName: undefined,
+          setterName: setterDisplayName,
+          inspectorName: inspectorDisplayName,
+          eventLabel: 'close',
         },
         orgRow?.default_scheduling_gap_minutes ?? 15,
         bufferAfter
@@ -267,14 +364,34 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Manual: inspector / current user is the closer (legacy)
+    // Manual: assign to a specific closer (or current user) — same as canvass "individual closer"
+    let manualCloserId = user.id
+    if (closerUserIdBody && typeof closerUserIdBody === 'string') {
+      const { data: closerRow } = await admin
+        .from('users')
+        .select('id, org_id, active')
+        .eq('id', closerUserIdBody)
+        .maybeSingle()
+      if (!closerRow || closerRow.org_id !== profile.org_id || closerRow.active === false) {
+        return NextResponse.json({ error: 'Invalid closer for this organization' }, { status: 400 })
+      }
+      manualCloserId = closerUserIdBody
+    }
+
+    const { data: assignedCloserRow } = await admin
+      .from('users')
+      .select('full_name')
+      .eq('id', manualCloserId)
+      .single()
+    const assignedCloserName = assignedCloserRow?.full_name || 'Closer'
+
     const { data: insertedClose, error: createError } = await supabase
       .from('scheduled_appointments')
       .insert({
         org_id: profile.org_id,
         lead_id: originalAppointment.lead_id,
         opportunity_id: originalAppointment.opportunity_id,
-        closer_user_id: user.id,
+        closer_user_id: manualCloserId,
         canvasser_user_id: originalAppointment.canvasser_user_id,
         scheduled_for: scheduledForISO,
         duration_minutes: closeDurationMinutes,
@@ -294,33 +411,37 @@ export async function POST(request: NextRequest) {
 
     closeAppointment = insertedClose
 
-    // Create Google Calendar event if user has calendar connected
-    if (profile.google_refresh_token && profile.google_calendar_id) {
+    const accessToken = await getValidAccessTokenForUser(admin, manualCloserId)
+    const timezone = await getTimezoneForCloser(admin, manualCloserId)
+    if (accessToken) {
       try {
-        const { createCalendarEvent } = await import('@/lib/google-calendar')
-        
-        const timezone = 'America/New_York'
         const startDateTime = `${localDateTimeStr}:00`
         const durationMinutes = closeDurationMinutes
-        
+
         const [datePart, timePart] = localDateTimeStr.split('T')
         const timeOnly = timePart?.split(':') || ['00', '00']
         let endHour = parseInt(timeOnly[0], 10)
         let endMin = parseInt(timeOnly[1], 10) + durationMinutes
-        
+
         while (endMin >= 60) {
           endMin -= 60
           endHour += 1
         }
-        
+
         const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
 
         const customerName = originalAppointment.leads?.homeowner_name || 'Customer'
         const address = originalAppointment.address_text || originalAppointment.leads?.address_text || ''
 
-        const event = await createCalendarEvent(profile.google_refresh_token, {
-          summary: `Close Appointment - ${customerName}`,
-          description: `Close appointment with ${customerName}\n\nAddress: ${address}\n\nNotes: ${notes || 'Follow up from inspection'}`,
+        const event: CalendarEvent = {
+          summary: `Close: ${customerName}`,
+          description: buildCloseCalendarDescription({
+            customerName,
+            address,
+            notes: notes || undefined,
+            setterName: setterDisplayName,
+            inspectorName: inspectorDisplayName,
+          }),
           location: address,
           start: {
             dateTime: startDateTime,
@@ -330,24 +451,22 @@ export async function POST(request: NextRequest) {
             dateTime: endDateTime,
             timeZone: timezone,
           },
-        }, profile.google_calendar_id)
+        }
 
-        if (event?.id) {
-          await supabase
-            .from('scheduled_appointments')
-            .update({ google_event_id: event.id })
-            .eq('id', closeAppointment.id)
+        const createdEv = await createCalendarEvent(accessToken, event, 'primary')
+        if (createdEv?.id) {
+          await supabase.from('scheduled_appointments').update({ google_event_id: createdEv.id }).eq('id', closeAppointment.id)
         }
       } catch (calendarError) {
         console.error('Calendar event creation error:', calendarError)
       }
     }
 
-    // Notify the setter about the close appointment
+    // Notify the setter about the close appointment (inspector scheduling on behalf of a closer)
     if (originalAppointment.canvasser_user_id && originalAppointment.canvasser_user_id !== user.id) {
       const customerName = originalAppointment.leads?.homeowner_name || 'Customer'
       const customerAddress = originalAppointment.leads?.address_text || originalAppointment.address_text || ''
-      
+
       await supabase
         .from('notifications')
         .insert({
@@ -356,13 +475,13 @@ export async function POST(request: NextRequest) {
           actor_user_id: user.id,
           type: 'inspection_outcome',
           title: `Close Appointment Scheduled - ${customerName}`,
-          body: `Great news! ${profile.full_name || 'Closer'} has scheduled a close appointment.\n\nCustomer: ${customerName}\nAddress: ${customerAddress}\nScheduled: ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n${notes ? `Notes: ${notes}` : ''}`,
+          body: `Great news! ${assignedCloserName} has a close appointment scheduled.\n\nCustomer: ${customerName}\nAddress: ${customerAddress}\nScheduled: ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n${notes ? `Notes: ${notes}` : ''}`,
           data: {
             appointment_id: closeAppointment.id,
             original_appointment_id,
             opportunity_id: originalAppointment.opportunity_id,
             lead_id: originalAppointment.lead_id,
-            closer_name: profile.full_name,
+            closer_name: assignedCloserName,
           },
         })
 
@@ -382,7 +501,7 @@ export async function POST(request: NextRequest) {
             to: setterUser.email,
             setterName: setterUser.full_name,
             subject: `Close appointment scheduled: ${customerName}`,
-            introHtml: `<p style="color: #374151;">${profile.full_name || 'Your closer'} scheduled a close appointment for your lead.</p>`,
+            introHtml: `<p style="color: #374151;"><strong>${assignedCloserName}</strong> is assigned for the close appointment (scheduled by ${profile.full_name || 'your team'}).</p>`,
             rows: [
               { label: 'Customer', value: customerName },
               { label: 'Address', value: customerAddress || 'N/A' },
@@ -405,7 +524,7 @@ export async function POST(request: NextRequest) {
         lead_id: originalAppointment.lead_id,
         user_id: user.id,
         type: 'appointment_scheduled',
-        body: `Close appointment scheduled for ${new Date(scheduledForISO).toLocaleString()}${notes ? ` - ${notes}` : ''}`,
+        body: `Close appointment for ${assignedCloserName} on ${new Date(scheduledForISO).toLocaleString()}${notes ? ` - ${notes}` : ''}`,
       })
 
     // Persist a close_appointments row for opportunity UI / close-feedback flow (non-fatal if table missing).
@@ -421,9 +540,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       appointment: closeAppointment,
+      assigned_closer: { id: manualCloserId, name: assignedCloserName },
+      round_robin: false,
     })
 
   } catch (error) {
