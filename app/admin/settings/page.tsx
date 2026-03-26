@@ -29,6 +29,8 @@ interface AppointmentType {
   id: string
   name: string
   duration_minutes: number
+  /** Extra minutes after slot end toward feedback prompt timing (added to org-wide feedback buffer). */
+  buffer_after_minutes?: number
   color: string
   active: boolean
   description?: string
@@ -170,11 +172,17 @@ export default function AdminSettingsPage() {
   
   // Appointment types
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([
-    { id: 'inspection', name: 'Inspection', duration_minutes: 60, color: '#3b82f6', active: true, description: 'Standard roof inspection' },
-    { id: 'follow_up', name: 'Follow Up', duration_minutes: 30, color: '#22c55e', active: true, description: 'Follow up visit' },
-    { id: 'contract_signing', name: 'Contract Signing', duration_minutes: 45, color: '#8b5cf6', active: true, description: 'Contract signing appointment' },
-    { id: 'final_walkthrough', name: 'Final Walkthrough', duration_minutes: 30, color: '#f59e0b', active: true, description: 'Post-installation walkthrough' },
+    { id: 'inspection', name: 'Inspection', duration_minutes: 60, buffer_after_minutes: 0, color: '#3b82f6', active: true, description: 'Standard roof inspection' },
+    { id: 'follow_up', name: 'Follow Up', duration_minutes: 30, buffer_after_minutes: 0, color: '#22c55e', active: true, description: 'Follow up visit' },
+    { id: 'insurance_follow_up', name: 'Insurance Follow Up', duration_minutes: 30, buffer_after_minutes: 0, color: '#a855f7', active: true, description: 'Insurance follow-up visit' },
+    { id: 'close', name: 'Close', duration_minutes: 60, buffer_after_minutes: 0, color: '#6366f1', active: true, description: 'Close appointment' },
+    { id: 'contract_signing', name: 'Contract Signing', duration_minutes: 45, buffer_after_minutes: 0, color: '#8b5cf6', active: true, description: 'Contract signing appointment' },
+    { id: 'final_walkthrough', name: 'Final Walkthrough', duration_minutes: 30, buffer_after_minutes: 0, color: '#f59e0b', active: true, description: 'Post-installation walkthrough' },
   ])
+  const [schedulingSettings, setSchedulingSettings] = useState({
+    inspection_feedback_buffer_minutes: 0,
+    default_scheduling_gap_minutes: 15,
+  })
   const [editingAppointmentType, setEditingAppointmentType] = useState<AppointmentType | null>(null)
   const [showAddAppointmentType, setShowAddAppointmentType] = useState(false)
   
@@ -531,6 +539,10 @@ export default function AdminSettingsPage() {
         })
         // Load logo URL
         setLogoUrl(data.org.logo_url || data.settings?.logo_url || null)
+        setSchedulingSettings({
+          inspection_feedback_buffer_minutes: data.org.inspection_feedback_buffer_minutes ?? 0,
+          default_scheduling_gap_minutes: data.org.default_scheduling_gap_minutes ?? 15,
+        })
       }
       
       // Store user role
@@ -1127,10 +1139,87 @@ export default function AdminSettingsPage() {
           {/* Appointment Settings */}
           {activeSection === 'appointment-settings' && (
             <div className="max-w-3xl">
+              <div className="mb-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Scheduling defaults</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  Feedback prompts appear after each appointment&apos;s scheduled end time, plus the buffers below.
+                  Per-type &quot;buffer after&quot; is set on each appointment type. Round-robin uses the default gap when a closer has no queue buffer.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Extra minutes before feedback prompt (org-wide)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={schedulingSettings.inspection_feedback_buffer_minutes}
+                      onChange={(e) =>
+                        setSchedulingSettings((prev) => ({
+                          ...prev,
+                          inspection_feedback_buffer_minutes: parseInt(e.target.value, 10) || 0,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Default gap between appointments (minutes)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={schedulingSettings.default_scheduling_gap_minutes}
+                      onChange={(e) =>
+                        setSchedulingSettings((prev) => ({
+                          ...prev,
+                          default_scheduling_gap_minutes: parseInt(e.target.value, 10) || 0,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      const response = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'scheduling',
+                          inspection_feedback_buffer_minutes:
+                            schedulingSettings.inspection_feedback_buffer_minutes,
+                          default_scheduling_gap_minutes: schedulingSettings.default_scheduling_gap_minutes,
+                        }),
+                      })
+                      if (!response.ok) {
+                        const data = await response.json()
+                        alert(data.error || 'Failed to save scheduling settings')
+                        return
+                      }
+                      alert('Scheduling settings saved!')
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to save scheduling settings')
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 text-sm font-medium"
+                >
+                  {saving ? 'Saving...' : 'Save scheduling defaults'}
+                </button>
+              </div>
+
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Appointment Types</h1>
-                  <p className="text-gray-500 mt-1">Configure appointment types and their default durations.</p>
+                  <p className="text-gray-500 mt-1">Configure appointment types, durations, and buffer after each type.</p>
                 </div>
                 <button
                   onClick={() => {
@@ -1138,6 +1227,7 @@ export default function AdminSettingsPage() {
                       id: `apt_${Date.now()}`,
                       name: '',
                       duration_minutes: 60,
+                      buffer_after_minutes: 0,
                       color: '#3b82f6',
                       active: true,
                       description: '',
@@ -1158,6 +1248,7 @@ export default function AdminSettingsPage() {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Color</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Buffer after</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
@@ -1181,6 +1272,11 @@ export default function AdminSettingsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm text-gray-700">{apt.duration_minutes} minutes</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-700">
+                            {apt.buffer_after_minutes ?? 0} min
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -1256,10 +1352,10 @@ export default function AdminSettingsPage() {
               <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
                 <h4 className="font-medium text-blue-900 mb-2">How Appointment Durations Work</h4>
                 <ul className="text-sm text-blue-700 space-y-1">
-                  <li>• When scheduling an appointment, the duration will default to the type's setting</li>
-                  <li>• Reps can override the duration for individual appointments if needed</li>
+                  <li>• When scheduling an appointment, the duration will default to the type&apos;s setting</li>
+                  <li>• Buffer after (per type) plus org-wide feedback buffer set when the closer feedback prompt becomes due</li>
+                  <li>• Default gap between appointments applies when round-robin checks availability if the closer has no queue buffer</li>
                   <li>• Calendar events will be created with the specified duration</li>
-                  <li>• Feedback prompts will trigger after the appointment end time</li>
                 </ul>
               </div>
 
@@ -1310,6 +1406,30 @@ export default function AdminSettingsPage() {
                           <option value={180}>3 hours</option>
                           <option value={240}>4 hours</option>
                         </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Buffer after (minutes)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={editingAppointmentType.buffer_after_minutes ?? 0}
+                          onChange={(e) =>
+                            setEditingAppointmentType((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    buffer_after_minutes: parseInt(e.target.value, 10) || 0,
+                                  }
+                                : null
+                            )
+                          }
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Added after slot end toward when the closer feedback form is due (plus org-wide buffer).
+                        </p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>

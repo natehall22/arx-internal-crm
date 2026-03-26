@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import type { InspectionOutcome } from '@/lib/types/database'
+import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
+import { sendSetterEmail } from '@/lib/setter-email'
+import {
+  fetchOrgAppointmentTypesFromTable,
+  getCloseSlotBufferAfterFromTable,
+  getCloseSlotDurationFromTable,
+} from '@/lib/org-appointment-types'
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -10,6 +17,40 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+async function upsertPendingInspectionPrompt(
+  supabase: ReturnType<typeof getAdminClient>,
+  params: {
+    orgId: string
+    appointmentId: string
+    closerUserId: string
+    scheduledForIso: string
+    durationMinutes: number
+    bufferAfterMinutes?: number
+    orgFeedbackBufferMinutes: number
+  }
+) {
+  const promptAt = computeInspectionFeedbackPromptAt(
+    params.scheduledForIso,
+    params.durationMinutes,
+    params.bufferAfterMinutes ?? 0,
+    params.orgFeedbackBufferMinutes
+  )
+  const { error } = await supabase.from('pending_status_prompts').upsert(
+    {
+      org_id: params.orgId,
+      appointment_id: params.appointmentId,
+      closer_user_id: params.closerUserId,
+      prompt_at: promptAt,
+      completed: false,
+      dismissed: false,
+    },
+    { onConflict: 'appointment_id' }
+  )
+  if (error) {
+    console.error('upsertPendingInspectionPrompt:', error)
+  }
 }
 
 function getMailTransport() {
@@ -171,6 +212,15 @@ export async function POST(request: NextRequest) {
     console.log('Notes:', notes)
     console.log('Setter Feedback:', setter_feedback)
 
+    if (outcome === 'insurance_follow_up') {
+      if (!schedule_follow_up || !follow_up_date) {
+        return NextResponse.json(
+          { error: 'Insurance follow-up requires a scheduled date and time' },
+          { status: 400 }
+        )
+      }
+    }
+
     let appointment: any = null
     let lead: any = null
     let opportunity: any = null
@@ -259,12 +309,17 @@ export async function POST(request: NextRequest) {
       opportunity = opportunityData
     }
 
-    // Fetch org settings to check if this outcome should create an opportunity
+    // Fetch org settings + scheduling columns (feedback buffer, default gap)
     const { data: orgData } = await supabase
       .from('orgs')
-      .select('settings')
+      .select('settings, inspection_feedback_buffer_minutes, default_scheduling_gap_minutes')
       .eq('id', profile.org_id)
       .single()
+
+    const orgScheduling = {
+      inspection_feedback_buffer_minutes: orgData?.inspection_feedback_buffer_minutes ?? 0,
+      default_scheduling_gap_minutes: orgData?.default_scheduling_gap_minutes ?? 15,
+    }
     
     // Default inspection outcomes used only when org settings are missing.
     // Match requested baseline: sale, moving_to_close, insurance_follow_up.
@@ -681,6 +736,23 @@ export async function POST(request: NextRequest) {
       // Parse the follow-up date/time
       const followUpDateTime = new Date(follow_up_date)
       
+      const followUpType =
+        outcome === 'insurance_follow_up' ? 'insurance_follow_up' : 'follow_up'
+
+      const tableAptTypes = await fetchOrgAppointmentTypesFromTable(supabase, profile.org_id)
+      const followSlotKind =
+        followUpType === 'insurance_follow_up' ? 'insurance_follow_up' : 'follow_up'
+      const bufferAfter = getCloseSlotBufferAfterFromTable(
+        tableAptTypes,
+        followSlotKind,
+        orgScheduling.default_scheduling_gap_minutes
+      )
+      const followDurationMinutes = getCloseSlotDurationFromTable(
+        tableAptTypes,
+        followSlotKind,
+        appointment?.duration_minutes ?? 60
+      )
+
       // Create a follow-up appointment
       const { data: newAppointment, error: followUpError } = await supabase
         .from('scheduled_appointments')
@@ -691,20 +763,63 @@ export async function POST(request: NextRequest) {
           closer_user_id: user.id,
           canvasser_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
           scheduled_for: followUpDateTime.toISOString(),
-          duration_minutes: appointment?.duration_minutes || 60,
+          duration_minutes: followDurationMinutes,
+          buffer_after_minutes: bufferAfter,
           address_text: appointment?.address_text || lead?.address_text || null,
           status: 'scheduled',
           notes: `Follow-up from ${outcome}: ${notes || 'No notes'}`,
-          appointment_type: 'follow_up',
+          appointment_type: followUpType,
         })
         .select()
         .single()
 
       if (followUpError) {
         console.error('Failed to create follow-up appointment:', followUpError)
-      } else {
+      } else if (newAppointment) {
         followUpAppointment = newAppointment
         console.log('Created follow-up appointment:', newAppointment.id)
+        const dur = newAppointment.duration_minutes || 60
+        await upsertPendingInspectionPrompt(supabase, {
+          orgId: profile.org_id,
+          appointmentId: newAppointment.id,
+          closerUserId: newAppointment.closer_user_id || user.id,
+          scheduledForIso: newAppointment.scheduled_for,
+          durationMinutes: dur,
+          bufferAfterMinutes: bufferAfter,
+          orgFeedbackBufferMinutes: orgScheduling.inspection_feedback_buffer_minutes,
+        })
+
+        const setterUid = appointment?.canvasser_user_id || lead?.owner_user_id
+        if (setterUid && setterUid !== user.id) {
+          try {
+            const { data: setterUser } = await supabase
+              .from('users')
+              .select('email, full_name')
+              .eq('id', setterUid)
+              .single()
+            if (setterUser?.email) {
+              const whenLabel = new Date(newAppointment.scheduled_for).toLocaleString('en-US', {
+                timeZone: 'America/New_York',
+                dateStyle: 'full',
+                timeStyle: 'short',
+              })
+              await sendSetterEmail({
+                to: setterUser.email,
+                setterName: setterUser.full_name,
+                subject: `Follow-up scheduled: ${customerName}`,
+                introHtml: `<p style="color: #374151;">${profile.full_name || 'A closer'} scheduled a follow-up appointment for your lead.</p>`,
+                rows: [
+                  { label: 'Customer', value: customerName },
+                  { label: 'Address', value: customerAddress || 'N/A' },
+                  { label: 'Type', value: followUpType === 'insurance_follow_up' ? 'Insurance follow-up' : 'Follow-up' },
+                  { label: 'Scheduled', value: `${whenLabel} ET` },
+                ],
+              })
+            }
+          } catch (e) {
+            console.error('Follow-up setter email failed:', e)
+          }
+        }
       }
     }
 

@@ -11,6 +11,7 @@ import DeleteOpportunityButton from '@/components/DeleteOpportunityButton'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import ContractListItem from '@/components/contracts/ContractListItem'
+import CloseAppointmentStatusSection from '@/components/opportunities/CloseAppointmentStatusSection'
 
 export default async function OpportunityDetailPage({
   params,
@@ -133,6 +134,48 @@ export default async function OpportunityDetailPage({
     .single()
   
   const measureToolEnabled = orgSettings?.settings?.measure_tool_enabled !== false // Default to enabled
+
+  let closeScheduledFor: string | null = null
+  let closeOutcome: string | null = null
+  let closeOutcomeSubmittedAt: string | null = null
+  let closeAppointmentId: string | null = null
+  let closeScheduledAppointmentId: string | null = null
+
+  const { data: closeAppointmentRow, error: closeAppointmentError } = await supabase
+    .from('close_appointments')
+    .select('id, scheduled_for, outcome, outcome_submitted_at, scheduled_appointment_id')
+    .eq('opportunity_id', params.id)
+    .eq('org_id', profile.org_id)
+    .order('scheduled_for', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (closeAppointmentError) {
+    console.warn('close_appointments:', closeAppointmentError.message)
+  }
+
+  if (closeAppointmentRow) {
+    closeScheduledFor = closeAppointmentRow.scheduled_for
+    closeOutcome = closeAppointmentRow.outcome
+    closeOutcomeSubmittedAt = closeAppointmentRow.outcome_submitted_at
+    closeAppointmentId = closeAppointmentRow.id
+    closeScheduledAppointmentId = closeAppointmentRow.scheduled_appointment_id
+  } else {
+    const { data: scheduledClose } = await supabase
+      .from('scheduled_appointments')
+      .select('id, scheduled_for')
+      .eq('opportunity_id', params.id)
+      .eq('org_id', profile.org_id)
+      .eq('appointment_type', 'close')
+      .order('scheduled_for', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (scheduledClose) {
+      closeScheduledFor = scheduledClose.scheduled_for
+      closeScheduledAppointmentId = scheduledClose.id
+    }
+  }
 
   const uploadDesignPdf = async (formData: FormData) => {
     'use server'
@@ -627,6 +670,15 @@ export default async function OpportunityDetailPage({
         {!(orderFormContracts && orderFormContracts.some((c: any) => c.status === 'completed')) && (
           <ContractUpload opportunityId={params.id} />
         )}
+
+        <CloseAppointmentStatusSection
+          opportunityId={params.id}
+          scheduledFor={closeScheduledFor}
+          outcome={closeOutcome}
+          outcomeSubmittedAt={closeOutcomeSubmittedAt}
+          closeAppointmentId={closeAppointmentId}
+          scheduledAppointmentId={closeAppointmentId ? null : closeScheduledAppointmentId}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white shadow rounded-lg p-6">

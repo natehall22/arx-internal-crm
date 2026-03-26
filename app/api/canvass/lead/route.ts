@@ -1,6 +1,11 @@
 import { requireAuthApi } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
+import {
+  fetchOrgAppointmentTypesFromTable,
+  getInspectionBufferAfterFromTable,
+  getInspectionDurationFromTable,
+} from '@/lib/org-appointment-types'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { 
   createCalendarEvent, 
@@ -395,21 +400,9 @@ export async function POST(request: Request) {
       'teamIdForRoundRobin': teamIdForRoundRobin,
     })
 
-    // Get default inspection duration from appointment_types
-    let inspectionDuration = 60 // default
-    const { data: inspectionType } = await supabase
-      .from('appointment_types')
-      .select('duration_minutes')
-      .eq('org_id', profile.org_id)
-      .eq('category', 'inspection')
-      .eq('active', true)
-      .order('sort_order', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    
-    if (inspectionType?.duration_minutes) {
-      inspectionDuration = inspectionType.duration_minutes
-    }
+    // Inspection duration: Admin → Scheduling → appointment_types (inspection category)
+    const inspectionTypeRows = await fetchOrgAppointmentTypesFromTable(supabase, profile.org_id)
+    const inspectionDuration = getInspectionDurationFromTable(inspectionTypeRows, 60)
 
     // Log incoming data for debugging
     console.log('Canvass lead payload:', {
@@ -500,6 +493,21 @@ export async function POST(request: Request) {
     let roundRobinGoogleEventId: string | null = null
     let reusedExistingAppointment = false
 
+    let orgSchedulingGap = 15
+    if (scheduleInspection) {
+      const { data: orgScheduling } = await supabase
+        .from('orgs')
+        .select('default_scheduling_gap_minutes')
+        .eq('id', profile.org_id)
+        .maybeSingle()
+      orgSchedulingGap = orgScheduling?.default_scheduling_gap_minutes ?? 15
+    }
+
+    const inspectionBufferAfter = getInspectionBufferAfterFromTable(
+      inspectionTypeRows,
+      orgSchedulingGap
+    )
+
     // Idempotency guard: if this lead already has an appointment at this exact slot,
     // reuse it instead of creating/syncing duplicates.
     if (scheduleInspection && inspectionScheduledFor) {
@@ -563,7 +571,9 @@ export async function POST(request: Request) {
               phone: leadRow.phone,
               notes: leadRow.canvass_notes || leadRow.notes,
               setterName: profile.full_name,
-            }
+            },
+            orgSchedulingGap,
+            inspectionBufferAfter
           )
 
           console.log('Round-robin assignment result:', assignment)
@@ -671,6 +681,7 @@ export async function POST(request: Request) {
             canvasser_user_id: profile.id,
             scheduled_for: inspectionScheduledFor,
             duration_minutes: inspectionDuration,
+            buffer_after_minutes: inspectionBufferAfter,
             status: 'scheduled',
             address_text: leadRow.address_text,
           })
@@ -815,24 +826,8 @@ export async function POST(request: Request) {
           .eq('id', appointmentId)
       }
       
-      // Create pending status prompt for feedback after appointment
-      if (appointmentId && closerUserId) {
-        const appointmentEndTime = new Date(new Date(resolvedInspectionScheduledFor).getTime() + 60 * 60 * 1000) // +1 hour
-        try {
-          await supabase
-            .from('pending_status_prompts')
-            .insert({
-              org_id: profile.org_id,
-              appointment_id: appointmentId,
-              closer_user_id: resolvedCloserUserId,
-              prompt_at: appointmentEndTime.toISOString(),
-            })
-        } catch (promptError) {
-          console.error('Failed to create pending prompt:', promptError)
-          // Non-critical, continue
-        }
-      }
-      
+      // pending_status_prompt is created by DB trigger (aligned with org + type buffers)
+
     } else if (roundRobinHandledCalendar) {
       // Round-robin already synced calendars
       calendarSynced = true

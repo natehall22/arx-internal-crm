@@ -101,9 +101,13 @@ export default function InspectionStatusCard({
   const [followUpDate, setFollowUpDate] = useState('')
   const [followUpTime, setFollowUpTime] = useState('')
   
-  // Check if selected outcome needs follow-up option
+  // Check if selected outcome needs follow-up option (insurance uses required scheduling below)
   const selectedOption = outcomeOptions.find(o => o.id === selectedOutcome)
-  const showFollowUpOption = selectedOption?.needsFollowUp && selectedOutcome !== 'rescheduled'
+  const showInsuranceSchedule = selectedOutcome === 'insurance_follow_up'
+  const showFollowUpOption =
+    selectedOption?.needsFollowUp &&
+    selectedOutcome !== 'rescheduled' &&
+    selectedOutcome !== 'insurance_follow_up'
 
   const handleSubmit = async () => {
     if (completed) return
@@ -119,19 +123,32 @@ export default function InspectionStatusCard({
       return
     }
 
+    if (selectedOutcome === 'insurance_follow_up') {
+      if (!followUpDate || !followUpTime) {
+        setError('Please select a date and time for the insurance follow-up')
+        return
+      }
+    }
+
     setSaving(true)
     setError(null)
 
     try {
-      const followUpDateTime = scheduleFollowUp && followUpDate && followUpTime 
-        ? `${followUpDate}T${followUpTime}` 
-        : undefined
-        
+      const followUpDateTime =
+        selectedOutcome === 'insurance_follow_up'
+          ? `${followUpDate}T${followUpTime}`
+          : scheduleFollowUp && followUpDate && followUpTime
+            ? `${followUpDate}T${followUpTime}`
+            : undefined
+
       await onComplete({
         outcome: selectedOutcome,
         notes,
         setterFeedback,
-        scheduleFollowUp: scheduleFollowUp && !!followUpDateTime,
+        scheduleFollowUp:
+          selectedOutcome === 'insurance_follow_up'
+            ? true
+            : scheduleFollowUp && !!followUpDateTime,
         followUpDate: followUpDateTime,
       })
 
@@ -240,6 +257,37 @@ export default function InspectionStatusCard({
               ))}
             </div>
           </div>
+
+          {/* Insurance follow-up — required date & time */}
+          {showInsuranceSchedule && (
+            <div className="px-6 py-4 border-t">
+              <p className="text-sm font-medium text-gray-700 mb-3">Schedule insurance follow-up *</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                  <input
+                    type="date"
+                    value={followUpDate}
+                    onChange={(e) => setFollowUpDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+                  <input
+                    type="time"
+                    value={followUpTime}
+                    onChange={(e) => setFollowUpTime(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <p className="text-xs text-gray-500">
+                  You&apos;ll get an inspection feedback reminder after this appointment.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Notes Section */}
           {selectedOutcome && selectedOutcome !== 'rescheduled' && (

@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceClient()
     const body = await request.json()
 
-    const { name, duration_minutes, color, description, category, active } = body
+    const { name, duration_minutes, buffer_after_minutes, color, description, category, active } = body
 
     if (!name || !duration_minutes) {
       return NextResponse.json({ error: 'Name and duration are required' }, { status: 400 })
@@ -97,7 +97,7 @@ export async function PUT(request: NextRequest) {
     const supabase = createServiceClient()
     const body = await request.json()
 
-    const { id, name, duration_minutes, color, description, category, active, sort_order } = body
+    const { id, name, duration_minutes, buffer_after_minutes, color, description, category, active, sort_order } = body
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 })
@@ -106,6 +106,9 @@ export async function PUT(request: NextRequest) {
     const updates: Record<string, any> = { updated_at: new Date().toISOString() }
     if (name !== undefined) updates.name = name
     if (duration_minutes !== undefined) updates.duration_minutes = parseInt(duration_minutes, 10)
+    if (buffer_after_minutes !== undefined) {
+      updates.buffer_after_minutes = Math.max(0, parseInt(String(buffer_after_minutes), 10) || 0)
+    }
     if (color !== undefined) updates.color = color
     if (description !== undefined) updates.description = description
     if (category !== undefined) updates.category = category

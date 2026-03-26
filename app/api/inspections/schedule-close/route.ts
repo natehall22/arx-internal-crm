@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { sendSetterEmail } from '@/lib/setter-email'
+import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
+import {
+  fetchOrgAppointmentTypesFromTable,
+  getCloseSlotBufferAfterFromTable,
+  getCloseSlotDurationFromTable,
+} from '@/lib/org-appointment-types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,11 +32,16 @@ export async function POST(request: NextRequest) {
     const { 
       original_appointment_id, 
       scheduled_for, 
-      notes 
+      notes,
+      use_round_robin,
+      team_id: teamIdOverride,
     } = body as {
       original_appointment_id: string
       scheduled_for: string
       notes?: string
+      /** Use team round-robin (same as canvass / scheduling) to assign the closer — recommended from inspection feedback "Moving to Close". */
+      use_round_robin?: boolean
+      team_id?: string
     }
 
     if (!original_appointment_id || !scheduled_for) {
@@ -46,6 +59,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Original appointment not found' }, { status: 404 })
     }
 
+    const admin = createServiceClient()
+    const { data: orgRow } = await admin
+      .from('orgs')
+      .select('inspection_feedback_buffer_minutes, default_scheduling_gap_minutes')
+      .eq('id', profile.org_id)
+      .single()
+
+    const defaultGap = orgRow?.default_scheduling_gap_minutes ?? 15
+    const tableTypes = await fetchOrgAppointmentTypesFromTable(admin, profile.org_id)
+    const bufferAfter = getCloseSlotBufferAfterFromTable(tableTypes, 'close', defaultGap)
+    const closeDurationMinutes = getCloseSlotDurationFromTable(
+      tableTypes,
+      'close',
+      originalAppointment.duration_minutes ?? 60
+    )
+
     // Parse the scheduled_for - it's a local time string like "YYYY-MM-DDTHH:MM"
     let scheduledForISO: string
     let localDateTimeStr: string
@@ -62,8 +91,184 @@ export async function POST(request: NextRequest) {
       scheduledForISO = localDate.toISOString()
     }
 
-    // Create the close appointment
-    const { data: closeAppointment, error: createError } = await supabase
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+    let closeAppointment: any = null
+
+    if (use_round_robin) {
+      if (!serviceKey) {
+        return NextResponse.json({ error: 'Round-robin scheduling is not configured' }, { status: 500 })
+      }
+
+      const { data: inspectionCloser } = await admin
+        .from('users')
+        .select('team_id')
+        .eq('id', originalAppointment.closer_user_id)
+        .maybeSingle()
+
+      const { data: inspectorProfile } = await admin
+        .from('users')
+        .select('team_id')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      const teamId =
+        teamIdOverride ||
+        inspectionCloser?.team_id ||
+        inspectorProfile?.team_id ||
+        (await getDefaultTeam(admin, profile.org_id))
+
+      if (!teamId) {
+        return NextResponse.json(
+          {
+            error:
+              'No team found for round-robin. Assign the inspection closer to a team, or pass team_id.',
+          },
+          { status: 400 }
+        )
+      }
+
+      const scheduledForDate = new Date(scheduledForISO)
+      const assignment = await assignNextAvailableCloser(
+        supabaseUrl,
+        serviceKey,
+        teamId,
+        scheduledForDate,
+        closeDurationMinutes,
+        originalAppointment.lead_id,
+        originalAppointment.opportunity_id || undefined,
+        originalAppointment.address_text || originalAppointment.leads?.address_text || undefined,
+        originalAppointment.canvasser_user_id,
+        profile.org_id,
+        undefined,
+        {
+          homeownerName: originalAppointment.leads?.homeowner_name,
+          phone: originalAppointment.leads?.phone,
+          notes: notes || undefined,
+          setterName: undefined,
+        },
+        orgRow?.default_scheduling_gap_minutes ?? 15,
+        bufferAfter
+      )
+
+      if (!assignment.success || !assignment.appointmentId) {
+        return NextResponse.json(
+          { error: assignment.error || 'No available closer for this time slot' },
+          { status: 409 }
+        )
+      }
+
+      const closeNotes =
+        notes ||
+        `Close appointment - follow up from inspection on ${new Date(originalAppointment.scheduled_for).toLocaleDateString()}`
+
+      const { error: patchErr } = await admin
+        .from('scheduled_appointments')
+        .update({
+          appointment_type: 'close',
+          notes: closeNotes,
+          buffer_after_minutes: bufferAfter,
+        })
+        .eq('id', assignment.appointmentId)
+
+      if (patchErr) {
+        console.error('Failed to tag round-robin appointment as close:', patchErr)
+      }
+
+      const { data: rrAppointment } = await admin
+        .from('scheduled_appointments')
+        .select('*, leads(homeowner_name, address_text, phone)')
+        .eq('id', assignment.appointmentId)
+        .single()
+
+      closeAppointment = rrAppointment
+
+      const assignedCloserName = assignment.closerName || 'Closer'
+
+      if (originalAppointment.canvasser_user_id && originalAppointment.canvasser_user_id !== user.id) {
+        const customerName = originalAppointment.leads?.homeowner_name || 'Customer'
+        const customerAddress =
+          originalAppointment.leads?.address_text || originalAppointment.address_text || ''
+
+        await supabase.from('notifications').insert({
+          org_id: profile.org_id,
+          recipient_user_id: originalAppointment.canvasser_user_id,
+          actor_user_id: user.id,
+          type: 'inspection_outcome',
+          title: `Close Appointment Scheduled - ${customerName}`,
+          body: `${profile.full_name || 'Rep'} scheduled a close appointment. Assigned closer: ${assignedCloserName}.\n\nCustomer: ${customerName}\nAddress: ${customerAddress}\nScheduled: ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n${notes ? `Notes: ${notes}` : ''}`,
+          data: {
+            appointment_id: assignment.appointmentId,
+            original_appointment_id,
+            opportunity_id: originalAppointment.opportunity_id,
+            lead_id: originalAppointment.lead_id,
+            closer_name: assignedCloserName,
+            round_robin: true,
+          },
+        })
+
+        try {
+          const { data: setterUser } = await supabase
+            .from('users')
+            .select('email, full_name')
+            .eq('id', originalAppointment.canvasser_user_id)
+            .single()
+          if (setterUser?.email) {
+            const whenLabel = new Date(scheduledForISO).toLocaleString('en-US', {
+              timeZone: 'America/New_York',
+              dateStyle: 'full',
+              timeStyle: 'short',
+            })
+            await sendSetterEmail({
+              to: setterUser.email,
+              setterName: setterUser.full_name,
+              subject: `Close appointment scheduled: ${customerName}`,
+              introHtml: `<p style="color: #374151;">${profile.full_name || 'Your rep'} scheduled a close appointment. <strong>Assigned closer: ${assignedCloserName}</strong>.</p>`,
+              rows: [
+                { label: 'Customer', value: customerName },
+                { label: 'Address', value: customerAddress || 'N/A' },
+                { label: 'Scheduled', value: `${whenLabel} ET` },
+                ...(notes ? [{ label: 'Notes', value: notes }] : []),
+              ],
+            })
+          }
+        } catch (e) {
+          console.error('Close appointment setter email failed:', e)
+        }
+      }
+
+      await supabase.from('activities').insert({
+        org_id: profile.org_id,
+        opportunity_id: originalAppointment.opportunity_id,
+        lead_id: originalAppointment.lead_id,
+        user_id: user.id,
+        type: 'appointment_scheduled',
+        body: `Close appointment scheduled (round-robin → ${assignedCloserName}) for ${new Date(scheduledForISO).toLocaleString()}${notes ? ` - ${notes}` : ''}`,
+      })
+
+      if (originalAppointment.opportunity_id && assignment.appointmentId) {
+        const { error: closeRowError } = await supabase.from('close_appointments').insert({
+          org_id: profile.org_id,
+          opportunity_id: originalAppointment.opportunity_id,
+          scheduled_appointment_id: assignment.appointmentId,
+          scheduled_for: scheduledForISO,
+        })
+        if (closeRowError) {
+          console.error('close_appointments insert (non-fatal):', closeRowError)
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        appointment: closeAppointment,
+        assigned_closer: { id: assignment.closerId, name: assignment.closerName },
+        round_robin: true,
+      })
+    }
+
+    // Manual: inspector / current user is the closer (legacy)
+    const { data: insertedClose, error: createError } = await supabase
       .from('scheduled_appointments')
       .insert({
         org_id: profile.org_id,
@@ -72,7 +277,8 @@ export async function POST(request: NextRequest) {
         closer_user_id: user.id,
         canvasser_user_id: originalAppointment.canvasser_user_id,
         scheduled_for: scheduledForISO,
-        duration_minutes: originalAppointment.duration_minutes || 60,
+        duration_minutes: closeDurationMinutes,
+        buffer_after_minutes: bufferAfter,
         status: 'scheduled',
         address_text: originalAppointment.address_text,
         notes: notes || `Close appointment - follow up from inspection on ${new Date(originalAppointment.scheduled_for).toLocaleDateString()}`,
@@ -86,6 +292,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create close appointment' }, { status: 500 })
     }
 
+    closeAppointment = insertedClose
+
     // Create Google Calendar event if user has calendar connected
     if (profile.google_refresh_token && profile.google_calendar_id) {
       try {
@@ -93,7 +301,7 @@ export async function POST(request: NextRequest) {
         
         const timezone = 'America/New_York'
         const startDateTime = `${localDateTimeStr}:00`
-        const durationMinutes = originalAppointment.duration_minutes || 60
+        const durationMinutes = closeDurationMinutes
         
         const [datePart, timePart] = localDateTimeStr.split('T')
         const timeOnly = timePart?.split(':') || ['00', '00']
@@ -157,6 +365,35 @@ export async function POST(request: NextRequest) {
             closer_name: profile.full_name,
           },
         })
+
+      try {
+        const { data: setterUser } = await supabase
+          .from('users')
+          .select('email, full_name')
+          .eq('id', originalAppointment.canvasser_user_id)
+          .single()
+        if (setterUser?.email) {
+          const whenLabel = new Date(scheduledForISO).toLocaleString('en-US', {
+            timeZone: 'America/New_York',
+            dateStyle: 'full',
+            timeStyle: 'short',
+          })
+          await sendSetterEmail({
+            to: setterUser.email,
+            setterName: setterUser.full_name,
+            subject: `Close appointment scheduled: ${customerName}`,
+            introHtml: `<p style="color: #374151;">${profile.full_name || 'Your closer'} scheduled a close appointment for your lead.</p>`,
+            rows: [
+              { label: 'Customer', value: customerName },
+              { label: 'Address', value: customerAddress || 'N/A' },
+              { label: 'Scheduled', value: `${whenLabel} ET` },
+              ...(notes ? [{ label: 'Notes', value: notes }] : []),
+            ],
+          })
+        }
+      } catch (e) {
+        console.error('Close appointment setter email failed:', e)
+      }
     }
 
     // Create activity record
@@ -170,6 +407,19 @@ export async function POST(request: NextRequest) {
         type: 'appointment_scheduled',
         body: `Close appointment scheduled for ${new Date(scheduledForISO).toLocaleString()}${notes ? ` - ${notes}` : ''}`,
       })
+
+    // Persist a close_appointments row for opportunity UI / close-feedback flow (non-fatal if table missing).
+    if (originalAppointment.opportunity_id && closeAppointment?.id) {
+      const { error: closeRowError } = await supabase.from('close_appointments').insert({
+        org_id: profile.org_id,
+        opportunity_id: originalAppointment.opportunity_id,
+        scheduled_appointment_id: closeAppointment.id,
+        scheduled_for: scheduledForISO,
+      })
+      if (closeRowError) {
+        console.error('close_appointments insert (non-fatal):', closeRowError)
+      }
+    }
 
     return NextResponse.json({ 
       success: true, 

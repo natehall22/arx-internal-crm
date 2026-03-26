@@ -279,6 +279,30 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    if (type === 'scheduling') {
+      const inspectionFb =
+        typeof data.inspection_feedback_buffer_minutes === 'number'
+          ? data.inspection_feedback_buffer_minutes
+          : 0
+      const defaultGap =
+        typeof data.default_scheduling_gap_minutes === 'number'
+          ? data.default_scheduling_gap_minutes
+          : 15
+
+      const { error } = await adminClient
+        .from('orgs')
+        .update({
+          inspection_feedback_buffer_minutes: Math.max(0, inspectionFb),
+          default_scheduling_gap_minutes: Math.max(0, defaultGap),
+        })
+        .eq('id', profile.org_id)
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+      return NextResponse.json({ success: true })
+    }
+
     if (type === 'commission') {
       const { error } = await adminClient
         .from('orgs')

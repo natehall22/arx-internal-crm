@@ -96,9 +96,14 @@ export async function assignNextAvailableCloser(
     phone?: string | null
     notes?: string | null
     setterName?: string | null
-  }
+  },
+  /** Fallback when closer queue has no buffer (Admin → default gap between appointments). */
+  defaultSchedulingGapMinutes?: number,
+  /** Stored on scheduled_appointments.buffer_after_minutes (Admin → Scheduling per appointment type). */
+  scheduledAppointmentBufferMinutes?: number
 ): Promise<AssignmentResult> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
+  const orgDefaultGap = defaultSchedulingGapMinutes ?? 15
 
   try {
     // Get team timezone if not provided
@@ -316,7 +321,9 @@ export async function assignNextAvailableCloser(
             address,
             canvasserUserId,
             orgId,
-            googleEventId
+            googleEventId,
+            orgDefaultGap,
+            scheduledAppointmentBufferMinutes
           )
           if (result.success) {
             return result
@@ -351,12 +358,16 @@ async function createAppointment(
   address?: string,
   canvasserUserId?: string,
   orgId?: string,
-  googleEventId?: string
+  googleEventId?: string,
+  defaultGapMinutes?: number,
+  scheduledRowBufferAfter?: number
 ): Promise<AssignmentResult> {
   const slotStart = scheduledFor
   const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60 * 1000)
   const bufferBefore = closer.buffer_before ?? 0
-  const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? 15
+  const orgGap = defaultGapMinutes ?? 15
+  const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? orgGap
+  const rowBufferAfter = scheduledRowBufferAfter !== undefined ? scheduledRowBufferAfter : orgGap
   const hasConflict = await hasDbConflictForCloser(
     supabase,
     closer.user_id,
@@ -389,6 +400,7 @@ async function createAppointment(
       google_event_id: googleEventId,
       scheduled_for: scheduledFor.toISOString(),
       duration_minutes: durationMinutes,
+      buffer_after_minutes: rowBufferAfter,
       status: 'scheduled',
       address_text: address,
     })

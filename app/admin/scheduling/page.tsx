@@ -15,6 +15,7 @@ type AppointmentType = {
   id: string
   name: string
   duration_minutes: number
+  buffer_after_minutes?: number | null
   color: string
   description: string | null
   category: 'inspection' | 'close' | 'other'
@@ -37,6 +38,7 @@ export default function SchedulingPage() {
   const [typeForm, setTypeForm] = useState({
     name: '',
     duration_minutes: 60,
+    buffer_after_minutes: 0,
     color: '#3b82f6',
     description: '',
     category: 'inspection' as 'inspection' | 'close' | 'other',
@@ -112,6 +114,7 @@ export default function SchedulingPage() {
       setTypeForm({
         name: '',
         duration_minutes: 60,
+        buffer_after_minutes: 0,
         color: '#3b82f6',
         description: '',
         category: 'inspection',
@@ -146,6 +149,7 @@ export default function SchedulingPage() {
     setTypeForm({
       name: type.name,
       duration_minutes: type.duration_minutes,
+      buffer_after_minutes: type.buffer_after_minutes ?? 0,
       color: type.color,
       description: type.description || '',
       category: type.category,
@@ -159,6 +163,7 @@ export default function SchedulingPage() {
     setTypeForm({
       name: '',
       duration_minutes: 60,
+      buffer_after_minutes: 0,
       color: '#3b82f6',
       description: '',
       category: 'inspection',
@@ -291,7 +296,11 @@ export default function SchedulingPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">Appointment Types</h2>
-                  <p className="text-sm text-gray-500">Configure durations for different appointment types</p>
+                  <p className="text-sm text-gray-500">
+                    Durations and &quot;buffer after&quot; minutes here drive canvass scheduling, inspection feedback
+                    timing, close scheduling (including round-robin), reschedules, and follow-ups—matching by
+                    category and name. Falls back to the org default gap between appointments when unset.
+                  </p>
                 </div>
                 <button
                   onClick={openCreateModal}
@@ -324,7 +333,10 @@ export default function SchedulingPage() {
                           <div>
                             <p className="font-medium text-gray-900">{type.name}</p>
                             <p className="text-sm text-gray-500">
-                              {type.duration_minutes} minutes
+                              {type.duration_minutes} min
+                              {(type.buffer_after_minutes ?? 0) > 0
+                                ? ` · +${type.buffer_after_minutes} min after slot`
+                                : ''}
                               {type.description && ` • ${type.description}`}
                             </p>
                           </div>
@@ -379,7 +391,10 @@ export default function SchedulingPage() {
                           <div>
                             <p className="font-medium text-gray-900">{type.name}</p>
                             <p className="text-sm text-gray-500">
-                              {type.duration_minutes} minutes
+                              {type.duration_minutes} min
+                              {(type.buffer_after_minutes ?? 0) > 0
+                                ? ` · +${type.buffer_after_minutes} min after slot`
+                                : ''}
                               {type.description && ` • ${type.description}`}
                             </p>
                           </div>
@@ -432,7 +447,10 @@ export default function SchedulingPage() {
                           <div>
                             <p className="font-medium text-gray-900">{type.name}</p>
                             <p className="text-sm text-gray-500">
-                              {type.duration_minutes} minutes
+                              {type.duration_minutes} min
+                              {(type.buffer_after_minutes ?? 0) > 0
+                                ? ` · +${type.buffer_after_minutes} min after slot`
+                                : ''}
                               {type.description && ` • ${type.description}`}
                             </p>
                           </div>
@@ -564,6 +582,31 @@ export default function SchedulingPage() {
                     <option value={120}>2 hours</option>
                     <option value={180}>3 hours</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Buffer after slot (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={480}
+                    step={5}
+                    value={typeForm.buffer_after_minutes}
+                    onChange={(e) =>
+                      setTypeForm({
+                        ...typeForm,
+                        buffer_after_minutes: Math.max(0, parseInt(e.target.value, 10) || 0),
+                      })
+                    }
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Minutes after the slot end counted toward inspection feedback prompt timing (together with
+                    the org-wide feedback delay). If no matching type row exists, the org default gap between
+                    appointments is used instead.
+                  </p>
                 </div>
 
                 <div>

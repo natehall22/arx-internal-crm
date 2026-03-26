@@ -58,6 +58,11 @@ export default function AppointmentFeedbackPage() {
   const [closeDate, setCloseDate] = useState('')
   const [closeTime, setCloseTime] = useState('')
 
+  // Insurance follow-up: schedule next touchpoint (required date + time)
+  const [showInsuranceSchedule, setShowInsuranceSchedule] = useState(false)
+  const [insuranceDate, setInsuranceDate] = useState('')
+  const [insuranceTime, setInsuranceTime] = useState('')
+
   useEffect(() => {
     if (appointmentId) {
       loadAppointment()
@@ -127,6 +132,7 @@ export default function AppointmentFeedbackPage() {
     setOutcome(newOutcome)
     setShowReschedule(newOutcome === 'rescheduled')
     setShowCloseSchedule(newOutcome === 'moving_to_close')
+    setShowInsuranceSchedule(newOutcome === 'insurance_follow_up')
   }
 
   const handleSubmit = async () => {
@@ -148,6 +154,11 @@ export default function AppointmentFeedbackPage() {
 
     if (outcome === 'moving_to_close' && (!closeDate || !closeTime)) {
       setError('Please select a date and time for the close appointment')
+      return
+    }
+
+    if (outcome === 'insurance_follow_up' && (!insuranceDate || !insuranceTime)) {
+      setError('Please select a date and time for the insurance follow-up')
       return
     }
 
@@ -209,6 +220,7 @@ export default function AppointmentFeedbackPage() {
               original_appointment_id: appointmentId,
               scheduled_for: localDateTime,
               notes: feedbackNotes || 'Close appointment scheduled from inspection',
+              use_round_robin: true,
             }),
           })
 
@@ -220,8 +232,31 @@ export default function AppointmentFeedbackPage() {
 
         setSuccess(true)
         setTimeout(() => router.push(redirectPath), 2000)
+      } else if (outcome === 'insurance_follow_up') {
+        const localDateTime = `${insuranceDate}T${insuranceTime}`
+        const response = await fetch('/api/inspections/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appointment_id: appointmentId || undefined,
+            lead_id: leadId || undefined,
+            outcome: 'insurance_follow_up',
+            notes: feedbackNotes,
+            setter_feedback: feedbackNotes,
+            schedule_follow_up: true,
+            follow_up_date: localDateTime,
+          }),
+        })
+
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || 'Failed to submit feedback')
+        }
+
+        setSuccess(true)
+        setTimeout(() => router.push(redirectPath), 2000)
       } else {
-        // Handle other outcomes (sale, said_no, not_home, no_problems_found, needs_repair, insurance_follow_up)
+        // Handle other outcomes (sale, said_no, not_home, no_problems_found, needs_repair)
         const response = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -593,11 +628,46 @@ export default function AppointmentFeedbackPage() {
             </div>
           )}
 
+          {/* Insurance follow-up — date & time required */}
+          {showInsuranceSchedule && (
+            <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <h3 className="font-medium text-purple-800 mb-3">Schedule insurance follow-up</h3>
+              <p className="text-sm text-purple-700 mb-3">
+                When should we prompt you for the next inspection feedback after this follow-up?
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={insuranceDate}
+                    onChange={(e) => setInsuranceDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={insuranceTime}
+                    onChange={(e) => setInsuranceTime(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Schedule Close Appointment */}
           {showCloseSchedule && (
             <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
               <h3 className="font-medium text-green-800 mb-3">Schedule Close Appointment</h3>
-              <p className="text-sm text-green-700 mb-3">Select when you'll return to close the deal</p>
+              <p className="text-sm text-green-700 mb-3">
+                Pick when the customer wants a closer to come back. The closer is assigned using your
+                team&apos;s round-robin rules (same as canvass / scheduling settings). If no one is
+                available at that time, you&apos;ll see an error—try another slot.
+              </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import {
+  fetchOrgAppointmentTypesFromTable,
+  getInspectionDurationFromTable,
+} from '@/lib/org-appointment-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -242,15 +246,9 @@ export async function GET(request: NextRequest) {
     
     console.log('Teams query result:', { teams, teamsError, orgId: profile.org_id })
 
-    // Get inspection appointment type duration
-    const { data: appointmentTypes } = await adminClient
-      .from('appointment_types')
-      .select('id, name, duration_minutes')
-      .eq('org_id', profile.org_id)
-    
-    // Find inspection type duration (default to 60 if not found)
-    const inspectionType = appointmentTypes?.find(t => t.name?.toLowerCase() === 'inspection')
-    const inspectionDuration = inspectionType?.duration_minutes || 60
+    // Same rule as /api/canvass/lead: first active inspection-type row by sort_order (Admin → Scheduling)
+    const appointmentTypeRows = await fetchOrgAppointmentTypesFromTable(adminClient, profile.org_id)
+    const inspectionDuration = getInspectionDurationFromTable(appointmentTypeRows, 60)
 
     console.log('Canvass data response:', {
       leadsCount: leads?.length || 0,

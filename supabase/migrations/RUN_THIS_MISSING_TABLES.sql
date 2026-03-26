@@ -316,6 +316,8 @@ CREATE TABLE IF NOT EXISTS appointment_types (
 -- Add category column if table already exists
 ALTER TABLE appointment_types ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'inspection';
 
+ALTER TABLE appointment_types ADD COLUMN IF NOT EXISTS buffer_after_minutes INTEGER NOT NULL DEFAULT 0;
+
 -- ============================================
 -- 13. CUSTOM REPORTS TABLE
 -- ============================================

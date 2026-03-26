@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createCalendarEvent, deleteCalendarEvent, refreshAccessToken, CalendarEvent } from '@/lib/google-calendar'
+import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
+import { sendSetterEmail } from '@/lib/setter-email'
+import {
+  fetchOrgAppointmentTypesFromTable,
+  getCloseSlotBufferAfterFromTable,
+  getCloseSlotDurationFromTable,
+  getInspectionBufferAfterFromTable,
+  getInspectionDurationFromTable,
+} from '@/lib/org-appointment-types'
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -171,17 +180,55 @@ export async function POST(request: NextRequest) {
     
     const newScheduledDate = new Date(scheduledForISO)
 
-    // Create new appointment with same setter
+    const { data: orgRow } = await supabase
+      .from('orgs')
+      .select('inspection_feedback_buffer_minutes, default_scheduling_gap_minutes')
+      .eq('id', profile.org_id)
+      .single()
+
+    const orgFeedbackBuffer = orgRow?.inspection_feedback_buffer_minutes ?? 0
+    const defaultGap = orgRow?.default_scheduling_gap_minutes ?? 15
+    const typeKey =
+      (originalAppointment as { appointment_type?: string | null }).appointment_type || 'inspection'
+
+    const tableAptRows = await fetchOrgAppointmentTypesFromTable(supabase, profile.org_id)
+    const fallbackDur = originalAppointment.duration_minutes ?? 60
+    let newSlotDuration = fallbackDur
+    if (typeKey === 'inspection' || !typeKey) {
+      newSlotDuration = getInspectionDurationFromTable(tableAptRows, fallbackDur)
+    } else if (typeKey === 'close') {
+      newSlotDuration = getCloseSlotDurationFromTable(tableAptRows, 'close', fallbackDur)
+    } else if (typeKey === 'follow_up') {
+      newSlotDuration = getCloseSlotDurationFromTable(tableAptRows, 'follow_up', fallbackDur)
+    } else if (typeKey === 'insurance_follow_up') {
+      newSlotDuration = getCloseSlotDurationFromTable(tableAptRows, 'insurance_follow_up', fallbackDur)
+    }
+
+    let bufferAfter = defaultGap
+    if (typeKey === 'inspection' || !typeKey) {
+      bufferAfter = getInspectionBufferAfterFromTable(tableAptRows, defaultGap)
+    } else if (typeKey === 'close') {
+      bufferAfter = getCloseSlotBufferAfterFromTable(tableAptRows, 'close', defaultGap)
+    } else if (typeKey === 'follow_up') {
+      bufferAfter = getCloseSlotBufferAfterFromTable(tableAptRows, 'follow_up', defaultGap)
+    } else if (typeKey === 'insurance_follow_up') {
+      bufferAfter = getCloseSlotBufferAfterFromTable(tableAptRows, 'insurance_follow_up', defaultGap)
+    } else {
+      bufferAfter = getInspectionBufferAfterFromTable(tableAptRows, defaultGap)
+    }
+
+    // Create new appointment with same setter (ensure closer is set so feedback prompts can be created)
     const { data: newAppointment, error: createError } = await supabase
       .from('scheduled_appointments')
       .insert({
         org_id: profile.org_id,
         lead_id: originalAppointment.lead_id,
         opportunity_id: originalAppointment.opportunity_id,
-        closer_user_id: originalAppointment.closer_user_id,
+        closer_user_id: originalAppointment.closer_user_id || userId,
         canvasser_user_id: originalAppointment.canvasser_user_id,
         scheduled_for: scheduledForISO,
-        duration_minutes: originalAppointment.duration_minutes,
+        duration_minutes: newSlotDuration,
+        buffer_after_minutes: bufferAfter,
         status: 'scheduled',
         address_text: originalAppointment.address_text,
         notes: notes || `Rescheduled from ${new Date(originalAppointment.scheduled_for).toLocaleDateString()}`,
@@ -221,7 +268,7 @@ export async function POST(request: NextRequest) {
           const [datePart, timePart] = localDateTimeStr.split('T')
           const timeOnly = timePart?.split(':') || ['00', '00']
           let endHour = parseInt(timeOnly[0], 10)
-          let endMin = parseInt(timeOnly[1], 10) + originalAppointment.duration_minutes
+          let endMin = parseInt(timeOnly[1], 10) + newSlotDuration
           
           // Handle minute overflow
           while (endMin >= 60) {
@@ -294,6 +341,24 @@ export async function POST(request: NextRequest) {
       .update({ completed: true })
       .eq('appointment_id', original_appointment_id)
 
+    // Queue inspection feedback for the new slot (after appointment end; aligns with dashboard prompt timing)
+    const durationMin = newAppointment.duration_minutes || 60
+    const closerForPrompt = newAppointment.closer_user_id || userId
+    const promptAt = new Date(
+      new Date(newAppointment.scheduled_for).getTime() + durationMin * 60 * 1000
+    ).toISOString()
+    await supabase.from('pending_status_prompts').upsert(
+      {
+        org_id: profile.org_id,
+        appointment_id: newAppointment.id,
+        closer_user_id: closerForPrompt,
+        prompt_at: promptAt,
+        completed: false,
+        dismissed: false,
+      },
+      { onConflict: 'appointment_id' }
+    )
+
     // Notify setter about reschedule
     const notificationData = {
       original_appointment_id,
@@ -315,6 +380,48 @@ export async function POST(request: NextRequest) {
           body: rescheduleMessage,
           data: notificationData,
         })
+
+      if (originalAppointment.canvasser_user_id !== userId) {
+        try {
+          const { data: setterUser } = await supabase
+            .from('users')
+            .select('email, full_name')
+            .eq('id', originalAppointment.canvasser_user_id)
+            .single()
+          const { data: closerProfile } = await supabase
+            .from('users')
+            .select('full_name')
+            .eq('id', userId)
+            .single()
+          if (setterUser?.email) {
+            await sendSetterEmail({
+              to: setterUser.email,
+              setterName: setterUser.full_name,
+              subject: `Inspection rescheduled: ${originalAppointment.leads?.homeowner_name || 'Customer'}`,
+              introHtml: `<p style="color: #374151;">${closerProfile?.full_name || 'Your closer'} rescheduled an inspection to a new time.</p>`,
+              rows: [
+                {
+                  label: 'New date & time',
+                  value: newScheduledDate.toLocaleString('en-US', {
+                    timeZone: 'America/New_York',
+                    dateStyle: 'full',
+                    timeStyle: 'short',
+                  }) + ' ET',
+                },
+                {
+                  label: 'Address',
+                  value:
+                    originalAppointment.leads?.address_text ||
+                    originalAppointment.address_text ||
+                    'N/A',
+                },
+              ],
+            })
+          }
+        } catch (e) {
+          console.error('Reschedule setter email failed:', e)
+        }
+      }
       
       // Get setter's manager and notify them
       const { data: setter } = await supabase
