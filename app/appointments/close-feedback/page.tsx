@@ -9,6 +9,7 @@ import {
   sortCloseOutcomes,
   type CloseOutcomeConfigRow,
 } from '@/lib/close-outcomes'
+import { FEEDBACK_PROMPT_DISPLAY_TIMEZONE, calendarDateYmdInTimezone } from '@/lib/scheduling-prompt'
 
 export default function CloseAppointmentFeedbackPage() {
   const router = useRouter()
@@ -161,9 +162,11 @@ export default function CloseAppointmentFeedbackPage() {
     }
   }
 
+  const minDateYmd = calendarDateYmdInTimezone(FEEDBACK_PROMPT_DISPLAY_TIMEZONE)
+
   const formatEt = (iso: string) =>
     new Date(iso).toLocaleString('en-US', {
-      timeZone: 'America/New_York',
+      timeZone: FEEDBACK_PROMPT_DISPLAY_TIMEZONE,
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -327,7 +330,7 @@ export default function CloseAppointmentFeedbackPage() {
                     type="date"
                     value={insuranceFollowUpDate}
                     onChange={(e) => setInsuranceFollowUpDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
+                    min={minDateYmd}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   />
                 </div>

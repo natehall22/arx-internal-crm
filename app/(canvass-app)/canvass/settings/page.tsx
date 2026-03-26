@@ -12,8 +12,6 @@ export default function CanvassSettingsPage() {
     showLegend: true,
     defaultDisposition: '',
     vibration: true,
-    // VIEWPORT MODE: Spotio/Terros style loading - DEFAULT for scale (100k+ pins)
-    mapDataMode: 'VIEWPORT' as 'ALL_LEADS' | 'VIEWPORT',
   })
 
   useEffect(() => {
@@ -51,8 +49,20 @@ export default function CanvassSettingsPage() {
 
   const loadSettings = () => {
     const saved = localStorage.getItem('canvass-settings')
-    if (saved) {
-      setSettings(JSON.parse(saved))
+    if (!saved) return
+    try {
+      const parsed = JSON.parse(saved) as Record<string, unknown>
+      const hadLegacy = 'mapDataMode' in parsed
+      delete parsed.mapDataMode
+      setSettings((prev) => {
+        const merged = { ...prev, ...parsed }
+        if (hadLegacy) {
+          localStorage.setItem('canvass-settings', JSON.stringify(merged))
+        }
+        return merged
+      })
+    } catch {
+      // ignore
     }
   }
 
@@ -209,73 +219,13 @@ export default function CanvassSettingsPage() {
           </div>
         </div>
 
-        {/* Map Data Mode (Experimental) */}
-        <div className="bg-white rounded-xl shadow-sm divide-y">
-          <div className="p-4">
-            <h3 className="font-semibold text-gray-900 mb-1">Map Loading Mode</h3>
-            <p className="text-xs text-gray-500">How pins are loaded on the map</p>
-          </div>
-
-          <div className="p-4">
-            <div className="space-y-3">
-              <button
-                onClick={() => updateSetting('mapDataMode', 'VIEWPORT')}
-                className={`w-full p-3 rounded-lg border-2 text-left transition-colors ${
-                  settings.mapDataMode === 'VIEWPORT'
-                    ? 'border-indigo-600 bg-indigo-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    settings.mapDataMode === 'VIEWPORT' ? 'border-indigo-600' : 'border-gray-300'
-                  }`}>
-                    {settings.mapDataMode === 'VIEWPORT' && (
-                      <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Viewport Mode</p>
-                    <p className="text-xs text-gray-500">Load pins as you pan/zoom (recommended for scale)</p>
-                    <p className="text-xs text-green-600 mt-0.5">Best for large pin counts</p>
-                  </div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => updateSetting('mapDataMode', 'ALL_LEADS')}
-                className={`w-full p-3 rounded-lg border-2 text-left transition-colors ${
-                  settings.mapDataMode === 'ALL_LEADS'
-                    ? 'border-indigo-600 bg-indigo-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    settings.mapDataMode === 'ALL_LEADS' ? 'border-indigo-600' : 'border-gray-300'
-                  }`}>
-                    {settings.mapDataMode === 'ALL_LEADS' && (
-                      <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Legacy Mode</p>
-                    <p className="text-xs text-gray-500">Load today's pins at once (works offline)</p>
-                  </div>
-                </div>
-              </button>
-            </div>
-            {settings.mapDataMode === 'VIEWPORT' && (
-              <p className="mt-3 text-xs text-indigo-600 bg-indigo-50 p-2 rounded">
-                Viewport mode loads pins dynamically as you navigate. Supports 100k+ pins with marker clustering.
-              </p>
-            )}
-            {settings.mapDataMode === 'ALL_LEADS' && (
-              <p className="mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                Legacy mode only loads today's pins. For large datasets, use Viewport Mode.
-              </p>
-            )}
-          </div>
+        {/* Map loading (viewport-only) */}
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <h3 className="font-semibold text-gray-900 mb-1">Map loading</h3>
+          <p className="text-xs text-gray-500 mb-2">Pins load as you pan and zoom (viewport mode).</p>
+          <p className="text-xs text-indigo-600 bg-indigo-50 p-2 rounded">
+            Suited for large territories: supports high pin counts with marker clustering. Offline-created pins still sync when you&apos;re back online.
+          </p>
         </div>
 
         {/* Install & Data */}

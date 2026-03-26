@@ -187,13 +187,23 @@ export default function SettingsPage() {
     if (!confirm('Disconnect Google Calendar?')) return
 
     try {
-      const response = await fetch('/api/settings', { method: 'DELETE' })
-      
+      const response = await fetch('/api/settings', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
+
+      const data = await response.json().catch(() => ({}))
+
       if (response.ok) {
         setGoogleToken(null)
-        setSettings(prev => ({ ...prev, google_calendar_connected: false }))
+        setSettings((prev) => ({ ...prev, google_calendar_connected: false }))
+        setCalendarMessage({ type: 'success', text: 'Google Calendar disconnected.' })
       } else {
-        alert('Failed to disconnect Google Calendar')
+        alert(
+          typeof data.error === 'string'
+            ? data.error
+            : 'Failed to disconnect Google Calendar. Try again or sign out and back in.'
+        )
       }
     } catch (error) {
       console.error('Error disconnecting:', error)

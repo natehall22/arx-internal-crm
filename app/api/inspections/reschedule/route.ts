@@ -285,6 +285,20 @@ export async function POST(request: NextRequest) {
             .eq('id', originalAppointment.lead_id)
             .single()
           
+          let setterInviteEmail: string | null = null
+          const setterId = originalAppointment.canvasser_user_id
+          const closerId = originalAppointment.closer_user_id
+          if (setterId && closerId && setterId !== closerId) {
+            const { data: setterRow } = await supabase
+              .from('users')
+              .select('email')
+              .eq('id', setterId)
+              .maybeSingle()
+            if (setterRow?.email && String(setterRow.email).includes('@')) {
+              setterInviteEmail = setterRow.email
+            }
+          }
+
           const event: CalendarEvent = {
             summary: `Inspection: ${originalAppointment.leads?.homeowner_name || 'Customer'} (Rescheduled)`,
             description: [
@@ -304,9 +318,15 @@ export async function POST(request: NextRequest) {
               dateTime: endDateTime,
               timeZone: timezone,
             },
+            attendees: setterInviteEmail ? [{ email: setterInviteEmail }] : undefined,
           }
           
-          const createdEvent = await createCalendarEvent(accessToken, event)
+          const createdEvent = await createCalendarEvent(
+            accessToken,
+            event,
+            'primary',
+            setterInviteEmail ? 'all' : 'none'
+          )
           googleEventId = createdEvent.id || null
           calendarSynced = true
           
@@ -341,12 +361,22 @@ export async function POST(request: NextRequest) {
       .update({ completed: true })
       .eq('appointment_id', original_appointment_id)
 
-    // Queue inspection feedback for the new slot (after appointment end; aligns with dashboard prompt timing)
+    // Queue inspection feedback after slot end + buffers (aligns with round-robin + status route)
+    const { data: orgForPrompt } = await supabase
+      .from('orgs')
+      .select('inspection_feedback_buffer_minutes')
+      .eq('id', profile.org_id)
+      .single()
     const durationMin = newAppointment.duration_minutes || 60
+    const bufferAfterNew = newAppointment.buffer_after_minutes ?? 0
+    const orgFb = orgForPrompt?.inspection_feedback_buffer_minutes ?? 0
     const closerForPrompt = newAppointment.closer_user_id || userId
-    const promptAt = new Date(
-      new Date(newAppointment.scheduled_for).getTime() + durationMin * 60 * 1000
-    ).toISOString()
+    const promptAt = computeInspectionFeedbackPromptAt(
+      newAppointment.scheduled_for,
+      durationMin,
+      bufferAfterNew,
+      orgFb
+    )
     await supabase.from('pending_status_prompts').upsert(
       {
         org_id: profile.org_id,

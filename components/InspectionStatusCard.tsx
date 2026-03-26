@@ -7,6 +7,10 @@ import {
   sortActiveOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import {
+  FEEDBACK_PROMPT_DISPLAY_TIMEZONE,
+  calendarDateYmdInTimezone,
+} from '@/lib/scheduling-prompt'
 
 type AppointmentWithDetails = ScheduledAppointment & {
   lead?: { homeowner_name: string | null; address_text: string | null } | null
@@ -39,6 +43,8 @@ const FOLLOW_UP_OPTION_IDS = new Set(['moving_to_close', 'not_home'])
 
 interface InspectionStatusCardProps {
   appointment: AppointmentWithDetails
+  /** When feedback is due (from `pending_status_prompts.prompt_at`). */
+  promptAt?: string | null
   onComplete: (data: {
     outcome: string
     notes: string
@@ -52,6 +58,7 @@ interface InspectionStatusCardProps {
 
 export default function InspectionStatusCard({
   appointment,
+  promptAt,
   onComplete,
   onReschedule,
   onFillLater,
@@ -160,14 +167,26 @@ export default function InspectionStatusCard({
     }
   }
 
+  const displayTz = FEEDBACK_PROMPT_DISPLAY_TIMEZONE
+  const minDateYmd = calendarDateYmdInTimezone(displayTz)
   const scheduledTime = new Date(appointment.scheduled_for)
-  const isOverdue = new Date() > new Date(scheduledTime.getTime() + 30 * 60 * 1000)
+  const promptMs = promptAt ? new Date(promptAt).getTime() : null
+  /** Amber header: feedback has been due for a while (not tied to UTC calendar quirks). */
+  const isUrgentFollowUp =
+    promptMs != null
+      ? Date.now() > promptMs + 45 * 60 * 1000
+      : (() => {
+          const startMs = new Date(appointment.scheduled_for).getTime()
+          const durMin = appointment.duration_minutes ?? 60
+          const slotEndMs = startMs + durMin * 60 * 1000
+          return Date.now() > slotEndMs + 30 * 60 * 1000
+        })()
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 sm:p-4">
       <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header - Fixed */}
-        <div className={`px-6 py-4 ${isOverdue ? 'bg-amber-500' : 'bg-indigo-600'} text-white flex-shrink-0`}>
+        <div className={`px-6 py-4 ${isUrgentFollowUp ? 'bg-amber-500' : 'bg-indigo-600'} text-white flex-shrink-0`}>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -177,7 +196,7 @@ export default function InspectionStatusCard({
             <div>
               <h2 className="text-xl font-bold">Inspection Status Update</h2>
               <p className="text-white/80 text-sm">
-                {isOverdue ? 'Status update required' : 'How did the appointment go?'}
+                {isUrgentFollowUp ? 'Status update required' : 'How did the appointment go?'}
               </p>
             </div>
           </div>
@@ -198,10 +217,10 @@ export default function InspectionStatusCard({
               </div>
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">
-                  {scheduledTime.toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
+                  {scheduledTime.toLocaleDateString('en-US', { timeZone: displayTz })}
                 </p>
                 <p className="text-sm text-gray-500">
-                  {scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })}
+                  {scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: displayTz })}
                 </p>
               </div>
             </div>
@@ -260,7 +279,7 @@ export default function InspectionStatusCard({
                     type="date"
                     value={followUpDate}
                     onChange={(e) => setFollowUpDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
+                    min={minDateYmd}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
                 </div>
@@ -347,7 +366,7 @@ export default function InspectionStatusCard({
                       type="date"
                       value={followUpDate}
                       onChange={(e) => setFollowUpDate(e.target.value)}
-                      min={new Date().toISOString().split('T')[0]}
+                      min={minDateYmd}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>

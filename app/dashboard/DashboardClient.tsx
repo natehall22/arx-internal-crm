@@ -374,6 +374,7 @@ export default function DashboardClient({
       {activePrompt && activePrompt.scheduled_appointments && (
         <InspectionStatusCard
           key={activePrompt.id}
+          promptAt={activePrompt.prompt_at}
           appointment={{
             ...activePrompt.scheduled_appointments,
             lead: activePrompt.scheduled_appointments.leads,

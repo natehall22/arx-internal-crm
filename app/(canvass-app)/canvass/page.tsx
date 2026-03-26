@@ -9,9 +9,6 @@ import { useOfflineStore } from './lib/offlineStore'
 import { useGeolocation } from './lib/useGeolocation'
 import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLeads'
 
-// Map data mode type - matches settings
-type MapDataMode = 'ALL_LEADS' | 'VIEWPORT'
-
 // Global type declarations for Google Maps and MarkerClusterer
 declare global {
   interface Window {
@@ -48,7 +45,6 @@ export type CanvassPin = {
 type DisplayPin = CanvassPin | ViewportPin
 
 export default function CanvassPage() {
-  const [pins, setPins] = useState<CanvassPin[]>([])
   const [selectedPin, setSelectedPin] = useState<CanvassPin | null>(null)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [newPinLocation, setNewPinLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -72,13 +68,9 @@ export default function CanvassPage() {
     { id: 'not_interested', label: 'Not Interested', color: '#6B7280', active: true },
   ])
   
-  // Map data mode - default to VIEWPORT for scale (Spotio/Terros style)
-  const [mapDataMode, setMapDataMode] = useState<MapDataMode>('VIEWPORT')
-  
   const { position, error: geoError, requestPermission } = useGeolocation()
   const { pendingLeads, addLead, syncLeads, isOnline } = useOfflineStore()
   
-  // Viewport mode hook - only active when mapDataMode === 'VIEWPORT'
   const { 
     pins: viewportPins, 
     loading: viewportLoading, 
@@ -97,19 +89,18 @@ export default function CanvassPage() {
   const [loadingPinDetails, setLoadingPinDetails] = useState(false)
   const [refetchTrigger, setRefetchTrigger] = useState(0)
 
-  // Load settings on mount to determine map data mode
+  // Strip legacy mapDataMode from localStorage (viewport-only map)
   useEffect(() => {
-    const savedSettings = localStorage.getItem('canvass-settings')
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings)
-        // Only switch to ALL_LEADS if explicitly set (VIEWPORT is default)
-        if (parsed.mapDataMode === 'ALL_LEADS') {
-          setMapDataMode('ALL_LEADS')
-        }
-      } catch (e) {
-        // Ignore parse errors, use default (VIEWPORT)
+    try {
+      const raw = localStorage.getItem('canvass-settings')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      if ('mapDataMode' in parsed) {
+        delete parsed.mapDataMode
+        localStorage.setItem('canvass-settings', JSON.stringify(parsed))
       }
+    } catch {
+      // ignore
     }
   }, [])
 
@@ -180,56 +171,7 @@ export default function CanvassPage() {
         }
       }
 
-      // Check current map data mode from settings (default is VIEWPORT)
-      const savedSettings = localStorage.getItem('canvass-settings')
-      let currentMode: MapDataMode = 'VIEWPORT' // Default to viewport for scale
-      if (savedSettings) {
-        try {
-          const parsed = JSON.parse(savedSettings)
-          if (parsed.mapDataMode === 'ALL_LEADS') {
-            currentMode = 'ALL_LEADS'
-          }
-        } catch (e) {
-          // Ignore parse errors, use default (VIEWPORT)
-        }
-      }
-
-      // In VIEWPORT mode, skip loading all leads - they'll load via viewport
-      if (currentMode === 'VIEWPORT') {
-        // Just load pending offline leads
-        const offlinePins: CanvassPin[] = pendingLeads.map(lead => ({
-          ...lead,
-          synced: false,
-        }))
-        setPins(offlinePins)
-        setLoading(false)
-        return
-      }
-
-      // ALL_LEADS mode: Use leads from API response
-      const serverPins: CanvassPin[] = (data.leads || []).map((lead: any) => ({
-        id: lead.id,
-        lat: parseFloat(lead.lat),
-        lng: parseFloat(lead.lng),
-        homeowner_name: lead.homeowner_name,
-        address_text: lead.address_text,
-        phone: lead.phone,
-        email: lead.email,
-        status: lead.status,
-        disposition: lead.canvass_disposition,
-        notes: lead.notes,
-        created_at: lead.created_at,
-        synced: true,
-        owner_user_id: lead.owner_user_id,
-      }))
-
-      // Merge with pending offline leads
-      const offlinePins: CanvassPin[] = pendingLeads.map(lead => ({
-        ...lead,
-        synced: false,
-      }))
-
-      setPins([...offlinePins, ...serverPins])
+      // Pins load via viewport bounds (useViewportLeads); pending offline leads merge in displayPins
       setLoading(false)
     } catch (error) {
       console.error('Error in loadData:', error)
@@ -237,17 +179,14 @@ export default function CanvassPage() {
     }
   }
 
-  // Handler for map bounds change (viewport mode only)
   const handleBoundsChanged = useCallback((bounds: MapBounds, zoom: number) => {
-    if (mapDataMode === 'VIEWPORT') {
-      fetchForBounds(bounds, zoom)
-    }
-  }, [mapDataMode, fetchForBounds])
+    fetchForBounds(bounds, zoom)
+  }, [fetchForBounds])
 
-  // Merge viewport pins with local pins when in viewport mode
-  const displayPins: DisplayPin[] = mapDataMode === 'VIEWPORT'
-    ? [...pendingLeads.map(lead => ({ ...lead, synced: false } as CanvassPin)), ...viewportPins]
-    : pins
+  const displayPins: DisplayPin[] = [
+    ...pendingLeads.map((lead) => ({ ...lead, synced: false } as CanvassPin)),
+    ...viewportPins,
+  ]
 
   const handleMapClick = (lat: number, lng: number) => {
     setNewPinLocation({ lat, lng })
@@ -370,24 +309,16 @@ export default function CanvassPage() {
         updatedPin.disposition = 'scheduled'
       }
       
-      // Update in viewport mode or local pins mode
-      if (mapDataMode === 'VIEWPORT') {
-        // Update the viewport pin with new disposition
-        const viewportPin = {
-          id: selectedPin.id,
-          lat: selectedPin.lat,
-          lng: selectedPin.lng,
-          d: updatedPin.disposition || null,
-          s: updatedPin.status,
-          o: selectedPin.owner_user_id || null,
-          t: selectedPin.created_at,
-        }
-        updateViewportPin(viewportPin)
-      } else {
-        setPins(pins.map(p => 
-          p.id === selectedPin.id ? updatedPin : p
-        ))
+      const viewportPin = {
+        id: selectedPin.id,
+        lat: selectedPin.lat,
+        lng: selectedPin.lng,
+        d: updatedPin.disposition || null,
+        s: updatedPin.status,
+        o: selectedPin.owner_user_id || null,
+        t: selectedPin.created_at,
       }
+      updateViewportPin(viewportPin)
     } else if (newPinLocation) {
       // Create new pin
       const newPin: CanvassPin = {
@@ -456,23 +387,16 @@ export default function CanvassPage() {
         addLead(newPin)
       }
 
-      // In viewport mode, add the pin directly to the viewport state
-      // In all_leads mode, add to local pins state
-      if (mapDataMode === 'VIEWPORT') {
-        // Convert to ViewportPin format and add to viewport state
-        const viewportPin = {
-          id: newPin.id,
-          lat: newPin.lat,
-          lng: newPin.lng,
-          d: newPin.disposition || null,
-          s: newPin.status,
-          o: newPin.owner_user_id || null,
-          t: newPin.created_at,
-        }
-        addViewportPin(viewportPin)
-      } else {
-        setPins([newPin, ...pins])
+      const viewportPin = {
+        id: newPin.id,
+        lat: newPin.lat,
+        lng: newPin.lng,
+        d: newPin.disposition || null,
+        s: newPin.status,
+        o: newPin.owner_user_id || null,
+        t: newPin.created_at,
       }
+      addViewportPin(viewportPin)
     }
 
     setShowLeadModal(false)
@@ -502,12 +426,7 @@ export default function CanvassPage() {
       })
 
       if (response.ok) {
-        // Remove from local state
-        if (mapDataMode === 'VIEWPORT') {
-          removeViewportPin(pinId)
-        } else {
-          setPins(pins.filter(p => p.id !== pinId))
-        }
+        removeViewportPin(pinId)
         
         setShowLeadModal(false)
         setSelectedPin(null)
@@ -559,11 +478,11 @@ export default function CanvassPage() {
             onMapClick={handleMapClick}
             onPinClick={handlePinClick}
             onAddressSelect={handleAddressSelect}
-            onBoundsChanged={mapDataMode === 'VIEWPORT' ? handleBoundsChanged : undefined}
-            isViewportMode={mapDataMode === 'VIEWPORT'}
+            onBoundsChanged={handleBoundsChanged}
+            isViewportMode
             viewportLoading={viewportLoading || loadingPinDetails}
             totalPinsLoaded={viewportTotalLoaded}
-            onRefreshArea={mapDataMode === 'VIEWPORT' ? clearViewportCache : undefined}
+            onRefreshArea={clearViewportCache}
             refetchTrigger={refetchTrigger}
             dispositionFilter={dispositionFilter}
             onDispositionFilterChange={setDispositionFilter}

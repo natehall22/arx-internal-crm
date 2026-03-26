@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
@@ -96,6 +97,79 @@ async function getTimezoneForCloser(admin: ReturnType<typeof createServiceClient
     /* default */
   }
   return 'America/New_York'
+}
+
+/** Event on closer's primary calendar; setter gets a Google invite when email differs from closer. */
+async function upsertCloseEventOnCloserCalendar(
+  admin: ReturnType<typeof createServiceClient>,
+  supabase: SupabaseClient,
+  params: {
+    closerUserId: string
+    localDateTimeStr: string
+    closeDurationMinutes: number
+    summary: string
+    description: string
+    location: string
+    setterUserId: string | null
+    scheduledAppointmentId: string
+  }
+): Promise<string | null> {
+  const accessToken = await getValidAccessTokenForUser(admin, params.closerUserId)
+  if (!accessToken) {
+    console.error(
+      'upsertCloseEventOnCloserCalendar: no Google token for closer — calendar will not sync',
+      params.closerUserId
+    )
+    return null
+  }
+  const timezone = await getTimezoneForCloser(admin, params.closerUserId)
+
+  const [datePart, timePart] = params.localDateTimeStr.split('T')
+  const timeOnly = timePart?.split(':') || ['00', '00']
+  let endHour = parseInt(timeOnly[0], 10)
+  let endMin = parseInt(timeOnly[1], 10) + params.closeDurationMinutes
+  while (endMin >= 60) {
+    endMin -= 60
+    endHour += 1
+  }
+  const startDateTime = `${params.localDateTimeStr}:00`
+  const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
+
+  let setterEmail: string | null = null
+  if (params.setterUserId && params.setterUserId !== params.closerUserId) {
+    const { data: setterRow } = await admin.from('users').select('email').eq('id', params.setterUserId).maybeSingle()
+    if (setterRow?.email && String(setterRow.email).includes('@')) {
+      setterEmail = setterRow.email
+    }
+  }
+
+  const event: CalendarEvent = {
+    summary: params.summary,
+    description: params.description,
+    location: params.location || undefined,
+    start: { dateTime: startDateTime, timeZone: timezone },
+    end: { dateTime: endDateTime, timeZone: timezone },
+    attendees: setterEmail ? [{ email: setterEmail }] : undefined,
+  }
+
+  try {
+    const createdEv = await createCalendarEvent(
+      accessToken,
+      event,
+      'primary',
+      setterEmail ? 'all' : 'none'
+    )
+    if (createdEv?.id) {
+      await supabase
+        .from('scheduled_appointments')
+        .update({ google_event_id: createdEv.id })
+        .eq('id', params.scheduledAppointmentId)
+      return createdEv.id
+    }
+  } catch (e) {
+    console.error('upsertCloseEventOnCloserCalendar failed:', e)
+  }
+  return null
 }
 
 export async function POST(request: NextRequest) {
@@ -356,11 +430,38 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Round-robin creates the calendar event inside assignNextAvailableCloser; if that failed
+      // (token/API), the appointment row may exist without google_event_id — sync here.
+      if (!assignment.googleEventId && assignment.closerId && assignment.appointmentId) {
+        const customerName = originalAppointment.leads?.homeowner_name || 'Customer'
+        const address = originalAppointment.address_text || originalAppointment.leads?.address_text || ''
+        const backupEventId = await upsertCloseEventOnCloserCalendar(admin, supabase, {
+          closerUserId: assignment.closerId,
+          localDateTimeStr,
+          closeDurationMinutes,
+          summary: `Close: ${customerName}`,
+          description: buildCloseCalendarDescription({
+            customerName,
+            address,
+            notes: closeNotes,
+            setterName: setterDisplayName,
+            inspectorName: inspectorDisplayName,
+          }),
+          location: address,
+          setterUserId: originalAppointment.canvasser_user_id,
+          scheduledAppointmentId: assignment.appointmentId,
+        })
+        if (backupEventId && closeAppointment && typeof closeAppointment === 'object') {
+          closeAppointment = { ...closeAppointment, google_event_id: backupEventId }
+        }
+      }
+
       return NextResponse.json({
         success: true,
         appointment: closeAppointment,
         assigned_closer: { id: assignment.closerId, name: assignment.closerName },
         round_robin: true,
+        google_calendar_event_id: closeAppointment?.google_event_id ?? assignment.googleEventId ?? null,
       })
     }
 
@@ -411,55 +512,26 @@ export async function POST(request: NextRequest) {
 
     closeAppointment = insertedClose
 
-    const accessToken = await getValidAccessTokenForUser(admin, manualCloserId)
-    const timezone = await getTimezoneForCloser(admin, manualCloserId)
-    if (accessToken) {
-      try {
-        const startDateTime = `${localDateTimeStr}:00`
-        const durationMinutes = closeDurationMinutes
-
-        const [datePart, timePart] = localDateTimeStr.split('T')
-        const timeOnly = timePart?.split(':') || ['00', '00']
-        let endHour = parseInt(timeOnly[0], 10)
-        let endMin = parseInt(timeOnly[1], 10) + durationMinutes
-
-        while (endMin >= 60) {
-          endMin -= 60
-          endHour += 1
-        }
-
-        const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
-
-        const customerName = originalAppointment.leads?.homeowner_name || 'Customer'
-        const address = originalAppointment.address_text || originalAppointment.leads?.address_text || ''
-
-        const event: CalendarEvent = {
-          summary: `Close: ${customerName}`,
-          description: buildCloseCalendarDescription({
-            customerName,
-            address,
-            notes: notes || undefined,
-            setterName: setterDisplayName,
-            inspectorName: inspectorDisplayName,
-          }),
-          location: address,
-          start: {
-            dateTime: startDateTime,
-            timeZone: timezone,
-          },
-          end: {
-            dateTime: endDateTime,
-            timeZone: timezone,
-          },
-        }
-
-        const createdEv = await createCalendarEvent(accessToken, event, 'primary')
-        if (createdEv?.id) {
-          await supabase.from('scheduled_appointments').update({ google_event_id: createdEv.id }).eq('id', closeAppointment.id)
-        }
-      } catch (calendarError) {
-        console.error('Calendar event creation error:', calendarError)
-      }
+    let manualGoogleCalendarEventId: string | null = null
+    {
+      const customerName = originalAppointment.leads?.homeowner_name || 'Customer'
+      const address = originalAppointment.address_text || originalAppointment.leads?.address_text || ''
+      manualGoogleCalendarEventId = await upsertCloseEventOnCloserCalendar(admin, supabase, {
+        closerUserId: manualCloserId,
+        localDateTimeStr,
+        closeDurationMinutes,
+        summary: `Close: ${customerName}`,
+        description: buildCloseCalendarDescription({
+          customerName,
+          address,
+          notes: notes || undefined,
+          setterName: setterDisplayName,
+          inspectorName: inspectorDisplayName,
+        }),
+        location: address,
+        setterUserId: originalAppointment.canvasser_user_id,
+        scheduledAppointmentId: closeAppointment.id,
+      })
     }
 
     // Notify the setter about the close appointment (inspector scheduling on behalf of a closer)
@@ -545,6 +617,7 @@ export async function POST(request: NextRequest) {
       appointment: closeAppointment,
       assigned_closer: { id: manualCloserId, name: assignedCloserName },
       round_robin: false,
+      google_calendar_event_id: manualGoogleCalendarEventId ?? closeAppointment?.google_event_id ?? null,
     })
 
   } catch (error) {

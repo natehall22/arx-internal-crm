@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { refreshAccessToken, getFreeBusy, createCalendarEvent } from './google-calendar'
+import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import type { TeamCloserQueue, UserGoogleToken, ScheduledAppointment } from './types/database'
 
 type CloserWithToken = TeamCloserQueue & {
@@ -454,8 +455,24 @@ async function createAppointment(
     .update({ last_assigned_at: new Date().toISOString() })
     .eq('id', closer.id)
 
-  // Create pending status prompt for feedback after appointment ends
-  const appointmentEndTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
+  // Pending feedback prompt: after slot end + buffer_after + org inspection feedback buffer (same as other code paths)
+  let orgFeedbackBuffer = 0
+  try {
+    const { data: orgRow } = await supabase
+      .from('orgs')
+      .select('inspection_feedback_buffer_minutes')
+      .eq('id', orgId || closer.org_id)
+      .maybeSingle()
+    orgFeedbackBuffer = orgRow?.inspection_feedback_buffer_minutes ?? 0
+  } catch {
+    orgFeedbackBuffer = 0
+  }
+  const promptAtIso = computeInspectionFeedbackPromptAt(
+    scheduledFor.toISOString(),
+    durationMinutes,
+    rowBufferAfter,
+    orgFeedbackBuffer
+  )
   try {
     await supabase
       .from('pending_status_prompts')
@@ -463,7 +480,7 @@ async function createAppointment(
         org_id: orgId || closer.org_id,
         appointment_id: appointment.id,
         closer_user_id: closer.user_id,
-        prompt_at: appointmentEndTime.toISOString(),
+        prompt_at: promptAtIso,
       })
   } catch (promptError) {
     console.error('Failed to create pending prompt:', promptError)
