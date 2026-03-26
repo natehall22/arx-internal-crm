@@ -12,6 +12,7 @@ import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import ContractListItem from '@/components/contracts/ContractListItem'
 import CloseAppointmentStatusSection from '@/components/opportunities/CloseAppointmentStatusSection'
+import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 
 export default async function OpportunityDetailPage({
   params,
@@ -176,6 +177,14 @@ export default async function OpportunityDetailPage({
       closeScheduledAppointmentId = scheduledClose.id
     }
   }
+
+  const closeOutcomeDisplayLabel =
+    closeOutcome
+      ? resolveCloseOutcomeLabel(
+          closeOutcome,
+          orgSettings?.settings?.close_outcomes as CloseOutcomeConfigRow[] | undefined
+        )
+      : null
 
   const uploadDesignPdf = async (formData: FormData) => {
     'use server'
@@ -675,6 +684,7 @@ export default async function OpportunityDetailPage({
           opportunityId={params.id}
           scheduledFor={closeScheduledFor}
           outcome={closeOutcome}
+          outcomeLabel={closeOutcomeDisplayLabel}
           outcomeSubmittedAt={closeOutcomeSubmittedAt}
           closeAppointmentId={closeAppointmentId}
           scheduledAppointmentId={closeAppointmentId ? null : closeScheduledAppointmentId}

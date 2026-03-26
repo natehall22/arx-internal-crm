@@ -6,6 +6,8 @@ type Props = {
   /** ISO string for scheduled close time */
   scheduledFor: string | null
   outcome: string | null
+  /** Resolved label from org Close outcomes settings (optional) */
+  outcomeLabel?: string | null
   outcomeSubmittedAt: string | null
   /** Link to close-feedback: use close_appointments.id when available */
   closeAppointmentId: string | null
@@ -28,6 +30,7 @@ export default function CloseAppointmentStatusSection({
   opportunityId,
   scheduledFor,
   outcome,
+  outcomeLabel,
   outcomeSubmittedAt,
   closeAppointmentId,
   scheduledAppointmentId,
@@ -67,7 +70,7 @@ export default function CloseAppointmentStatusSection({
             <div>
               <p className="text-sm font-semibold text-green-900">Close outcome recorded</p>
               <span className="inline-flex mt-1 px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                {labelForCloseOutcome(outcome)}
+                {outcomeLabel ?? labelForCloseOutcome(outcome)}
               </span>
             </div>
           </div>

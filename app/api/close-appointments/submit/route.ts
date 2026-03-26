@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import type { CloseFeedbackOutcome } from '@/lib/close-feedback-outcomes'
+import { getValidCloseOutcomeIdsFromSettings } from '@/lib/close-outcomes'
 import { sendSetterEmail } from '@/lib/setter-email'
 import {
   fetchOrgAppointmentTypesFromTable,
@@ -10,16 +10,6 @@ import {
 } from '@/lib/org-appointment-types'
 
 export const dynamic = 'force-dynamic'
-
-const VALID_OUTCOMES: CloseFeedbackOutcome[] = [
-  'sold',
-  'needs_another_visit',
-  'waiting_on_insurance',
-  'insurance_follow_up',
-  'said_no',
-  'not_home',
-  'rescheduled',
-]
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -120,18 +110,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'opportunity_id and outcome are required' }, { status: 400 })
     }
 
-    if (!VALID_OUTCOMES.includes(outcome as CloseFeedbackOutcome)) {
+    const { data: orgForOutcomes } = await admin
+      .from('orgs')
+      .select('settings')
+      .eq('id', profile.org_id)
+      .single()
+
+    const validCloseIds = getValidCloseOutcomeIdsFromSettings(
+      orgForOutcomes?.settings?.close_outcomes as { id: string }[] | undefined
+    )
+    const outcomeNorm = String(outcome).toLowerCase()
+    const outcomeAllowed = validCloseIds.some((id) => id.toLowerCase() === outcomeNorm)
+    if (!outcomeAllowed) {
       return NextResponse.json({ error: 'Invalid outcome' }, { status: 400 })
     }
 
-    if (outcome === 'insurance_follow_up' && !follow_up_date) {
+    if (outcomeNorm === 'insurance_follow_up' && !follow_up_date) {
       return NextResponse.json(
         { error: 'follow_up_date is required for insurance follow-up' },
         { status: 400 }
       )
     }
 
-    if (outcome === 'insurance_follow_up' && follow_up_date) {
+    if (outcomeNorm === 'insurance_follow_up' && follow_up_date) {
       const parsed = new Date(follow_up_date)
       if (Number.isNaN(parsed.getTime())) {
         return NextResponse.json({ error: 'Invalid follow_up_date' }, { status: 400 })
@@ -252,9 +253,9 @@ export async function POST(request: NextRequest) {
     }
 
     const oppUpdate: Record<string, unknown> = {}
-    if (outcome === 'sold') {
+    if (outcomeNorm === 'sold') {
       oppUpdate.status = 'won'
-    } else if (outcome === 'said_no') {
+    } else if (outcomeNorm === 'said_no') {
       oppUpdate.status = 'lost'
     }
 
@@ -271,7 +272,7 @@ export async function POST(request: NextRequest) {
       body: `Close appointment feedback: ${outcome.replace(/_/g, ' ')}${notes ? ` — ${notes}` : ''}`,
     })
 
-    if (outcome === 'insurance_follow_up' && follow_up_date) {
+    if (outcomeNorm === 'insurance_follow_up' && follow_up_date) {
       const { data: leadRow } = await admin
         .from('leads')
         .select('id, address_text, homeowner_name, owner_user_id')

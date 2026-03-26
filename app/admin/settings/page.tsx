@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Image from 'next/image'
+import { DEFAULT_CLOSE_OUTCOMES } from '@/lib/close-outcomes'
 
 type SettingsSection = 
   | 'contact-fields' 
@@ -13,6 +14,7 @@ type SettingsSection =
   | 'work-order-workflows'
   | 'canvass-dispositions'
   | 'inspection-outcomes'
+  | 'close-outcomes'
   | 'estimate-settings'
   | 'appointment-settings'
   | 'budgets'
@@ -169,6 +171,21 @@ export default function AdminSettingsPage() {
   ])
   const [editingInspectionOutcome, setEditingInspectionOutcome] = useState<InspectionOutcomeType | null>(null)
   const [showAddInspectionOutcome, setShowAddInspectionOutcome] = useState(false)
+
+  const [closeOutcomes, setCloseOutcomes] = useState<InspectionOutcomeType[]>(
+    DEFAULT_CLOSE_OUTCOMES.map((o, i) => ({
+      id: o.id,
+      label: o.label,
+      description: o.description,
+      color: o.color,
+      icon: o.icon,
+      active: o.active,
+      converts_to_opportunity: o.converts_to_opportunity,
+      sort_order: o.sort_order ?? i,
+    }))
+  )
+  const [editingCloseOutcome, setEditingCloseOutcome] = useState<InspectionOutcomeType | null>(null)
+  const [showAddCloseOutcome, setShowAddCloseOutcome] = useState(false)
   
   // Appointment types
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([
@@ -559,6 +576,10 @@ export default function AdminSettingsPage() {
       if (data.settings?.inspection_outcomes) {
         setInspectionOutcomes(data.settings.inspection_outcomes)
       }
+
+      if (data.settings?.close_outcomes) {
+        setCloseOutcomes(data.settings.close_outcomes)
+      }
       
       // Load appointment types from org settings
       if (data.settings?.appointment_types) {
@@ -745,7 +766,8 @@ export default function AdminSettingsPage() {
         { id: 'work-order-fields', label: 'Work Order Fields' },
         { id: 'work-order-workflows', label: 'Work Order Workflows' },
         { id: 'canvass-dispositions', label: 'Canvass Dispositions' },
-        { id: 'inspection-outcomes', label: 'Inspection Outcomes' },
+        { id: 'inspection-outcomes', label: 'Inspection outcomes' },
+        { id: 'close-outcomes', label: 'Close outcomes' },
       ],
     },
     {
@@ -800,7 +822,7 @@ export default function AdminSettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
-      <div className="flex">
+      <div className="flex min-h-[calc(100vh-64px)]">
         {/* Sidebar */}
         <div className="w-64 bg-white border-r min-h-[calc(100vh-64px)] flex-shrink-0">
           <div className="p-4 border-b">
@@ -834,7 +856,7 @@ export default function AdminSettingsPage() {
         </div>
 
         {/* Main content */}
-        <div className="flex-1 p-8">
+        <div className="flex-1 min-h-0 overflow-y-auto p-8">
           {/* General Settings */}
           {activeSection === 'general' && (
             <div className="max-w-2xl">
@@ -2022,7 +2044,7 @@ export default function AdminSettingsPage() {
             <div className="max-w-3xl">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Inspection Outcomes</h1>
+                  <h1 className="text-2xl font-bold text-gray-900">Inspection outcomes</h1>
                   <p className="text-gray-500 mt-1">Configure the outcomes closers can select after an inspection. Control which outcomes automatically create opportunities.</p>
                 </div>
                 <button
@@ -2177,13 +2199,13 @@ export default function AdminSettingsPage() {
               {/* Edit/Add Modal */}
               {showAddInspectionOutcome && editingInspectionOutcome && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-                    <div className="p-6 border-b">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[min(90vh,720px)] flex flex-col overflow-hidden">
+                    <div className="p-6 border-b flex-shrink-0">
                       <h2 className="text-xl font-bold text-gray-900">
                         {inspectionOutcomes.find(o => o.id === editingInspectionOutcome.id) ? 'Edit Outcome' : 'Add Outcome'}
                       </h2>
                     </div>
-                    <div className="p-6 space-y-4">
+                    <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Label *</label>
                         <input
@@ -2258,7 +2280,7 @@ export default function AdminSettingsPage() {
                         <label htmlFor="outcome-active" className="text-sm text-gray-700">Active</label>
                       </div>
                     </div>
-                    <div className="p-6 border-t flex justify-between">
+                    <div className="p-6 border-t flex justify-between flex-shrink-0 bg-white gap-2">
                       {inspectionOutcomes.find(o => o.id === editingInspectionOutcome.id) && (
                         <button
                           onClick={() => {
@@ -2299,6 +2321,314 @@ export default function AdminSettingsPage() {
                             }
                             setShowAddInspectionOutcome(false)
                             setEditingInspectionOutcome(null)
+                          }}
+                          className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Close outcomes (close appointment feedback) */}
+          {activeSection === 'close-outcomes' && (
+            <div className="max-w-3xl">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Close outcomes</h1>
+                  <p className="text-gray-500 mt-1">
+                    Configure outcomes after a close visit. These power the close feedback form and opportunity labels.
+                    The &quot;Creates opportunity&quot; toggle is for consistency with inspection outcomes; it is not used
+                    for close feedback (the opportunity already exists).
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingCloseOutcome({
+                      id: `close_outcome_${Date.now()}`,
+                      label: '',
+                      description: '',
+                      color: '#3b82f6',
+                      icon: '•',
+                      active: true,
+                      converts_to_opportunity: false,
+                      sort_order: closeOutcomes.length,
+                    })
+                    setShowAddCloseOutcome(true)
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+                >
+                  + Add outcome
+                </button>
+              </div>
+
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex gap-3">
+                  <svg className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-sm text-blue-700">
+                    <p className="font-medium">How it works:</p>
+                    <p className="mt-1">
+                      Closers pick one of these when submitting close appointment feedback. Reserved ids
+                      <code className="mx-1 px-1 bg-blue-100 rounded text-xs">sold</code> and
+                      <code className="mx-1 px-1 bg-blue-100 rounded text-xs">said_no</code> still mark the opportunity
+                      won or lost. <code className="mx-1 px-1 bg-blue-100 rounded text-xs">insurance_follow_up</code>{' '}
+                      schedules a follow-up visit when a date/time is provided.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Icon</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Creates opportunity</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {closeOutcomes.sort((a, b) => a.sort_order - b.sort_order).map((outcome) => (
+                      <tr key={outcome.id} className={!outcome.active ? 'bg-gray-50 opacity-60' : ''}>
+                        <td className="px-4 py-3">
+                          <div
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-bold"
+                            style={{ backgroundColor: outcome.color }}
+                          >
+                            {outcome.icon}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-medium text-gray-900">{outcome.label}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-600">{outcome.description}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCloseOutcomes(prev => prev.map(o =>
+                                o.id === outcome.id ? { ...o, converts_to_opportunity: !o.converts_to_opportunity } : o
+                              ))
+                            }}
+                            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                              outcome.converts_to_opportunity
+                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                          >
+                            {outcome.converts_to_opportunity ? '✓ Yes' : 'No'}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            outcome.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {outcome.active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCloseOutcome(outcome)
+                              setShowAddCloseOutcome(true)
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-3"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCloseOutcomes(prev => prev.map(o =>
+                                o.id === outcome.id ? { ...o, active: !o.active } : o
+                              ))
+                            }}
+                            className="text-gray-500 hover:text-gray-700 text-sm"
+                          >
+                            {outcome.active ? 'Disable' : 'Enable'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      const response = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'close_outcomes',
+                          close_outcomes: closeOutcomes,
+                        }),
+                      })
+
+                      if (!response.ok) {
+                        const data = await response.json()
+                        alert(data.error || 'Failed to save close outcomes')
+                        return
+                      }
+
+                      alert('Close outcomes saved!')
+                    } catch (error) {
+                      console.error('Error saving close outcomes:', error)
+                      alert('Failed to save close outcomes')
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Save close outcomes'}
+                </button>
+              </div>
+
+              {showAddCloseOutcome && editingCloseOutcome && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[min(90vh,720px)] flex flex-col overflow-hidden">
+                    <div className="p-6 border-b flex-shrink-0">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        {closeOutcomes.find(o => o.id === editingCloseOutcome.id) ? 'Edit outcome' : 'Add outcome'}
+                      </h2>
+                    </div>
+                    <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Label *</label>
+                        <input
+                          type="text"
+                          value={editingCloseOutcome.label}
+                          onChange={(e) => setEditingCloseOutcome(prev => prev ? { ...prev, label: e.target.value } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="e.g., Sold, Not home"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                        <input
+                          type="text"
+                          value={editingCloseOutcome.description}
+                          onChange={(e) => setEditingCloseOutcome(prev => prev ? { ...prev, description: e.target.value } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="e.g., Customer signed the contract"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Icon (emoji or symbol)</label>
+                        <input
+                          type="text"
+                          value={editingCloseOutcome.icon}
+                          onChange={(e) => setEditingCloseOutcome(prev => prev ? { ...prev, icon: e.target.value.slice(0, 2) } : null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          placeholder="✓, ✗, →, ?, etc."
+                          maxLength={2}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {[
+                            '#22c55e', '#10b981', '#14b8a6', '#3b82f6', '#8b5cf6',
+                            '#ec4899', '#ef4444', '#f97316', '#f59e0b', '#6b7280'
+                          ].map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setEditingCloseOutcome(prev => prev ? { ...prev, color } : null)}
+                              className={`w-10 h-10 rounded-full border-2 ${
+                                editingCloseOutcome.color === color ? 'border-gray-900 scale-110' : 'border-transparent'
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                        <input
+                          type="checkbox"
+                          id="close-outcome-converts"
+                          checked={editingCloseOutcome.converts_to_opportunity}
+                          onChange={(e) => setEditingCloseOutcome(prev => prev ? { ...prev, converts_to_opportunity: e.target.checked } : null)}
+                          className="w-5 h-5 rounded border-gray-300 text-green-600"
+                        />
+                        <label htmlFor="close-outcome-converts" className="text-sm text-gray-700">
+                          <span className="font-medium">Creates opportunity</span>
+                          <p className="text-gray-500 text-xs mt-0.5">Not used for close feedback; optional for reporting.</p>
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="close-outcome-active"
+                          checked={editingCloseOutcome.active}
+                          onChange={(e) => setEditingCloseOutcome(prev => prev ? { ...prev, active: e.target.checked } : null)}
+                          className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                        />
+                        <label htmlFor="close-outcome-active" className="text-sm text-gray-700">Active</label>
+                      </div>
+                    </div>
+                    <div className="p-6 border-t flex justify-between flex-shrink-0 bg-white gap-2">
+                      {closeOutcomes.find(o => o.id === editingCloseOutcome.id) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Delete this outcome?')) {
+                              setCloseOutcomes(prev => prev.filter(o => o.id !== editingCloseOutcome.id))
+                              setShowAddCloseOutcome(false)
+                              setEditingCloseOutcome(null)
+                            }
+                          }}
+                          className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          Delete
+                        </button>
+                      )}
+                      <div className="flex gap-3 ml-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddCloseOutcome(false)
+                            setEditingCloseOutcome(null)
+                          }}
+                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!editingCloseOutcome.label) {
+                              alert('Please enter a label')
+                              return
+                            }
+                            const exists = closeOutcomes.find(o => o.id === editingCloseOutcome.id)
+                            if (exists) {
+                              setCloseOutcomes(prev => prev.map(o =>
+                                o.id === editingCloseOutcome.id ? editingCloseOutcome : o
+                              ))
+                            } else {
+                              setCloseOutcomes(prev => [...prev, editingCloseOutcome])
+                            }
+                            setShowAddCloseOutcome(false)
+                            setEditingCloseOutcome(null)
                           }}
                           className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                         >

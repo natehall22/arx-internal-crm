@@ -5,19 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import {
-  CLOSE_FEEDBACK_OUTCOME_LABELS,
-  type CloseFeedbackOutcome,
-} from '@/lib/close-feedback-outcomes'
-
-const OUTCOME_ORDER: CloseFeedbackOutcome[] = [
-  'sold',
-  'needs_another_visit',
-  'waiting_on_insurance',
-  'insurance_follow_up',
-  'said_no',
-  'not_home',
-  'rescheduled',
-]
+  DEFAULT_CLOSE_OUTCOMES,
+  sortCloseOutcomes,
+  type CloseOutcomeConfigRow,
+} from '@/lib/close-outcomes'
 
 export default function CloseAppointmentFeedbackPage() {
   const router = useRouter()
@@ -37,10 +28,32 @@ export default function CloseAppointmentFeedbackPage() {
   const [address, setAddress] = useState<string>('—')
   const [scheduledFor, setScheduledFor] = useState<string | null>(null)
 
-  const [outcome, setOutcome] = useState<CloseFeedbackOutcome | null>(null)
+  const [outcome, setOutcome] = useState<string | null>(null)
+  const [outcomeRows, setOutcomeRows] = useState<CloseOutcomeConfigRow[]>(() =>
+    sortCloseOutcomes([...DEFAULT_CLOSE_OUTCOMES], { includeInactive: false })
+  )
   const [notes, setNotes] = useState('')
   const [insuranceFollowUpDate, setInsuranceFollowUpDate] = useState('')
   const [insuranceFollowUpTime, setInsuranceFollowUpTime] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/close-appointments/outcomes', { credentials: 'same-origin' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.outcomes) && data.outcomes.length > 0) {
+          setOutcomeRows(data.outcomes)
+        }
+      } catch {
+        // keep defaults
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const loadContext = useCallback(async () => {
     if (!opportunityId || (!closeId && !scheduledAppointmentId)) {
@@ -76,7 +89,7 @@ export default function CloseAppointmentFeedbackPage() {
       if (data.mode === 'close_row' && data.close_appointment) {
         setScheduledFor(data.close_appointment.scheduled_for)
         if (data.close_appointment.outcome) {
-          setOutcome(data.close_appointment.outcome as CloseFeedbackOutcome)
+          setOutcome(String(data.close_appointment.outcome))
         }
         if (data.close_appointment.notes) {
           setNotes(data.close_appointment.notes)
@@ -103,7 +116,7 @@ export default function CloseAppointmentFeedbackPage() {
       return
     }
 
-    if (outcome === 'insurance_follow_up' && (!insuranceFollowUpDate || !insuranceFollowUpTime)) {
+    if (outcome?.toLowerCase() === 'insurance_follow_up' && (!insuranceFollowUpDate || !insuranceFollowUpTime)) {
       setError('Please select a date and time for the insurance follow-up')
       return
     }
@@ -117,7 +130,7 @@ export default function CloseAppointmentFeedbackPage() {
         outcome,
         notes: notes || undefined,
       }
-      if (outcome === 'insurance_follow_up') {
+      if (outcome?.toLowerCase() === 'insurance_follow_up') {
         body.follow_up_date = `${insuranceFollowUpDate}T${insuranceFollowUpTime}`
       }
       if (closeId) {
@@ -259,14 +272,14 @@ export default function CloseAppointmentFeedbackPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">What was the outcome?</h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-            {OUTCOME_ORDER.map((key) => {
-              const meta = CLOSE_FEEDBACK_OUTCOME_LABELS[key]
-              const selected = outcome === key
+            {outcomeRows.map((row) => {
+              const selected =
+                outcome != null && row.id.toLowerCase() === outcome.toLowerCase()
               return (
                 <button
-                  key={key}
+                  key={row.id}
                   type="button"
-                  onClick={() => setOutcome(key)}
+                  onClick={() => setOutcome(row.id)}
                   className={`p-4 rounded-lg border-2 text-left transition-all min-h-[88px] ${
                     selected ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'
                   }`}
@@ -274,14 +287,25 @@ export default function CloseAppointmentFeedbackPage() {
                   <div className="flex items-start gap-3">
                     <div
                       className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-lg ${
-                        selected ? 'bg-indigo-500 text-white' : 'bg-gray-100'
+                        selected
+                          ? row.color?.startsWith('#')
+                            ? 'text-white'
+                            : 'bg-indigo-500 text-white'
+                          : 'bg-gray-100'
                       }`}
+                      style={
+                        selected && row.color?.startsWith('#')
+                          ? { backgroundColor: row.color }
+                          : !selected && row.color?.startsWith('#')
+                            ? { backgroundColor: `${row.color}33` }
+                            : undefined
+                      }
                     >
-                      {meta.icon}
+                      {row.icon}
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900">{meta.label}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{meta.description}</p>
+                      <p className="font-semibold text-gray-900">{row.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{row.description}</p>
                     </div>
                   </div>
                 </button>
@@ -289,7 +313,7 @@ export default function CloseAppointmentFeedbackPage() {
             })}
           </div>
 
-          {outcome === 'insurance_follow_up' && (
+          {outcome?.toLowerCase() === 'insurance_follow_up' && (
             <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
               <h3 className="font-medium text-purple-900 mb-2">Schedule insurance follow-up</h3>
               <p className="text-sm text-purple-800 mb-3">
@@ -337,7 +361,7 @@ export default function CloseAppointmentFeedbackPage() {
             disabled={
               !outcome ||
               submitting ||
-              (outcome === 'insurance_follow_up' &&
+              (outcome.toLowerCase() === 'insurance_follow_up' &&
                 (!insuranceFollowUpDate || !insuranceFollowUpTime))
             }
             className="w-full min-h-[48px] py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
