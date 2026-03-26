@@ -5,7 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { getReportScope, can, getRoleDisplayName } from '@/lib/permissions'
-import type { UserRole, User, Team, Region, InspectionOutcome } from '@/lib/types/database'
+import type { UserRole, User, Team, Region } from '@/lib/types/database'
 
 type ReportMetrics = {
   doorsKnocked: number

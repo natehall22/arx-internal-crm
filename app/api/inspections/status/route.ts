@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
-import type { InspectionOutcome } from '@/lib/types/database'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { sendSetterEmail } from '@/lib/setter-email'
 import {
@@ -137,7 +136,7 @@ export async function POST(request: NextRequest) {
     } = body as {
       appointment_id?: string
       lead_id?: string
-      outcome: InspectionOutcome
+      outcome: string
       notes?: string
       setter_feedback?: string
       schedule_follow_up?: boolean
@@ -343,6 +342,21 @@ export async function POST(request: NextRequest) {
       (o: any) => String(o.id || '').toLowerCase() === String(outcome || '').toLowerCase()
     )
     const shouldCreateOpportunity = Boolean(outcomeConfig?.converts_to_opportunity)
+
+    const staticOutcomeLabels: Record<string, string> = {
+      sale: 'Sale!',
+      said_no: 'Said No',
+      not_home: 'Not Home',
+      needs_repair: 'Needs Repair',
+      rescheduled: 'Rescheduled',
+      no_problems_found: 'No Problems Found',
+      moving_to_close: 'Moving to Close',
+      insurance_follow_up: 'Insurance Follow Up',
+    }
+    const outcomeDisplayLabel =
+      typeof outcomeConfig?.label === 'string' && outcomeConfig.label.trim()
+        ? outcomeConfig.label.trim()
+        : staticOutcomeLabels[String(outcome)] ?? String(outcome).replace(/_/g, ' ')
     
     console.log('Outcome config:', outcomeConfig)
     console.log('Should create opportunity:', shouldCreateOpportunity)
@@ -517,17 +531,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Create notifications for setter, setter's manager, and closer's manager
-    const outcomeLabels: Record<InspectionOutcome, string> = {
-      sale: 'Sale!',
-      said_no: 'Said No',
-      not_home: 'Not Home',
-      needs_repair: 'Needs Repair',
-      rescheduled: 'Rescheduled',
-      no_problems_found: 'No Problems Found',
-      moving_to_close: 'Moving to Close',
-      insurance_follow_up: 'Insurance Follow Up',
-    }
-
     const customerName = lead?.homeowner_name || 'Customer'
     const customerAddress = lead?.address_text || appointment?.address_text || ''
     
@@ -537,7 +540,7 @@ export async function POST(request: NextRequest) {
     if (customerAddress) {
       notificationParts.push(`Address: ${customerAddress}`)
     }
-    notificationParts.push(`Outcome: ${outcomeLabels[outcome]}`)
+    notificationParts.push(`Outcome: ${outcomeDisplayLabel}`)
     notificationParts.push(`Closer: ${profile.full_name || 'Rep'}`)
     
     // Include all notes from the closer
@@ -576,7 +579,7 @@ export async function POST(request: NextRequest) {
         recipient_user_id: setterUserId,
         actor_user_id: user.id,
         type: 'inspection_outcome',
-        title: `Inspection Result: ${outcomeLabels[outcome]} - ${customerName}`,
+        title: `Inspection Result: ${outcomeDisplayLabel} - ${customerName}`,
       })
       
       const { error: notificationError } = await supabase
@@ -586,7 +589,7 @@ export async function POST(request: NextRequest) {
           recipient_user_id: setterUserId,
           actor_user_id: user.id,
           type: 'inspection_outcome',
-          title: `Inspection Result: ${outcomeLabels[outcome]} - ${customerName}`,
+          title: `Inspection Result: ${outcomeDisplayLabel} - ${customerName}`,
           body: notificationBody,
           data: notificationData,
         })
@@ -617,7 +620,7 @@ export async function POST(request: NextRequest) {
           await transporter.sendMail({
             from: 'info@arxroofing.com',
             to: setterUser.email,
-            subject: `Inspection update: ${outcomeLabels[outcome]} - ${customerName}`,
+            subject: `Inspection update: ${outcomeDisplayLabel} - ${customerName}`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
                 <h2 style="color: #111827; margin-bottom: 16px;">Inspection Status Update</h2>
@@ -626,7 +629,7 @@ export async function POST(request: NextRequest) {
                 <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
                   <tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Customer:</td><td style="padding: 8px 0; color: #111827;">${customerName}</td></tr>
                   <tr><td style="padding: 8px 0; color: #6B7280;">Address:</td><td style="padding: 8px 0; color: #111827;">${customerAddress || 'N/A'}</td></tr>
-                  <tr><td style="padding: 8px 0; color: #6B7280;">Outcome:</td><td style="padding: 8px 0; color: #111827; font-weight: 600;">${outcomeLabels[outcome]}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #6B7280;">Outcome:</td><td style="padding: 8px 0; color: #111827; font-weight: 600;">${outcomeDisplayLabel}</td></tr>
                   <tr><td style="padding: 8px 0; color: #6B7280;">Closer:</td><td style="padding: 8px 0; color: #111827;">${profile.full_name || 'Rep'}</td></tr>
                   <tr><td style="padding: 8px 0; color: #6B7280;">Submitted:</td><td style="padding: 8px 0; color: #111827;">${submittedAt} ET</td></tr>
                 </table>
@@ -673,7 +676,7 @@ export async function POST(request: NextRequest) {
             recipient_user_id: manager.id,
             actor_user_id: user.id,
             type: 'inspection_outcome',
-            title: `Team Inspection Result: ${outcomeLabels[outcome]}`,
+            title: `Team Inspection Result: ${outcomeDisplayLabel}`,
             body: `${customerName} - Setter: ${setterUserId ? 'Team member' : 'N/A'}, Closer: ${profile.full_name || 'Rep'}`,
             data: notificationData,
           })
@@ -703,7 +706,7 @@ export async function POST(request: NextRequest) {
           recipient_user_id: manager.id,
           actor_user_id: user.id,
           type: 'inspection_outcome',
-          title: `Team Inspection Result: ${outcomeLabels[outcome]}`,
+          title: `Team Inspection Result: ${outcomeDisplayLabel}`,
           body: `${customerName} - Closer: ${profile.full_name || 'Rep'}`,
           data: notificationData,
         })

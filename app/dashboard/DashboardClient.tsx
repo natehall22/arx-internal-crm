@@ -6,7 +6,6 @@ import InspectionStatusCard from '@/components/InspectionStatusCard'
 import CommissionWidget from '@/components/CommissionWidget'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
-import type { InspectionOutcome } from '@/lib/types/database'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -228,7 +227,7 @@ export default function DashboardClient({
   }
 
   const handleStatusComplete = async (data: {
-    outcome: InspectionOutcome
+    outcome: string
     notes: string
     setterFeedback: string
     scheduleFollowUp?: boolean

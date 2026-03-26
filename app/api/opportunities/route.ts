@@ -315,12 +315,17 @@ export async function GET(request: NextRequest) {
         opp.inspection_date = merged.inspection_date
       })
       
-      // Filter by inspection outcome if specified
+      // Filter by inspection outcome if specified (match merged display outcome; case-insensitive on id)
       if (inspectionOutcome) {
         if (inspectionOutcome === 'none') {
           enrichedOpportunities = enrichedOpportunities.filter((opp: any) => !opp.inspection_outcome)
         } else {
-          enrichedOpportunities = enrichedOpportunities.filter((opp: any) => opp.inspection_outcome === inspectionOutcome)
+          const want = inspectionOutcome.toLowerCase()
+          enrichedOpportunities = enrichedOpportunities.filter(
+            (opp: any) =>
+              opp.inspection_outcome &&
+              String(opp.inspection_outcome).toLowerCase() === want
+          )
         }
       }
       

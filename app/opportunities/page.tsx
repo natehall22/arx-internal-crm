@@ -1,8 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import {
+  DEFAULT_INSPECTION_OUTCOMES,
+  sortInspectionOutcomes,
+  type InspectionOutcomeConfigRow,
+} from '@/lib/inspection-outcomes'
 
 type Opportunity = {
   id: string
@@ -33,10 +39,29 @@ const inspectionOutcomeLabels: Record<string, { label: string; color: string }> 
   failed_credit: { label: 'Failed Credit', color: 'bg-rose-100 text-rose-800' },
 }
 
-function getInspectionOutcomeDisplay(outcome: string | null | undefined) {
+type OutcomeBadge = { label: string; color: string; style?: CSSProperties }
+
+function getInspectionOutcomeDisplay(
+  outcome: string | null | undefined,
+  lookup: Map<string, InspectionOutcomeConfigRow>
+): OutcomeBadge | null {
   if (!outcome) return null
+  const row = lookup.get(outcome) || lookup.get(outcome.toLowerCase())
+  if (row) {
+    if (row.color?.startsWith('#')) {
+      return {
+        label: row.label,
+        color: '',
+        style: {
+          backgroundColor: `${row.color}26`,
+          color: '#111827',
+        },
+      }
+    }
+    return { label: row.label, color: 'bg-gray-100 text-gray-800' }
+  }
   const known = inspectionOutcomeLabels[outcome]
-  if (known) return known
+  if (known) return { label: known.label, color: known.color }
   const words = outcome.replace(/_/g, ' ')
   const label = words.replace(/\b\w/g, (c) => c.toUpperCase())
   return { label, color: 'bg-gray-100 text-gray-800' }
@@ -52,6 +77,39 @@ export default function OpportunitiesPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterInspectionOutcome, setFilterInspectionOutcome] = useState('')
   const [filterProjectType, setFilterProjectType] = useState('')
+  const [inspectionOutcomeRows, setInspectionOutcomeRows] = useState<InspectionOutcomeConfigRow[]>(() =>
+    sortInspectionOutcomes([...DEFAULT_INSPECTION_OUTCOMES], { includeInactive: true })
+  )
+
+  const outcomeLookup = useMemo(() => {
+    const m = new Map<string, InspectionOutcomeConfigRow>()
+    for (const r of inspectionOutcomeRows) {
+      m.set(r.id, r)
+      m.set(r.id.toLowerCase(), r)
+    }
+    return m
+  }, [inspectionOutcomeRows])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/inspections/outcomes?include_inactive=1', {
+          credentials: 'same-origin',
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.outcomes)) {
+          setInspectionOutcomeRows(data.outcomes)
+        }
+      } catch {
+        // keep empty lookup; labels fall back to inspectionOutcomeLabels / title case
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     loadOpportunities()
@@ -168,14 +226,19 @@ export default function OpportunitiesPage() {
               >
                 <option value="">All Results</option>
                 <option value="none">No Inspection Yet</option>
-                <option value="sale">Sale</option>
-                <option value="moving_to_close">Moving to Close</option>
-                <option value="insurance_follow_up">Insurance Follow Up</option>
-                <option value="not_home">Not Home</option>
-                <option value="said_no">Said No</option>
-                <option value="needs_repair">Needs Repair</option>
-                <option value="rescheduled">Rescheduled</option>
-                <option value="no_problems_found">No Problems Found</option>
+                {filterInspectionOutcome &&
+                  filterInspectionOutcome !== 'none' &&
+                  !inspectionOutcomeRows.some((o) => o.id === filterInspectionOutcome) && (
+                    <option value={filterInspectionOutcome}>
+                      {filterInspectionOutcome.replace(/_/g, ' ')} (legacy)
+                    </option>
+                  )}
+                {inspectionOutcomeRows.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                    {o.active === false ? ' — inactive' : ''}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -220,7 +283,10 @@ export default function OpportunitiesPage() {
               <div className="md:hidden divide-y divide-gray-200">
                 {filteredOpportunities.length > 0 ? (
                   filteredOpportunities.map((opportunity) => {
-                    const outcomeInfo = getInspectionOutcomeDisplay(opportunity.inspection_outcome)
+                    const outcomeInfo = getInspectionOutcomeDisplay(
+                      opportunity.inspection_outcome,
+                      outcomeLookup
+                    )
                     return (
                       <div key={opportunity.id} className="p-4">
                         <div className="text-sm font-semibold text-gray-900">
@@ -237,7 +303,12 @@ export default function OpportunitiesPage() {
                             {opportunity.status.replace(/_/g, ' ')}
                           </span>
                           {outcomeInfo ? (
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${outcomeInfo.color}`}>
+                            <span
+                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                outcomeInfo.style ? '' : outcomeInfo.color
+                              }`}
+                              style={outcomeInfo.style}
+                            >
                               {outcomeInfo.label}
                             </span>
                           ) : (
@@ -296,7 +367,10 @@ export default function OpportunitiesPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredOpportunities.length > 0 ? (
                     filteredOpportunities.map((opportunity) => {
-                      const outcomeInfo = getInspectionOutcomeDisplay(opportunity.inspection_outcome)
+                      const outcomeInfo = getInspectionOutcomeDisplay(
+                        opportunity.inspection_outcome,
+                        outcomeLookup
+                      )
                       return (
                         <tr key={opportunity.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -325,7 +399,12 @@ export default function OpportunitiesPage() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             {outcomeInfo ? (
-                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${outcomeInfo.color}`}>
+                              <span
+                                className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                  outcomeInfo.style ? '' : outcomeInfo.color
+                                }`}
+                                style={outcomeInfo.style}
+                              >
                                 {outcomeInfo.label}
                               </span>
                             ) : (
