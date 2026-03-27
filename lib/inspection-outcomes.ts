@@ -107,3 +107,28 @@ export function sortInspectionOutcomes(
 export function sortActiveOutcomes(rows: InspectionOutcomeConfigRow[]): InspectionOutcomeConfigRow[] {
   return sortInspectionOutcomes(rows, { includeInactive: false })
 }
+
+/** Normalize outcome ids for comparisons (admin may use hyphens or different casing). */
+export function normalizeInspectionOutcomeId(id: string | null | undefined): string {
+  return String(id || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_')
+}
+
+/** True when id matches the built-in moving-to-close outcome after normalization. */
+export function isMovingToCloseOutcomeId(id: string | null | undefined): boolean {
+  return normalizeInspectionOutcomeId(id) === 'moving_to_close'
+}
+
+/**
+ * Whether this outcome should show the close scheduling UI (team round-robin or individual closer).
+ * Handles customized org outcomes that keep the default label but a generated id (e.g. outcome_…).
+ */
+export function inspectionOutcomeRequiresCloseSchedule(
+  o: Pick<InspectionOutcomeConfigRow, 'id' | 'label'>
+): boolean {
+  if (isMovingToCloseOutcomeId(o.id)) return true
+  const label = (o.label || '').trim().toLowerCase()
+  return label === 'moving to close'
+}

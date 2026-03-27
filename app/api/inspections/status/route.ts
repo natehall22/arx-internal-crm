@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { sendSetterEmail } from '@/lib/setter-email'
 import {
@@ -16,6 +17,70 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
+  const { data: tokenData } = await adminClient
+    .from('user_google_tokens')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
+  if (!tokenData) return null
+
+  const expiresAt = new Date(tokenData.expires_at)
+  const now = new Date()
+
+  if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+    try {
+      const refreshed = await refreshAccessToken(tokenData.refresh_token)
+      await adminClient
+        .from('user_google_tokens')
+        .update({
+          access_token: refreshed.access_token,
+          expires_at: refreshed.expires_at.toISOString(),
+        })
+        .eq('user_id', userId)
+      return refreshed.access_token
+    } catch {
+      return null
+    }
+  }
+
+  return tokenData.access_token
+}
+
+async function getTimezoneForUser(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string> {
+  try {
+    const { data: userProfile } = await adminClient
+      .from('users')
+      .select('team_id')
+      .eq('id', userId)
+      .single()
+
+    if (userProfile?.team_id) {
+      const { data: team } = await adminClient
+        .from('teams')
+        .select('timezone')
+        .eq('id', userProfile.team_id)
+        .single()
+
+      if (team?.timezone) return team.timezone
+    }
+  } catch {
+    /* use default */
+  }
+  return 'America/New_York'
+}
+
+/** Parse client follow-up datetime (YYYY-MM-DDTHH:MM or with seconds) for Google Calendar local dateTime. */
+function localDateTimeFromFollowUpInput(followUp: string): string | null {
+  const s = String(followUp).trim()
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})T(\d{1,2}):(\d{2})(?::\d{2})?/)
+  if (!m) return null
+  const hh = m[2].padStart(2, '0')
+  const mm = m[3].padStart(2, '0')
+  return `${m[1]}T${hh}:${mm}`
 }
 
 async function upsertPendingInspectionPrompt(
@@ -791,6 +856,79 @@ export async function POST(request: NextRequest) {
           bufferAfterMinutes: bufferAfter,
           orgFeedbackBufferMinutes: orgScheduling.inspection_feedback_buffer_minutes,
         })
+
+        // Push follow-up to the submitting closer's Google Calendar (same closer as closer_user_id).
+        const closerCalendarId = user.id
+        const accessToken = await getValidAccessToken(supabase, closerCalendarId)
+        if (accessToken) {
+          const localDateTimeStr = localDateTimeFromFollowUpInput(follow_up_date)
+          if (localDateTimeStr) {
+            try {
+              const timezone = await getTimezoneForUser(supabase, closerCalendarId)
+              const startDateTime = `${localDateTimeStr}:00`
+              const [datePart, timePart] = localDateTimeStr.split('T')
+              const timeOnly = timePart?.split(':') || ['00', '00']
+              let endHour = parseInt(timeOnly[0], 10)
+              let endMin = parseInt(timeOnly[1], 10) + dur
+              while (endMin >= 60) {
+                endMin -= 60
+                endHour += 1
+              }
+              const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
+
+              let setterInviteEmail: string | null = null
+              const setterForCalendar = newAppointment.canvasser_user_id
+              if (setterForCalendar && setterForCalendar !== closerCalendarId) {
+                const { data: setterRow } = await supabase
+                  .from('users')
+                  .select('email')
+                  .eq('id', setterForCalendar)
+                  .maybeSingle()
+                if (setterRow?.email && String(setterRow.email).includes('@')) {
+                  setterInviteEmail = setterRow.email
+                }
+              }
+
+              const summaryPrefix =
+                followUpType === 'insurance_follow_up' ? 'Insurance follow-up' : 'Follow-up'
+              const event: CalendarEvent = {
+                summary: `${summaryPrefix}: ${customerName}`,
+                description: [
+                  `Customer: ${customerName}`,
+                  lead?.phone ? `Phone: ${lead.phone}` : '',
+                  customerAddress ? `Address: ${customerAddress}` : '',
+                  '',
+                  lead?.canvass_notes ? `Canvass notes:\n${lead.canvass_notes}` : '',
+                  notes ? `Inspection notes:\n${notes}` : '',
+                ]
+                  .filter((line) => line !== undefined && line !== '')
+                  .join('\n')
+                  .trim(),
+                location: customerAddress || undefined,
+                start: { dateTime: startDateTime, timeZone: timezone },
+                end: { dateTime: endDateTime, timeZone: timezone },
+                attendees: setterInviteEmail ? [{ email: setterInviteEmail }] : undefined,
+              }
+
+              const createdEvent = await createCalendarEvent(
+                accessToken,
+                event,
+                'primary',
+                setterInviteEmail ? 'all' : 'none'
+              )
+              const googleEventId = createdEvent.id || null
+              if (googleEventId) {
+                await supabase
+                  .from('scheduled_appointments')
+                  .update({ google_event_id: googleEventId })
+                  .eq('id', newAppointment.id)
+                followUpAppointment = { ...newAppointment, google_event_id: googleEventId }
+              }
+            } catch (calendarErr) {
+              console.error('Follow-up Google Calendar sync error:', calendarErr)
+            }
+          }
+        }
 
         const setterUid = appointment?.canvasser_user_id || lead?.owner_user_id
         if (setterUid && setterUid !== user.id) {

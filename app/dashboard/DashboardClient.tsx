@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
+import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import CommissionWidget from '@/components/CommissionWidget'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
@@ -232,6 +233,8 @@ export default function DashboardClient({
     setterFeedback: string
     scheduleFollowUp?: boolean
     followUpDate?: string
+    requiresCloseSchedule?: boolean
+    closeSchedule?: CloseScheduleConfirm | null
   }) => {
     try {
       // Use the appointment ID from the scheduled_appointments object
@@ -251,19 +254,50 @@ export default function DashboardClient({
         }),
       })
 
-      if (res.ok) {
-        const completedPromptId = activePrompt?.id
-        const remainingPrompts = promptQueue.filter((p) => p.id !== completedPromptId)
-        setPromptQueue(remainingPrompts)
-        // Briefly show completion state, then advance/dismiss card.
-        setTimeout(() => {
-          setActivePrompt(remainingPrompts.length > 0 ? remainingPrompts[0] : null)
-        }, 700)
-      } else {
-        // API returned an error - throw to show error in the card
+      if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.error || 'Failed to save status')
       }
+
+      // Moving to Close: book the close slot (team RR or individual closer) after outcome is saved
+      if (
+        data.requiresCloseSchedule &&
+        data.closeSchedule &&
+        appointmentId
+      ) {
+        const body: Record<string, unknown> = {
+          original_appointment_id: appointmentId,
+          scheduled_for: data.closeSchedule.scheduledLocal,
+          notes: data.notes || 'Close appointment scheduled from dashboard inspection feedback',
+          use_round_robin: data.closeSchedule.useRoundRobin,
+        }
+        if (data.closeSchedule.useRoundRobin && data.closeSchedule.teamId) {
+          body.team_id = data.closeSchedule.teamId
+        }
+        if (!data.closeSchedule.useRoundRobin && data.closeSchedule.closerUserId) {
+          body.closer_user_id = data.closeSchedule.closerUserId
+        }
+
+        const scheduleRes = await fetch('/api/inspections/schedule-close', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+
+        if (!scheduleRes.ok) {
+          const errData = await scheduleRes.json().catch(() => ({}))
+          throw new Error(
+            typeof errData.error === 'string' ? errData.error : 'Failed to schedule close appointment'
+          )
+        }
+      }
+
+      const completedPromptId = activePrompt?.id
+      const remainingPrompts = promptQueue.filter((p) => p.id !== completedPromptId)
+      setPromptQueue(remainingPrompts)
+      setTimeout(() => {
+        setActivePrompt(remainingPrompts.length > 0 ? remainingPrompts[0] : null)
+      }, 700)
     } catch (error) {
       console.error('Failed to submit status:', error)
       throw error // Re-throw so InspectionStatusCard can show the error

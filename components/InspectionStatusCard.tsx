@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ScheduledAppointment } from '@/lib/types/database'
 import {
   DEFAULT_INSPECTION_OUTCOMES,
+  inspectionOutcomeRequiresCloseSchedule,
   sortActiveOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
@@ -11,6 +13,7 @@ import {
   FEEDBACK_PROMPT_DISPLAY_TIMEZONE,
   calendarDateYmdInTimezone,
 } from '@/lib/scheduling-prompt'
+import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 
 type AppointmentWithDetails = ScheduledAppointment & {
   lead?: { homeowner_name: string | null; address_text: string | null } | null
@@ -39,7 +42,8 @@ function toUiOptions(rows: InspectionOutcomeConfigRow[]): OutcomeOption[] {
 /** Built-in ids that keep special UI (reschedule redirect, insurance slot, optional follow-up). */
 const RESCHEDULE_OUTCOME_ID = 'rescheduled'
 const INSURANCE_OUTCOME_ID = 'insurance_follow_up'
-const FOLLOW_UP_OPTION_IDS = new Set(['moving_to_close', 'not_home'])
+/** Generic follow-up (Not Home). Moving to Close uses CloseScheduleModal + schedule-close API. */
+const FOLLOW_UP_OPTION_IDS = new Set(['not_home'])
 
 interface InspectionStatusCardProps {
   appointment: AppointmentWithDetails
@@ -51,6 +55,10 @@ interface InspectionStatusCardProps {
     setterFeedback: string
     scheduleFollowUp?: boolean
     followUpDate?: string
+    /** True when outcome is “Moving to Close” (any id/label variant orgs use). */
+    requiresCloseSchedule?: boolean
+    /** Present when requiresCloseSchedule — triggers /api/inspections/schedule-close after status. */
+    closeSchedule?: CloseScheduleConfirm | null
   }) => Promise<void>
   onReschedule: (appointmentId: string) => void
   onFillLater?: () => Promise<void> | void
@@ -76,6 +84,18 @@ export default function InspectionStatusCard({
   const [scheduleFollowUp, setScheduleFollowUp] = useState(false)
   const [followUpDate, setFollowUpDate] = useState('')
   const [followUpTime, setFollowUpTime] = useState('')
+  const [showCloseModal, setShowCloseModal] = useState(false)
+  const [closeSchedulePayload, setCloseSchedulePayload] = useState<CloseScheduleConfirm | null>(null)
+  const [schedulingUsers, setSchedulingUsers] = useState<
+    Array<{ id: string; full_name: string; has_calendar?: boolean }>
+  >([])
+  const [schedulingTeams, setSchedulingTeams] = useState<Array<{ id: string; name: string }>>([])
+  const [closeDurationMinutes, setCloseDurationMinutes] = useState(60)
+  const [schedulePortalReady, setSchedulePortalReady] = useState(false)
+
+  useEffect(() => {
+    setSchedulePortalReady(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -96,7 +116,54 @@ export default function InspectionStatusCard({
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/canvass/data')
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        if (Array.isArray(data.users)) {
+          setSchedulingUsers(
+            data.users.map((u: { id: string; full_name: string; has_calendar?: boolean }) => ({
+              id: u.id,
+              full_name: u.full_name,
+              has_calendar: u.has_calendar,
+            }))
+          )
+        }
+        if (Array.isArray(data.teams)) {
+          setSchedulingTeams(data.teams.map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })))
+        }
+        if (typeof data.closeDurationMinutes === 'number' && data.closeDurationMinutes > 0) {
+          setCloseDurationMinutes(data.closeDurationMinutes)
+        }
+      } catch {
+        /* non-fatal */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const selectedOutcomeOption = selectedOutcome
+    ? outcomeOptions.find((o) => o.id === selectedOutcome)
+    : undefined
+  const requiresCloseScheduleForSelected = selectedOutcomeOption
+    ? inspectionOutcomeRequiresCloseSchedule(selectedOutcomeOption)
+    : false
+
+  useEffect(() => {
+    if (!requiresCloseScheduleForSelected) {
+      setCloseSchedulePayload(null)
+      setShowCloseModal(false)
+    }
+  }, [requiresCloseScheduleForSelected])
+
   const showInsuranceSchedule = selectedOutcome === INSURANCE_OUTCOME_ID
+  const showMovingToCloseSchedule = requiresCloseScheduleForSelected
   const showFollowUpOption =
     !!selectedOutcome &&
     FOLLOW_UP_OPTION_IDS.has(selectedOutcome) &&
@@ -123,6 +190,13 @@ export default function InspectionStatusCard({
       }
     }
 
+    if (requiresCloseScheduleForSelected) {
+      if (!closeSchedulePayload) {
+        setError('Open “Schedule close” and pick a team or closer and time slot.')
+        return
+      }
+    }
+
     setSaving(true)
     setError(null)
 
@@ -130,24 +204,26 @@ export default function InspectionStatusCard({
       const followUpDateTime =
         selectedOutcome === INSURANCE_OUTCOME_ID
           ? `${followUpDate}T${followUpTime}`
-          : scheduleFollowUp && followUpDate && followUpTime
+          : selectedOutcome === 'not_home' && scheduleFollowUp && followUpDate && followUpTime
             ? `${followUpDate}T${followUpTime}`
             : undefined
 
       await onComplete({
-        outcome: selectedOutcome,
+        outcome: selectedOutcome!,
         notes,
         setterFeedback,
         scheduleFollowUp:
           selectedOutcome === INSURANCE_OUTCOME_ID
             ? true
-            : scheduleFollowUp && !!followUpDateTime,
+            : selectedOutcome === 'not_home' && scheduleFollowUp && !!followUpDateTime,
         followUpDate: followUpDateTime,
+        requiresCloseSchedule: requiresCloseScheduleForSelected,
+        closeSchedule: requiresCloseScheduleForSelected ? closeSchedulePayload : undefined,
       })
 
       setCompleted(true)
     } catch (err) {
-      setError('Failed to save status update')
+      setError(err instanceof Error ? err.message : 'Failed to save status update')
     } finally {
       setSaving(false)
     }
@@ -239,7 +315,13 @@ export default function InspectionStatusCard({
                 <button
                   key={option.id}
                   type="button"
-                  onClick={() => setSelectedOutcome(option.id)}
+                  onClick={() => {
+                    setSelectedOutcome(option.id)
+                    if (inspectionOutcomeRequiresCloseSchedule(option)) {
+                      setCloseSchedulePayload(null)
+                      setShowCloseModal(true)
+                    }
+                  }}
                   className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${
                     selectedOutcome === option.id
                       ? 'border-indigo-500 bg-indigo-50'
@@ -267,6 +349,41 @@ export default function InspectionStatusCard({
               ))}
             </div>
           </div>
+
+          {/* Moving to Close — same scheduling as /appointments/feedback */}
+          {showMovingToCloseSchedule && (
+            <div className="px-6 py-4 border-t bg-green-50/80">
+              <h3 className="text-sm font-semibold text-green-900 mb-1">Schedule close appointment</h3>
+              <p className="text-xs text-green-800 mb-3">
+                Choose a team (round-robin) or a specific closer, then pick a time—same as canvass scheduling.
+              </p>
+              {closeSchedulePayload ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm text-green-900">
+                  <span className="font-medium">Ready:</span>
+                  <span>
+                    {closeSchedulePayload.useRoundRobin
+                      ? `Team round-robin · ${closeSchedulePayload.scheduledLocal.replace('T', ' ')}`
+                      : `Closer assigned · ${closeSchedulePayload.scheduledLocal.replace('T', ' ')}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCloseModal(true)}
+                    className="text-indigo-600 font-medium hover:underline"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowCloseModal(true)}
+                  className="w-full py-3 px-4 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700"
+                >
+                  Schedule close (team or closer)
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Insurance follow-up — required date & time */}
           {showInsuranceSchedule && (
@@ -337,7 +454,7 @@ export default function InspectionStatusCard({
             </div>
           )}
 
-          {/* Follow-up Scheduling Option */}
+          {/* Follow-up Scheduling Option (e.g. Not Home — generic follow-up on status API) */}
           {showFollowUpOption && (
             <div className="px-6 py-4 border-t">
               <button
@@ -349,7 +466,7 @@ export default function InspectionStatusCard({
               >
                 <div className="flex items-center gap-3">
                   <span className="text-xl">📅</span>
-                  <span className="font-medium text-gray-900">Schedule Follow-up</span>
+                  <span className="font-medium text-gray-900">Schedule follow-up visit</span>
                 </div>
                 <div className={`w-12 h-7 rounded-full transition-colors ${scheduleFollowUp ? 'bg-indigo-500' : 'bg-gray-300'}`}>
                   <div className={`w-5 h-5 bg-white rounded-full mt-1 transition-transform ${scheduleFollowUp ? 'translate-x-6' : 'translate-x-1'}`} />
@@ -382,7 +499,7 @@ export default function InspectionStatusCard({
                     />
                   </div>
                   <p className="text-xs text-gray-500">
-                    This will add a follow-up appointment to your calendar
+                    Creates a follow-up on your calendar via the status API (not the close round-robin flow).
                   </p>
                 </div>
               )}
@@ -427,6 +544,22 @@ export default function InspectionStatusCard({
           </p>
         </div>
       </div>
+
+      {schedulePortalReady &&
+        createPortal(
+          <CloseScheduleModal
+            open={showCloseModal}
+            onClose={() => setShowCloseModal(false)}
+            onConfirm={(params) => {
+              setCloseSchedulePayload(params)
+              setShowCloseModal(false)
+            }}
+            closeDurationMinutes={closeDurationMinutes}
+            users={schedulingUsers}
+            teams={schedulingTeams}
+          />,
+          document.body
+        )}
     </div>
   )
 }
