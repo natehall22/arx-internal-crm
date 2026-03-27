@@ -1383,14 +1383,14 @@ export default function AdminSettingsPage() {
 
               {/* Edit/Add Modal */}
               {showAddAppointmentType && editingAppointmentType && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-                    <div className="p-6 border-b">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto bg-black/50">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[min(90vh,calc(100dvh-2rem))] flex flex-col overflow-hidden">
+                    <div className="p-6 border-b flex-shrink-0">
                       <h2 className="text-xl font-bold text-gray-900">
                         {appointmentTypes.find(a => a.id === editingAppointmentType.id) ? 'Edit Appointment Type' : 'Add Appointment Type'}
                       </h2>
                     </div>
-                    <div className="p-6 space-y-4">
+                    <div className="p-6 space-y-4 overflow-y-auto min-h-0 flex-1">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Name *</label>
                         <input
@@ -1483,7 +1483,7 @@ export default function AdminSettingsPage() {
                         <label htmlFor="apt-active" className="text-sm text-gray-700">Active</label>
                       </div>
                     </div>
-                    <div className="p-6 border-t flex justify-between">
+                    <div className="p-6 border-t flex justify-between flex-shrink-0 bg-white">
                       {appointmentTypes.find(a => a.id === editingAppointmentType.id) && (
                         <button
                           onClick={() => {

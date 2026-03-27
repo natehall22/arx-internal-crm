@@ -10,6 +10,7 @@ import {
   getInspectionBufferAfterFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
+import { formatDateTimeInTimezone } from '@/lib/timezone'
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -231,7 +232,7 @@ export async function POST(request: NextRequest) {
         buffer_after_minutes: bufferAfter,
         status: 'scheduled',
         address_text: originalAppointment.address_text,
-        notes: notes || `Rescheduled from ${new Date(originalAppointment.scheduled_for).toLocaleDateString()}`,
+        notes: notes || `Rescheduled from ${formatDateTimeInTimezone(originalAppointment.scheduled_for)} ET`,
       })
       .select()
       .single()
@@ -397,7 +398,7 @@ export async function POST(request: NextRequest) {
       opportunity_id: originalAppointment.opportunity_id,
     }
     
-    const rescheduleMessage = `Appointment with ${originalAppointment.leads?.homeowner_name || 'customer'} has been rescheduled to ${newScheduledDate.toLocaleDateString()} at ${newScheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    const rescheduleMessage = `Appointment with ${originalAppointment.leads?.homeowner_name || 'customer'} has been rescheduled to ${formatDateTimeInTimezone(scheduledForISO)} ET`
     
     if (originalAppointment.canvasser_user_id) {
       await supabase
@@ -520,7 +521,7 @@ export async function POST(request: NextRequest) {
         lead_id: originalAppointment.lead_id,
         user_id: userId,
         type: 'status_change',
-        body: `Appointment rescheduled to ${new Date(new_scheduled_for).toLocaleDateString()}`,
+        body: `Appointment rescheduled to ${formatDateTimeInTimezone(scheduledForISO)} ET`,
       })
 
     return NextResponse.json({ 

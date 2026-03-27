@@ -531,13 +531,13 @@ export default function SchedulingPage() {
 
         {/* Appointment Type Modal */}
         {showTypeModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto bg-black/50">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[min(90vh,calc(100dvh-2rem))] flex flex-col overflow-hidden">
+              <h3 className="text-lg font-semibold text-gray-900 px-6 pt-6 pb-2 flex-shrink-0">
                 {editingType ? 'Edit Appointment Type' : 'New Appointment Type'}
               </h3>
 
-              <div className="space-y-4">
+              <div className="space-y-4 px-6 overflow-y-auto min-h-0 flex-1 py-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                   <input
@@ -655,7 +655,7 @@ export default function SchedulingPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="flex justify-end gap-3 px-6 pb-6 pt-4 border-t border-gray-100 flex-shrink-0 bg-white">
                 <button
                   onClick={() => {
                     setShowTypeModal(false)

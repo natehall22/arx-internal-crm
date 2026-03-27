@@ -1,4 +1,5 @@
 import { resolveCanReassignAppointment } from '@/lib/permissions'
+import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -308,7 +309,7 @@ export async function PATCH(
         user_id: new_closer_id,
         type: 'new_appointment',
         title: 'New Appointment Assigned',
-        body: `You have been assigned an appointment with ${appointment.leads?.homeowner_name || 'customer'} on ${new Date(appointment.scheduled_for).toLocaleDateString()}`,
+        body: `You have been assigned an appointment with ${appointment.leads?.homeowner_name || 'customer'} on ${formatDateTimeInTimezone(appointment.scheduled_for)} ET`,
         data: { appointment_id: params.id },
       })
     }
@@ -361,6 +362,18 @@ export async function PATCH(
     if (updateError) {
       console.error('Update error:', updateError)
       return NextResponse.json({ error: 'Failed to update appointment' }, { status: 500 })
+    }
+
+    // If reassigning, point pending feedback prompts at the new closer (DB trigger also does this)
+    if (new_closer_id && new_closer_id !== appointment.closer_user_id) {
+      const { error: promptRedirectError } = await adminClient
+        .from('pending_status_prompts')
+        .update({ closer_user_id: new_closer_id, dismissed: false })
+        .eq('appointment_id', params.id)
+        .eq('completed', false)
+      if (promptRedirectError) {
+        console.error('pending_status_prompts redirect on reassignment:', promptRedirectError)
+      }
     }
 
     // Best-effort Google Calendar sync — non-fatal, DB update already committed

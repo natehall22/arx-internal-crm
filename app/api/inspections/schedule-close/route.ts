@@ -10,6 +10,7 @@ import {
   getCloseSlotBufferAfterFromTable,
   getCloseSlotDurationFromTable,
 } from '@/lib/org-appointment-types'
+import { fromZonedTime } from 'date-fns-tz'
 
 /** Setter = canvasser on the inspection appt, else lead owner. Inspector = inspection closer (prior visit). */
 async function resolveSetterAndInspectorDisplayNames(
@@ -307,8 +308,8 @@ export async function POST(request: NextRequest) {
       const [datePart, timePart] = localDateTimeStr.split('T')
       const [year, month, day] = datePart.split('-').map(Number)
       const [hour, minute] = timePart.split(':').map(Number)
-      const localDate = new Date(year, month - 1, day, hour, minute)
-      scheduledForISO = localDate.toISOString()
+      const wall = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`
+      scheduledForISO = fromZonedTime(wall, 'America/New_York').toISOString()
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -466,7 +467,7 @@ export async function POST(request: NextRequest) {
         lead_id: originalAppointment.lead_id,
         user_id: user.id,
         type: 'appointment_scheduled',
-        body: `Close appointment scheduled (round-robin → ${assignedCloserName}) for ${new Date(scheduledForISO).toLocaleString()}${notes ? ` - ${notes}` : ''}`,
+        body: `Close appointment scheduled (round-robin → ${assignedCloserName}) for ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${notes ? ` - ${notes}` : ''}`,
       })
 
       if (originalAppointment.opportunity_id && assignment.appointmentId) {
@@ -648,7 +649,7 @@ export async function POST(request: NextRequest) {
         lead_id: originalAppointment.lead_id,
         user_id: user.id,
         type: 'appointment_scheduled',
-        body: `Close appointment for ${assignedCloserName} on ${new Date(scheduledForISO).toLocaleString()}${notes ? ` - ${notes}` : ''}`,
+        body: `Close appointment for ${assignedCloserName} on ${new Date(scheduledForISO).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${notes ? ` - ${notes}` : ''}`,
       })
 
     // Persist a close_appointments row for opportunity UI / close-feedback flow (non-fatal if table missing).

@@ -14,8 +14,14 @@ import {
   CalendarEvent 
 } from '@/lib/google-calendar'
 import nodemailer from 'nodemailer'
+import { formatDateTimeInTimezone } from '@/lib/timezone'
 
 export const dynamic = 'force-dynamic'
+
+function formatInspectionTimeEt(iso: string | null | undefined): string {
+  if (!iso) return 'TBD'
+  return `${formatDateTimeInTimezone(iso)} ET`
+}
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -865,15 +871,7 @@ export async function POST(request: Request) {
         try {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
           const leadUrl = `${appUrl}/leads/${leadRow.id}`
-          const scheduledTime = inspectionScheduledFor
-            ? new Date(inspectionScheduledFor).toLocaleString('en-US', {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-              })
-            : 'TBD'
+          const scheduledTime = formatInspectionTimeEt(inspectionScheduledFor)
 
           const transporter = getMailTransport()
           await transporter.sendMail({
@@ -906,15 +904,7 @@ export async function POST(request: Request) {
           .single()
         
         const setterName = setterProfile?.full_name || 'A setter'
-        const scheduledTime = inspectionScheduledFor 
-          ? new Date(inspectionScheduledFor).toLocaleString('en-US', {
-              weekday: 'short',
-              month: 'short', 
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit'
-            })
-          : 'TBD'
+        const scheduledTime = formatInspectionTimeEt(inspectionScheduledFor)
         
         if (closerUserId !== profile.id) {
           await supabase.from('notifications').insert({
