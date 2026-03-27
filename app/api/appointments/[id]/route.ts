@@ -1,3 +1,4 @@
+import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -229,7 +230,7 @@ export async function PATCH(
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, full_name')
+      .select('org_id, role, full_name, custom_role_id')
       .eq('id', user.id)
       .single()
 
@@ -237,8 +238,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    // Check if user is manager or above for reassignment
-    const isManager = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
+    const canReassign = await resolveCanReassignAppointment(adminClient, profile)
 
     const body = await request.json()
     const { new_closer_id, status, notes, scheduled_for, duration_minutes } = body
@@ -256,13 +256,13 @@ export async function PATCH(
     }
 
     const isAssignedCloser = appointment.closer_user_id === user.id
-    const canEditSchedule = isManager || isAssignedCloser
+    const canEditSchedule = canReassign || isAssignedCloser
 
     const updateData: Record<string, any> = {}
 
     // Handle reassignment (managers only)
     if (new_closer_id && new_closer_id !== appointment.closer_user_id) {
-      if (!isManager) {
+      if (!canReassign) {
         return NextResponse.json({ error: 'Only managers can reassign appointments' }, { status: 403 })
       }
 

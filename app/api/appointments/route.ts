@@ -1,3 +1,4 @@
+import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, team_id, region_id')
+      .select('org_id, role, team_id, region_id, custom_role_id')
       .eq('id', user.id)
       .single()
 
@@ -93,7 +94,7 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const filter = searchParams.get('filter') || 'upcoming'
-    const isManager = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
+    const canReassign = await resolveCanReassignAppointment(adminClient, profile)
 
     // Build query
     let query = adminClient
@@ -104,8 +105,8 @@ export async function GET(request: NextRequest) {
       `)
       .eq('org_id', profile.org_id)
 
-    // Filter based on role - reps only see their own, managers see all
-    if (!isManager) {
+    // Filter based on role - reps only see their own; scheduling managers see all
+    if (!canReassign) {
       query = query.or(`closer_user_id.eq.${user.id},canvasser_user_id.eq.${user.id}`)
     }
 
@@ -175,9 +176,9 @@ export async function GET(request: NextRequest) {
       feedback: feedbackMap[apt.id] || null,
     }))
 
-    // Get all users for reassignment dropdown (managers only)
+    // Get all users for reassignment dropdown (scheduling managers only)
     let allUsers: any[] = []
-    if (isManager) {
+    if (canReassign) {
       const { data: orgUsers } = await adminClient
         .from('users')
         .select('id, full_name, role')
@@ -192,6 +193,7 @@ export async function GET(request: NextRequest) {
       appointments: enrichedAppointments || [],
       users: allUsers,
       profile: { role: profile.role },
+      canReassign,
     })
   } catch (error) {
     console.error('Appointments API error:', error)

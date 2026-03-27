@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Nav from '@/components/Nav'
+import { canReassignAppointmentsFromProfile } from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
 
@@ -438,9 +439,7 @@ export default function CalendarPage() {
   const isCalendarRegional = calendarAccess === 'regional'
   const isCalendarTeamManager = calendarAccess === 'team'
   const canAccessTeamCalendar = isCalendarAdmin || isCalendarRegional || isCalendarTeamManager
-  const canReassignAppointments = ['admin', 'regional_manager', 'sales_manager'].includes(
-    currentUser?.role || ''
-  )
+  const canReassignAppointments = canReassignAppointmentsFromProfile(currentUser)
   const viewerRegionId = currentUser?.region_id || ''
   const viewerTeamId = currentUser?.team_id || ''
 

@@ -1,3 +1,5 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+
 import type { UserRole, CustomRoleWithPermissions, UserWithCustomRole } from './types/database'
 
 // Permission definitions for each feature area
@@ -552,6 +554,89 @@ export function getUserReportScope(user: UserWithCustomRole | null | undefined):
   if (userHasPermission(user, 'reports:view_region')) return 'region'
   if (userHasPermission(user, 'reports:view_team')) return 'team'
   return 'own'
+}
+
+/** Permission names that allow reassigning appointments (legacy matrix + custom-role grants). */
+const APPOINTMENT_REASSIGN_CUSTOM_PERMISSIONS = [
+  'admin:full',
+  'scheduling:edit',
+  'scheduling:manage_team',
+  'scheduling:manage_region',
+] as const satisfies readonly PermissionName[]
+
+/** Legacy role matrix: team/region scheduling managers may reassign. */
+export function hasLegacyReassignSchedulingPermission(role: UserRole): boolean {
+  return hasPermission(role, 'scheduling:manage_team') || hasPermission(role, 'scheduling:manage_region')
+}
+
+function customPermissionNamesAllowAppointmentReassign(permNames: Set<string>): boolean {
+  return APPOINTMENT_REASSIGN_CUSTOM_PERMISSIONS.some((name) => permNames.has(name))
+}
+
+type ProfileWithNestedCustomRole = {
+  custom_role?: {
+    permissions?: Array<{ name?: string }>
+    role_permissions?: Array<{ permission?: { name?: string } | null }>
+  } | null
+}
+
+function extractCustomPermissionNamesFromProfile(profile: ProfileWithNestedCustomRole): Set<string> {
+  const customRole = Array.isArray(profile?.custom_role) ? profile.custom_role[0] : profile?.custom_role
+  if (!customRole) return new Set()
+  if (Array.isArray(customRole.permissions) && customRole.permissions.length > 0) {
+    return new Set(
+      customRole.permissions.map((p: { name?: string }) => p?.name).filter(Boolean) as string[]
+    )
+  }
+  const rolePermissions = Array.isArray(customRole.role_permissions) ? customRole.role_permissions : []
+  return new Set(
+    rolePermissions
+      .map((rp: { permission?: { name?: string } | null }) => rp?.permission?.name)
+      .filter(Boolean) as string[]
+  )
+}
+
+/**
+ * Whether the user may reassign appointments (team/region scheduling managers, or custom role with scheduling grants).
+ * Accepts client-loaded profiles with nested `custom_role.role_permissions` or typed `UserWithCustomRole`.
+ */
+export function canReassignAppointmentsFromProfile(profile: unknown): boolean {
+  if (!profile || typeof profile !== 'object') return false
+  const p = profile as { role?: string } & ProfileWithNestedCustomRole
+  const role = (p.role || '') as UserRole
+  if (hasLegacyReassignSchedulingPermission(role)) {
+    return true
+  }
+  const permNames = extractCustomPermissionNamesFromProfile(p)
+  return customPermissionNamesAllowAppointmentReassign(permNames)
+}
+
+/**
+ * Server-side: resolve reassign permission using legacy role matrix plus `role_permissions` when `custom_role_id` is set.
+ */
+export async function resolveCanReassignAppointment(
+  adminClient: SupabaseClient,
+  profile: { role: string; custom_role_id?: string | null }
+): Promise<boolean> {
+  const role = profile.role as UserRole
+  if (hasLegacyReassignSchedulingPermission(role)) {
+    return true
+  }
+  if (!profile.custom_role_id) return false
+
+  const { data: rolePerms } = await adminClient
+    .from('role_permissions')
+    .select('permission:permissions(name)')
+    .eq('role_id', profile.custom_role_id)
+
+  const rows = (rolePerms ?? []) as Array<{ permission?: { name?: string } | { name?: string }[] | null }>
+  const permNames = new Set<string>()
+  for (const rp of rows) {
+    const perm = rp.permission
+    const name = Array.isArray(perm) ? perm[0]?.name : perm?.name
+    if (name) permNames.add(name)
+  }
+  return customPermissionNamesAllowAppointmentReassign(permNames)
 }
 
 // ============================================

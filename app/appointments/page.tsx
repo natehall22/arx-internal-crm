@@ -46,6 +46,7 @@ export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [profile, setProfile] = useState<any>(null)
+  const [canReassign, setCanReassign] = useState(false)
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'past' | 'needs_feedback'>('upcoming')
   const [error, setError] = useState<string | null>(null)
 
@@ -75,6 +76,7 @@ export default function AppointmentsPage() {
       setAppointments(data.appointments || [])
       setUsers(data.users || [])
       setProfile(data.profile)
+      setCanReassign(!!data.canReassign)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -108,7 +110,6 @@ export default function AppointmentsPage() {
     }
   }
 
-  const isManager = profile && ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)
   const isPastDue = (date: string) => new Date(date) < new Date()
 
   const getStatusBadge = (appointment: Appointment) => {
@@ -283,7 +284,7 @@ export default function AppointmentsPage() {
                         </Link>
                       )}
                       
-                      {isManager && appointment.status === 'scheduled' && (
+                      {canReassign && appointment.status === 'scheduled' && (
                         <button
                           onClick={() => {
                             setReassignModal(appointment)
