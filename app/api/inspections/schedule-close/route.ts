@@ -174,27 +174,20 @@ async function upsertCloseEventOnCloserCalendar(
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerClient()
-    
-    const { data: { user } } = await supabase.auth.getUser()
+    const authClient = createServerClient()
+    const admin = createServiceClient()
+
+    const {
+      data: { user },
+    } = await authClient.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, full_name, google_calendar_id, google_refresh_token')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
-    }
-
     const body = await request.json()
-    const { 
-      original_appointment_id, 
-      scheduled_for, 
+    const {
+      original_appointment_id,
+      scheduled_for,
       notes,
       use_round_robin,
       team_id: teamIdOverride,
@@ -214,8 +207,66 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Get original appointment details
-    const { data: originalAppointment, error: appointmentError } = await supabase
+    // Service role: same as /api/inspections/status — RLS + missing public.users rows caused "Profile not found".
+    let { data: profile } = await admin
+      .from('users')
+      .select('org_id, full_name, google_calendar_id, google_refresh_token')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (!profile?.org_id) {
+      const { data: apptOrg } = await admin
+        .from('scheduled_appointments')
+        .select('org_id')
+        .eq('id', original_appointment_id)
+        .maybeSingle()
+      const derivedOrgId = apptOrg?.org_id ?? null
+      if (!derivedOrgId) {
+        return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
+      }
+
+      const fallbackName =
+        (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+        user.email ||
+        'User'
+
+      const { data: recoveredProfile } = await admin
+        .from('users')
+        .upsert(
+          {
+            id: user.id,
+            org_id: derivedOrgId,
+            role: 'rep',
+            full_name: fallbackName,
+            email: user.email || null,
+            active: true,
+          },
+          { onConflict: 'id' }
+        )
+        .select('org_id, full_name, google_calendar_id, google_refresh_token')
+        .maybeSingle()
+
+      profile =
+        recoveredProfile ||
+        ({
+          org_id: derivedOrgId,
+          full_name: fallbackName,
+          google_calendar_id: null,
+          google_refresh_token: null,
+        } as {
+          org_id: string
+          full_name: string | null
+          google_calendar_id: string | null
+          google_refresh_token: string | null
+        })
+    }
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
+    }
+
+    // Get original appointment details (admin avoids RLS gaps vs anon client)
+    const { data: originalAppointment, error: appointmentError } = await admin
       .from('scheduled_appointments')
       .select('*, leads(*)')
       .eq('id', original_appointment_id)
@@ -225,7 +276,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Original appointment not found' }, { status: 404 })
     }
 
-    const admin = createServiceClient()
+    const supabase = authClient
     const { data: orgRow } = await admin
       .from('orgs')
       .select('inspection_feedback_buffer_minutes, default_scheduling_gap_minutes')

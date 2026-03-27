@@ -83,12 +83,44 @@ export async function GET(
 
     const adminClient = getAdminClient()
 
-    // Get user profile
-    const { data: profile } = await adminClient
+    let { data: profile } = await adminClient
       .from('users')
       .select('org_id, role')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
+
+    // Self-heal: auth user without public.users row — derive org from this appointment (same as inspections/status).
+    if (!profile?.org_id) {
+      const { data: apptOrg } = await adminClient
+        .from('scheduled_appointments')
+        .select('org_id')
+        .eq('id', params.id)
+        .maybeSingle()
+      const derivedOrgId = apptOrg?.org_id ?? null
+      if (!derivedOrgId) {
+        return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+      }
+      const fallbackName =
+        (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+        user.email ||
+        'User'
+      const { data: recovered } = await adminClient
+        .from('users')
+        .upsert(
+          {
+            id: user.id,
+            org_id: derivedOrgId,
+            role: 'rep',
+            full_name: fallbackName,
+            email: user.email || null,
+            active: true,
+          },
+          { onConflict: 'id' }
+        )
+        .select('org_id, role')
+        .maybeSingle()
+      profile = recovered || { org_id: derivedOrgId, role: 'rep' as const }
+    }
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
