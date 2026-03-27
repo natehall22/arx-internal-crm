@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
+
+/**
+ * Business rule: a `customers` row exists only after a **signed contract**.
+ * Inspection "sale" / won opportunity is still lead + opportunity until then.
+ */
 
 /** Align with inspection-outcomes id normalization. */
 export function normalizeOutcomeId(outcome: string | null | undefined): string {
@@ -10,7 +14,7 @@ export function normalizeOutcomeId(outcome: string | null | undefined): string {
 }
 
 /**
- * True when this outcome is the "Sale" path (won job → customer → project → production job).
+ * True when this outcome is the "Sale" path (won → project + production job; no customer row yet).
  * Supports org-custom outcome rows that keep label "Sale" with a non-canonical id.
  */
 export function isSaleOutcome(
@@ -34,6 +38,7 @@ function mapProjectTypeToJobType(
 }
 
 export type SalePipelineResult = {
+  /** Only set if already linked (e.g. after a signed contract); never created here. */
   customer_id: string | null
   project_id: string | null
   production_job_id: string | null
@@ -41,7 +46,8 @@ export type SalePipelineResult = {
 
 /**
  * After an inspection is marked Sale (opportunity status won), ensure:
- * customer record linked on opportunity + lead → project(opportunity_id) → production_jobs.
+ * project(opportunity_id) + production_jobs — without creating a `customers` row.
+ * Customer records are created when a contract is signed (`/api/contracts/sign`).
  * Idempotent: skips steps when rows already exist.
  */
 export async function materializeSaleFromInspectionOutcome(
@@ -84,32 +90,8 @@ export async function materializeSaleFromInspectionOutcome(
 
   if (opp.status !== 'won') return empty
 
-  let customerId = opp.customer_id || options.lead.customer_id || null
-
-  if (!customerId) {
-    try {
-      const displayName = resolveCustomerDisplayName({
-        name: options.lead.homeowner_name,
-        address_text: options.lead.address_text,
-        phone: options.lead.phone,
-        fallbackIdHint: options.leadId.slice(0, 8),
-      })
-      const { customer_id } = await upsertCustomer(supabase, orgId, {
-        name: displayName,
-        email: options.lead.email,
-        phone: options.lead.phone,
-        address_text: options.lead.address_text,
-      })
-      customerId = customer_id
-    } catch (e) {
-      console.error('materializeSaleFromInspectionOutcome: upsertCustomer', e)
-    }
-  }
-
-  if (customerId) {
-    await supabase.from('opportunities').update({ customer_id: customerId }).eq('id', opp.id)
-    await supabase.from('leads').update({ customer_id: customerId }).eq('id', options.leadId)
-  }
+  /** Carry through only if a contract already created a customer; do not create or assign here. */
+  const customerId = opp.customer_id || options.lead.customer_id || null
 
   const { data: existingProject } = await supabase
     .from('projects')
@@ -203,7 +185,7 @@ export async function materializeSaleFromInspectionOutcome(
     lead_id: options.leadId,
     user_id: actingUserId,
     type: 'status_change',
-    body: 'Customer, project, and production job linked from inspection sale.',
+    body: 'Project and production job linked from inspection sale (customer record only after signed contract).',
   })
 
   return {

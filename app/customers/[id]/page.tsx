@@ -23,6 +23,20 @@ function resolveProjectDisplayStatus(project: any) {
   return String(project.status || 'open').replace(/_/g, ' ')
 }
 
+/** Human-readable lead source (canvass / door knock → CRM customer after contract). */
+function formatLeadSource(source: string | null | undefined): string | null {
+  if (!source) return null
+  const s = source.toLowerCase()
+  if (s === 'door_to_door') return 'Door-to-door'
+  if (s === 'canvass') return 'Canvass'
+  return source.replace(/_/g, ' ')
+}
+
+function isDoorKnockSource(source: string | null | undefined): boolean {
+  const s = (source || '').toLowerCase()
+  return s === 'door_to_door' || s === 'canvass'
+}
+
 const tabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'leads', label: 'Leads' },
@@ -85,7 +99,8 @@ export default async function CustomerDetailPage({
 
   const { data: opportunities } = await opportunitiesQuery
 
-  const leadIds = Array.from(
+  // Resolve leads: FKs from projects/opportunities plus direct `leads.customer_id` (set at contract sign).
+  const relationLeadIds = Array.from(
     new Set(
       [
         ...(projects || []).map((project) => project.lead_id).filter(Boolean),
@@ -94,10 +109,23 @@ export default async function CustomerDetailPage({
     )
   )
 
-  const { data: leads } =
-    leadIds.length > 0
-      ? await supabase.from('leads').select('*').in('id', leadIds)
-      : { data: [] }
+  let leadsQuery = supabase
+    .from('leads')
+    .select('*')
+    .eq('org_id', profile.org_id)
+    .order('created_at', { ascending: false })
+
+  if (relationLeadIds.length > 0) {
+    leadsQuery = leadsQuery.or(
+      `customer_id.eq.${params.id},id.in.(${relationLeadIds.join(',')})`
+    )
+  } else {
+    leadsQuery = leadsQuery.eq('customer_id', params.id)
+  }
+
+  const { data: leads } = await leadsQuery
+
+  const leadIdsForCustomer = (leads || []).map((l) => l.id).filter(Boolean)
 
   const projectIds = (projects || []).map((project) => project.id)
   const opportunityIds = (opportunities || []).map((opportunity) => opportunity.id)
@@ -108,11 +136,12 @@ export default async function CustomerDetailPage({
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
-  if (projectIds.length > 0 || opportunityIds.length > 0) {
+  if (projectIds.length > 0 || opportunityIds.length > 0 || leadIdsForCustomer.length > 0) {
     const filters = [
       `customer_id.eq.${params.id}`,
       projectIds.length > 0 ? `project_id.in.(${projectIds.join(',')})` : null,
       opportunityIds.length > 0 ? `opportunity_id.in.(${opportunityIds.join(',')})` : null,
+      leadIdsForCustomer.length > 0 ? `lead_id.in.(${leadIdsForCustomer.join(',')})` : null,
     ].filter(Boolean)
     filesQuery = filesQuery.or(filters.join(','))
   } else {
@@ -131,6 +160,7 @@ export default async function CustomerDetailPage({
     `customer_id.eq.${params.id}`,
     projectIds.length > 0 ? `project_id.in.(${projectIds.join(',')})` : null,
     opportunityIds.length > 0 ? `opportunity_id.in.(${opportunityIds.join(',')})` : null,
+    leadIdsForCustomer.length > 0 ? `lead_id.in.(${leadIdsForCustomer.join(',')})` : null,
   ].filter(Boolean)
 
   if (activityFilters.length > 0) {
@@ -183,6 +213,31 @@ export default async function CustomerDetailPage({
           <div className="space-y-6">
             <CustomerInfoCard customer={customer} />
 
+            {leads &&
+              leads.some((l: { source?: string | null }) => isDoorKnockSource(l.source)) && (
+                <div className="bg-white shadow rounded-lg p-6 border border-gray-100">
+                  <h2 className="text-sm font-medium text-gray-500 mb-2">Door knock → customer</h2>
+                  <p className="text-sm text-gray-700 mb-3">
+                    This account traces back to canvassing. Open the lead for full canvass notes, disposition, and
+                    setter.
+                  </p>
+                  <ul className="space-y-2">
+                    {leads
+                      .filter((l: { source?: string | null }) => isDoorKnockSource(l.source))
+                      .map((lead: { id: string; source?: string | null }) => (
+                        <li key={lead.id}>
+                          <Link
+                            href={`/leads/${lead.id}`}
+                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                          >
+                            View lead ({formatLeadSource(lead.source) || 'canvass'})
+                          </Link>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white shadow rounded-lg p-6">
                 <h2 className="text-sm font-medium text-gray-500">Projects</h2>
@@ -217,10 +272,25 @@ export default async function CustomerDetailPage({
                       <p className="text-sm text-gray-500 capitalize">
                         {lead.status.replace('_', ' ')}
                       </p>
+                      {(formatLeadSource(lead.source) || lead.canvass_disposition) && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          {formatLeadSource(lead.source) && (
+                            <span>Source: {formatLeadSource(lead.source)}</span>
+                          )}
+                          {lead.canvass_disposition && (
+                            <span className={formatLeadSource(lead.source) ? ' ml-2' : ''}>
+                              Disposition: {lead.canvass_disposition}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {lead.address_text && (
+                        <p className="text-sm text-gray-600 mt-2">{lead.address_text}</p>
+                      )}
                     </div>
                     <Link
                       href={`/leads/${lead.id}`}
-                      className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                      className="text-indigo-600 hover:text-indigo-800 text-sm font-medium shrink-0"
                     >
                       Open lead →
                     </Link>

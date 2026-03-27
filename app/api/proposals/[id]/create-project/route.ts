@@ -193,55 +193,8 @@ export async function POST(
       }
     }
 
-    // Create or find customer from lead data first, then proposal as fallback.
-    if (!customerId && leadData?.homeowner_name) {
-      try {
-        const { upsertCustomer } = await import('@/lib/customers')
-        const result = await upsertCustomer(adminClient, profile.org_id, {
-          name: leadData.homeowner_name,
-          email: leadData.email,
-          phone: leadData.phone,
-          address_text: leadData.address_text || proposal.customer_address,
-        })
-        customerId = result.customer_id
-        console.log(`Customer ${result.created ? 'created' : 'found'} from lead:`, customerId)
-      } catch (err) {
-        console.error('Failed to upsert customer from lead:', err)
-      }
-    }
-
-    if (!customerId && proposal.customer_name) {
-      try {
-        const { upsertCustomer } = await import('@/lib/customers')
-        const result = await upsertCustomer(adminClient, profile.org_id, {
-          name: proposal.customer_name,
-          email: proposal.customer_email,
-          phone: proposal.customer_phone,
-          address_text: proposal.customer_address,
-        })
-        customerId = result.customer_id
-        console.log(`Customer ${result.created ? 'created' : 'found'}:`, customerId)
-      } catch (err) {
-        console.error('Failed to upsert customer:', err)
-      }
-    }
-
-    // Keep opportunity/lead customer link in sync with the resolved customer.
-    if (customerId && proposal.opportunity_id) {
-      await adminClient
-        .from('opportunities')
-        .update({ customer_id: customerId })
-        .eq('id', proposal.opportunity_id)
-        .eq('org_id', profile.org_id)
-
-      if (leadId) {
-        await adminClient
-          .from('leads')
-          .update({ customer_id: customerId })
-          .eq('id', leadId)
-          .eq('org_id', profile.org_id)
-      }
-    }
+    // Customer records are created when a contract is signed — not when a proposal is accepted.
+    // customerId above is only from opportunity/lead if already linked (e.g. after signing).
 
     // Create the project
     // Valid statuses: 'open', 'in_progress', 'on_hold', 'complete', 'collected'

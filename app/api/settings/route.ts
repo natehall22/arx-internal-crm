@@ -1,24 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
+import { requireAuthApi } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-/** Same pattern as /api/reports/export — reads chunked Supabase auth cookies correctly. */
-function createRouteClient(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll() {
-          /* no-op: token refresh rarely needed for these handlers */
-        },
-      },
-    }
+function isAuthFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return (
+    error.message === 'Unauthorized' ||
+    error.message === 'No session' ||
+    error.message === 'Token invalid or expired' ||
+    error.message === 'Profile missing'
   )
 }
 
@@ -32,26 +24,11 @@ function getAdminClient() {
 }
 
 // GET - Load user settings
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
-    const supabase = createRouteClient(request)
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const { authUser, profile } = await requireAuthApi()
 
     const adminClient = getAdminClient()
-
-    // Get user profile
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, full_name')
-      .eq('id', user.id)
-      .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
@@ -61,14 +38,14 @@ export async function GET(request: NextRequest) {
     const { data: userSettings } = await adminClient
       .from('user_settings')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', authUser.id)
       .maybeSingle()
 
     // Get Google Calendar token (no row is OK)
     const { data: googleToken } = await adminClient
       .from('user_google_tokens')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', authUser.id)
       .maybeSingle()
 
     return NextResponse.json({
@@ -80,6 +57,12 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
+    if (error instanceof Error && error.message === 'Server config error') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+    }
+    if (isAuthFailure(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Error loading user settings:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -88,22 +71,14 @@ export async function GET(request: NextRequest) {
 // POST - Save user settings
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteClient(request)
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const { authUser } = await requireAuthApi()
 
     const adminClient = getAdminClient()
     const settings = await request.json()
 
     // Build the settings object, only including defined values
     const settingsData: Record<string, unknown> = {
-      user_id: user.id,
+      user_id: authUser.id,
     }
 
     // Only add fields that are defined
@@ -143,6 +118,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof Error && error.message === 'Server config error') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+    }
+    if (isAuthFailure(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Error saving user settings:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -151,22 +132,14 @@ export async function POST(request: NextRequest) {
 // DELETE - Disconnect Google Calendar
 export async function DELETE(request: NextRequest) {
   try {
-    const supabase = createRouteClient(request)
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const { authUser } = await requireAuthApi()
 
     const adminClient = getAdminClient()
 
     const { error: deleteError } = await adminClient
       .from('user_google_tokens')
       .delete()
-      .eq('user_id', user.id)
+      .eq('user_id', authUser.id)
 
     if (deleteError) {
       console.error('Failed to delete user_google_tokens:', deleteError)
@@ -179,7 +152,7 @@ export async function DELETE(request: NextRequest) {
     const { error: settingsError } = await adminClient
       .from('user_settings')
       .update({ google_calendar_connected: false })
-      .eq('user_id', user.id)
+      .eq('user_id', authUser.id)
 
     if (settingsError) {
       console.error('Failed to clear google_calendar_connected:', settingsError)
@@ -188,6 +161,12 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof Error && error.message === 'Server config error') {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+    }
+    if (isAuthFailure(error)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Error disconnecting Google Calendar:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
