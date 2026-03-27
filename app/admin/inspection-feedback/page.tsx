@@ -1,8 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+
+/** YYYY-MM-DD in org default timezone (ET) for calendar comparisons */
+function dateKeyEt(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: DEFAULT_TIMEZONE })
+}
 
 interface PendingFeedback {
   id: string
@@ -40,6 +46,32 @@ export default function InspectionFeedbackAdmin() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending')
+  const [pendingFilter, setPendingFilter] = useState<'all' | 'overdue' | 'snoozed'>('all')
+
+  const isOverdue = useCallback((item: PendingFeedback) => {
+    const nowMs = Date.now()
+    const todayEt = new Date().toLocaleDateString('en-CA', { timeZone: DEFAULT_TIMEZONE })
+    const promptMs = item.prompt_at ? new Date(item.prompt_at).getTime() : 0
+    const staleWaiting = promptMs > 0 && nowMs - promptMs > 24 * 60 * 60 * 1000
+    const appt = item.appointment?.scheduled_for
+    const apptDayBeforeTodayEt = !!appt && dateKeyEt(appt) < todayEt
+    return staleWaiting || apptDayBeforeTodayEt
+  }, [])
+
+  const sortedPending = useMemo(() => {
+    return [...pendingFeedback].sort((a, b) => {
+      const aOver = isOverdue(a)
+      const bOver = isOverdue(b)
+      if (aOver !== bOver) return aOver ? -1 : 1
+      return new Date(a.prompt_at).getTime() - new Date(b.prompt_at).getTime()
+    })
+  }, [pendingFeedback, isOverdue])
+
+  const filteredPending = useMemo(() => {
+    if (pendingFilter === 'overdue') return sortedPending.filter(isOverdue)
+    if (pendingFilter === 'snoozed') return sortedPending.filter((i) => i.dismissed)
+    return sortedPending
+  }, [sortedPending, pendingFilter, isOverdue])
 
   useEffect(() => {
     loadFeedback()
@@ -85,7 +117,7 @@ export default function InspectionFeedbackAdmin() {
   }
 
   const resendAll = async () => {
-    if (!confirm(`Resend feedback requests to ${pendingFeedback.length} closers?`)) return
+    if (!confirm(`Resend feedback requests to ${sortedPending.length} closers?`)) return
     
     setSending('all')
     try {
@@ -116,6 +148,7 @@ export default function InspectionFeedbackAdmin() {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
+      timeZone: DEFAULT_TIMEZONE,
     })
   }
 
@@ -151,13 +184,13 @@ export default function InspectionFeedbackAdmin() {
               <h1 className="text-2xl font-bold text-gray-900">Inspection Feedback</h1>
               <p className="text-gray-600 mt-1">Manage pending and completed inspection feedback</p>
             </div>
-            {pendingFeedback.length > 0 && (
+            {sortedPending.length > 0 && (
               <button
                 onClick={resendAll}
                 disabled={sending === 'all'}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 min-h-[44px]"
               >
-                {sending === 'all' ? 'Sending...' : `Resend All (${pendingFeedback.length})`}
+                {sending === 'all' ? 'Sending...' : `Resend All (${sortedPending.length})`}
               </button>
             )}
           </div>
@@ -191,46 +224,117 @@ export default function InspectionFeedbackAdmin() {
           <div className="text-center py-8 text-gray-500">Loading...</div>
         ) : activeTab === 'pending' ? (
           /* Pending Feedback */
-          pendingFeedback.length === 0 ? (
+          sortedPending.length === 0 ? (
             <div className="bg-white rounded-xl border p-8 text-center">
               <div className="text-4xl mb-3">✓</div>
               <h3 className="text-lg font-medium text-gray-900">All caught up!</h3>
               <p className="text-gray-500 mt-1">No pending inspection feedback requests</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {pendingFeedback.map((item) => (
-                <div
-                  key={item.id}
-                  className="bg-white rounded-xl border p-4 flex items-center gap-4"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900">
-                      {item.appointment?.lead?.homeowner_name || 'Unknown'}
-                    </div>
-                    <div className="text-sm text-gray-500 truncate">
-                      {item.appointment?.lead?.address_text || 'No address'}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      Closer: {item.closer?.full_name || 'Unknown'} • 
-                      Appt: {item.appointment?.scheduled_for ? formatDate(item.appointment.scheduled_for) : 'N/A'}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-amber-600 font-medium mb-2">
-                      {item.dismissed ? 'Snoozed by rep' : `Waiting since ${formatDate(item.prompt_at)}`}
-                    </div>
+            <>
+              {/* Filter pills — overdue sorted first, oldest prompt_at first */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {(
+                  [
+                    { key: 'all' as const, label: 'All' },
+                    { key: 'overdue' as const, label: 'Overdue' },
+                    { key: 'snoozed' as const, label: 'Snoozed' },
+                  ] as const
+                ).map(({ key: f, label }) => {
+                  const count =
+                    f === 'all'
+                      ? sortedPending.length
+                      : f === 'overdue'
+                        ? sortedPending.filter(isOverdue).length
+                        : sortedPending.filter((i) => i.dismissed).length
+                  const selected = pendingFilter === f
+                  const selectedClass =
+                    f === 'overdue'
+                      ? 'bg-red-600 text-white shadow-sm'
+                      : f === 'snoozed'
+                        ? 'bg-slate-700 text-white shadow-sm'
+                        : 'bg-amber-600 text-white shadow-sm'
+                  return (
                     <button
-                      onClick={() => resendPrompt(item.id)}
-                      disabled={sending === item.id}
-                      className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200 disabled:opacity-50 min-h-[36px]"
+                      key={f}
+                      type="button"
+                      onClick={() => setPendingFilter(f)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        selected ? selectedClass : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                      }`}
                     >
-                      {sending === item.id ? 'Sending...' : 'Resend'}
+                      {label}{' '}
+                      <span className={selected ? 'opacity-90' : 'text-gray-400'}>({count})</span>
                     </button>
-                  </div>
+                  )
+                })}
+              </div>
+
+              {filteredPending.length === 0 ? (
+                <div className="bg-white rounded-xl border p-6 text-center text-sm text-gray-500">
+                  {pendingFilter === 'all'
+                    ? 'No prompts match this view.'
+                    : pendingFilter === 'overdue'
+                      ? 'No overdue prompts — everything is current or same-day.'
+                      : 'No snoozed prompts.'}
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredPending.map((item) => {
+                    const overdue = isOverdue(item)
+                    return (
+                      <div
+                        key={item.id}
+                        className={`bg-white rounded-xl border p-4 flex items-center gap-4 ${
+                          overdue ? 'border-red-200' : ''
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-gray-900">
+                            {item.appointment?.lead?.homeowner_name || 'Unknown'}
+                          </div>
+                          <div className="text-sm text-gray-500 truncate">
+                            {item.appointment?.lead?.address_text || 'No address'}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            Closer: {item.closer?.full_name || 'Unknown'} •{' '}
+                            Appt: {item.appointment?.scheduled_for ? formatDate(item.appointment.scheduled_for) : 'N/A'}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="flex flex-wrap items-center justify-end gap-1.5 mb-2">
+                            {overdue && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 uppercase tracking-wide">
+                                Overdue
+                              </span>
+                            )}
+                            {item.dismissed && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 uppercase tracking-wide">
+                                Snoozed
+                              </span>
+                            )}
+                            <span className={`text-xs font-medium ${overdue ? 'text-red-600' : 'text-amber-600'}`}>
+                              {item.dismissed ? 'Snoozed by rep' : `Prompt due ${formatDate(item.prompt_at)}`}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => resendPrompt(item.id)}
+                            disabled={sending === item.id}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-medium min-h-[36px] disabled:opacity-50 ${
+                              overdue
+                                ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                            }`}
+                          >
+                            {sending === item.id ? 'Sending...' : 'Resend'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )
         ) : (
           /* Completed Feedback */
