@@ -438,6 +438,9 @@ export default function CalendarPage() {
   const isCalendarRegional = calendarAccess === 'regional'
   const isCalendarTeamManager = calendarAccess === 'team'
   const canAccessTeamCalendar = isCalendarAdmin || isCalendarRegional || isCalendarTeamManager
+  const canReassignAppointments = ['admin', 'regional_manager', 'sales_manager'].includes(
+    currentUser?.role || ''
+  )
   const viewerRegionId = currentUser?.region_id || ''
   const viewerTeamId = currentUser?.team_id || ''
 
@@ -680,6 +683,7 @@ export default function CalendarPage() {
               memberId={selectedMemberId}
               date={currentDate}
               orgId={currentUser?.org_id || ''}
+              canReassign={canReassignAppointments}
             />
           ) : viewMode === 'month' ? (
             /* Month View */

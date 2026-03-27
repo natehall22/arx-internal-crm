@@ -42,6 +42,8 @@ interface TeamLaneViewProps {
   memberId: string
   date: Date
   orgId: string
+  /** Matches PATCH /api/appointments/[id] (managers only). */
+  canReassign?: boolean
 }
 
 const START_HOUR = 7
@@ -89,12 +91,17 @@ export default function TeamLaneView({
   memberId,
   date,
   orgId,
+  canReassign = false,
 }: TeamLaneViewProps) {
   const supabase = createClientBrowser()
   const [loading, setLoading] = useState(true)
   const [closers, setClosers] = useState<CloserRow[]>([])
   const [appointments, setAppointments] = useState<DisplayAppointment[]>([])
   const [selectedAppointment, setSelectedAppointment] = useState<DisplayAppointment | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const [reassignCloserId, setReassignCloserId] = useState('')
+  const [reassigning, setReassigning] = useState(false)
+  const [reassignError, setReassignError] = useState<string | null>(null)
 
   const isCalendarAdmin = calendarAccess === 'admin'
   const isCalendarRegional = calendarAccess === 'regional'
@@ -218,11 +225,37 @@ export default function TeamLaneView({
     memberId,
     orgId,
     regionId,
+    reloadKey,
     supabase,
     teamId,
     viewerRegionId,
     viewerTeamId,
   ])
+
+  async function handleReassign() {
+    if (!selectedAppointment || !reassignCloserId) return
+    setReassigning(true)
+    setReassignError(null)
+    try {
+      const res = await fetch(`/api/appointments/${selectedAppointment.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_closer_id: reassignCloserId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setReassignError(data.error || 'Reassignment failed')
+      } else {
+        setSelectedAppointment(null)
+        setReassignCloserId('')
+        setReloadKey((k) => k + 1)
+      }
+    } catch {
+      setReassignError('Network error')
+    } finally {
+      setReassigning(false)
+    }
+  }
 
   const totalGridHeight = (END_HOUR - START_HOUR) * ROW_HEIGHT
   const timeRows = useMemo(() => Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i), [])
@@ -312,7 +345,7 @@ export default function TeamLaneView({
       {selectedAppointment && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setSelectedAppointment(null)}
+          onClick={() => { setSelectedAppointment(null); setReassignCloserId(''); setReassignError(null) }}
         >
           <div className="w-full max-w-md rounded-xl bg-white shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-gray-900 mb-3">
@@ -352,9 +385,41 @@ export default function TeamLaneView({
                 </span>
               </p>
             </div>
+            {canReassign && (
+              <>
+                <div className="border-t my-3" />
+                <p className="text-sm font-medium text-gray-700 mb-1.5">Reassign to</p>
+                <div className="flex gap-2">
+                  <select
+                    value={reassignCloserId}
+                    onChange={(e) => { setReassignCloserId(e.target.value); setReassignError(null) }}
+                    className="flex-1 text-sm border rounded-md px-2 py-1.5"
+                    disabled={reassigning}
+                  >
+                    <option value="">Select closer...</option>
+                    {closers
+                      .filter((c) => c.id !== selectedAppointment.closer_user_id)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>{c.full_name || 'Unknown'}</option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleReassign}
+                    disabled={!reassignCloserId || reassigning}
+                    className="px-3 py-1.5 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {reassigning ? 'Reassigning...' : 'Reassign'}
+                  </button>
+                </div>
+                {reassignError && (
+                  <p className="text-xs text-red-600 mt-1">{reassignError}</p>
+                )}
+              </>
+            )}
             <button
               type="button"
-              onClick={() => setSelectedAppointment(null)}
+              onClick={() => { setSelectedAppointment(null); setReassignCloserId(''); setReassignError(null) }}
               className="mt-4 px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
             >
               Close
