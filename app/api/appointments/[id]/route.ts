@@ -1,3 +1,4 @@
+import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -62,6 +63,35 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+async function getValidAccessToken(
+  adminClient: ReturnType<typeof getAdminClient>,
+  userId: string
+): Promise<string | null> {
+  const { data: tokenRow } = await adminClient
+    .from('user_google_tokens')
+    .select('access_token, refresh_token, expires_at')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (!tokenRow) return null
+
+  const expiresAt = new Date(tokenRow.expires_at)
+  if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
+    try {
+      const refreshed = await refreshAccessToken(tokenRow.refresh_token)
+      await adminClient
+        .from('user_google_tokens')
+        .update({ access_token: refreshed.access_token, expires_at: refreshed.expires_at })
+        .eq('user_id', userId)
+      return refreshed.access_token
+    } catch {
+      return tokenRow.access_token // fall back to stale token
+    }
+  }
+
+  return tokenRow.access_token
 }
 
 // GET - Fetch single appointment
@@ -211,7 +241,7 @@ export async function PATCH(
     const isManager = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
 
     const body = await request.json()
-    const { new_closer_id, status, notes } = body
+    const { new_closer_id, status, notes, scheduled_for, duration_minutes } = body
 
     // Get current appointment
     const { data: appointment, error: fetchError } = await adminClient
@@ -224,6 +254,9 @@ export async function PATCH(
     if (fetchError || !appointment) {
       return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
     }
+
+    const isAssignedCloser = appointment.closer_user_id === user.id
+    const canEditSchedule = isManager || isAssignedCloser
 
     const updateData: Record<string, any> = {}
 
@@ -288,6 +321,31 @@ export async function PATCH(
       updateData.notes = notes
     }
 
+    if (scheduled_for !== undefined) {
+      if (!canEditSchedule) {
+        return NextResponse.json({ error: 'Only managers or the assigned closer can reschedule' }, { status: 403 })
+      }
+      const parsed = new Date(scheduled_for)
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: 'Invalid scheduled_for' }, { status: 400 })
+      }
+      updateData.scheduled_for = parsed.toISOString()
+    }
+
+    if (duration_minutes !== undefined) {
+      if (!canEditSchedule) {
+        return NextResponse.json(
+          { error: 'Only managers or the assigned closer can change duration' },
+          { status: 403 }
+        )
+      }
+      const dm = Number(duration_minutes)
+      if (!Number.isFinite(dm) || dm < 5 || dm > 24 * 60) {
+        return NextResponse.json({ error: 'Invalid duration_minutes' }, { status: 400 })
+      }
+      updateData.duration_minutes = Math.round(dm)
+    }
+
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No updates provided' }, { status: 400 })
     }
@@ -303,6 +361,82 @@ export async function PATCH(
     if (updateError) {
       console.error('Update error:', updateError)
       return NextResponse.json({ error: 'Failed to update appointment' }, { status: 500 })
+    }
+
+    // Best-effort Google Calendar sync — non-fatal, DB update already committed
+    try {
+      const existingEventId = appointment.google_event_id as string | null
+
+      if (status === 'cancelled' && existingEventId && appointment.closer_user_id) {
+        // Cancellation: delete the event from the current closer's calendar
+        const token = await getValidAccessToken(adminClient, appointment.closer_user_id)
+        if (token) {
+          await deleteCalendarEvent(token, existingEventId).catch(() => {})
+          await adminClient
+            .from('scheduled_appointments')
+            .update({ google_event_id: null })
+            .eq('id', params.id)
+        }
+
+      } else if (new_closer_id && new_closer_id !== appointment.closer_user_id) {
+        // Reassignment: delete from old closer's calendar, create on new closer's calendar
+
+        if (existingEventId && appointment.closer_user_id) {
+          const oldToken = await getValidAccessToken(adminClient, appointment.closer_user_id)
+          if (oldToken) {
+            await deleteCalendarEvent(oldToken, existingEventId).catch(() => {})
+          }
+        }
+
+        const newToken = await getValidAccessToken(adminClient, new_closer_id)
+        const startIso = updated.scheduled_for as string
+        const endIso = new Date(
+          new Date(startIso).getTime() + (updated.duration_minutes || 60) * 60 * 1000
+        ).toISOString()
+        const typeLabel = appointment.appointment_type === 'close' ? 'Close' : 'Inspection'
+        const homeownerName = (appointment.leads as any)?.homeowner_name || 'Customer'
+        const eventNotes = notes !== undefined ? notes : appointment.notes
+
+        let newEventId: string | null = null
+        if (newToken) {
+          const created = await createCalendarEvent(newToken, {
+            summary: `${typeLabel}: ${homeownerName}`,
+            ...(eventNotes && { description: eventNotes }),
+            ...(appointment.address_text && { location: appointment.address_text }),
+            start: { dateTime: startIso },
+            end: { dateTime: endIso },
+          }, 'primary', 'none').catch(() => null)
+          newEventId = created?.id ?? null
+        }
+
+        // Always update google_event_id — either new ID or null (old ID is now invalid)
+        await adminClient
+          .from('scheduled_appointments')
+          .update({ google_event_id: newEventId })
+          .eq('id', params.id)
+
+      } else if (existingEventId && updated.closer_user_id) {
+        // In-place update: time, notes, location, title (same calendar / closer)
+        const token = await getValidAccessToken(adminClient, updated.closer_user_id)
+        if (token) {
+          const startIso = updated.scheduled_for as string
+          const dur = updated.duration_minutes || 60
+          const endIso = new Date(new Date(startIso).getTime() + dur * 60 * 1000).toISOString()
+          const typeLabel = updated.appointment_type === 'close' ? 'Close' : 'Inspection'
+          const homeownerName = (appointment.leads as any)?.homeowner_name || 'Customer'
+          await updateCalendarEvent(token, existingEventId, {
+            summary: `${typeLabel}: ${homeownerName}`,
+            start: { dateTime: startIso },
+            end: { dateTime: endIso },
+            ...(updated.address_text ? { location: updated.address_text } : {}),
+            ...(updated.notes != null && String(updated.notes).length > 0
+              ? { description: String(updated.notes) }
+              : {}),
+          }).catch(() => {})
+        }
+      }
+    } catch {
+      // Calendar sync failure is non-fatal
     }
 
     return NextResponse.json({ success: true, appointment: updated })
