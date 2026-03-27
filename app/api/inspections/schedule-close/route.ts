@@ -474,6 +474,7 @@ export async function POST(request: NextRequest) {
           org_id: profile.org_id,
           opportunity_id: originalAppointment.opportunity_id,
           scheduled_appointment_id: assignment.appointmentId,
+          source_inspection_appointment_id: original_appointment_id,
           scheduled_for: scheduledForISO,
         })
         if (closeRowError) {
@@ -656,6 +657,7 @@ export async function POST(request: NextRequest) {
         org_id: profile.org_id,
         opportunity_id: originalAppointment.opportunity_id,
         scheduled_appointment_id: closeAppointment.id,
+        source_inspection_appointment_id: original_appointment_id,
         scheduled_for: scheduledForISO,
       })
       if (closeRowError) {

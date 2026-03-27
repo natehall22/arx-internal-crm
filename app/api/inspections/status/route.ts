@@ -538,14 +538,17 @@ export async function POST(request: NextRequest) {
     console.log('Saved outcome:', statusUpdate?.outcome)
     console.log('Saved notes:', statusUpdate?.notes)
 
-    // Update appointment status if we have one
+    // Update inspection appointment: status + opportunity so downstream schedule-close keeps
+    // lead/opportunity/close linked (close_appointments + new scheduled_appointments rows use these ids).
     if (appointment_id) {
-      await supabase
-        .from('scheduled_appointments')
-        .update({ 
-          status: outcome === 'sale' ? 'completed' : outcome === 'not_home' ? 'no_show' : 'completed'
-        })
-        .eq('id', appointment_id)
+      const appointmentUpdate: Record<string, unknown> = {
+        status:
+          outcome === 'sale' ? 'completed' : outcome === 'not_home' ? 'no_show' : 'completed',
+      }
+      if (opportunityId) {
+        appointmentUpdate.opportunity_id = opportunityId
+      }
+      await supabase.from('scheduled_appointments').update(appointmentUpdate).eq('id', appointment_id)
     }
 
     // Update existing opportunity with outcome (if it existed before or wasn't just created)
@@ -964,10 +967,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       status_update: statusUpdate,
       follow_up_appointment: followUpAppointment,
+      /** Lets clients confirm linkage before calling schedule-close */
+      opportunity_id: opportunityId || null,
+      lead_id: leadId || null,
     })
 
   } catch (error) {
