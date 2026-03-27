@@ -9,6 +9,7 @@ import {
   getCloseSlotBufferAfterFromTable,
   getCloseSlotDurationFromTable,
 } from '@/lib/org-appointment-types'
+import { materializeSaleFromInspectionOutcome } from '@/lib/opportunity-sale-pipeline'
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -590,6 +591,29 @@ export async function POST(request: NextRequest) {
       console.log('createdOpportunity:', !!createdOpportunity)
     }
 
+    /** Won sale → customer + project(opportunity_id) + production_jobs (idempotent). */
+    let salePipeline: {
+      customer_id: string | null
+      project_id: string | null
+      production_job_id: string | null
+    } | null = null
+    if (leadId && lead) {
+      salePipeline = await materializeSaleFromInspectionOutcome(supabase, profile.org_id, user.id, {
+        outcome,
+        outcomeConfig,
+        opportunityId,
+        leadId,
+        lead: {
+          id: lead.id,
+          homeowner_name: lead.homeowner_name,
+          phone: lead.phone,
+          email: lead.email,
+          address_text: lead.address_text,
+          customer_id: lead.customer_id,
+        },
+      })
+    }
+
     // Mark pending prompt as completed (if we have an appointment)
     if (appointment_id) {
       await supabase
@@ -974,6 +998,8 @@ export async function POST(request: NextRequest) {
       /** Lets clients confirm linkage before calling schedule-close */
       opportunity_id: opportunityId || null,
       lead_id: leadId || null,
+      /** Present when outcome was Sale: customer / project / production job ensured */
+      sale_pipeline: salePipeline,
     })
 
   } catch (error) {

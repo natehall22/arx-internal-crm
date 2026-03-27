@@ -341,6 +341,8 @@ export interface Project {
   org_id: string
   customer_id: string | null
   lead_id: string | null
+  /** When set, ties the job folder to the sales opportunity (inspection → close → sale). */
+  opportunity_id?: string | null
   owner_user_id: string | null
   status: ProjectStatus
   project_type: ProjectType

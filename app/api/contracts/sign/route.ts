@@ -245,12 +245,35 @@ export async function POST(request: NextRequest) {
 
     let projectId = null
     try {
-      const { data: existingProject } = await supabase
-        .from('projects')
-        .select('id')
-        .eq('org_id', contract.org_id)
-        .or(`opportunity_id.eq.${contract.opportunity_id},lead_id.eq.${contract.opportunity_id}`)
-        .maybeSingle()
+      let existingProject: { id: string } | null = null
+      if (contract.opportunity_id) {
+        const { data: byOpp } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('org_id', contract.org_id)
+          .eq('opportunity_id', contract.opportunity_id)
+          .maybeSingle()
+        existingProject = byOpp
+      }
+      if (!existingProject) {
+        const { data: opportunity } = contract.opportunity_id
+          ? await supabase
+              .from('opportunities')
+              .select('customer_id, lead_id')
+              .eq('id', contract.opportunity_id)
+              .single()
+          : { data: null }
+
+        if (opportunity?.lead_id) {
+          const { data: byLead } = await supabase
+            .from('projects')
+            .select('id')
+            .eq('org_id', contract.org_id)
+            .eq('lead_id', opportunity.lead_id)
+            .maybeSingle()
+          existingProject = byLead
+        }
+      }
 
       if (!existingProject) {
         let customerId = null
@@ -287,6 +310,7 @@ export async function POST(request: NextRequest) {
             org_id: contract.org_id,
             customer_id: customerId,
             lead_id: opportunity?.lead_id || null,
+            opportunity_id: contract.opportunity_id || null,
             owner_user_id: contract.created_by,
             status: 'open',
             project_type: contract.scope_roof_replacement || contract.scope_roof_repair ? 'roofing' : 
@@ -390,6 +414,14 @@ export async function POST(request: NextRequest) {
         }
       } else {
         projectId = existingProject.id
+
+        if (contract.opportunity_id) {
+          await supabase
+            .from('projects')
+            .update({ opportunity_id: contract.opportunity_id })
+            .eq('id', existingProject.id)
+            .is('opportunity_id', null)
+        }
         
         // Even if project exists, check if we need to create a job
         try {

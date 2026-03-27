@@ -257,6 +257,7 @@ export async function POST(
       notes: `Created from accepted proposal "${proposal.title || proposal.proposal_number}". Total: $${proposal.total?.toLocaleString() || 0}`,
       lead_id: leadId,
       customer_id: customerId,
+      opportunity_id: proposal.opportunity_id || null,
     }
 
     console.log('Creating project with payload:', projectPayload)
