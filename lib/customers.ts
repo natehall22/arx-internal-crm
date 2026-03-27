@@ -8,6 +8,26 @@ interface CustomerData {
   address_text?: string | null
 }
 
+/**
+ * Non-empty name for customer create/upsert when the lead/contract omits a formal name.
+ */
+export function resolveCustomerDisplayName(opts: {
+  name?: string | null
+  address_text?: string | null
+  phone?: string | null
+  /** e.g. first 8 chars of lead id */
+  fallbackIdHint?: string | null
+}): string {
+  const n = (opts.name || '').trim()
+  if (n) return n
+  const firstLine = (opts.address_text || '').split(',')[0]?.trim()
+  if (firstLine) return firstLine
+  const digits = (opts.phone || '').replace(/\D/g, '')
+  if (digits.length >= 4) return `Customer (${digits.slice(-4)})`
+  if (opts.fallbackIdHint) return `Customer ${opts.fallbackIdHint}`
+  return 'Customer'
+}
+
 interface UpsertResult {
   customer_id: string
   created: boolean

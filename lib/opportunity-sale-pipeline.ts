@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { upsertCustomer } from '@/lib/customers'
+import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 
 /** Align with inspection-outcomes id normalization. */
 export function normalizeOutcomeId(outcome: string | null | undefined): string {
@@ -86,10 +86,16 @@ export async function materializeSaleFromInspectionOutcome(
 
   let customerId = opp.customer_id || options.lead.customer_id || null
 
-  if (!customerId && options.lead.homeowner_name) {
+  if (!customerId) {
     try {
-      const { customer_id } = await upsertCustomer(supabase, orgId, {
+      const displayName = resolveCustomerDisplayName({
         name: options.lead.homeowner_name,
+        address_text: options.lead.address_text,
+        phone: options.lead.phone,
+        fallbackIdHint: options.leadId.slice(0, 8),
+      })
+      const { customer_id } = await upsertCustomer(supabase, orgId, {
+        name: displayName,
         email: options.lead.email,
         phone: options.lead.phone,
         address_text: options.lead.address_text,

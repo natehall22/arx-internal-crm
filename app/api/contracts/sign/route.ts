@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 
 function getAdminClient() {
   return createClient(
@@ -276,9 +277,9 @@ export async function POST(request: NextRequest) {
       }
 
       if (!existingProject) {
-        let customerId = null
-        
-        const { data: opportunity } = contract.opportunity_id 
+        let customerId: string | null = null
+
+        const { data: opportunity } = contract.opportunity_id
           ? await supabase
               .from('opportunities')
               .select('customer_id, lead_id')
@@ -286,22 +287,39 @@ export async function POST(request: NextRequest) {
               .single()
           : { data: null }
 
-        customerId = opportunity?.customer_id
+        customerId = opportunity?.customer_id ?? null
 
         if (!customerId) {
-          const { data: customer } = await supabase
-            .from('customers')
-            .insert({
-              org_id: contract.org_id,
-              name: contract.customer_name,
-              phone: contract.customer_phone,
-              email: contract.customer_email,
-              address_text: contract.project_address,
+          let leadForName: {
+            homeowner_name: string | null
+            phone: string | null
+            email: string | null
+            address_text: string | null
+          } | null = null
+          if (opportunity?.lead_id) {
+            const { data: lr } = await supabase
+              .from('leads')
+              .select('homeowner_name, phone, email, address_text')
+              .eq('id', opportunity.lead_id)
+              .maybeSingle()
+            leadForName = lr
+          }
+          const displayName = resolveCustomerDisplayName({
+            name: contract.customer_name || leadForName?.homeowner_name,
+            address_text: contract.project_address || leadForName?.address_text,
+            phone: contract.customer_phone || leadForName?.phone,
+          })
+          try {
+            const { customer_id } = await upsertCustomer(supabase, contract.org_id, {
+              name: displayName,
+              email: contract.customer_email || leadForName?.email,
+              phone: contract.customer_phone || leadForName?.phone,
+              address_text: contract.project_address || leadForName?.address_text,
             })
-            .select('id')
-            .single()
-
-          customerId = customer?.id
+            customerId = customer_id
+          } catch (e) {
+            console.error('[Contract Sign] upsertCustomer (new project)', e)
+          }
         }
 
         const { data: project } = await supabase
@@ -338,6 +356,13 @@ export async function POST(request: NextRequest) {
             .from('opportunities')
             .update({ status: 'won', customer_id: customerId })
             .eq('id', contract.opportunity_id)
+        }
+
+        if (customerId && opportunity?.lead_id) {
+          await supabase
+            .from('leads')
+            .update({ customer_id: customerId })
+            .eq('id', opportunity.lead_id)
         }
 
         if (projectId) {
@@ -421,6 +446,63 @@ export async function POST(request: NextRequest) {
             .update({ opportunity_id: contract.opportunity_id })
             .eq('id', existingProject.id)
             .is('opportunity_id', null)
+        }
+
+        // Ensure customer exists when signing (project may have been created without one).
+        try {
+          const { data: projRow } = await supabase
+            .from('projects')
+            .select('customer_id, lead_id')
+            .eq('id', projectId)
+            .single()
+
+          const { data: oppRow } = contract.opportunity_id
+            ? await supabase
+                .from('opportunities')
+                .select('customer_id, lead_id')
+                .eq('id', contract.opportunity_id)
+                .single()
+            : { data: null }
+
+          let ensuredId = projRow?.customer_id || oppRow?.customer_id || null
+          if (!ensuredId) {
+            const leadId = oppRow?.lead_id || projRow?.lead_id
+            let leadForName: {
+              homeowner_name: string | null
+              phone: string | null
+              email: string | null
+              address_text: string | null
+            } | null = null
+            if (leadId) {
+              const { data: lr } = await supabase
+                .from('leads')
+                .select('homeowner_name, phone, email, address_text')
+                .eq('id', leadId)
+                .maybeSingle()
+              leadForName = lr
+            }
+            const displayName = resolveCustomerDisplayName({
+              name: contract.customer_name || leadForName?.homeowner_name,
+              address_text: contract.project_address || leadForName?.address_text,
+              phone: contract.customer_phone || leadForName?.phone,
+            })
+            const { customer_id } = await upsertCustomer(supabase, contract.org_id, {
+              name: displayName,
+              email: contract.customer_email || leadForName?.email,
+              phone: contract.customer_phone || leadForName?.phone,
+              address_text: contract.project_address || leadForName?.address_text,
+            })
+            ensuredId = customer_id
+            await supabase.from('projects').update({ customer_id: ensuredId }).eq('id', projectId)
+            if (contract.opportunity_id) {
+              await supabase.from('opportunities').update({ customer_id: ensuredId }).eq('id', contract.opportunity_id)
+            }
+            if (leadId) {
+              await supabase.from('leads').update({ customer_id: ensuredId }).eq('id', leadId)
+            }
+          }
+        } catch (e) {
+          console.error('[Contract Sign] ensure customer (existing project)', e)
         }
         
         // Even if project exists, check if we need to create a job
