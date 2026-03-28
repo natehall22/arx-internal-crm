@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ function PhotoUploadSection({
 }: {
   opportunityId: string
   photos: UploadedPhoto[]
-  onPhotosChange: (photos: UploadedPhoto[]) => void
+  onPhotosChange: Dispatch<SetStateAction<UploadedPhoto[]>>
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const uploadedCount = photos.filter((p) => p.storagePath && !p.uploading).length
@@ -390,10 +390,6 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
   const needsCloseSchedule = outcome === 'approved'
   const uploadedPhotoCount = photos.filter((p) => p.storagePath && !p.uploading).length
   const photosReady = uploadedPhotoCount >= MIN_PHOTOS
-
-  const handlePhotosChange = useCallback((updated: UploadedPhoto[]) => {
-    setPhotos(updated)
-  }, [])
 
   useEffect(() => {
     async function load() {
@@ -785,7 +781,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           <PhotoUploadSection
             opportunityId={opportunityId}
             photos={photos}
-            onPhotosChange={handlePhotosChange}
+            onPhotosChange={setPhotos}
           />
 
           <BoolToggle label="Were both decision makers present?" value={bothDMs} onChange={setBothDMs} required />
