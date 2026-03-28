@@ -6,7 +6,6 @@ type InspectionResult = {
   absent_dm_name?: string | null
   damage_found?: string | null
   roof_slopes?: string | null
-  photos_confirmed?: boolean | null
   homeowner_emotional_state?: string | null
   consequence_questions_asked?: boolean | null
   insurance_mentioned?: boolean | null
@@ -14,13 +13,19 @@ type InspectionResult = {
   notes?: string | null
 }
 
+export type BriefingPhoto = {
+  id: string
+  filename: string
+  url: string | null
+}
+
 const OUTCOME_LABELS: Record<string, string> = {
-  approved: 'Approved — Ready to Close',
-  denied:   'Denied',
-  follow_up: 'Follow-Up Needed',
-  not_home: 'Not Home',
-  cancelled: 'Cancelled',
-  other: 'Other',
+  approved:   'Approved — Ready to Close',
+  denied:     'Denied',
+  follow_up:  'Follow-Up Needed',
+  not_home:   'Not Home',
+  cancelled:  'Cancelled',
+  other:      'Other',
 }
 
 function escapeHtml(s: string): string {
@@ -43,8 +48,47 @@ function row(label: string, value: string): string {
   </tr>`
 }
 
+function photoGrid(photos: BriefingPhoto[]): string {
+  if (photos.length === 0) return ''
+
+  const cells = photos
+    .filter((p) => p.url)
+    .map(
+      (p) => `
+        <td style="padding:4px;width:33%;">
+          <img
+            src="${escapeHtml(p.url!)}"
+            alt="${escapeHtml(p.filename)}"
+            style="width:100%;max-width:180px;height:130px;object-fit:cover;border-radius:6px;border:1px solid #E5E7EB;"
+          />
+        </td>`
+    )
+
+  // Group into rows of 3
+  const tableRows: string[] = []
+  for (let i = 0; i < cells.length; i += 3) {
+    const slice = cells.slice(i, i + 3)
+    // Pad to 3 cells so the grid stays aligned
+    while (slice.length < 3) slice.push('<td style="padding:4px;width:33%;"></td>')
+    tableRows.push(`<tr>${slice.join('')}</tr>`)
+  }
+
+  return `
+    <div style="margin-top:20px;">
+      <p style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">
+        Inspection Photos (${photos.filter((p) => p.url).length})
+      </p>
+      <table style="width:100%;border-collapse:collapse;">
+        ${tableRows.join('\n')}
+      </table>
+      <p style="font-size:11px;color:#9CA3AF;margin-top:6px;">
+        Photo links expire in 7 days. Download any photos you need before your appointment.
+      </p>
+    </div>`
+}
+
 /**
- * Builds a plain-text briefing string suitable for injection into Google Calendar notes.
+ * Plain-text briefing for injection into Google Calendar event description.
  */
 export function formatBriefingText(params: {
   customerName: string
@@ -67,7 +111,6 @@ export function formatBriefingText(params: {
     }
     if (result.damage_found) lines.push(`Damage Found: ${result.damage_found}`)
     if (result.roof_slopes) lines.push(`Roof Slopes: ${result.roof_slopes}`)
-    lines.push(`Photos Confirmed: ${boolLabel(result.photos_confirmed)}`)
     if (result.homeowner_emotional_state) lines.push(`Homeowner Mood: ${result.homeowner_emotional_state}`)
     lines.push(`Consequence Qs Asked: ${boolLabel(result.consequence_questions_asked)}`)
     lines.push(`Insurance Mentioned: ${boolLabel(result.insurance_mentioned)}`)
@@ -85,6 +128,7 @@ export async function sendCloserBriefingEmail(params: {
   address: string
   inspectorName: string | null
   result: InspectionResult
+  photos?: BriefingPhoto[]
 }): Promise<void> {
   if (!process.env.SMTP_HOST || !params.to?.includes('@')) return
 
@@ -101,10 +145,7 @@ export async function sendCloserBriefingEmail(params: {
     }
     if (result.damage_found) briefingRows.push(row('Damage Found', result.damage_found))
     if (result.roof_slopes) briefingRows.push(row('Roof Slopes', result.roof_slopes))
-    briefingRows.push(row('Photos Confirmed', boolLabel(result.photos_confirmed)))
-    if (result.homeowner_emotional_state) {
-      briefingRows.push(row('Homeowner Mood', result.homeowner_emotional_state))
-    }
+    if (result.homeowner_emotional_state) briefingRows.push(row('Homeowner Mood', result.homeowner_emotional_state))
     briefingRows.push(row('Consequence Qs Asked', boolLabel(result.consequence_questions_asked)))
     briefingRows.push(row('Insurance Mentioned', boolLabel(result.insurance_mentioned)))
     if (result.urgency_level) {
@@ -133,6 +174,8 @@ export async function sendCloserBriefingEmail(params: {
           ${row('Outcome', outcomeLabel)}
           ${briefingRows.join('\n')}
         </table>
+
+        ${photoGrid(params.photos ?? [])}
 
         <p style="color:#6B7280;font-size:12px;margin-top:24px;">
           This is an automated briefing from ARX CRM. Do not reply to this email.

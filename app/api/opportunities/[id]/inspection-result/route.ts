@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { sendCloserBriefingEmail } from '@/lib/closer-briefing-email'
+import { sendCloserBriefingEmail, type BriefingPhoto } from '@/lib/closer-briefing-email'
+
+const PHOTO_BUCKET = 'inspection-photos'
+const PHOTO_SIGNED_URL_TTL = 60 * 60 * 24 * 7 // 7 days
 
 const ROLES_CAN_SUBMIT = new Set([
   'admin', 'owner', 'setter_manager', 'regional_setter_manager',
@@ -49,15 +52,20 @@ export async function POST(
 
     const ALLOWED_FIELDS = new Set([
       'outcome', 'both_dms_present', 'absent_dm_name', 'damage_found',
-      'roof_slopes', 'photos_confirmed', 'homeowner_emotional_state',
+      'roof_slopes', 'homeowner_emotional_state',
       'consequence_questions_asked', 'insurance_mentioned', 'urgency_level',
       'notes', 'close_appointment_id',
     ])
     const upsertData: Record<string, unknown> = {
       org_id: profile.org_id,
       opportunity_id: params.id,
-      submitted_by_user_id: profile.id,
-      submitted_at: new Date().toISOString(),
+    }
+    // submitted_at and submitted_by are only stamped on an explicit final submit,
+    // not on intermediate patches (e.g. linking close_appointment_id after scheduling).
+    const isFinalSubmit = rawBody.final_submit === true
+    if (isFinalSubmit) {
+      upsertData.submitted_at = new Date().toISOString()
+      upsertData.submitted_by_user_id = profile.id
     }
     for (const key of Object.keys(rawBody)) {
       if (ALLOWED_FIELDS.has(key)) upsertData[key] = rawBody[key]
@@ -77,8 +85,8 @@ export async function POST(
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Send briefing email to the assigned closer if requested
-    if (rawBody.send_email && result) {
+    // Send briefing email only on a real final submit (not intermediate patches)
+    if (rawBody.send_email && isFinalSubmit && result) {
       try {
         const { data: opp } = await admin
           .from('opportunities')
@@ -100,6 +108,22 @@ export async function POST(
             'Customer'
 
           if (closer?.email) {
+            // Fetch photos with 7-day signed URLs for inline email grid
+            const photos: BriefingPhoto[] = []
+            const { data: photoRows } = await admin
+              .from('inspection_result_photos')
+              .select('id, storage_path, filename')
+              .eq('result_id', result.id)
+              .eq('org_id', profile.org_id)
+              .order('created_at', { ascending: true })
+
+            for (const p of photoRows ?? []) {
+              const { data: signed } = await admin.storage
+                .from(PHOTO_BUCKET)
+                .createSignedUrl(p.storage_path, PHOTO_SIGNED_URL_TTL)
+              photos.push({ id: p.id, filename: p.filename, url: signed?.signedUrl ?? null })
+            }
+
             await sendCloserBriefingEmail({
               to: closer.email,
               closerName: closer.full_name,
@@ -107,6 +131,7 @@ export async function POST(
               address: opp.address_text || '',
               inspectorName: profile.full_name,
               result,
+              photos,
             })
 
             await admin

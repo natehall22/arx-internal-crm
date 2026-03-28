@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type InspectionResult = {
   id: string
@@ -10,7 +12,6 @@ type InspectionResult = {
   absent_dm_name: string | null
   damage_found: string | null
   roof_slopes: string | null
-  photos_confirmed: boolean | null
   homeowner_emotional_state: string | null
   consequence_questions_asked: boolean | null
   insurance_mentioned: boolean | null
@@ -21,11 +22,27 @@ type InspectionResult = {
   submitted_at: string | null
 }
 
+type UploadedPhoto = {
+  id: string
+  filename: string
+  previewUrl: string // blob: URL for new uploads, or signed https URL after hydration
+  storagePath?: string
+  uploading: boolean
+  error?: string
+}
+
 type Props = {
   opportunityId: string
   inspectionAppointmentId: string | null
   currentUserRole: string
 }
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const MIN_PHOTOS = 6
+const MAX_PHOTOS = 20
+const MAX_MP = 2_000_000       // 2 megapixel cap
+const TARGET_BYTES = 800_000   // 800 KB soft target
 
 const ROLES_CAN_SUBMIT = new Set([
   'admin', 'owner', 'setter_manager', 'regional_setter_manager',
@@ -33,22 +50,62 @@ const ROLES_CAN_SUBMIT = new Set([
 ])
 
 const OUTCOME_LABELS: Record<string, string> = {
-  approved: 'Approved — Ready to Close',
-  denied: 'Denied',
-  follow_up: 'Follow-Up Needed',
-  not_home: 'Not Home',
-  cancelled: 'Cancelled',
-  other: 'Other',
+  approved:   'Approved — Ready to Close',
+  denied:     'Denied',
+  follow_up:  'Follow-Up Needed',
+  not_home:   'Not Home',
+  cancelled:  'Cancelled',
+  other:      'Other',
 }
 
 const OUTCOME_COLORS: Record<string, string> = {
-  approved: 'bg-green-100 text-green-700',
-  denied: 'bg-red-100 text-red-700',
-  follow_up: 'bg-blue-100 text-blue-700',
-  not_home: 'bg-yellow-100 text-yellow-700',
-  cancelled: 'bg-gray-100 text-gray-600',
-  other: 'bg-gray-100 text-gray-600',
+  approved:   'bg-green-100 text-green-700',
+  denied:     'bg-red-100 text-red-700',
+  follow_up:  'bg-blue-100 text-blue-700',
+  not_home:   'bg-yellow-100 text-yellow-700',
+  cancelled:  'bg-gray-100 text-gray-600',
+  other:      'bg-gray-100 text-gray-600',
 }
+
+// ─── Compression (Canvas API, no library) ────────────────────────────────────
+
+async function compressImage(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file)
+  const { width: origW, height: origH } = bitmap
+
+  // Scale down if over 2MP
+  let w = origW
+  let h = origH
+  const px = origW * origH
+  if (px > MAX_MP) {
+    const scale = Math.sqrt(MAX_MP / px)
+    w = Math.round(origW * scale)
+    h = Math.round(origH * scale)
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')!
+  ctx.drawImage(bitmap, 0, 0, w, h)
+  bitmap.close()
+
+  // Try quality 0.82 first, then 0.65, then 0.5 if still too large
+  for (const quality of [0.82, 0.65, 0.5]) {
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+        'image/jpeg',
+        quality
+      )
+    )
+    if (blob.size <= TARGET_BYTES || quality === 0.5) return blob
+  }
+  // Unreachable but TypeScript needs a return
+  return new Blob()
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function BoolToggle({
   label,
@@ -94,6 +151,202 @@ function BoolToggle({
   )
 }
 
+function Detail({ label, value, className = '' }: { label: string; value: string; className?: string }) {
+  return (
+    <div className={className}>
+      <span className="text-gray-500 text-xs block">{label}</span>
+      <span className="text-gray-800 text-sm">{value}</span>
+    </div>
+  )
+}
+
+function boolDisplay(v: boolean | null | undefined): string {
+  if (v === null || v === undefined) return '—'
+  return v ? 'Yes' : 'No'
+}
+
+// ─── Photo Upload Section ─────────────────────────────────────────────────────
+
+function PhotoUploadSection({
+  opportunityId,
+  photos,
+  onPhotosChange,
+}: {
+  opportunityId: string
+  photos: UploadedPhoto[]
+  onPhotosChange: (photos: UploadedPhoto[]) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const uploadedCount = photos.filter((p) => p.storagePath && !p.uploading).length
+  const uploadingCount = photos.filter((p) => p.uploading).length
+  const canAddMore = photos.length < MAX_PHOTOS
+
+  async function handleFiles(files: FileList) {
+    const remaining = MAX_PHOTOS - photos.length
+    const toProcess = Array.from(files).slice(0, remaining)
+
+    // Create placeholder entries immediately so thumbnails appear
+    const placeholders: UploadedPhoto[] = toProcess.map((f) => ({
+      id: crypto.randomUUID(),
+      filename: f.name,
+      previewUrl: URL.createObjectURL(f),
+      uploading: true,
+    }))
+    onPhotosChange([...photos, ...placeholders])
+
+    // Compress + upload each in parallel
+    await Promise.all(
+      toProcess.map(async (file, i) => {
+        const placeholder = placeholders[i]
+        try {
+          const compressed = await compressImage(file)
+          const fd = new FormData()
+          fd.append('file', compressed, file.name.replace(/\.[^.]+$/, '.jpg'))
+
+          const res = await fetch(`/api/opportunities/${opportunityId}/inspection-photos`, {
+            method: 'POST',
+            body: fd,
+          })
+
+          if (!res.ok) {
+            const d = await res.json()
+            onPhotosChange((prev) =>
+              prev.map((p) =>
+                p.id === placeholder.id
+                  ? { ...p, uploading: false, error: d.error || 'Upload failed' }
+                  : p
+              )
+            )
+            return
+          }
+
+          const { photo } = await res.json()
+          onPhotosChange((prev) =>
+            prev.map((p) =>
+              p.id === placeholder.id
+                ? { ...p, id: photo.id, storagePath: photo.storage_path, uploading: false }
+                : p
+            )
+          )
+        } catch {
+          onPhotosChange((prev) =>
+            prev.map((p) =>
+              p.id === placeholder.id
+                ? { ...p, uploading: false, error: 'Upload failed' }
+                : p
+            )
+          )
+        }
+      })
+    )
+  }
+
+  async function removePhoto(photo: UploadedPhoto) {
+    // If already uploaded to server, delete it
+    if (photo.storagePath) {
+      await fetch(`/api/opportunities/${opportunityId}/inspection-photos/${photo.id}`, {
+        method: 'DELETE',
+      }).catch(() => {/* non-fatal */})
+    }
+    if (photo.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(photo.previewUrl)
+    }
+    onPhotosChange(photos.filter((p) => p.id !== photo.id))
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="block text-sm font-medium text-gray-700">
+          Inspection Photos
+          <span className="text-red-500 ml-0.5">*</span>
+          <span className="text-gray-400 font-normal ml-1">
+            (min {MIN_PHOTOS}, max {MAX_PHOTOS})
+          </span>
+        </label>
+        <span className={`text-xs font-semibold ${
+          uploadedCount >= MIN_PHOTOS ? 'text-green-600' : 'text-amber-600'
+        }`}>
+          {uploadedCount} / {MIN_PHOTOS} required
+        </span>
+      </div>
+
+      {/* Thumbnail grid */}
+      {photos.length > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+          {photos.map((photo) => (
+            <div key={photo.id} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
+              {photo.previewUrl ? (
+                <img
+                  src={photo.previewUrl}
+                  alt={photo.filename}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center p-1 text-center text-[10px] text-gray-500 leading-tight">
+                  No preview
+                </div>
+              )}
+              {photo.uploading && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              {photo.error && (
+                <div className="absolute inset-0 bg-red-500/70 flex items-center justify-center p-1">
+                  <span className="text-white text-xs text-center leading-tight">Failed</span>
+                </div>
+              )}
+              {!photo.uploading && (
+                <button
+                  type="button"
+                  onClick={() => removePhoto(photo)}
+                  className="absolute top-1 right-1 w-5 h-5 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center text-xs leading-none"
+                  aria-label="Remove photo"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Upload button */}
+      {canAddMore && (
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => e.target.files && handleFiles(e.target.files)}
+          />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploadingCount > 0}
+            className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {uploadingCount > 0
+              ? `Uploading ${uploadingCount} photo${uploadingCount > 1 ? 's' : ''}…`
+              : `+ Add photos${photos.length > 0 ? ` (${MAX_PHOTOS - photos.length} remaining)` : ''}`}
+          </button>
+        </>
+      )}
+
+      {uploadedCount < MIN_PHOTOS && photos.length > 0 && uploadingCount === 0 && (
+        <p className="text-xs text-amber-600 mt-2">
+          Add {MIN_PHOTOS - uploadedCount} more photo{MIN_PHOTOS - uploadedCount > 1 ? 's' : ''} to continue.
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
 export default function InspectionResultForm({ opportunityId, inspectionAppointmentId, currentUserRole }: Props) {
   const [existing, setExisting] = useState<InspectionResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -103,19 +356,19 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
   const [showModal, setShowModal] = useState(false)
 
   // Step 1
-  const [outcome, setOutcome] = useState<string>('')
+  const [outcome, setOutcome] = useState('')
 
   // Step 2 — briefing
   const [bothDMs, setBothDMs] = useState<boolean | null>(null)
   const [absentDMName, setAbsentDMName] = useState('')
   const [damageFound, setDamageFound] = useState('')
   const [roofSlopes, setRoofSlopes] = useState('')
-  const [photosConfirmed, setPhotosConfirmed] = useState<boolean | null>(null)
   const [homeownerMood, setHomeownerMood] = useState('')
   const [consequenceQs, setConsequenceQs] = useState<boolean | null>(null)
   const [insuranceMentioned, setInsuranceMentioned] = useState<boolean | null>(null)
   const [urgencyLevel, setUrgencyLevel] = useState<'low' | 'medium' | 'high' | ''>('')
   const [notes, setNotes] = useState('')
+  const [photos, setPhotos] = useState<UploadedPhoto[]>([])
 
   // Step 3 — schedule close
   const [closeScheduled, setCloseScheduled] = useState(false)
@@ -130,8 +383,13 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
   const needsBriefing = outcome === 'approved' || outcome === 'follow_up'
   const needsCloseSchedule = outcome === 'approved'
+  const uploadedPhotoCount = photos.filter((p) => p.storagePath && !p.uploading).length
+  const photosReady = uploadedPhotoCount >= MIN_PHOTOS
 
-  // Fetch existing result + scheduling data on mount
+  const handlePhotosChange = useCallback((updated: UploadedPhoto[]) => {
+    setPhotos(updated)
+  }, [])
+
   useEffect(() => {
     async function load() {
       try {
@@ -146,13 +404,35 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           if (result) {
             setExisting(result)
             setEmailSent(!!result.briefing_email_sent_at)
-            setSubmitted(!!result.submitted_at)
+            // Only treat as submitted when submitted_at is explicitly set by a final submit —
+            // intermediate patches (close_appointment_id link) do not stamp submitted_at.
+            const isSubmitted = !!result.submitted_at
+            setSubmitted(isSubmitted)
+
+            if (!isSubmitted) {
+              // Hydrate existing photos so a page refresh doesn't clear upload state
+              const photosRes = await fetch(`/api/opportunities/${opportunityId}/inspection-photos`)
+              if (photosRes.ok) {
+                const { photos: existingPhotos } = await photosRes.json()
+                if (existingPhotos?.length) {
+                  setPhotos(
+                    existingPhotos.map((p: { id: string; filename: string; url: string | null; storage_path: string }) => ({
+                      id: p.id,
+                      filename: p.filename,
+                      previewUrl: p.url ?? '',
+                      storagePath: p.storage_path,
+                      uploading: false,
+                    }))
+                  )
+                }
+              }
+            }
           }
         }
 
         if (apptRes.ok) {
           const apptData = await apptRes.json()
-          const rows: any[] = apptData.appointmentTypes || apptData.data || []
+          const rows: any[] = apptData.appointmentTypes || []
           const closeRow = rows.find(
             (r: any) => r.category === 'close' && r.active !== false &&
               (r.name?.toLowerCase() === 'close' || r.name?.toLowerCase().includes('close'))
@@ -185,7 +465,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
     )
   }
 
-  // Show read-only view if already submitted
+  // Read-only view after submission
   if (existing && existing.submitted_at) {
     return (
       <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -208,7 +488,6 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
               )}
               {existing.damage_found && <Detail label="Damage Found" value={existing.damage_found} />}
               {existing.roof_slopes && <Detail label="Roof Slopes" value={existing.roof_slopes} />}
-              <Detail label="Photos Confirmed" value={boolDisplay(existing.photos_confirmed)} />
               {existing.homeowner_emotional_state && (
                 <Detail label="Homeowner Mood" value={existing.homeowner_emotional_state} />
               )}
@@ -235,33 +514,31 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
     )
   }
 
-  // Step labels for progress indicator
+  // Step progress labels
   const steps = [
     'Outcome',
     ...(needsBriefing ? ['Briefing'] : []),
     ...(needsCloseSchedule ? ['Schedule Close'] : []),
     'Submit',
   ]
-  const currentStepIndex = needsBriefing
-    ? needsCloseSchedule
-      ? step - 1  // steps: 1=outcome, 2=briefing, 3=schedule, 4=submit
-      : step === 3 ? 2 : step - 1  // steps: 1=outcome, 2=briefing, 3=submit (no schedule)
-    : step === 2 ? (needsCloseSchedule ? 2 : 1) : step - 1
+  // Map visual step index to current step state
+  const currentStepIndex = (() => {
+    if (step === 1) return 0
+    if (step === 2 && needsBriefing) return 1
+    if (step === 3 && needsCloseSchedule) return needsBriefing ? 2 : 1
+    return steps.length - 1
+  })()
 
   async function saveAndAdvance(sendEmail = false) {
     setSaving(true)
     setError(null)
     try {
-      const payload: Record<string, unknown> = {
-        outcome,
-        send_email: sendEmail,
-      }
+      const payload: Record<string, unknown> = { outcome, send_email: sendEmail, final_submit: true }
       if (needsBriefing) {
         payload.both_dms_present = bothDMs
         payload.absent_dm_name = absentDMName || null
         payload.damage_found = damageFound || null
         payload.roof_slopes = roofSlopes || null
-        payload.photos_confirmed = photosConfirmed
         payload.homeowner_emotional_state = homeownerMood || null
         payload.consequence_questions_asked = consequenceQs
         payload.insurance_mentioned = insuranceMentioned
@@ -321,7 +598,8 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
       const closeData = await res.json()
 
-      // Link close appointment to the inspection result
+      // Intermediate patch — links close_appointment_id only; no final_submit flag
+      // so submitted_at is not stamped and the form stays editable.
       if (closeData.close_appointment_id) {
         await fetch(`/api/opportunities/${opportunityId}/inspection-result`, {
           method: 'POST',
@@ -335,7 +613,6 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
       setCloseScheduled(true)
       setShowModal(false)
-      // Advance to final step
       setStep(4)
     } catch {
       setScheduleError('Network error — please try again')
@@ -351,12 +628,12 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
       if (!bothDMs && absentDMName) lines.push(`Absent DM: ${absentDMName}`)
       if (damageFound) lines.push(`Damage Found: ${damageFound}`)
       if (roofSlopes) lines.push(`Roof Slopes: ${roofSlopes}`)
-      if (photosConfirmed !== null) lines.push(`Photos Confirmed: ${photosConfirmed ? 'Yes' : 'No'}`)
       if (homeownerMood) lines.push(`Homeowner Mood: ${homeownerMood}`)
       if (consequenceQs !== null) lines.push(`Consequence Qs: ${consequenceQs ? 'Yes' : 'No'}`)
       if (insuranceMentioned !== null) lines.push(`Insurance Mentioned: ${insuranceMentioned ? 'Yes' : 'No'}`)
       if (urgencyLevel) lines.push(`Urgency: ${urgencyLevel.charAt(0).toUpperCase() + urgencyLevel.slice(1)}`)
       if (notes) lines.push(`Notes: ${notes}`)
+      lines.push(`Photos Uploaded: ${uploadedPhotoCount}`)
     }
     return lines.join('\n')
   }
@@ -366,7 +643,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
     if (!bothDMs && !absentDMName.trim()) return 'Enter the name of the absent decision maker'
     if (!damageFound.trim()) return 'Describe the damage found'
     if (!roofSlopes.trim()) return 'Enter the roof slopes'
-    if (photosConfirmed === null) return 'Confirm whether photos were taken'
+    if (!photosReady) return `Upload at least ${MIN_PHOTOS} photos before continuing`
     if (!homeownerMood.trim()) return "Describe the homeowner's emotional state"
     if (consequenceQs === null) return 'Were consequence questions asked?'
     if (insuranceMentioned === null) return 'Was insurance discussed?'
@@ -405,7 +682,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
         </div>
       )}
 
-      {/* Step 1: Outcome */}
+      {/* ── Step 1: Outcome ── */}
       {step === 1 && (
         <div className="space-y-4">
           <p className="text-sm font-medium text-gray-700 mb-3">What was the inspection outcome?</p>
@@ -431,7 +708,6 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
               disabled={!outcome}
               onClick={() => {
                 if (needsBriefing) setStep(2)
-                else if (needsCloseSchedule) setStep(3)
                 else setStep(4)
               }}
               className="px-5 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -442,7 +718,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
         </div>
       )}
 
-      {/* Step 2: Briefing */}
+      {/* ── Step 2: Briefing ── */}
       {step === 2 && needsBriefing && (
         <div className="space-y-5">
           <div className="flex items-center gap-2 mb-1">
@@ -494,7 +770,12 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
             />
           </div>
 
-          <BoolToggle label="Photos confirmed (taken and uploaded)?" value={photosConfirmed} onChange={setPhotosConfirmed} required />
+          {/* Photo upload — min 6, max 20 */}
+          <PhotoUploadSection
+            opportunityId={opportunityId}
+            photos={photos}
+            onPhotosChange={handlePhotosChange}
+          />
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -510,7 +791,6 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           </div>
 
           <BoolToggle label="Were consequence questions asked?" value={consequenceQs} onChange={setConsequenceQs} required />
-
           <BoolToggle label="Was insurance discussed?" value={insuranceMentioned} onChange={setInsuranceMentioned} required />
 
           <div>
@@ -540,9 +820,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Additional Notes
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Additional Notes</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -553,11 +831,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           </div>
 
           <div className="flex justify-between pt-2">
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
-            >
+            <button type="button" onClick={() => setStep(1)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">
               ← Back
             </button>
             <button
@@ -576,11 +850,11 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
         </div>
       )}
 
-      {/* Step 3: Schedule Close */}
+      {/* ── Step 3: Schedule Close ── */}
       {step === 3 && needsCloseSchedule && (
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            Schedule the close appointment. The briefing notes will be added to the calendar event automatically.
+            Schedule the close appointment. Briefing notes and photo count will be added to the calendar event.
           </p>
 
           {scheduleError && (
@@ -591,8 +865,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
           {!inspectionAppointmentId && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-              No inspection appointment is linked to this opportunity. Close scheduling requires one.
-              You can skip this step and submit without scheduling.
+              No inspection appointment linked to this opportunity. You can skip and submit without scheduling.
             </div>
           )}
 
@@ -612,11 +885,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           )}
 
           <div className="flex justify-between pt-2">
-            <button
-              type="button"
-              onClick={() => setStep(2)}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
-            >
+            <button type="button" onClick={() => setStep(2)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">
               ← Back
             </button>
             <button
@@ -639,7 +908,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
         </div>
       )}
 
-      {/* Step 4: Submit & Send Email */}
+      {/* ── Step 4: Submit ── */}
       {step === 4 && (
         <div className="space-y-4">
           <div className="p-4 bg-gray-50 border rounded-lg text-sm space-y-1">
@@ -651,7 +920,9 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
               </span>
             </p>
             {needsBriefing && (
-              <p className="text-gray-500 text-xs">Briefing details filled in</p>
+              <p className="text-gray-500 text-xs">
+                Briefing complete — {uploadedPhotoCount} photo{uploadedPhotoCount !== 1 ? 's' : ''} uploaded
+              </p>
             )}
             {closeScheduled && (
               <p className="text-green-600 text-xs font-medium">✓ Close appointment scheduled</p>
@@ -660,7 +931,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
           {submitted ? (
             <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 font-medium">
-              ✓ Inspection result submitted.{emailSent ? ' Briefing email sent to closer.' : ''}
+              ✓ Inspection result submitted.{emailSent ? ' Briefing email with photos sent to closer.' : ''}
             </div>
           ) : (
             <div className="flex flex-col gap-3">
@@ -683,37 +954,21 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
             </div>
           )}
 
-          {step === 4 && !submitted && (
-            <div className="flex justify-start">
-              <button
-                type="button"
-                onClick={() => {
-                  if (needsCloseSchedule) setStep(3)
-                  else if (needsBriefing) setStep(2)
-                  else setStep(1)
-                }}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
-              >
-                ← Back
-              </button>
-            </div>
+          {!submitted && (
+            <button
+              type="button"
+              onClick={() => {
+                if (needsCloseSchedule) setStep(3)
+                else if (needsBriefing) setStep(2)
+                else setStep(1)
+              }}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
+            >
+              ← Back
+            </button>
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-function boolDisplay(v: boolean | null | undefined): string {
-  if (v === null || v === undefined) return '—'
-  return v ? 'Yes' : 'No'
-}
-
-function Detail({ label, value, className = '' }: { label: string; value: string; className?: string }) {
-  return (
-    <div className={className}>
-      <span className="text-gray-500 text-xs block">{label}</span>
-      <span className="text-gray-800 text-sm">{value}</span>
     </div>
   )
 }
