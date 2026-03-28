@@ -33,6 +33,7 @@ interface Job {
   sale_amount: number | null
   deposit: number | null
   deposit_required_percent: number | null
+  finance_submitted_at: string | null
   sale_date: string | null
   materials_status: string
   materials_ordered_at: string | null

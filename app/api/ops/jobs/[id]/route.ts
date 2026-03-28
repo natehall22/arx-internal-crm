@@ -69,9 +69,11 @@ export async function PATCH(
     const ALLOWED_FIELDS = new Set([
       'status', 'materials_status', 'materials_ordered_at',
       'started_at', 'completed_at', 'scheduled_date',
+      'scheduled_time_start', 'estimated_duration_hours',
       'assigned_crew_id', 'assigned_sub_id',
-      'labor_cost', 'notes', 'scope_of_work',
+      'labor_cost', 'internal_notes',
       'deposit_required_percent', 'finance_submitted_at',
+      'allow_close_with_balance', 'close_balance_reason',
     ])
     const updateData: Record<string, unknown> = {}
     for (const key of Object.keys(body)) {
