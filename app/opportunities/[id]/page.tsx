@@ -12,6 +12,7 @@ import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import ContractListItem from '@/components/contracts/ContractListItem'
 import CloseAppointmentStatusSection from '@/components/opportunities/CloseAppointmentStatusSection'
+import InspectionResultForm from '@/components/opportunities/InspectionResultForm'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 
 export default async function OpportunityDetailPage({
@@ -135,6 +136,17 @@ export default async function OpportunityDetailPage({
     .single()
   
   const measureToolEnabled = orgSettings?.settings?.measure_tool_enabled !== false // Default to enabled
+
+  // Fetch the most recent inspection appointment linked to this opportunity
+  const { data: inspectionAppointment } = await supabase
+    .from('scheduled_appointments')
+    .select('id')
+    .eq('opportunity_id', params.id)
+    .eq('org_id', profile.org_id)
+    .eq('appointment_type', 'inspection')
+    .order('scheduled_for', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   let closeScheduledFor: string | null = null
   let closeOutcome: string | null = null
@@ -679,6 +691,12 @@ export default async function OpportunityDetailPage({
         {!(orderFormContracts && orderFormContracts.some((c: any) => c.status === 'completed')) && (
           <ContractUpload opportunityId={params.id} />
         )}
+
+        <InspectionResultForm
+          opportunityId={params.id}
+          inspectionAppointmentId={inspectionAppointment?.id ?? null}
+          currentUserRole={profile.role}
+        />
 
         <CloseAppointmentStatusSection
           opportunityId={params.id}
