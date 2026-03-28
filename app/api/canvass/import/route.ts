@@ -65,26 +65,32 @@ export async function POST(request: NextRequest) {
       return dispositionMap[normalized] || null
     }
     
-    // Get existing addresses to avoid duplicates
-    const addresses = leads
-      .map(l => l.address_text?.toLowerCase().trim())
-      .filter(Boolean)
-    
-    const { data: existingLeads } = await supabase
-      .from('leads')
-      .select('address_text, lat, lng')
-      .eq('org_id', profile.org_id)
-    
+    // Collect candidate addresses from the import batch to check for duplicates in DB
+    const candidateAddresses = leads
+      .map((l: any) => l.address_text?.toLowerCase().trim())
+      .filter(Boolean) as string[]
+
+    // Only fetch existing leads that share an address with the import — avoids full-table scan
+    const { data: existingLeads } = candidateAddresses.length > 0
+      ? await supabase
+          .from('leads')
+          .select('address_text, lat, lng')
+          .eq('org_id', profile.org_id)
+          .in('address_text', candidateAddresses)
+      : { data: [] }
+
     // Create a set of existing addresses and coordinates for fast lookup
     const existingAddresses = new Set(
-      (existingLeads || []).map(l => l.address_text?.toLowerCase().trim()).filter(Boolean)
+      (existingLeads || []).map((l: any) => l.address_text?.toLowerCase().trim()).filter(Boolean)
     )
     const existingCoords = new Set(
-      (existingLeads || []).map(l => `${l.lat?.toFixed(6)},${l.lng?.toFixed(6)}`)
+      (existingLeads || [])
+        .filter((l: any) => l.lat && l.lng)
+        .map((l: any) => `${Number(l.lat).toFixed(6)},${Number(l.lng).toFixed(6)}`)
     )
-    
+
     const leadsToInsert = leads
-      .filter(lead => {
+      .filter((lead: any) => {
         // Skip if address already exists
         const addr = lead.address_text?.toLowerCase().trim()
         if (addr && existingAddresses.has(addr)) {
@@ -92,14 +98,14 @@ export async function POST(request: NextRequest) {
         }
         // Skip if exact coordinates already exist
         if (lead.lat && lead.lng) {
-          const coordKey = `${lead.lat.toFixed(6)},${lead.lng.toFixed(6)}`
+          const coordKey = `${Number(lead.lat).toFixed(6)},${Number(lead.lng).toFixed(6)}`
           if (existingCoords.has(coordKey)) {
             return false
           }
         }
         return true
       })
-      .map(lead => ({
+      .map((lead: any) => ({
         org_id: profile.org_id,
         owner_user_id: user.id,
         status: 'new',

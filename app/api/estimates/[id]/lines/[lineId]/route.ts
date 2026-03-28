@@ -9,7 +9,16 @@ export async function PATCH(
 ) {
   const { profile } = await requireAuthApi()
   const supabase = createClient()
-  const body = await request.json()
+  const rawBody = await request.json()
+
+  const ALLOWED_FIELDS = new Set([
+    'name', 'category', 'unit', 'qty', 'unit_price', 'line_total',
+    'is_labor', 'is_taxable', 'sort_order', 'pricebook_item_id',
+  ])
+  const body: Record<string, unknown> = {}
+  for (const key of Object.keys(rawBody)) {
+    if (ALLOWED_FIELDS.has(key)) body[key] = rawBody[key]
+  }
 
   const { data: line, error } = await supabase
     .from('estimate_lines')

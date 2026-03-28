@@ -65,10 +65,26 @@ export async function PATCH(
 
     const body = await request.json()
 
+    // Whitelist updateable fields to prevent mass-assignment
+    const ALLOWED_FIELDS = new Set([
+      'status', 'materials_status', 'materials_ordered_at',
+      'started_at', 'completed_at', 'scheduled_date',
+      'assigned_crew_id', 'assigned_sub_id',
+      'labor_cost', 'notes', 'scope_of_work',
+      'deposit_required_percent', 'finance_submitted_at',
+    ])
+    const updateData: Record<string, unknown> = {}
+    for (const key of Object.keys(body)) {
+      if (ALLOWED_FIELDS.has(key)) updateData[key] = body[key]
+    }
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
     // Update the job
     const { data: updatedJob, error: updateError } = await adminClient
       .from('production_jobs')
-      .update(body)
+      .update(updateData)
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .select()

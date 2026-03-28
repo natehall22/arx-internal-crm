@@ -77,33 +77,41 @@ export async function upsertCustomer(
     if (byEmail) existingCustomer = byEmail
   }
 
-  // Try to find by phone if no email match
+  // Try to find by normalized phone if no email match.
+  // We store the raw phone but match by stripping non-digits; filter in DB using LIKE on last 10 digits.
   if (!existingCustomer && normalizedPhone && normalizedPhone.length === 10) {
-    const { data: customers } = await supabase
+    const { data: byPhone } = await supabase
       .from('customers')
       .select('*')
       .eq('org_id', orgId)
-      .not('phone', 'is', null)
-    
-    if (customers) {
-      existingCustomer = customers.find(c => normalizePhone(c.phone) === normalizedPhone)
+      .like('phone', `%${normalizedPhone}`)
+      .limit(5)
+
+    if (byPhone) {
+      existingCustomer = byPhone.find((c: any) => normalizePhone(c.phone) === normalizedPhone) ?? null
     }
   }
 
-  // Try fuzzy match by name + address if still no match
+  // Try fuzzy match by name + address if still no match.
+  // Use DB-side filtering with ilike to avoid a full-table scan.
   if (!existingCustomer && name && address_text) {
-    const searchKey = normalizeString(name) + normalizeString(address_text)
-    
-    const { data: customers } = await supabase
+    const namePart = name.trim().slice(0, 40)
+    const addrPart = address_text.trim().split(',')[0]?.slice(0, 40) ?? ''
+    const { data: candidates } = await supabase
       .from('customers')
       .select('*')
       .eq('org_id', orgId)
-    
-    if (customers) {
-      existingCustomer = customers.find(c => {
-        const customerKey = normalizeString(c.name) + normalizeString(c.address_text)
-        return customerKey === searchKey
-      })
+      .ilike('name', `%${namePart}%`)
+      .ilike('address_text', `%${addrPart}%`)
+      .limit(10)
+
+    if (candidates) {
+      const searchKey = normalizeString(name) + normalizeString(address_text)
+      existingCustomer =
+        candidates.find((c: any) => {
+          const customerKey = normalizeString(c.name) + normalizeString(c.address_text)
+          return customerKey === searchKey
+        }) ?? null
     }
   }
 

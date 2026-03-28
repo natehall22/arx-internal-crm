@@ -555,11 +555,24 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    // Update User
+    // Update User (whitelist to prevent privilege escalation)
     if (resource === 'user') {
+      const USER_ALLOWED = new Set([
+        'full_name', 'email', 'phone', 'role', 'team_id', 'region_id',
+        'manager_user_id', 'active', 'canvass_pin_visibility',
+        'show_in_reports', 'can_receive_appointments', 'dashboard_view',
+        'custom_role_id',
+      ])
+      const userUpdate: Record<string, unknown> = {}
+      for (const key of Object.keys(data)) {
+        if (USER_ALLOWED.has(key)) userUpdate[key] = data[key]
+      }
+      if (Object.keys(userUpdate).length === 0) {
+        return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+      }
       const { error } = await adminClient
         .from('users')
-        .update(data)
+        .update(userUpdate)
         .eq('id', id)
         .eq('org_id', profile.org_id)
 

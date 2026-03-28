@@ -16,6 +16,7 @@ interface JobNextActionBannerProps {
   scheduledDate: string | null
   assignedCrewId: string | null
   assignedSubId: string | null
+  financeSubmittedAt?: string | null
   refreshKey?: number
   onOrderMaterials?: () => void
   onSchedule?: () => void
@@ -189,13 +190,14 @@ export default function JobNextActionBanner({
   scheduledDate,
   assignedCrewId,
   assignedSubId,
+  financeSubmittedAt = null,
   refreshKey = 0,
   onOrderMaterials,
   onSchedule,
 }: JobNextActionBannerProps) {
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [loading, setLoading] = useState(true)
-  const [financePaymentSubmitted, setFinancePaymentSubmitted] = useState(false)
+  const [financePaymentSubmitted, setFinancePaymentSubmitted] = useState(!!financeSubmittedAt)
 
   useEffect(() => {
     const loadPayments = async () => {
@@ -245,16 +247,13 @@ export default function JobNextActionBanner({
   const depositSatisfied = isFinanceJob ? true : depositStatus.satisfied
 
   useEffect(() => {
-    if (!isFinanceJob) {
+    if (!isFinanceJob || status !== 'complete') {
       setFinancePaymentSubmitted(false)
       return
     }
-
-    // Stubbed final finance-payment step state per job/session.
-    if (status !== 'complete') {
-      setFinancePaymentSubmitted(false)
-    }
-  }, [isFinanceJob, status, jobId])
+    // Restore persisted state from DB column whenever job/refreshKey changes
+    setFinancePaymentSubmitted(!!financeSubmittedAt)
+  }, [isFinanceJob, status, jobId, financeSubmittedAt])
 
   if (loading) {
     return null
@@ -301,6 +300,11 @@ export default function JobNextActionBanner({
         break
       case 'finance_submit':
         setFinancePaymentSubmitted(true)
+        fetch(`/api/ops/jobs/${jobId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ finance_submitted_at: new Date().toISOString() }),
+        }).catch((err) => console.error('Failed to persist finance_submitted_at:', err))
         break
       default:
         // No action needed

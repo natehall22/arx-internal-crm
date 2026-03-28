@@ -146,9 +146,26 @@ export async function PATCH(
 
     const body = await request.json()
 
+    // Whitelist updateable fields to prevent mass-assignment of org_id, id, etc.
+    const ALLOWED_FIELDS = new Set([
+      'status', 'stage', 'outcome', 'notes', 'inspection_outcome', 'inspection_outcome_at',
+      'inspection_notes', 'sale_amount', 'contact_name', 'contact_email', 'contact_phone',
+      'address_text', 'assigned_user_id', 'closer_user_id', 'setter_user_id',
+      'insurance_company', 'claim_number', 'adjuster_name', 'adjuster_phone',
+      'deductible', 'rcv', 'acv', 'profit_margin', 'contract_signed_at',
+      'customer_id', 'follow_up_at', 'source', 'pipeline_stage',
+    ])
+    const updateData: Record<string, unknown> = {}
+    for (const key of Object.keys(body)) {
+      if (ALLOWED_FIELDS.has(key)) updateData[key] = body[key]
+    }
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
     const { data: opportunity, error } = await adminClient
       .from('opportunities')
-      .update(body)
+      .update(updateData)
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .select()
@@ -236,7 +253,7 @@ export async function DELETE(
 
     // Delete appointments linked to this opportunity
     await adminClient
-      .from('appointments')
+      .from('scheduled_appointments')
       .delete()
       .eq('opportunity_id', params.id)
 

@@ -107,10 +107,26 @@ export async function PATCH(
 
     const body = await request.json()
 
+    // Whitelist updateable fields to prevent mass-assignment
+    const ALLOWED_FIELDS = new Set([
+      'status', 'title', 'notes', 'address_text', 'owner_user_id', 'customer_id',
+      'start_date', 'end_date', 'estimated_value', 'actual_value',
+      'roof_type', 'square_footage', 'stories', 'slope', 'color', 'material',
+      'insurance_claim_number', 'insurance_company', 'adjuster_name', 'adjuster_phone',
+      'deductible', 'rcv', 'acv', 'pipeline_stage',
+    ])
+    const updateData: Record<string, unknown> = {}
+    for (const key of Object.keys(body)) {
+      if (ALLOWED_FIELDS.has(key)) updateData[key] = body[key]
+    }
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
     // Update the project
     const { data: updatedProject, error: updateError } = await adminClient
       .from('projects')
-      .update(body)
+      .update(updateData)
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .select()

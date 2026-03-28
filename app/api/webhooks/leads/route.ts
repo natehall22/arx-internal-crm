@@ -37,15 +37,15 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get('authorization')
     const apiKey = request.headers.get('x-api-key')
     const webhookSecret = process.env.WEBHOOK_SECRET || process.env.LEADS_WEBHOOK_SECRET
-    
-    // Validate authentication - check bearer token or x-api-key header
-    const providedKey = authHeader?.replace('Bearer ', '') || apiKey
-    
+
     if (!webhookSecret) {
-      console.warn('WARNING: Webhook endpoint is not secured. Set WEBHOOK_SECRET in environment variables.')
-      // For initial setup, allow requests but log warning
-    } else if (providedKey && providedKey !== webhookSecret) {
-      console.error('Invalid API key provided')
+      console.error('WEBHOOK_SECRET is not configured — rejecting request')
+      return NextResponse.json({ error: 'Webhook endpoint is not configured' }, { status: 503 })
+    }
+
+    const providedKey = authHeader?.replace('Bearer ', '') || apiKey
+    if (!providedKey || providedKey !== webhookSecret) {
+      console.error('Invalid or missing API key')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

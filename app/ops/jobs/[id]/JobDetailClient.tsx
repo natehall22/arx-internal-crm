@@ -606,6 +606,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
           scheduledDate={job.scheduled_date}
           assignedCrewId={job.assigned_crew?.id || null}
           assignedSubId={job.assigned_sub?.id || null}
+          financeSubmittedAt={job.finance_submitted_at || null}
           refreshKey={paymentsRefreshKey}
           onSchedule={() => setShowScheduleModal(true)}
         />

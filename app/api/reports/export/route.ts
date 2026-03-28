@@ -69,12 +69,12 @@ export async function GET(request: NextRequest) {
     const dateFilter = getDateFilter(range)
 
     const [usersRes, leadsRes, oppsRes, projectsRes, regionsRes, teamsRes] = await Promise.all([
-      supabase.from('users').select('*').eq('active', true).order('full_name'),
-      supabase.from('leads').select('*').gte('created_at', dateFilter),
-      supabase.from('opportunities').select('*').gte('created_at', dateFilter),
-      supabase.from('projects').select('*').gte('created_at', dateFilter),
-      supabase.from('regions').select('*').order('name'),
-      supabase.from('teams').select('*').order('name'),
+      supabase.from('users').select('*').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
+      supabase.from('leads').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
+      supabase.from('opportunities').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
+      supabase.from('projects').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
+      supabase.from('regions').select('*').eq('org_id', profile.org_id).order('name'),
+      supabase.from('teams').select('*').eq('org_id', profile.org_id).order('name'),
     ])
 
     const users = usersRes.data || []

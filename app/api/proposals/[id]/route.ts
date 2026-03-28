@@ -184,7 +184,27 @@ export async function PATCH(
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    const body = await request.json()
+    const rawBody = await request.json()
+
+    // Whitelist updateable fields to prevent mass-assignment
+    const ALLOWED_FIELDS = new Set([
+      'status', 'sent_at', 'accepted_at', 'declined_at', 'declined_reason',
+      'inspection_notes', 'pdf_generated_at', 'cover_image_url',
+      'customer_name', 'customer_email', 'customer_phone', 'customer_address',
+      'title', 'notes', 'total', 'subtotal', 'tax', 'tax_rate',
+      'rep_signature_type', 'rep_signature_typed', 'rep_signature_data',
+      'rep_signed_name', 'rep_signed_at',
+      'customer_signature_type', 'customer_signature_typed', 'customer_signature_data',
+      'customer_signed_name', 'customer_signed_at',
+      'expiry_date', 'valid_until',
+    ])
+    const body: Record<string, unknown> = {}
+    for (const key of Object.keys(rawBody)) {
+      if (ALLOWED_FIELDS.has(key)) body[key] = rawBody[key]
+    }
+    if (Object.keys(body).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
 
     // Get current proposal state before update
     const { data: currentProposal } = await adminClient

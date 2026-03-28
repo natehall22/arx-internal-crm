@@ -8,19 +8,27 @@ export async function GET() {
 
   const supabase = createServerClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
-  
+
+  // Require authentication — this endpoint reveals internal configuration details
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let userRole = null;
   let profileError = null;
-  
-  if (user) {
-    const { data: profile, error: pError } = await supabase
-      .from('users')
-      .select('role, full_name')
-      .eq('id', user.id)
-      .single();
-    
-    userRole = profile?.role;
-    profileError = pError?.message;
+
+  const { data: profile, error: pError } = await supabase
+    .from('users')
+    .select('role, full_name')
+    .eq('id', user.id)
+    .single();
+
+  userRole = profile?.role;
+  profileError = pError?.message;
+
+  // Only admins can access this diagnostic endpoint
+  if (!['admin', 'regional_manager', 'sales_manager'].includes(userRole ?? '')) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   return NextResponse.json({
