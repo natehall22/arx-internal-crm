@@ -381,6 +381,11 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
   const [emailSent, setEmailSent] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
+  /** Shown on read-only submitted view (upload UI is only in the Briefing step before submit). */
+  const [readOnlyPhotos, setReadOnlyPhotos] = useState<
+    Array<{ id: string; filename: string; url: string | null }>
+  >([])
+
   const needsBriefing = outcome === 'approved' || outcome === 'follow_up'
   const needsCloseSchedule = outcome === 'approved'
   const uploadedPhotoCount = photos.filter((p) => p.storagePath && !p.uploading).length
@@ -410,6 +415,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
             setSubmitted(isSubmitted)
 
             if (!isSubmitted) {
+              setReadOnlyPhotos([])
               // Hydrate existing photos so a page refresh doesn't clear upload state
               const photosRes = await fetch(`/api/opportunities/${opportunityId}/inspection-photos`)
               if (photosRes.ok) {
@@ -426,7 +432,29 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
                   )
                 }
               }
+            } else if (result.outcome === 'approved' || result.outcome === 'follow_up') {
+              setPhotos([])
+              const photosRes = await fetch(`/api/opportunities/${opportunityId}/inspection-photos`)
+              if (photosRes.ok) {
+                const { photos: submittedPhotos } = await photosRes.json()
+                setReadOnlyPhotos(
+                  Array.isArray(submittedPhotos)
+                    ? submittedPhotos.map((p: { id: string; filename: string; url: string | null }) => ({
+                        id: p.id,
+                        filename: p.filename,
+                        url: p.url ?? null,
+                      }))
+                    : []
+                )
+              }
+            } else {
+              setReadOnlyPhotos([])
             }
+          } else {
+            setExisting(null)
+            setSubmitted(false)
+            setReadOnlyPhotos([])
+            setPhotos([])
           }
         }
 
@@ -481,23 +509,46 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           </div>
 
           {(existing.outcome === 'approved' || existing.outcome === 'follow_up') && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm border rounded-lg p-4 bg-gray-50">
-              <Detail label="Both DMs Present" value={boolDisplay(existing.both_dms_present)} />
-              {!existing.both_dms_present && existing.absent_dm_name && (
-                <Detail label="Absent DM" value={existing.absent_dm_name} />
+            <>
+              {readOnlyPhotos.length > 0 && (
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <p className="text-sm font-medium text-gray-800 mb-2">Inspection photos ({readOnlyPhotos.length})</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {readOnlyPhotos.map((p) => (
+                      <div
+                        key={p.id}
+                        className="relative aspect-square rounded-lg overflow-hidden bg-gray-200 border border-gray-200"
+                      >
+                        {p.url ? (
+                          <img src={p.url} alt={p.filename} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-500 p-1 text-center">
+                            Preview unavailable
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
-              {existing.damage_found && <Detail label="Damage Found" value={existing.damage_found} />}
-              {existing.roof_slopes && <Detail label="Roof Slopes" value={existing.roof_slopes} />}
-              {existing.homeowner_emotional_state && (
-                <Detail label="Homeowner Mood" value={existing.homeowner_emotional_state} />
-              )}
-              <Detail label="Consequence Qs" value={boolDisplay(existing.consequence_questions_asked)} />
-              <Detail label="Insurance Mentioned" value={boolDisplay(existing.insurance_mentioned)} />
-              {existing.urgency_level && (
-                <Detail label="Urgency" value={existing.urgency_level.charAt(0).toUpperCase() + existing.urgency_level.slice(1)} />
-              )}
-              {existing.notes && <Detail label="Notes" value={existing.notes} className="col-span-full" />}
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm border rounded-lg p-4 bg-gray-50">
+                <Detail label="Both DMs Present" value={boolDisplay(existing.both_dms_present)} />
+                {!existing.both_dms_present && existing.absent_dm_name && (
+                  <Detail label="Absent DM" value={existing.absent_dm_name} />
+                )}
+                {existing.damage_found && <Detail label="Damage Found" value={existing.damage_found} />}
+                {existing.roof_slopes && <Detail label="Roof Slopes" value={existing.roof_slopes} />}
+                {existing.homeowner_emotional_state && (
+                  <Detail label="Homeowner Mood" value={existing.homeowner_emotional_state} />
+                )}
+                <Detail label="Consequence Qs" value={boolDisplay(existing.consequence_questions_asked)} />
+                <Detail label="Insurance Mentioned" value={boolDisplay(existing.insurance_mentioned)} />
+                {existing.urgency_level && (
+                  <Detail label="Urgency" value={existing.urgency_level.charAt(0).toUpperCase() + existing.urgency_level.slice(1)} />
+                )}
+                {existing.notes && <Detail label="Notes" value={existing.notes} className="col-span-full" />}
+              </div>
+            </>
           )}
 
           <div className="flex items-center gap-4 text-xs text-gray-500">
@@ -727,6 +778,16 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
             </span>
           </div>
 
+          <p className="text-xs text-gray-500 -mt-2 mb-1">
+            Upload at least {MIN_PHOTOS} inspection photos here (no separate window — use Add photos below).
+          </p>
+
+          <PhotoUploadSection
+            opportunityId={opportunityId}
+            photos={photos}
+            onPhotosChange={handlePhotosChange}
+          />
+
           <BoolToggle label="Were both decision makers present?" value={bothDMs} onChange={setBothDMs} required />
 
           {bothDMs === false && (
@@ -769,13 +830,6 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-
-          {/* Photo upload — min 6, max 20 */}
-          <PhotoUploadSection
-            opportunityId={opportunityId}
-            photos={photos}
-            onPhotosChange={handlePhotosChange}
-          />
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
