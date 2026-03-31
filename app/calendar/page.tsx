@@ -22,6 +22,7 @@ import { fetchSalesCalendarSlice } from '@/lib/calendar-sales'
 import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
 import { canReassignAppointmentsFromProfile, deriveCalendarAccess } from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
 
 type ViewMode = 'day' | 'week' | 'month' | 'agenda' | 'team'
@@ -219,6 +220,20 @@ export default function CalendarPage() {
     // auth_user_id is returned by the API for use in appointment filtering
     const userId: string = profile.auth_user_id || profile.id
 
+    // Build an authenticated Supabase client using the access_token from the
+    // profile API. The default browser singleton can't read the auth cookie so
+    // all data queries (users, regions, teams, appointments) would return empty.
+    const authSupabase = profile.access_token
+      ? createSupabaseClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          {
+            auth: { autoRefreshToken: false, persistSession: false },
+            global: { headers: { Authorization: `Bearer ${profile.access_token}` } },
+          }
+        )
+      : supabase
+
     setCurrentUser(profile)
     setProfileLoadError(null)
     const desktopView: 'sales' | 'ops' = profile?.dashboard_view === 'ops' ? 'ops' : 'sales'
@@ -230,7 +245,7 @@ export default function CalendarPage() {
     const isCalendarTeamManager = calendarAccess === 'team'
 
     // Get users for filter
-    const { data: usersData } = await supabase
+    const { data: usersData } = await authSupabase
       .from('users')
       .select('id, full_name, role, team_id, region_id')
       .eq('org_id', profile?.org_id)
@@ -240,7 +255,7 @@ export default function CalendarPage() {
 
     if (canAccessTeamCalendar) {
       if (isCalendarAdmin || isCalendarRegional) {
-        const regionsQuery = supabase
+        const regionsQuery = authSupabase
           .from('regions')
           .select('id, name')
           .eq('org_id', profile?.org_id)
@@ -251,7 +266,7 @@ export default function CalendarPage() {
         setRegions([])
       }
 
-      let teamsQuery = supabase
+      let teamsQuery = authSupabase
         .from('teams')
         .select('id, name, region_id')
         .eq('org_id', profile?.org_id)
@@ -306,7 +321,7 @@ export default function CalendarPage() {
 
     setCalendarLoadError(null)
 
-    const { rows: calendarRows, error: calendarErr } = await fetchSalesCalendarSlice(supabase, {
+    const { rows: calendarRows, error: calendarErr } = await fetchSalesCalendarSlice(authSupabase, {
       orgId: profile.org_id,
       authUserId: userId,
       profile,
@@ -330,7 +345,7 @@ export default function CalendarPage() {
     
     let leadsMap: Record<string, any> = {}
     if (leadIds.length > 0) {
-      const { data: leadsData } = await supabase
+      const { data: leadsData } = await authSupabase
         .from('leads')
         .select('id, homeowner_name, address_text')
         .in('id', leadIds)
@@ -350,7 +365,7 @@ export default function CalendarPage() {
     )
     let opportunityNameById: Record<string, string> = {}
     if (opportunityIds.length > 0) {
-      const { data: opps } = await supabase.from('opportunities').select('id, name').in('id', opportunityIds)
+      const { data: opps } = await authSupabase.from('opportunities').select('id, name').in('id', opportunityIds)
       for (const o of opps || []) {
         if (o?.id) opportunityNameById[o.id] = o.name || ''
       }
@@ -384,7 +399,7 @@ export default function CalendarPage() {
     const canSeeJobs = desktopView === 'ops'
     
     if (canSeeJobs) {
-      const { data: jobsData } = await supabase
+      const { data: jobsData } = await authSupabase
         .from('production_jobs')
         .select(`
           id, job_number, scheduled_date, scheduled_time_start, address_text, job_type, status,

@@ -98,6 +98,7 @@ export async function GET(request: NextRequest) {
         dashboard_view: 'sales',
         custom_role: null,
         auth_user_id: user.id,
+        access_token: accessToken,
       })
     }
 
@@ -116,6 +117,7 @@ export async function GET(request: NextRequest) {
       ...profileBase,
       custom_role: customRole,
       auth_user_id: user.id,
+      access_token: accessToken,
     })
   } catch (err: any) {
     console.error('GET /api/calendar/profile error:', err)
