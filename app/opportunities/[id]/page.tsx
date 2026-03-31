@@ -52,13 +52,20 @@ export default async function OpportunityDetailPage({
     setter = setterData
   }
 
-  // Fetch closer info if owner_user_id exists
+  // Closer on opportunities: display from linked lead (source of truth for assigned rep)
+  const leadRow = opportunity.leads
+    ? Array.isArray(opportunity.leads)
+      ? opportunity.leads[0]
+      : opportunity.leads
+    : null
+  const closerUserIdFromLead = leadRow?.closer_user_id ?? null
+
   let closer = null
-  if (opportunity.owner_user_id) {
+  if (closerUserIdFromLead) {
     const { data: closerData } = await supabase
       .from('users')
       .select('id, full_name, email')
-      .eq('id', opportunity.owner_user_id)
+      .eq('id', closerUserIdFromLead)
       .single()
     closer = closerData
   }

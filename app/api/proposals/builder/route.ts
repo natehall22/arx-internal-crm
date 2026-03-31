@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
         .from('roof_measurements')
         .select('*')
         .eq('id', measurementId)
-        .single()
+        .maybeSingle()
       measurement = meas
     }
     
@@ -163,20 +163,26 @@ export async function GET(request: NextRequest) {
         .eq('opportunity_id', opportunityId)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single()
-      
+        .maybeSingle()
+
       if (oppMeasurement) {
         measurement = oppMeasurement
       }
     }
-    
+
+    const leadFromOpp = opportunity?.leads
+      ? Array.isArray(opportunity.leads)
+        ? opportunity.leads[0]
+        : opportunity.leads
+      : null
+
     // If still no measurement but opportunity has roof_squares, create a virtual measurement object
     if (!measurement && opportunity?.roof_squares) {
       measurement = {
         id: 'from-opportunity',
         total_squares: opportunity.roof_squares,
         total_area_sqft: opportunity.roof_squares * 100,
-        address_text: opportunity.address_text || opportunity.leads?.address_text,
+        address_text: opportunity.address_text || leadFromOpp?.address_text,
         source: 'opportunity',
       }
     }
@@ -355,23 +361,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Failed to create proposal: ${proposalError.message}` }, { status: 400 })
     }
 
-    // Create line items
+    // Create line items (required for a coherent proposal — rollback on failure)
     if (lineItems && lineItems.length > 0) {
-      const lineItemsToInsert = lineItems.map((item: any, index: number) => ({
-        org_id: profile.org_id,
-        proposal_id: newProposal.id,
-        pricebook_item_id: item.pricebook_item_id || null,
-        category: item.category,
-        name: item.name,
-        description: item.description || '',
-        unit: item.unit,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        line_total: item.line_total,
-        is_adder: item.is_adder || false,
-        show_to_customer: item.show_to_customer ?? false,  // Customer visibility setting
-        sort_order: index,
-      }))
+      const lineItemsToInsert = lineItems.map((item: any, index: number) => {
+        const qty = Number(item.quantity)
+        const unitPrice = Number(item.unit_price)
+        const lineTotal = Number(item.line_total)
+        return {
+          org_id: profile.org_id,
+          proposal_id: newProposal.id,
+          pricebook_item_id: item.pricebook_item_id || null,
+          category: String(item.category ?? 'General').trim() || 'General',
+          name: String(item.name ?? 'Line item').trim() || 'Line item',
+          description: item.description != null ? String(item.description) : '',
+          unit: String(item.unit ?? 'each').trim() || 'each',
+          quantity: Number.isFinite(qty) ? qty : 0,
+          unit_price: Number.isFinite(unitPrice) ? roundMoney(unitPrice) : 0,
+          line_total: Number.isFinite(lineTotal) ? roundMoney(lineTotal) : 0,
+          is_adder: item.is_adder || false,
+          show_to_customer: item.show_to_customer ?? false,
+          sort_order: index,
+        }
+      })
 
       const { error: lineItemsError } = await adminClient
         .from('proposal_line_items')
@@ -379,7 +390,11 @@ export async function POST(request: NextRequest) {
 
       if (lineItemsError) {
         console.error('Line items creation error:', lineItemsError)
-        // Don't fail the whole request, proposal is already created
+        await adminClient.from('proposals').delete().eq('id', newProposal.id)
+        return NextResponse.json(
+          { error: `Failed to save proposal line items: ${lineItemsError.message}` },
+          { status: 400 }
+        )
       }
     }
 

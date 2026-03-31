@@ -1,5 +1,6 @@
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
+import { getMailTransport } from '@/lib/setter-email'
 import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -94,6 +95,12 @@ async function getValidAccessToken(
   }
 
   return tokenRow.access_token
+}
+
+function homeownerFromAppointment(appointment: { leads?: unknown }): string {
+  const raw = appointment.leads as { homeowner_name?: string } | { homeowner_name?: string }[] | null | undefined
+  if (Array.isArray(raw)) return raw[0]?.homeowner_name || 'Customer'
+  return raw?.homeowner_name || 'Customer'
 }
 
 // GET - Fetch single appointment
@@ -270,7 +277,7 @@ export async function PATCH(
       // Verify new closer exists in same org
       const { data: newCloser } = await adminClient
         .from('users')
-        .select('id, full_name, org_id')
+        .select('id, full_name, org_id, email')
         .eq('id', new_closer_id)
         .eq('org_id', profile.org_id)
         .single()
@@ -280,6 +287,8 @@ export async function PATCH(
       }
 
       updateData.closer_user_id = new_closer_id
+
+      const homeownerLabel = homeownerFromAppointment(appointment)
 
       // Create activity for reassignment
       await adminClient.from('activities').insert({
@@ -298,7 +307,7 @@ export async function PATCH(
           user_id: appointment.closer_user_id,
           type: 'appointment_reassigned',
           title: 'Appointment Reassigned',
-          body: `Your appointment with ${appointment.leads?.homeowner_name || 'customer'} has been reassigned to ${newCloser.full_name}`,
+          body: `Your appointment with ${homeownerLabel} has been reassigned to ${newCloser.full_name}`,
           data: { appointment_id: params.id },
         })
       }
@@ -309,9 +318,69 @@ export async function PATCH(
         user_id: new_closer_id,
         type: 'new_appointment',
         title: 'New Appointment Assigned',
-        body: `You have been assigned an appointment with ${appointment.leads?.homeowner_name || 'customer'} on ${formatDateTimeInTimezone(appointment.scheduled_for)} ET`,
+        body: `You have been assigned an appointment with ${homeownerLabel} on ${formatDateTimeInTimezone(appointment.scheduled_for)} ET`,
         data: { appointment_id: params.id },
       })
+
+      // Email both assignees when SMTP is configured (in-app notifications alone are not email).
+      try {
+        if (process.env.SMTP_HOST) {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+        const recordUrl = appointment.opportunity_id
+          ? `${appUrl}/opportunities/${appointment.opportunity_id}`
+          : `${appUrl}/leads/${appointment.lead_id}`
+        const scheduledTime = formatDateTimeInTimezone(appointment.scheduled_for)
+        const typeLabel = appointment.appointment_type === 'close' ? 'Close' : 'Inspection'
+        const transporter = getMailTransport()
+
+        if (newCloser.email?.includes('@')) {
+          await transporter.sendMail({
+            from: 'info@arxroofing.com',
+            to: newCloser.email,
+            subject: `${typeLabel} reassigned to you — ${homeownerLabel}`,
+            text: `Hi ${newCloser.full_name},\n\nYou were assigned this ${typeLabel.toLowerCase()} appointment (reassigned by ${profile.full_name}).\n\nCustomer: ${homeownerLabel}\nWhen: ${scheduledTime} ET\nAddress: ${appointment.address_text || 'TBD'}\n\nOpen: ${recordUrl}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #111827;">${typeLabel} reassigned to you</h2>
+                <p style="color: #374151;">Hi ${newCloser.full_name},</p>
+                <p style="color: #374151;">You were assigned this appointment (reassigned by <strong>${profile.full_name}</strong>).</p>
+                <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+                  <tr><td style="padding: 6px 0; color: #6B7280; width: 120px;">Customer</td><td style="padding: 6px 0; color: #111827;">${homeownerLabel}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #6B7280;">When</td><td style="padding: 6px 0; color: #111827;">${scheduledTime} ET</td></tr>
+                  <tr><td style="padding: 6px 0; color: #6B7280;">Address</td><td style="padding: 6px 0; color: #111827;">${appointment.address_text || 'TBD'}</td></tr>
+                </table>
+                <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
+              </div>`,
+          })
+        }
+
+        if (appointment.closer_user_id) {
+          const { data: prevUser } = await adminClient
+            .from('users')
+            .select('email, full_name')
+            .eq('id', appointment.closer_user_id)
+            .maybeSingle()
+
+          if (prevUser?.email?.includes('@')) {
+            await transporter.sendMail({
+              from: 'info@arxroofing.com',
+              to: prevUser.email,
+              subject: `${typeLabel} reassigned — ${homeownerLabel}`,
+              text: `Hi ${prevUser.full_name || 'there'},\n\nThe ${typeLabel.toLowerCase()} with ${homeownerLabel} on ${scheduledTime} ET was reassigned to ${newCloser.full_name} by ${profile.full_name}.\n\nYou no longer need this on your calendar.\n\n${recordUrl}`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                  <h2 style="color: #111827;">Appointment reassigned</h2>
+                  <p style="color: #374151;">Hi ${prevUser.full_name || 'there'},</p>
+                  <p style="color: #374151;">The <strong>${typeLabel}</strong> with <strong>${homeownerLabel}</strong> (${scheduledTime} ET) was reassigned to <strong>${newCloser.full_name}</strong> by ${profile.full_name}. You can remove it from your calendar if it is still there.</p>
+                  <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
+                </div>`,
+            })
+          }
+        }
+        }
+      } catch (emailErr) {
+        console.error('Appointment reassignment email failed:', emailErr)
+      }
     }
 
     if (status) {
@@ -377,18 +446,28 @@ export async function PATCH(
     }
 
     // Best-effort Google Calendar sync — non-fatal, DB update already committed
+    const calendarSync: { warnings: string[] } = { warnings: [] }
     try {
       const existingEventId = appointment.google_event_id as string | null
+      const homeownerName = homeownerFromAppointment(appointment)
 
       if (status === 'cancelled' && existingEventId && appointment.closer_user_id) {
         // Cancellation: delete the event from the current closer's calendar
         const token = await getValidAccessToken(adminClient, appointment.closer_user_id)
-        if (token) {
-          await deleteCalendarEvent(token, existingEventId).catch(() => {})
-          await adminClient
-            .from('scheduled_appointments')
-            .update({ google_event_id: null })
-            .eq('id', params.id)
+        if (!token) {
+          calendarSync.warnings.push('Google Calendar: no valid token for assignee; event not removed from calendar.')
+        } else {
+          try {
+            await deleteCalendarEvent(token, existingEventId)
+            await adminClient
+              .from('scheduled_appointments')
+              .update({ google_event_id: null })
+              .eq('id', params.id)
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e)
+            console.error('Appointment cancel: Google delete failed:', msg)
+            calendarSync.warnings.push(`Google Calendar: could not delete event (${msg})`)
+          }
         }
 
       } else if (new_closer_id && new_closer_id !== appointment.closer_user_id) {
@@ -396,8 +475,18 @@ export async function PATCH(
 
         if (existingEventId && appointment.closer_user_id) {
           const oldToken = await getValidAccessToken(adminClient, appointment.closer_user_id)
-          if (oldToken) {
-            await deleteCalendarEvent(oldToken, existingEventId).catch(() => {})
+          if (!oldToken) {
+            calendarSync.warnings.push(
+              'Google Calendar: no valid token for previous assignee; old calendar event may still exist.'
+            )
+          } else {
+            try {
+              await deleteCalendarEvent(oldToken, existingEventId)
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : String(e)
+              console.error('Appointment reassignment: Google delete failed:', msg)
+              calendarSync.warnings.push(`Google Calendar: could not remove from previous assignee (${msg})`)
+            }
           }
         }
 
@@ -407,19 +496,33 @@ export async function PATCH(
           new Date(startIso).getTime() + (updated.duration_minutes || 60) * 60 * 1000
         ).toISOString()
         const typeLabel = appointment.appointment_type === 'close' ? 'Close' : 'Inspection'
-        const homeownerName = (appointment.leads as any)?.homeowner_name || 'Customer'
         const eventNotes = notes !== undefined ? notes : appointment.notes
 
         let newEventId: string | null = null
-        if (newToken) {
-          const created = await createCalendarEvent(newToken, {
-            summary: `${typeLabel}: ${homeownerName}`,
-            ...(eventNotes && { description: eventNotes }),
-            ...(appointment.address_text && { location: appointment.address_text }),
-            start: { dateTime: startIso },
-            end: { dateTime: endIso },
-          }, 'primary', 'none').catch(() => null)
-          newEventId = created?.id ?? null
+        if (!newToken) {
+          calendarSync.warnings.push(
+            'Google Calendar: no valid token for new assignee; event not added to their calendar.'
+          )
+        } else {
+          try {
+            const created = await createCalendarEvent(
+              newToken,
+              {
+                summary: `${typeLabel}: ${homeownerName}`,
+                ...(eventNotes && { description: String(eventNotes) }),
+                ...(appointment.address_text && { location: appointment.address_text }),
+                start: { dateTime: startIso },
+                end: { dateTime: endIso },
+              },
+              'primary',
+              'none'
+            )
+            newEventId = created?.id ?? null
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e)
+            console.error('Appointment reassignment: Google create failed:', msg)
+            calendarSync.warnings.push(`Google Calendar: could not create event for new assignee (${msg})`)
+          }
         }
 
         // Always update google_event_id — either new ID or null (old ID is now invalid)
@@ -431,28 +534,41 @@ export async function PATCH(
       } else if (existingEventId && updated.closer_user_id) {
         // In-place update: time, notes, location, title (same calendar / closer)
         const token = await getValidAccessToken(adminClient, updated.closer_user_id)
-        if (token) {
-          const startIso = updated.scheduled_for as string
-          const dur = updated.duration_minutes || 60
-          const endIso = new Date(new Date(startIso).getTime() + dur * 60 * 1000).toISOString()
-          const typeLabel = updated.appointment_type === 'close' ? 'Close' : 'Inspection'
-          const homeownerName = (appointment.leads as any)?.homeowner_name || 'Customer'
-          await updateCalendarEvent(token, existingEventId, {
-            summary: `${typeLabel}: ${homeownerName}`,
-            start: { dateTime: startIso },
-            end: { dateTime: endIso },
-            ...(updated.address_text ? { location: updated.address_text } : {}),
-            ...(updated.notes != null && String(updated.notes).length > 0
-              ? { description: String(updated.notes) }
-              : {}),
-          }).catch(() => {})
+        if (!token) {
+          calendarSync.warnings.push('Google Calendar: no valid token for assignee; calendar not updated.')
+        } else {
+          try {
+            const startIso = updated.scheduled_for as string
+            const dur = updated.duration_minutes || 60
+            const endIso = new Date(new Date(startIso).getTime() + dur * 60 * 1000).toISOString()
+            const typeLabel = updated.appointment_type === 'close' ? 'Close' : 'Inspection'
+            await updateCalendarEvent(token, existingEventId, {
+              summary: `${typeLabel}: ${homeownerName}`,
+              start: { dateTime: startIso },
+              end: { dateTime: endIso },
+              ...(updated.address_text ? { location: updated.address_text } : {}),
+              ...(updated.notes != null && String(updated.notes).length > 0
+                ? { description: String(updated.notes) }
+                : {}),
+            })
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e)
+            console.error('Appointment update: Google update failed:', msg)
+            calendarSync.warnings.push(`Google Calendar: could not update event (${msg})`)
+          }
         }
       }
-    } catch {
-      // Calendar sync failure is non-fatal
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('Appointment update: Google Calendar sync error:', msg)
+      calendarSync.warnings.push(`Google Calendar: ${msg}`)
     }
 
-    return NextResponse.json({ success: true, appointment: updated })
+    return NextResponse.json({
+      success: true,
+      appointment: updated,
+      ...(calendarSync.warnings.length > 0 ? { calendarSync } : {}),
+    })
   } catch (error) {
     console.error('Appointment update error:', error)
     return NextResponse.json({ error: 'Failed to update appointment' }, { status: 500 })

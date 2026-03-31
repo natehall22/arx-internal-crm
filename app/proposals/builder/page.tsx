@@ -204,12 +204,22 @@ export default function ProposalBuilderPage() {
       // Apply opportunity data
       if (data.opportunity) {
         const opp = data.opportunity
+        const lead = opp.leads
+          ? Array.isArray(opp.leads)
+            ? opp.leads[0]
+            : opp.leads
+          : null
+        const nameFromParts = [lead?.first_name, lead?.last_name].filter(Boolean).join(' ').trim()
+        const customerName =
+          (typeof lead?.homeowner_name === 'string' && lead.homeowner_name.trim()) ||
+          nameFromParts ||
+          ''
         setForm(prev => ({
           ...prev,
-          customer_name: opp.leads?.homeowner_name || (opp.leads?.first_name + ' ' + opp.leads?.last_name) || '',
-          customer_email: opp.leads?.email || '',
-          customer_phone: opp.leads?.phone || '',
-          customer_address: opp.address_text || opp.leads?.address_text || '',
+          customer_name: customerName,
+          customer_email: lead?.email || '',
+          customer_phone: lead?.phone || '',
+          customer_address: opp.address_text || lead?.address_text || '',
         }))
       } else if (urlCustomerName || urlCustomerAddress) {
         setForm(prev => ({

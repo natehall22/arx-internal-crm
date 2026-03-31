@@ -40,7 +40,7 @@ export async function GET(
       .from('roof_measurements')
       .select('*')
       .eq('proposal_id', params.id)
-      .single()
+      .maybeSingle()
 
     // If no direct link, try via opportunity
     let measurementData = measurement
@@ -51,7 +51,7 @@ export async function GET(
         .eq('opportunity_id', proposal.opportunity_id)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single()
+        .maybeSingle()
       measurementData = oppMeasurement
     }
 

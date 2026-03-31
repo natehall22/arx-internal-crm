@@ -279,13 +279,17 @@ export async function isSlotAvailable(
 /**
  * Create a calendar event
  */
+function calendarEventsBase(calendarId: string) {
+  return `${GOOGLE_CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`
+}
+
 export async function createCalendarEvent(
   accessToken: string,
   event: CalendarEvent,
   calendarId: string = 'primary',
   sendUpdates: 'all' | 'externalOnly' | 'none' = 'none'
 ): Promise<CalendarEvent> {
-  const eventUrl = new URL(`${GOOGLE_CALENDAR_API}/calendars/${calendarId}/events`)
+  const eventUrl = new URL(`${calendarEventsBase(calendarId)}`)
   if (sendUpdates !== 'none') {
     eventUrl.searchParams.set('sendUpdates', sendUpdates)
   }
@@ -316,17 +320,21 @@ export async function updateCalendarEvent(
   event: Partial<CalendarEvent>,
   calendarId: string = 'primary'
 ): Promise<CalendarEvent> {
-  const response = await fetch(`${GOOGLE_CALENDAR_API}/calendars/${calendarId}/events/${eventId}`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(event),
-  })
+  const response = await fetch(
+    `${calendarEventsBase(calendarId)}/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(event),
+    }
+  )
 
   if (!response.ok) {
-    throw new Error('Failed to update event')
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Failed to update event: ${response.status} ${detail}`)
   }
 
   return response.json()
@@ -340,15 +348,19 @@ export async function deleteCalendarEvent(
   eventId: string,
   calendarId: string = 'primary'
 ): Promise<void> {
-  const response = await fetch(`${GOOGLE_CALENDAR_API}/calendars/${calendarId}/events/${eventId}`, {
-    method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
-  })
+  const response = await fetch(
+    `${calendarEventsBase(calendarId)}/${encodeURIComponent(eventId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  )
 
   if (!response.ok && response.status !== 404) {
-    throw new Error('Failed to delete event')
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Failed to delete event: ${response.status} ${detail}`)
   }
 }
 
