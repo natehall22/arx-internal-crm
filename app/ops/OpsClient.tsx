@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
+import { handoffPreviewForJobBoard } from '@/lib/project-review'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
 
@@ -28,7 +29,13 @@ interface Job {
   assigned_sub?: { id: string; company_name: string } | null
   customer?: { id: string; name: string; phone: string } | null
   salesperson?: { id: string; full_name: string } | null
-  project?: { id: string; scope_of_work: string; product_summary: string } | null
+  project?: {
+    id: string
+    scope_of_work: string | null
+    product_summary: string | null
+    ops_notes?: string | null
+    project_review?: unknown
+  } | null
 }
 
 interface Crew {
@@ -151,10 +158,12 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const matchesSearch = (job: Job, query: string) => {
     if (!query) return true
     const search = query.toLowerCase()
+    const handoff = handoffPreviewForJobBoard(job.project ?? null)
     return (
       job.job_number.toLowerCase().includes(search) ||
       job.address_text.toLowerCase().includes(search) ||
-      job.customer?.name?.toLowerCase().includes(search)
+      job.customer?.name?.toLowerCase().includes(search) ||
+      (handoff && handoff.toLowerCase().includes(search))
     )
   }
 
@@ -244,6 +253,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     const priority = priorityConfig[job.priority] || priorityConfig.normal
     const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
     const profitability = getProfitability(job)
+    const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
 
     // Status indicators
     const needsMaterials = job.materials_status === 'not_ordered'
@@ -294,6 +304,13 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           )}
           <div className="text-sm text-gray-500 truncate">{job.address_text}</div>
         </div>
+
+        {handoffPreview && (
+          <div className="mb-3 rounded-md border border-indigo-100 bg-indigo-50/80 px-2.5 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Sales handoff</p>
+            <p className="text-xs text-gray-700 line-clamp-4 mt-0.5 leading-snug">{handoffPreview}</p>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
           {job.sale_amount && (
@@ -583,6 +600,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               }).map(job => {
                 const config = statusConfig[job.status]
                 const profitability = getProfitability(job)
+                const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
                 return (
                   <div key={job.id} className="bg-white rounded-lg border p-4">
                     <div className="flex items-start justify-between gap-2">
@@ -590,6 +608,12 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         <p className="font-mono text-sm text-gray-900">{job.job_number}</p>
                         <p className="text-sm text-gray-700">{job.customer?.name || '-'}</p>
                         <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
+                        {handoffPreview && (
+                          <p className="text-xs text-indigo-900 mt-2 line-clamp-3 bg-indigo-50/80 border border-indigo-100 rounded px-2 py-1.5">
+                            <span className="font-semibold text-indigo-700">Handoff: </span>
+                            {handoffPreview}
+                          </p>
+                        )}
                       </div>
                       <span className={`text-xs px-2 py-1 rounded-full ${config.bgColor} ${config.color}`}>
                         {config.label}
@@ -666,6 +690,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
                   const priority = priorityConfig[job.priority] || priorityConfig.normal
                   const profitability = getProfitability(job)
+                  const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
 
                   return (
                     <tr key={job.id} className="hover:bg-gray-50">
@@ -675,6 +700,12 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                           <div>
                             <div className="font-mono text-sm text-gray-900">{job.job_number}</div>
                             <div className="text-xs text-gray-500 truncate max-w-[200px]">{job.address_text}</div>
+                            {handoffPreview && (
+                              <div className="text-[11px] text-gray-600 mt-1 max-w-[280px] line-clamp-2" title={handoffPreview}>
+                                <span className="font-semibold text-indigo-700">Handoff: </span>
+                                {handoffPreview}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>

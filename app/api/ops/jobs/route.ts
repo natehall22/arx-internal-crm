@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { importProjectReviewNoteToJob } from '@/lib/project-review'
 
 function sanitizeJobsForRole(jobs: any[], role: string) {
   if (role === 'admin') return jobs
@@ -97,6 +98,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to create production job' }, { status: 500 })
     }
 
+    const importResult = await importProjectReviewNoteToJob(adminClient, {
+      jobId: newJob.id,
+      projectId: project_id,
+      actorUserId: user.id,
+    })
+    if (!importResult.ok) {
+      console.warn('Project review → job note import:', importResult.error)
+    }
+
     // Optionally update project status
     await adminClient
       .from('projects')
@@ -159,7 +169,7 @@ export async function GET(request: Request) {
         assigned_sub:sub_contractors(id, company_name),
         customer:customers(id, name, phone),
         salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary)
+        project:projects(id, scope_of_work, product_summary, ops_notes, project_review)
       `)
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })

@@ -15,6 +15,8 @@ import ProjectFileUpload from '@/components/ProjectFileUpload'
 import ProjectSoldScope from '@/components/ProjectSoldScope'
 import JobNotesReadOnly from '@/components/JobNotesReadOnly'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
+import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
+import { parseProjectReviewStored } from '@/lib/project-review'
 
 export default async function ProjectDetailPage({
   params,
@@ -209,6 +211,10 @@ export default async function ProjectDetailPage({
   const customerName = project.customers?.name || project.leads?.homeowner_name || 'Customer'
   const customerEmail = project.customers?.email || project.leads?.email || null
 
+  const projectReviewStored = parseProjectReviewStored(
+    (project as { project_review?: unknown }).project_review
+  )
+
   // Get the current contract total (latest change order or original)
   const currentContractTotal = changeOrders.length > 0
     ? changeOrders[changeOrders.length - 1].updated_total
@@ -267,7 +273,7 @@ export default async function ProjectDetailPage({
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex justify-between items-start mb-4">
             <h1 className="text-2xl font-bold text-gray-900">Project Details</h1>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap justify-end">
               {['admin', 'regional_manager', 'operations', 'manager', 'sales_manager'].includes(profile.role) && (
                 <SendToOpsButton 
                   projectId={project.id}
@@ -275,6 +281,12 @@ export default async function ProjectDetailPage({
                   existingJobNumber={productionJob?.job_number}
                 />
               )}
+              <ProjectReviewButton
+                key={projectReviewStored?.submittedAt ?? 'none'}
+                projectId={project.id}
+                jobId={productionJob?.id ?? null}
+                initialReview={projectReviewStored}
+              />
               <Link
                 href={`/estimates/new?project_id=${project.id}`}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm"

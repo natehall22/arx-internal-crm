@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { importProjectReviewNoteToJob } from '@/lib/project-review'
+import { createServiceClient } from '@/lib/supabase/service'
 
 /**
  * Business rule: a `customers` row exists only after a **signed contract**.
@@ -174,6 +176,15 @@ export async function materializeSaleFromInspectionOutcome(
   if (jobErr) {
     console.error('materializeSaleFromInspectionOutcome: production_jobs insert', jobErr)
     return { customer_id: customerId, project_id: projectId, production_job_id: null }
+  }
+
+  const importResult = await importProjectReviewNoteToJob(createServiceClient(), {
+    jobId: job.id,
+    projectId,
+    actorUserId: actingUserId,
+  })
+  if (!importResult.ok) {
+    console.warn('materializeSaleFromInspectionOutcome: project review → job note', importResult.error)
   }
 
   await supabase.from('projects').update({ status: 'in_progress' }).eq('id', projectId)

@@ -110,6 +110,10 @@ export default function CalendarPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [selectedJob, setSelectedJob] = useState<ScheduledJob | null>(null)
   const [calendarLoadError, setCalendarLoadError] = useState<string | null>(null)
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null)
+  const [reassignCloserId, setReassignCloserId] = useState<string>('')
+  const [reassigning, setReassigning] = useState(false)
+  const [reassignError, setReassignError] = useState<string | null>(null)
 
   const dayScrollRef = useRef<HTMLDivElement>(null)
   const supabase = createClientBrowser()
@@ -201,6 +205,11 @@ export default function CalendarPage() {
 
     if (profileError || !profileBase?.org_id) {
       console.error('Calendar profile load error:', profileError)
+      setProfileLoadError(
+        profileError?.message
+          ? `Could not load your profile: ${profileError.message}`
+          : 'Could not load your profile. Refresh or contact an admin.'
+      )
       setLoading(false)
       return
     }
@@ -234,6 +243,7 @@ export default function CalendarPage() {
     }
 
     setCurrentUser(profile)
+    setProfileLoadError(null)
     const desktopView: 'sales' | 'ops' = profile?.dashboard_view === 'ops' ? 'ops' : 'sales'
     const role = profile?.role || ''
     const calendarAccess = deriveCalendarAccess(profile)
@@ -454,6 +464,38 @@ export default function CalendarPage() {
 
   const goToToday = () => setCurrentDate(new Date())
 
+  const handleReassign = async (appointmentId: string, newCloserId: string) => {
+    setReassigning(true)
+    setReassignError(null)
+    try {
+      const res = await fetch(`/api/appointments/${appointmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_closer_id: newCloserId }),
+      })
+      let data: { error?: string } = {}
+      try {
+        data = await res.json()
+      } catch {
+        if (!res.ok) {
+          setReassignError('Could not read server response')
+          return
+        }
+      }
+      if (!res.ok) {
+        setReassignError(data.error || 'Failed to reassign')
+        return
+      }
+      setSelectedAppointment(null)
+      setReassignCloserId('')
+      loadData()
+    } catch {
+      setReassignError('Network error — try again')
+    } finally {
+      setReassigning(false)
+    }
+  }
+
   // Month grid: Sun–Sat weeks in America/New_York (matches API range + appointment placement)
   const calendarDays = useMemo(() => nyMonthCalendarDays(currentDate), [currentDate])
 
@@ -479,14 +521,15 @@ export default function CalendarPage() {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'scheduled': return 'bg-blue-500'
-      case 'completed': return 'bg-green-500'
-      case 'cancelled': return 'bg-red-500'
-      case 'no_show': return 'bg-amber-500'
-      default: return 'bg-gray-500'
-    }
+  /** Color-codes by appointment TYPE when scheduled; falls back to status color for terminal states. */
+  const getTypeColor = (type: string | null | undefined, status: string) => {
+    if (status === 'cancelled') return 'bg-red-500'
+    if (status === 'completed') return 'bg-green-600'
+    if (status === 'no_show') return 'bg-amber-500'
+    const t = type || 'inspection'
+    if (t === 'close') return 'bg-emerald-500'
+    if (t === 'insurance_follow_up') return 'bg-orange-400'
+    return 'bg-indigo-500'
   }
 
   const isToday = (date: Date) => ymdInBusinessTz(date) === ymdInBusinessTz(new Date())
@@ -552,6 +595,11 @@ export default function CalendarPage() {
     }
     return formatNyMonthYearTitle(currentDate)
   }, [currentDate, viewMode, weekDays])
+
+  useEffect(() => {
+    setReassignCloserId('')
+    setReassignError(null)
+  }, [selectedAppointment?.id])
 
   useEffect(() => {
     if (isCalendarTeamManager) {
@@ -703,20 +751,17 @@ export default function CalendarPage() {
               </select>
             </div>
           ) : (
-            <select
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value)}
-              className="px-4 py-2 border rounded-lg bg-white text-sm"
-            >
-              <option value="all">All Team Members</option>
-              {users.map(user => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name || 'Unknown'} ({user.role})
-                </option>
-              ))}
-            </select>
+            <span className="px-4 py-2 border rounded-lg bg-white text-sm text-gray-600 inline-block">
+              My Schedule
+            </span>
           )}
         </div>
+
+        {profileLoadError && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            {profileLoadError}
+          </div>
+        )}
 
         {calendarLoadError && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -725,17 +770,38 @@ export default function CalendarPage() {
         )}
 
         {!loading && currentUser && (
-          <p className="mb-3 text-sm text-gray-600">
-            <span className="font-semibold text-gray-900">{summaryAppointmentCount}</span>{' '}
-            event{summaryAppointmentCount === 1 ? '' : 's'} (inspections & closes)
-            {currentUser?.dashboard_view === 'ops' ? ' · Ops view' : ' · Sales view'}
-            {' — '}
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <span className="text-sm text-gray-600">
+              <span className="font-semibold text-gray-900">{summaryAppointmentCount}</span>{' '}
+              appointment{summaryAppointmentCount === 1 ? '' : 's'}
+            </span>
+            <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500" /> Inspection
+            </span>
+            <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" /> Close
+            </span>
+            <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400" /> Follow-up
+            </span>
+            <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-green-600" /> Completed
+            </span>
+            <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" /> Cancelled
+            </span>
+            <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500" /> No-show
+            </span>
+          </div>
+        )}
+        {!loading && currentUser && (
+          <p className="mb-2 text-sm text-gray-500">
             {viewMode === 'day'
-              ? 'on this day (Eastern). The schedule scrolls to the first event or 6 AM.'
+              ? 'Eastern time · scrolls to first event or 6 AM.'
               : viewMode === 'month'
-                ? 'in this period (full 6-week grid, including days from adjacent months).'
-                : 'in this period.'}{' '}
-            Times are Eastern.
+                ? 'Eastern time · 6-week grid includes adjacent month days.'
+                : 'Eastern time.'}
           </p>
         )}
 
@@ -810,7 +876,7 @@ export default function CalendarPage() {
                             key={apt.id}
                             onClick={() => setSelectedAppointment(apt)}
                             title={`${appointmentKindLabel(apt.appointment_type)}${appointmentNeedsCloser(apt) ? ' — needs rep' : ''}`}
-                            className={`w-full text-left px-1.5 py-0.5 rounded text-xs text-white truncate ${getStatusColor(apt.status)} ${
+                            className={`w-full text-left px-1.5 py-0.5 rounded text-xs text-white truncate ${getTypeColor(apt.appointment_type, apt.status)} ${
                               appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300 ring-inset' : ''
                             }`}
                           >
@@ -869,7 +935,7 @@ export default function CalendarPage() {
                             <button
                               key={apt.id}
                               onClick={() => setSelectedAppointment(apt)}
-                              className={`w-full text-left px-2 py-1 rounded text-xs text-white mb-1 ${getStatusColor(apt.status)} ${
+                              className={`w-full text-left px-2 py-1 rounded text-xs text-white mb-1 ${getTypeColor(apt.appointment_type, apt.status)} ${
                                 appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300' : ''
                               }`}
                             >
@@ -877,7 +943,7 @@ export default function CalendarPage() {
                               <div className="opacity-80">{formatTime(apt.scheduled_for)}</div>
                               <div className="opacity-90 text-[10px] leading-tight mt-0.5">
                                 {appointmentKindLabel(apt.appointment_type)}
-                                {appointmentNeedsCloser(apt) ? ' · Needs rep' : ''}
+                                {appointmentNeedsCloser(apt) ? ' · Needs rep' : apt.closer ? ` · ${apt.closer.full_name}` : ''}
                               </div>
                             </button>
                           ))}
@@ -915,7 +981,7 @@ export default function CalendarPage() {
                         <button
                           key={apt.id}
                           onClick={() => setSelectedAppointment(apt)}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-white mb-2 ${getStatusColor(apt.status)} ${
+                          className={`w-full text-left px-3 py-2 rounded-lg text-white mb-2 ${getTypeColor(apt.appointment_type, apt.status)} ${
                             appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300' : ''
                           }`}
                         >
@@ -959,14 +1025,14 @@ export default function CalendarPage() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className={`w-2 h-2 rounded-full ${getStatusColor(apt.status)}`} />
+                        <span className={`w-2 h-2 rounded-full ${getTypeColor(apt.appointment_type, apt.status)}`} />
                         <span className="font-semibold text-gray-900">
                           {apt.lead?.homeowner_name || 'Appointment'}
                         </span>
                         <span className="text-sm text-gray-500">
                           {formatTime(apt.scheduled_for)}
                         </span>
-                        <span className="text-xs text-gray-500">
+                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded text-white ${getTypeColor(apt.appointment_type, apt.status)}`}>
                           {appointmentKindLabel(apt.appointment_type)}
                         </span>
                         {appointmentNeedsCloser(apt) && (
@@ -996,9 +1062,11 @@ export default function CalendarPage() {
       {selectedAppointment && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
-            <div className={`px-6 py-4 ${getStatusColor(selectedAppointment.status)} text-white`}>
+            <div className={`px-6 py-4 ${getTypeColor(selectedAppointment.appointment_type, selectedAppointment.status)} text-white`}>
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-lg">Appointment Details</h3>
+                <h3 className="font-semibold text-lg">
+                  {appointmentKindLabel(selectedAppointment.appointment_type)} Details
+                </h3>
                 <button
                   onClick={() => setSelectedAppointment(null)}
                   className="p-1 hover:bg-white/20 rounded"
@@ -1065,6 +1133,43 @@ export default function CalendarPage() {
                   <p className="text-gray-900">{selectedAppointment.notes}</p>
                 </div>
               )}
+
+              {/* Reassignment — managers/admins only, not available for synthetic close-only rows */}
+              {canReassignAppointments && selectedAppointment._calendarSource !== 'close_only' && (
+                <div className="pt-3 border-t">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Reassign Rep</p>
+                  <div className="flex gap-2">
+                    <select
+                      value={reassignCloserId}
+                      onChange={(e) => setReassignCloserId(e.target.value)}
+                      className="flex-1 px-3 py-2 border rounded-lg text-sm bg-white"
+                    >
+                      <option value="">Select rep…</option>
+                      {scopedMembers
+                        .filter((m) => m.id !== selectedAppointment.closer_user_id)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.full_name || 'Unknown'}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      onClick={() =>
+                        reassignCloserId &&
+                        handleReassign(selectedAppointment.id, reassignCloserId)
+                      }
+                      disabled={!reassignCloserId || reassigning}
+                      className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg disabled:opacity-50 hover:bg-indigo-700"
+                    >
+                      {reassigning ? '…' : 'Reassign'}
+                    </button>
+                  </div>
+                  {reassignError && (
+                    <p className="mt-1 text-xs text-red-600">{reassignError}</p>
+                  )}
+                </div>
+              )}
+
               <div className="pt-4 flex gap-3">
                 {(selectedAppointment.opportunity?.id || selectedAppointment.opportunity_id) && (
                   <a

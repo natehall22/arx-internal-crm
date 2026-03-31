@@ -74,7 +74,7 @@ describe('isDepositSatisfied', () => {
     it('should sum multiple payments for threshold check', () => {
       const payments = [
         createPayment({ id: 'p1', amount_cents: 500000, payment_type: 'insurance_acv' }),
-        createPayment({ id: 'p2', amount_cents: 796600, payment_type: 'homeowner' }),
+        createPayment({ id: 'p2', amount_cents: 796600, payment_type: 'other', payer: 'homeowner' }),
       ]
       const totalCollected = 500000 + 796600 // 1,296,600 = exactly 50%
       const result = isDepositSatisfied(payments, totalCollected, saleAmountCents, depositPercent)
