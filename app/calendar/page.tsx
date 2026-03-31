@@ -18,12 +18,9 @@ import {
   nyWeekRangeUtc,
   ymdInBusinessTz,
 } from '@/lib/calendar-business-tz'
+import { fetchSalesCalendarSlice } from '@/lib/calendar-sales'
 import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
-import {
-  canReassignAppointmentsFromProfile,
-  canViewOrgWideScheduledAppointments,
-  deriveCalendarAccess,
-} from '@/lib/permissions'
+import { canReassignAppointmentsFromProfile, deriveCalendarAccess } from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
 
@@ -32,6 +29,7 @@ type ViewMode = 'day' | 'week' | 'month' | 'agenda' | 'team'
 interface Appointment {
   id: string
   lead_id?: string | null
+  opportunity_id?: string | null
   scheduled_for: string
   duration_minutes: number
   status: string
@@ -40,6 +38,9 @@ interface Appointment {
   appointment_type?: string | null
   closer_user_id?: string | null
   canvasser_user_id?: string | null
+  /** close_only = synthetic row from close_appointments when no linked scheduled row */
+  _calendarSource?: 'scheduled' | 'close_only'
+  close_appointment_id?: string | null
   lead?: { homeowner_name: string | null; address_text: string | null } | null
   opportunity?: { id: string; name: string | null } | null
   closer?: { full_name: string | null } | null
@@ -88,6 +89,7 @@ function appointmentKindLabel(appointmentType: string | null | undefined): strin
 }
 
 function appointmentNeedsCloser(apt: Appointment): boolean {
+  if (apt._calendarSource === 'close_only') return false
   return !apt.closer_user_id && apt.status !== 'cancelled'
 }
 
@@ -107,6 +109,7 @@ export default function CalendarPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [selectedJob, setSelectedJob] = useState<ScheduledJob | null>(null)
+  const [calendarLoadError, setCalendarLoadError] = useState<string | null>(null)
 
   const dayScrollRef = useRef<HTMLDivElement>(null)
   const supabase = createClientBrowser()
@@ -314,65 +317,24 @@ export default function CalendarPage() {
       endDate = r.end
     }
 
-    // Fetch appointments via API (service role + full custom_role) so leadership always matches
-    // server permission resolution; browser RLS + partial custom_role loads were hiding org-wide rows.
-    const rangeParams = new URLSearchParams({
-      start: startDate.toISOString(),
-      end: endDate.toISOString(),
-    })
-    if (canAccessTeamCalendar) {
-      if (selectedMemberId) {
-        rangeParams.set('closerUserId', selectedMemberId)
-      }
-    } else if (selectedUserId !== 'all') {
-      rangeParams.set('closerUserId', selectedUserId)
-    }
+    setCalendarLoadError(null)
 
-    let appointmentsData: Appointment[] = []
-
-    const scheduledRes = await fetch(`/api/calendar/scheduled?${rangeParams.toString()}`, {
-      credentials: 'include',
+    const { rows: calendarRows, error: calendarErr } = await fetchSalesCalendarSlice(supabase, {
+      orgId: profile.org_id,
+      authUserId: user.id,
+      profile,
+      start: startDate,
+      end: endDate,
+      canAccessTeamCalendar,
+      selectedMemberId,
+      selectedUserId,
     })
 
-    if (scheduledRes.ok) {
-      const json = (await scheduledRes.json()) as { appointments: Appointment[] }
-      appointmentsData = json.appointments ?? []
-    } else {
-      const errBody = await scheduledRes.json().catch(() => ({}))
-      console.warn('Calendar API failed, falling back to browser Supabase:', scheduledRes.status, errBody)
-
-      const canSeeAllAppointments =
-        canViewOrgWideScheduledAppointments(profile) || calendarAccess !== 'none'
-
-      let fallbackQuery = supabase
-        .from('scheduled_appointments')
-        .select('*')
-        .eq('org_id', profile?.org_id)
-        .gte('scheduled_for', startDate.toISOString())
-        .lte('scheduled_for', endDate.toISOString())
-        .order('scheduled_for', { ascending: true })
-
-      if (canAccessTeamCalendar) {
-        if (selectedMemberId) {
-          fallbackQuery = fallbackQuery.eq('closer_user_id', selectedMemberId)
-        }
-      } else if (selectedUserId !== 'all') {
-        fallbackQuery = fallbackQuery.eq('closer_user_id', selectedUserId)
-      } else if (!canSeeAllAppointments) {
-        fallbackQuery = fallbackQuery.or(
-          `closer_user_id.eq.${user.id},canvasser_user_id.eq.${user.id}`
-        )
-      }
-
-      const { data: browserRows, error: browserErr } = await fallbackQuery
-      if (browserErr) {
-        console.error('Calendar browser fallback failed:', browserErr)
-        setAppointments([])
-        setLoading(false)
-        return
-      }
-      appointmentsData = (browserRows || []) as Appointment[]
+    if (calendarErr) {
+      setCalendarLoadError(calendarErr)
     }
+
+    const appointmentsData = (calendarRows || []) as Appointment[]
 
     // Get lead IDs to fetch lead info
     const leadIds = (appointmentsData || [])
@@ -391,24 +353,47 @@ export default function CalendarPage() {
         return acc
       }, {} as Record<string, any>)
     }
+
+    const opportunityIds = Array.from(
+      new Set(
+        (appointmentsData || [])
+          .map((a) => a.opportunity_id)
+          .filter(Boolean) as string[]
+      )
+    )
+    let opportunityNameById: Record<string, string> = {}
+    if (opportunityIds.length > 0) {
+      const { data: opps } = await supabase.from('opportunities').select('id, name').in('id', opportunityIds)
+      for (const o of opps || []) {
+        if (o?.id) opportunityNameById[o.id] = o.name || ''
+      }
+    }
     
-    // Enrich appointments with closer/canvasser names and lead info
+    // Enrich appointments with closer/canvasser names and lead / opportunity labels
     const enrichedAppointments = (appointmentsData || []).map(apt => {
       const closer = usersData?.find(u => u.id === apt.closer_user_id)
       const canvasser = usersData?.find(u => u.id === apt.canvasser_user_id)
-      const lead = apt.lead_id ? leadsMap[apt.lead_id] : null
+      let lead = apt.lead_id ? leadsMap[apt.lead_id] : null
+      if (!lead && apt._calendarSource === 'close_only') {
+        const label = apt.notes?.replace(/^Close — /, '') || 'Scheduled close'
+        lead = { homeowner_name: label, address_text: null }
+      }
+      const oid = apt.opportunity_id
+      const opportunity = oid
+        ? { id: oid, name: opportunityNameById[oid] ?? null }
+        : null
       return {
         ...apt,
         closer: closer ? { full_name: closer.full_name } : null,
         canvasser: canvasser ? { full_name: canvasser.full_name } : null,
         lead: lead ? { homeowner_name: lead.homeowner_name, address_text: lead.address_text } : null,
+        opportunity: opportunity ?? undefined,
       }
     })
     
     setAppointments(enrichedAppointments)
 
-    // Show scheduled production jobs only when user's desktop view is set to Ops.
-    // Sales desktop view focuses on appointment scheduling only.
+    // Ops calendar: production jobs. Sales view: inspections + closes only (scheduling plumbing unchanged elsewhere).
     const canSeeJobs = desktopView === 'ops'
     
     if (canSeeJobs) {
@@ -733,10 +718,18 @@ export default function CalendarPage() {
           )}
         </div>
 
+        {calendarLoadError && (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Calendar could not load events: {calendarLoadError}
+          </div>
+        )}
+
         {!loading && currentUser && (
           <p className="mb-3 text-sm text-gray-600">
             <span className="font-semibold text-gray-900">{summaryAppointmentCount}</span>{' '}
-            appointment{summaryAppointmentCount === 1 ? '' : 's'}{' '}
+            event{summaryAppointmentCount === 1 ? '' : 's'} (inspections & closes)
+            {currentUser?.dashboard_view === 'ops' ? ' · Ops view' : ' · Sales view'}
+            {' — '}
             {viewMode === 'day'
               ? 'on this day (Eastern). The schedule scrolls to the first event or 6 AM.'
               : viewMode === 'month'
@@ -755,6 +748,7 @@ export default function CalendarPage() {
           ) : viewMode === 'team' && canAccessTeamCalendar ? (
             <TeamLaneView
               calendarAccess={calendarAccess}
+              viewerProfile={currentUser}
               viewerRegionId={viewerRegionId}
               viewerTeamId={viewerTeamId}
               regionId={isCalendarAdmin ? selectedRegionId : isCalendarRegional ? viewerRegionId : ''}
@@ -1072,9 +1066,9 @@ export default function CalendarPage() {
                 </div>
               )}
               <div className="pt-4 flex gap-3">
-                {selectedAppointment.opportunity && (
+                {(selectedAppointment.opportunity?.id || selectedAppointment.opportunity_id) && (
                   <a
-                    href={`/opportunities/${selectedAppointment.opportunity.id}`}
+                    href={`/opportunities/${selectedAppointment.opportunity?.id || selectedAppointment.opportunity_id}`}
                     className="flex-1 py-2 bg-indigo-600 text-white text-center font-medium rounded-lg hover:bg-indigo-700"
                   >
                     View Opportunity

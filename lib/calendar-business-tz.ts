@@ -26,6 +26,11 @@ export function hourInBusinessTz(iso: string | Date): number {
   return parseInt(formatInTimeZone(d, CALENDAR_BUSINESS_TZ, 'H'), 10)
 }
 
+export function minutesInBusinessTz(iso: string | Date): number {
+  const d = typeof iso === 'string' ? new Date(iso) : iso
+  return parseInt(formatInTimeZone(d, CALENDAR_BUSINESS_TZ, 'm'), 10)
+}
+
 export function nyWeekRangeUtc(anchor: Date): { start: Date; end: Date } {
   const ny = toZonedTime(anchor, CALENDAR_BUSINESS_TZ)
   const sun = startOfWeek(startOfDay(ny), { weekStartsOn: 0 })

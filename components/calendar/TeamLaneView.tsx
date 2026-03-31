@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { hourInBusinessTz, minutesInBusinessTz } from '@/lib/calendar-business-tz'
+import { fetchSalesCalendarSlice } from '@/lib/calendar-sales'
 import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
 import { nyDayRangeUtc } from '@/lib/calendar-business-tz'
 import { createClientBrowser } from '@/lib/supabase/client'
@@ -28,6 +30,7 @@ type AppointmentRow = {
   address_text: string | null
   lead_id: string | null
   appointment_type: string | null
+  _calendarSource?: 'scheduled' | 'close_only'
 }
 
 type CloserMeta = {
@@ -44,6 +47,8 @@ type DisplayAppointment = AppointmentRow & {
 
 interface TeamLaneViewProps {
   calendarAccess: 'none' | 'team' | 'regional' | 'admin'
+  /** Same profile object as the calendar page (role + custom_role) for visibility rules */
+  viewerProfile: unknown
   viewerRegionId: string
   viewerTeamId: string
   regionId: string
@@ -68,9 +73,9 @@ function formatHour(hour24: number): string {
 }
 
 function getTopOffset(isoString: string): number {
-  const d = new Date(isoString)
-  const hours = d.getHours() + d.getMinutes() / 60
-  return Math.max(0, (hours - START_HOUR) * ROW_HEIGHT)
+  const h = hourInBusinessTz(isoString)
+  const m = minutesInBusinessTz(isoString)
+  return Math.max(0, (h + m / 60 - START_HOUR) * ROW_HEIGHT)
 }
 
 function getCardHeight(durationMinutes: number | null): number {
@@ -93,6 +98,7 @@ function statusColor(status: string): string {
 
 export default function TeamLaneView({
   calendarAccess,
+  viewerProfile,
   viewerRegionId,
   viewerTeamId,
   regionId,
@@ -162,24 +168,32 @@ export default function TeamLaneView({
       setClosers(scopedClosers)
 
       const { start: rangeStart, end: rangeEnd } = nyDayRangeUtc(date)
-      const rangeParams = new URLSearchParams({
-        start: rangeStart.toISOString(),
-        end: rangeEnd.toISOString(),
-      })
-      const scheduledRes = await fetch(`/api/calendar/scheduled?${rangeParams.toString()}`, {
-        credentials: 'include',
-      })
-      if (!scheduledRes.ok) {
+
+      const { data: authUser } = await supabase.auth.getUser()
+      if (!authUser.user) {
         setAppointments([])
         setLoading(false)
         return
       }
-      const { appointments: appointmentsData } = (await scheduledRes.json()) as {
-        appointments: AppointmentRow[]
+
+      const { rows: calendarRows, error: calErr } = await fetchSalesCalendarSlice(supabase, {
+        orgId,
+        authUserId: authUser.user.id,
+        profile: viewerProfile,
+        start: rangeStart,
+        end: rangeEnd,
+        canAccessTeamCalendar: true,
+        selectedMemberId: memberId,
+        selectedUserId: 'all',
+        teamLaneFullOrg: true,
+      })
+
+      if (calErr) {
+        console.warn('Team lane calendar load:', calErr)
       }
 
       // Full day in org: include unassigned + every assigned inspection (closers outside the lane list too)
-      let appts = (appointmentsData || []).filter((a) => a.status !== 'cancelled') as AppointmentRow[]
+      let appts = (calendarRows || []).filter((a) => a.status !== 'cancelled') as AppointmentRow[]
 
       const allCloserIds = Array.from(
         new Set(appts.map((a) => a.closer_user_id).filter(Boolean))
@@ -268,6 +282,7 @@ export default function TeamLaneView({
     regionId,
     reloadKey,
     supabase,
+    viewerProfile,
     teamId,
     viewerRegionId,
     viewerTeamId,
@@ -275,6 +290,10 @@ export default function TeamLaneView({
 
   async function handleReassign() {
     if (!selectedAppointment || !reassignCloserId) return
+    if (selectedAppointment._calendarSource === 'close_only') {
+      setReassignError('Use the opportunity / schedule-close flow for this row.')
+      return
+    }
     setReassigning(true)
     setReassignError(null)
     try {
@@ -536,7 +555,7 @@ export default function TeamLaneView({
                 </span>
               </p>
             </div>
-            {canReassign && (
+            {canReassign && selectedAppointment._calendarSource !== 'close_only' && (
               <>
                 <div className="border-t my-3" />
                 <p className="text-sm font-medium text-gray-700 mb-1.5">Reassign to</p>
