@@ -658,7 +658,11 @@ export function deriveCalendarAccess(profile: unknown): CalendarAccessLevel {
   )
 
   const hasAdminAccess =
-    ['admin', 'owner'].includes(role) || customPermissionNames.has('admin:full')
+    // Current roles
+    ['admin', 'owner'].includes(role) ||
+    // Legacy role names used in older DB environments
+    ['manager', 'admin_owner'].includes(role) ||
+    customPermissionNames.has('admin:full')
   if (hasAdminAccess) return 'admin'
 
   if (role === 'operations' || customPermissionNames.has('scheduling:manage_queue')) return 'admin'
