@@ -11,8 +11,8 @@ import {
   nyAgendaRangeUtc,
   nyDayRangeUtc,
   nyMonthCalendarDays,
+  nyMonthGridRangeUtc,
   nyMonthKey,
-  nyMonthRangeUtc,
   nyWeekDayDates,
   nyWeekRangeUtc,
   ymdInBusinessTz,
@@ -263,7 +263,8 @@ export default function CalendarPage() {
       startDate = r.start
       endDate = r.end
     } else if (viewMode === 'month') {
-      const r = nyMonthRangeUtc(currentDate)
+      // Full 6-week grid includes adjacent month days; query must match or edge weeks stay empty
+      const r = nyMonthGridRangeUtc(currentDate)
       startDate = r.start
       endDate = r.end
     } else {
@@ -659,6 +660,17 @@ export default function CalendarPage() {
             </select>
           )}
         </div>
+
+        {!loading && currentUser && (
+          <p className="mb-3 text-sm text-gray-600">
+            <span className="font-semibold text-gray-900">{appointments.length}</span> appointment
+            {appointments.length === 1 ? '' : 's'} in this period
+            {viewMode === 'month'
+              ? ' (full 6-week grid, including days from adjacent months)'
+              : ''}
+            . Times are Eastern.
+          </p>
+        )}
 
         {/* Calendar content */}
         <div className="flex-1 bg-white rounded-xl shadow-sm border overflow-hidden">
