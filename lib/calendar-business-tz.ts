@@ -124,6 +124,11 @@ export function formatNyMonthYearTitle(d: Date): string {
   return formatInTimeZone(d, CALENDAR_BUSINESS_TZ, 'MMMM yyyy')
 }
 
+/** Long date line for day view header (matches ymd used for slots). */
+export function formatNyLongDate(d: Date): string {
+  return formatInTimeZone(d, CALENDAR_BUSINESS_TZ, 'EEEE, MMMM d, yyyy')
+}
+
 /** 0–23 Eastern hour → 12 AM … 11 PM label */
 export function formatEasternHourLabel(hour24: number): string {
   if (hour24 === 0) return '12 AM'

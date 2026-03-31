@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
+import { nyDayRangeUtc } from '@/lib/calendar-business-tz'
 import { createClientBrowser } from '@/lib/supabase/client'
 
 type CloserRow = {
@@ -159,24 +161,25 @@ export default function TeamLaneView({
       const scopedClosers = (closersData || []) as CloserRow[]
       setClosers(scopedClosers)
 
-      const startOfDay = new Date(date)
-      startOfDay.setHours(0, 0, 0, 0)
-      const endOfDay = new Date(date)
-      endOfDay.setHours(23, 59, 59, 999)
+      const { start: rangeStart, end: rangeEnd } = nyDayRangeUtc(date)
+      const rangeParams = new URLSearchParams({
+        start: rangeStart.toISOString(),
+        end: rangeEnd.toISOString(),
+      })
+      const scheduledRes = await fetch(`/api/calendar/scheduled?${rangeParams.toString()}`, {
+        credentials: 'include',
+      })
+      if (!scheduledRes.ok) {
+        setAppointments([])
+        setLoading(false)
+        return
+      }
+      const { appointments: appointmentsData } = (await scheduledRes.json()) as {
+        appointments: AppointmentRow[]
+      }
 
       // Full day in org: include unassigned + every assigned inspection (closers outside the lane list too)
-      const { data: appointmentsData } = await supabase
-        .from('scheduled_appointments')
-        .select(
-          'id, closer_user_id, canvasser_user_id, scheduled_for, duration_minutes, status, address_text, lead_id, appointment_type'
-        )
-        .eq('org_id', orgId)
-        .gte('scheduled_for', startOfDay.toISOString())
-        .lte('scheduled_for', endOfDay.toISOString())
-        .neq('status', 'cancelled')
-        .order('scheduled_for')
-
-      let appts = (appointmentsData || []) as AppointmentRow[]
+      let appts = (appointmentsData || []).filter((a) => a.status !== 'cancelled') as AppointmentRow[]
 
       const allCloserIds = Array.from(
         new Set(appts.map((a) => a.closer_user_id).filter(Boolean))
@@ -199,38 +202,20 @@ export default function TeamLaneView({
         }
       }
 
-      // Match calendar scope (region / team / single member)
-      appts = appts.filter((a) => {
-        if (memberId) {
-          if (!a.closer_user_id) return false
-          return a.closer_user_id === memberId
-        }
-        const meta = a.closer_user_id ? closerMetaById[a.closer_user_id] : undefined
-        if (isCalendarTeamManager && viewerTeamId) {
-          if (!a.closer_user_id) return true
-          return meta?.team_id === viewerTeamId
-        }
-        if (isCalendarRegional) {
-          if (viewerRegionId) {
-            if (!a.closer_user_id) return true
-            return meta?.region_id === viewerRegionId
-          }
-          if (teamId) {
-            if (!a.closer_user_id) return true
-            return meta?.team_id === teamId
-          }
-        }
-        if (isCalendarAdmin) {
-          if (regionId) {
-            if (!a.closer_user_id) return true
-            return meta?.region_id === regionId
-          }
-          if (teamId) {
-            if (!a.closer_user_id) return true
-            return meta?.team_id === teamId
-          }
-        }
-        return true
+      const userById = new Map(
+        Object.entries(closerMetaById).map(([id, m]) => [
+          id,
+          { team_id: m.team_id, region_id: m.region_id },
+        ])
+      )
+      appts = filterAppointmentsByCalendarScope(appts, {
+        calendarAccess,
+        viewerRegionId,
+        viewerTeamId,
+        regionId,
+        teamId,
+        memberId,
+        userById,
       })
       const leadIds = Array.from(new Set(appts.map((a) => a.lead_id).filter(Boolean))) as string[]
       const setterIds = Array.from(new Set(appts.map((a) => a.canvasser_user_id).filter(Boolean))) as string[]

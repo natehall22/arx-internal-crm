@@ -638,6 +638,43 @@ export function canViewOrgWideScheduledAppointments(profile: unknown): boolean {
   return false
 }
 
+/** Calendar UI tiers (team / regional / admin) for filters and Team lane scope. */
+export type CalendarAccessLevel = 'none' | 'team' | 'regional' | 'admin'
+
+/**
+ * Which scheduling "lane" the user belongs to (legacy role + custom_role permissions).
+ * Used by the calendar page and should match server-side profile loads with nested `custom_role.role_permissions`.
+ */
+export function deriveCalendarAccess(profile: unknown): CalendarAccessLevel {
+  if (!profile || typeof profile !== 'object') return 'none'
+  const p = profile as { role?: string } & ProfileWithNestedCustomRole
+  const role = String(p.role || '').toLowerCase()
+  const customRole = Array.isArray(p.custom_role) ? p.custom_role[0] : p.custom_role
+  const rolePermissions = Array.isArray(customRole?.role_permissions) ? customRole.role_permissions : []
+  const customPermissionNames = new Set(
+    rolePermissions
+      .map((rp: { permission?: { name?: string } | null }) => rp?.permission?.name)
+      .filter(Boolean) as string[]
+  )
+
+  const hasAdminAccess =
+    ['admin', 'owner'].includes(role) || customPermissionNames.has('admin:full')
+  if (hasAdminAccess) return 'admin'
+
+  if (role === 'operations' || customPermissionNames.has('scheduling:manage_queue')) return 'admin'
+
+  const hasRegionalAccess =
+    ['regional_manager', 'regional_setter_manager'].includes(role) ||
+    customPermissionNames.has('scheduling:manage_region')
+  if (hasRegionalAccess) return 'regional'
+
+  const hasTeamAccess =
+    ['sales_manager', 'setter_manager'].includes(role) || customPermissionNames.has('scheduling:manage_team')
+  if (hasTeamAccess) return 'team'
+
+  return 'none'
+}
+
 /**
  * Server-side: resolve reassign permission using legacy role matrix plus `role_permissions` when `custom_role_id` is set.
  */

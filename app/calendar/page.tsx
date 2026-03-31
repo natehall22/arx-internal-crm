@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Nav from '@/components/Nav'
 import {
   formatEasternHourLabel,
   formatNyDayOfMonth,
+  formatNyLongDate,
   formatNyMonthYearTitle,
   formatNyWeekdayShort,
   hourInBusinessTz,
@@ -17,7 +18,8 @@ import {
   nyWeekRangeUtc,
   ymdInBusinessTz,
 } from '@/lib/calendar-business-tz'
-import { canReassignAppointmentsFromProfile, canViewOrgWideScheduledAppointments } from '@/lib/permissions'
+import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
+import { canReassignAppointmentsFromProfile, deriveCalendarAccess } from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
 
@@ -25,6 +27,7 @@ type ViewMode = 'day' | 'week' | 'month' | 'agenda' | 'team'
 
 interface Appointment {
   id: string
+  lead_id?: string | null
   scheduled_for: string
   duration_minutes: number
   status: string
@@ -32,6 +35,7 @@ interface Appointment {
   notes: string | null
   appointment_type?: string | null
   closer_user_id?: string | null
+  canvasser_user_id?: string | null
   lead?: { homeowner_name: string | null; address_text: string | null } | null
   opportunity?: { id: string; name: string | null } | null
   closer?: { full_name: string | null } | null
@@ -83,39 +87,6 @@ function appointmentNeedsCloser(apt: Appointment): boolean {
   return !apt.closer_user_id && apt.status !== 'cancelled'
 }
 
-type CalendarAccessLevel = 'none' | 'team' | 'regional' | 'admin'
-
-function deriveCalendarAccess(profile: any): CalendarAccessLevel {
-  const role = String(profile?.role || '').toLowerCase()
-  const customRole = Array.isArray(profile?.custom_role) ? profile.custom_role[0] : profile?.custom_role
-  const rolePermissions = Array.isArray(customRole?.role_permissions) ? customRole.role_permissions : []
-  const customPermissionNames = new Set(
-    rolePermissions
-      .map((rp: any) => rp?.permission?.name)
-      .filter(Boolean)
-  )
-
-  const hasAdminAccess =
-    ['admin', 'owner'].includes(role) ||
-    customPermissionNames.has('admin:full')
-  if (hasAdminAccess) return 'admin'
-
-  // Org-wide scheduling coordination (reassign, unassigned queue) — same Team lane scope as admin
-  if (role === 'operations' || customPermissionNames.has('scheduling:manage_queue')) return 'admin'
-
-  const hasRegionalAccess =
-    ['regional_manager', 'regional_setter_manager'].includes(role) ||
-    customPermissionNames.has('scheduling:manage_region')
-  if (hasRegionalAccess) return 'regional'
-
-  const hasTeamAccess =
-    ['sales_manager', 'setter_manager'].includes(role) ||
-    customPermissionNames.has('scheduling:manage_team')
-  if (hasTeamAccess) return 'team'
-
-  return 'none'
-}
-
 export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -133,11 +104,77 @@ export default function CalendarPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [selectedJob, setSelectedJob] = useState<ScheduledJob | null>(null)
 
+  const dayScrollRef = useRef<HTMLDivElement>(null)
   const supabase = createClientBrowser()
 
+  const calendarAccess = deriveCalendarAccess(currentUser)
+  const isCalendarAdmin = calendarAccess === 'admin'
+  const isCalendarRegional = calendarAccess === 'regional'
+  const isCalendarTeamManager = calendarAccess === 'team'
+  const canAccessTeamCalendar = isCalendarAdmin || isCalendarRegional || isCalendarTeamManager
+  const canReassignAppointments = canReassignAppointmentsFromProfile(currentUser)
+  const viewerRegionId = currentUser?.region_id || ''
+  const viewerTeamId = currentUser?.team_id || ''
+
+  /** Region/team/member drill-down (same rules as Team view) applied to month/week/day/agenda. */
+  const filteredAppointments = useMemo(() => {
+    if (!canAccessTeamCalendar) return appointments
+    const userById = new Map(users.map((u) => [u.id, { team_id: u.team_id, region_id: u.region_id }]))
+    const effectiveRegionId = isCalendarAdmin ? selectedRegionId : isCalendarRegional ? viewerRegionId : ''
+    return filterAppointmentsByCalendarScope(appointments, {
+      calendarAccess,
+      viewerRegionId,
+      viewerTeamId: viewerTeamId || '',
+      regionId: effectiveRegionId,
+      teamId: selectedTeamId,
+      memberId: selectedMemberId,
+      userById,
+    })
+  }, [
+    appointments,
+    canAccessTeamCalendar,
+    calendarAccess,
+    users,
+    isCalendarAdmin,
+    isCalendarRegional,
+    viewerRegionId,
+    viewerTeamId,
+    selectedRegionId,
+    selectedTeamId,
+    selectedMemberId,
+  ])
+
+  const appointmentsForSelectedDay = useMemo(() => {
+    const dayKey = ymdInBusinessTz(currentDate)
+    return filteredAppointments.filter(
+      (apt) => ymdInBusinessTz(new Date(apt.scheduled_for)) === dayKey
+    )
+  }, [filteredAppointments, currentDate])
+
+  const firstEasternHourThisDay = useMemo(() => {
+    if (appointmentsForSelectedDay.length === 0) return null
+    let min = 24
+    for (const apt of appointmentsForSelectedDay) {
+      const h = hourInBusinessTz(apt.scheduled_for)
+      if (h < min) min = h
+    }
+    return min
+  }, [appointmentsForSelectedDay])
+
   useEffect(() => {
-    loadData()
-  }, [currentDate, selectedUserId, viewMode])
+    if (viewMode !== 'day' || loading) return
+    const el = dayScrollRef.current
+    if (!el) return
+    const targetHour =
+      firstEasternHourThisDay !== null ? Math.max(0, firstEasternHourThisDay - 1) : 6
+    requestAnimationFrame(() => {
+      const row = el.querySelector(`[data-hour-slot="${targetHour}"]`)
+      row?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    })
+  }, [viewMode, loading, currentDate, firstEasternHourThisDay])
+
+  const summaryAppointmentCount =
+    viewMode === 'day' ? appointmentsForSelectedDay.length : filteredAppointments.length
 
   const loadData = async () => {
     setLoading(true)
@@ -273,32 +310,33 @@ export default function CalendarPage() {
       endDate = r.end
     }
 
-    // Fetch appointments - simple query first, then enrich
-    let query = supabase
-      .from('scheduled_appointments')
-      .select('*')
-      .eq('org_id', profile?.org_id)
-      .gte('scheduled_for', startDate.toISOString())
-      .lte('scheduled_for', endDate.toISOString())
-      .order('scheduled_for', { ascending: true })
-
-    // Org-wide: reassign/queue + anyone with team/regional/admin calendar tier (covers custom-role edge cases)
-    const canSeeAllAppointments =
-      canViewOrgWideScheduledAppointments(profile) || calendarAccess !== 'none'
-
-    if (selectedUserId !== 'all') {
-      query = query.eq('closer_user_id', selectedUserId)
-    } else if (!canSeeAllAppointments) {
-      // Non-admins see only their own appointments by default
-      query = query.eq('closer_user_id', user.id)
+    // Fetch appointments via API (service role + full custom_role) so leadership always matches
+    // server permission resolution; browser RLS + partial custom_role loads were hiding org-wide rows.
+    const rangeParams = new URLSearchParams({
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+    })
+    if (canAccessTeamCalendar) {
+      if (selectedMemberId) {
+        rangeParams.set('closerUserId', selectedMemberId)
+      }
+    } else if (selectedUserId !== 'all') {
+      rangeParams.set('closerUserId', selectedUserId)
     }
 
-    const { data: appointmentsData, error: appointmentsError } = await query
-    
-    if (appointmentsError) {
-      console.error('Error loading appointments:', appointmentsError)
+    const scheduledRes = await fetch(`/api/calendar/scheduled?${rangeParams.toString()}`, {
+      credentials: 'include',
+    })
+    if (!scheduledRes.ok) {
+      const errBody = await scheduledRes.json().catch(() => ({}))
+      console.error('Error loading appointments:', scheduledRes.status, errBody)
+      setAppointments([])
       setLoading(false)
       return
+    }
+
+    const { appointments: appointmentsData } = (await scheduledRes.json()) as {
+      appointments: Appointment[]
     }
 
     // Get lead IDs to fetch lead info
@@ -374,6 +412,10 @@ export default function CalendarPage() {
     setLoading(false)
   }
 
+  useEffect(() => {
+    loadData()
+  }, [currentDate, selectedUserId, selectedMemberId, viewMode])
+
   const navigatePrev = () => {
     const newDate = new Date(currentDate)
     if (viewMode === 'day') newDate.setDate(newDate.getDate() - 1)
@@ -397,7 +439,7 @@ export default function CalendarPage() {
 
   const getAppointmentsForDay = (date: Date) => {
     const key = ymdInBusinessTz(date)
-    return appointments.filter((apt) => ymdInBusinessTz(new Date(apt.scheduled_for)) === key)
+    return filteredAppointments.filter((apt) => ymdInBusinessTz(new Date(apt.scheduled_for)) === key)
   }
 
   const getJobsForDay = (date: Date) => {
@@ -429,14 +471,6 @@ export default function CalendarPage() {
 
   const isToday = (date: Date) => ymdInBusinessTz(date) === ymdInBusinessTz(new Date())
   const isCurrentMonth = (date: Date) => nyMonthKey(date) === nyMonthKey(currentDate)
-  const calendarAccess = deriveCalendarAccess(currentUser)
-  const isCalendarAdmin = calendarAccess === 'admin'
-  const isCalendarRegional = calendarAccess === 'regional'
-  const isCalendarTeamManager = calendarAccess === 'team'
-  const canAccessTeamCalendar = isCalendarAdmin || isCalendarRegional || isCalendarTeamManager
-  const canReassignAppointments = canReassignAppointmentsFromProfile(currentUser)
-  const viewerRegionId = currentUser?.region_id || ''
-  const viewerTeamId = currentUser?.team_id || ''
 
   const scopedTeams = useMemo(() => {
     if (isCalendarTeamManager && viewerTeamId) {
@@ -483,7 +517,10 @@ export default function CalendarPage() {
   ])
 
   const headerTitle = useMemo(() => {
-    if (viewMode === 'day' || viewMode === 'team') {
+    if (viewMode === 'day') {
+      return formatNyLongDate(currentDate)
+    }
+    if (viewMode === 'team') {
       return currentDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     } else if (viewMode === 'week') {
       const start = weekDays[0]
@@ -593,7 +630,7 @@ export default function CalendarPage() {
 
         {/* User filter */}
         <div className="mb-4">
-          {canAccessTeamCalendar && viewMode === 'team' ? (
+          {canAccessTeamCalendar ? (
             <div className="flex flex-wrap gap-2">
               {isCalendarAdmin && (
                 <select
@@ -663,12 +700,14 @@ export default function CalendarPage() {
 
         {!loading && currentUser && (
           <p className="mb-3 text-sm text-gray-600">
-            <span className="font-semibold text-gray-900">{appointments.length}</span> appointment
-            {appointments.length === 1 ? '' : 's'} in this period
-            {viewMode === 'month'
-              ? ' (full 6-week grid, including days from adjacent months)'
-              : ''}
-            . Times are Eastern.
+            <span className="font-semibold text-gray-900">{summaryAppointmentCount}</span>{' '}
+            appointment{summaryAppointmentCount === 1 ? '' : 's'}{' '}
+            {viewMode === 'day'
+              ? 'on this day (Eastern). The schedule scrolls to the first event or 6 AM.'
+              : viewMode === 'month'
+                ? 'in this period (full 6-week grid, including days from adjacent months).'
+                : 'in this period.'}{' '}
+            Times are Eastern.
           </p>
         )}
 
@@ -822,17 +861,23 @@ export default function CalendarPage() {
             </div>
           ) : viewMode === 'day' ? (
             /* Day View */
-            <div className="h-full overflow-auto">
+            <div ref={dayScrollRef} className="h-full max-h-[min(80vh,900px)] overflow-auto">
+              {!loading && appointmentsForSelectedDay.length === 0 && (
+                <div className="sticky top-0 z-10 border-b bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                  No appointments on this date (Eastern). Try another day, Week, Month, or Agenda — or confirm
+                  filters (e.g. a single rep) are not hiding events.
+                </div>
+              )}
               {timeSlots.map(hour => {
                 const dayKey = ymdInBusinessTz(currentDate)
-                const hourAppointments = appointments.filter((apt) => {
+                const hourAppointments = filteredAppointments.filter((apt) => {
                   return (
                     ymdInBusinessTz(new Date(apt.scheduled_for)) === dayKey &&
                     hourInBusinessTz(apt.scheduled_for) === hour
                   )
                 })
                 return (
-                  <div key={hour} className="flex border-b min-h-[80px]">
+                  <div key={hour} data-hour-slot={hour} className="flex border-b min-h-[80px]">
                     <div className="w-20 px-3 py-2 text-sm text-gray-500 text-right border-r bg-gray-50">
                       {formatEasternHourLabel(hour)}
                     </div>
@@ -861,12 +906,12 @@ export default function CalendarPage() {
           ) : (
             /* Agenda View */
             <div className="divide-y">
-              {appointments.length === 0 ? (
+              {filteredAppointments.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                   No appointments scheduled
                 </div>
               ) : (
-                appointments.map(apt => (
+                filteredAppointments.map(apt => (
                   <button
                     key={apt.id}
                     onClick={() => setSelectedAppointment(apt)}
