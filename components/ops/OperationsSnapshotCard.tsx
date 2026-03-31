@@ -3,6 +3,7 @@ import {
   parseProjectReviewStored,
   PROJECT_REVIEW_FIELD_LABELS,
   PROJECT_REVIEW_FIELD_ORDER,
+  stripLatestReviewBlockFromOpsNotes,
   type ProjectReviewAnswers,
 } from '@/lib/project-review'
 
@@ -53,6 +54,11 @@ export default function OperationsSnapshotCard({
 
   const stored = parseProjectReviewStored(project.project_review)
   const structured = stored?.answers && hasAnyAnswerContent(stored.answers) ? stored.answers : null
+
+  const opsNotesForDisplay =
+    structured && stored?.submittedAt
+      ? stripLatestReviewBlockFromOpsNotes(project.ops_notes, stored.submittedAt)
+      : project.ops_notes?.trim() || null
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
@@ -124,10 +130,12 @@ export default function OperationsSnapshotCard({
           </div>
         )}
 
-        {project.ops_notes?.trim() && (
+        {opsNotesForDisplay && (
           <div className="md:col-span-2">
-            <span className="font-medium text-gray-500">Ops notes (full history)</span>
-            <p className="mt-1 text-gray-900 whitespace-pre-wrap break-words">{project.ops_notes}</p>
+            <span className="font-medium text-gray-500">
+              {structured ? 'Earlier ops notes' : 'Ops notes (full history)'}
+            </span>
+            <p className="mt-1 text-gray-900 whitespace-pre-wrap break-words">{opsNotesForDisplay}</p>
           </div>
         )}
       </div>

@@ -104,6 +104,38 @@ export function mergeOpsNotesBlock(existing: string | null | undefined, block: s
   return `${prev}\n\n${block}`
 }
 
+/**
+ * `ops_notes` appends the same project review as formatted text; `project_review` JSON holds the structured copy.
+ * Remove the block for `latestSubmittedAtIso` so the job UI can show structured fields without duplicating the latest review.
+ * Returns remaining text (older submissions / manual notes), or null if nothing left.
+ */
+export function stripLatestReviewBlockFromOpsNotes(
+  opsNotes: string | null | undefined,
+  latestSubmittedAtIso: string | undefined
+): string | null {
+  if (!opsNotes?.trim()) return null
+  if (!latestSubmittedAtIso) return opsNotes.trim()
+
+  const marker = `_review_id:${latestSubmittedAtIso}`
+  const idx = opsNotes.indexOf(marker)
+  if (idx === -1) {
+    // No sync id (very old saves): show full text; may duplicate structured fields until re-saved.
+    return opsNotes.trim()
+  }
+
+  const before = opsNotes.slice(0, idx)
+  const blockStart = before.lastIndexOf('PROJECT REVIEW —')
+  const startRemove = blockStart === -1 ? idx : blockStart
+
+  let endRemove = idx + marker.length
+  while (endRemove < opsNotes.length && (opsNotes[endRemove] === '\n' || opsNotes[endRemove] === '\r')) {
+    endRemove++
+  }
+
+  let out = (opsNotes.slice(0, startRemove) + opsNotes.slice(endRemove)).replace(/\n{3,}/g, '\n\n').trim()
+  return out || null
+}
+
 function truncatePreview(s: string, max: number): string {
   const t = s.trim()
   if (t.length <= max) return t
