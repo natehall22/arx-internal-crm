@@ -191,90 +191,33 @@ export default function CalendarPage() {
     setLoading(true)
     setProfileLoadError(null)
 
-    // Prefer getSession (reads localStorage, no network round-trip) so auth
-    // can't time out while waiting for the Supabase Auth server.
-    let userId: string | null = null
+    // The browser Supabase client cannot resolve the auth session in this app's
+    // cookie-based setup. Use the server-side API route instead (same pattern as
+    // all other working API routes — reads the auth cookie server-side).
+    let profile: any = null
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      userId = session?.user?.id ?? null
-      if (!userId) {
-        // Fall back to getUser() which hits the server
-        const { data: { user } } = await supabase.auth.getUser()
-        userId = user?.id ?? null
+      const res = await fetch('/api/calendar/profile')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setProfileLoadError(body.error || `Profile load failed (${res.status})`)
+        setLoading(false)
+        return
       }
-    } catch {
-      // ignore; handled below
-    }
-
-    if (!userId) {
-      setProfileLoadError('Not authenticated — please refresh the page or log in again.')
+      profile = await res.json()
+    } catch (err: any) {
+      setProfileLoadError(`Could not reach profile API: ${err?.message || String(err)}`)
       setLoading(false)
       return
     }
 
-    // Try full profile first; if that fails, fall back to minimal fields
-    // so a missing column (e.g. not-yet-run migration) doesn't blank the calendar.
-    let profileBase: any = null
-    let profileError: any = null
-
-    const { data: fullProfile, error: fullError } = await supabase
-      .from('users')
-      .select('id, org_id, role, team_id, region_id, custom_role_id, dashboard_view')
-      .eq('id', userId)
-      .single()
-
-    if (!fullError && fullProfile?.org_id) {
-      profileBase = fullProfile
-    } else {
-      // Fallback: minimal fields (no dashboard_view / custom_role_id which require migrations)
-      const { data: minProfile, error: minError } = await supabase
-        .from('users')
-        .select('id, org_id, role, team_id, region_id')
-        .eq('id', userId)
-        .single()
-
-      if (!minError && minProfile?.org_id) {
-        profileBase = { ...minProfile, custom_role_id: null, dashboard_view: 'sales' }
-      } else {
-        profileError = minError || fullError
-      }
-    }
-
-    if (!profileBase?.org_id) {
-      const msg = profileError?.message || 'Profile row missing or org_id not set.'
-      console.error('Calendar profile load error:', profileError)
-      setProfileLoadError(`Could not load your profile: ${msg}`)
+    if (!profile?.org_id) {
+      setProfileLoadError('Profile loaded but org_id is missing — contact an admin.')
       setLoading(false)
       return
     }
 
-    let customRole: any = null
-    if (profileBase.custom_role_id) {
-      const { data: customRoleData, error: customRoleError } = await supabase
-        .from('custom_roles')
-        .select(`
-          id,
-          name,
-          display_name,
-          role_permissions(
-            permission:permissions(name)
-          )
-        `)
-        .eq('id', profileBase.custom_role_id)
-        .single()
-
-      if (customRoleError) {
-        // Best effort only; calendar must still load for users without custom-role read access.
-        console.warn('Calendar custom-role load skipped:', customRoleError.message)
-      } else {
-        customRole = customRoleData
-      }
-    }
-
-    const profile = {
-      ...profileBase,
-      custom_role: customRole,
-    }
+    // auth_user_id is returned by the API for use in appointment filtering
+    const userId: string = profile.auth_user_id || profile.id
 
     setCurrentUser(profile)
     setProfileLoadError(null)
