@@ -1064,8 +1064,9 @@ export default function CalendarPage() {
       {/* Appointment Detail Modal */}
       {selectedAppointment && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
-            <div className={`px-6 py-4 ${getTypeColor(selectedAppointment.appointment_type, selectedAppointment.status)} text-white`}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full flex flex-col max-h-[90vh] overflow-hidden">
+            {/* Sticky header */}
+            <div className={`px-6 py-4 shrink-0 ${getTypeColor(selectedAppointment.appointment_type, selectedAppointment.status)} text-white`}>
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-lg">
                   {appointmentKindLabel(selectedAppointment.appointment_type)} Details
@@ -1080,7 +1081,8 @@ export default function CalendarPage() {
                 </button>
               </div>
             </div>
-            <div className="p-6 space-y-4">
+            {/* Scrollable body */}
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
               <div>
                 <p className="text-sm text-gray-500">Customer</p>
                 <p className="font-semibold text-gray-900">
