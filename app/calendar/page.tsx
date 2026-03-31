@@ -473,9 +473,13 @@ export default function CalendarPage() {
     setReassigning(true)
     setReassignError(null)
     try {
+      const token = (currentUser as { access_token?: string })?.access_token
       const res = await fetch(`/api/appointments/${appointmentId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ new_closer_id: newCloserId }),
       })
       let data: { error?: string } = {}
@@ -505,9 +509,13 @@ export default function CalendarPage() {
     setCancelling(true)
     setCancelError(null)
     try {
+      const token = (currentUser as { access_token?: string })?.access_token
       const res = await fetch(`/api/appointments/${appointmentId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ status: 'cancelled' }),
       })
       let data: { error?: string } = {}

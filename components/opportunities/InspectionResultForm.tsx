@@ -258,7 +258,7 @@ function PhotoUploadSection({
     <div>
       <div className="flex items-center justify-between mb-2">
         <label className="block text-sm font-medium text-gray-700">
-          Inspection Photos
+          Close visit photos
           <span className="text-red-500 ml-0.5">*</span>
           <span className="text-gray-400 font-normal ml-1">
             (min {MIN_PHOTOS}, max {MAX_PHOTOS})
@@ -483,7 +483,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
   if (loading) {
     return (
       <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Inspection Result</h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Close outcome</h2>
         <p className="text-sm text-gray-400">Loading…</p>
       </div>
     )
@@ -493,7 +493,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
   if (existing && existing.submitted_at) {
     return (
       <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Inspection Result</h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-4">Close outcome</h2>
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <span className={`px-3 py-1 rounded-full text-sm font-semibold ${OUTCOME_COLORS[existing.outcome] || 'bg-gray-100 text-gray-700'}`}>
@@ -508,7 +508,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
             <>
               {readOnlyPhotos.length > 0 && (
                 <div className="border rounded-lg p-4 bg-gray-50">
-                  <p className="text-sm font-medium text-gray-800 mb-2">Inspection photos ({readOnlyPhotos.length})</p>
+                  <p className="text-sm font-medium text-gray-800 mb-2">Close visit photos ({readOnlyPhotos.length})</p>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                     {readOnlyPhotos.map((p) => (
                       <div
@@ -563,7 +563,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
   // Step progress labels
   const steps = [
-    'Outcome',
+    'Close outcome',
     ...(needsBriefing ? ['Briefing'] : []),
     ...(needsCloseSchedule ? ['Schedule Close'] : []),
     'Submit',
@@ -618,7 +618,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
   async function handleScheduleClose(confirm: CloseScheduleConfirm) {
     if (!inspectionAppointmentId) {
-      setScheduleError('No inspection appointment found — cannot schedule close.')
+      setScheduleError('No linked inspection appointment — cannot schedule close.')
       return
     }
     setScheduleError(null)
@@ -700,7 +700,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
-      <h2 className="text-xl font-bold text-gray-900 mb-4">Inspection Result</h2>
+      <h2 className="text-xl font-bold text-gray-900 mb-4">Close outcome</h2>
 
       {/* Step progress */}
       <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-1">
@@ -729,10 +729,10 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
         </div>
       )}
 
-      {/* ── Step 1: Outcome ── */}
+      {/* ── Step 1: Close outcome ── */}
       {step === 1 && (
         <div className="space-y-4">
-          <p className="text-sm font-medium text-gray-700 mb-3">What was the inspection outcome?</p>
+          <p className="text-sm font-medium text-gray-700 mb-3">What was the close outcome?</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {Object.entries(OUTCOME_LABELS).map(([value, label]) => (
               <button
@@ -775,7 +775,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
           </div>
 
           <p className="text-xs text-gray-500 -mt-2 mb-1">
-            Upload at least {MIN_PHOTOS} inspection photos here (no separate window — use Add photos below).
+            Upload at least {MIN_PHOTOS} photos from the close visit here (no separate window — use Add photos below).
           </p>
 
           <PhotoUploadSection
@@ -915,7 +915,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
           {!inspectionAppointmentId && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-              No inspection appointment linked to this opportunity. You can skip and submit without scheduling.
+              No linked inspection visit to schedule the close from. You can still submit the close outcome without scheduling.
             </div>
           )}
 
@@ -981,7 +981,7 @@ export default function InspectionResultForm({ opportunityId, inspectionAppointm
 
           {submitted ? (
             <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 font-medium">
-              ✓ Inspection result submitted.{emailSent ? ' Briefing email with photos sent to closer.' : ''}
+              ✓ Close outcome submitted.{emailSent ? ' Briefing email with photos sent to closer.' : ''}
             </div>
           ) : (
             <div className="flex flex-col gap-3">

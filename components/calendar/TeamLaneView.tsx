@@ -297,9 +297,13 @@ export default function TeamLaneView({
     setReassigning(true)
     setReassignError(null)
     try {
+      const token = (viewerProfile as { access_token?: string })?.access_token
       const res = await fetch(`/api/appointments/${selectedAppointment.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ new_closer_id: reassignCloserId }),
       })
       const data = await res.json()

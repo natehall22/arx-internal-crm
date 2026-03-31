@@ -1,58 +1,23 @@
 import { resolveCanReassignAppointment } from '@/lib/permissions'
+import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
-}
-
 function getAuthClient(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  
+  const accessToken = getAccessTokenFromApiRequest(req)
+
   return {
     client: createClient(supabaseUrl, supabaseKey, {
       auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
+      global: accessToken
+        ? { headers: { Authorization: `Bearer ${accessToken}` } }
         : undefined,
     }),
-    accessToken: sessionData?.access_token,
+    accessToken,
   }
 }
 
@@ -194,6 +159,8 @@ export async function GET(request: NextRequest) {
       users: allUsers,
       profile: { role: profile.role },
       canReassign,
+      /** Echo for client PATCH calls when cookie sync is flaky (same pattern as /api/calendar/profile). */
+      access_token: accessToken,
     })
   } catch (error) {
     console.error('Appointments API error:', error)

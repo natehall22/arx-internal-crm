@@ -46,6 +46,8 @@ export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [profile, setProfile] = useState<any>(null)
+  /** Session token echoed from GET /api/appointments for PATCH when cookies are flaky. */
+  const [sessionAccessToken, setSessionAccessToken] = useState<string | null>(null)
   const [canReassign, setCanReassign] = useState(false)
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'past' | 'needs_feedback'>('upcoming')
   const [error, setError] = useState<string | null>(null)
@@ -91,7 +93,10 @@ export default function AppointmentsPage() {
     try {
       const response = await fetch(`/api/appointments/${reassignModal.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionAccessToken ? { Authorization: `Bearer ${sessionAccessToken}` } : {}),
+        },
         body: JSON.stringify({ new_closer_id: newCloserId }),
       })
 
