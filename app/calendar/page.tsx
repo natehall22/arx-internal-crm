@@ -115,6 +115,8 @@ export default function CalendarPage() {
   const [reassignCloserId, setReassignCloserId] = useState<string>('')
   const [reassigning, setReassigning] = useState(false)
   const [reassignError, setReassignError] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   const dayScrollRef = useRef<HTMLDivElement>(null)
   const supabase = createClientBrowser()
@@ -499,6 +501,37 @@ export default function CalendarPage() {
     }
   }
 
+  const handleCancel = async (appointmentId: string) => {
+    setCancelling(true)
+    setCancelError(null)
+    try {
+      const res = await fetch(`/api/appointments/${appointmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      })
+      let data: { error?: string } = {}
+      try {
+        data = await res.json()
+      } catch {
+        if (!res.ok) {
+          setCancelError('Could not read server response')
+          return
+        }
+      }
+      if (!res.ok) {
+        setCancelError(data.error || 'Failed to cancel appointment')
+        return
+      }
+      setSelectedAppointment(null)
+      loadDataSafe()
+    } catch {
+      setCancelError('Network error — try again')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   // Month grid: Sun–Sat weeks in America/New_York (matches API range + appointment placement)
   const calendarDays = useMemo(() => nyMonthCalendarDays(currentDate), [currentDate])
 
@@ -602,6 +635,7 @@ export default function CalendarPage() {
   useEffect(() => {
     setReassignCloserId('')
     setReassignError(null)
+    setCancelError(null)
   }, [selectedAppointment?.id])
 
   useEffect(() => {
@@ -881,9 +915,9 @@ export default function CalendarPage() {
                             title={`${appointmentKindLabel(apt.appointment_type)}${appointmentNeedsCloser(apt) ? ' — needs rep' : ''}`}
                             className={`w-full text-left px-1.5 py-0.5 rounded text-xs text-white truncate ${getTypeColor(apt.appointment_type, apt.status)} ${
                               appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300 ring-inset' : ''
-                            }`}
+                            } ${apt.status === 'cancelled' ? 'opacity-60' : ''}`}
                           >
-                            <span className="block truncate">
+                            <span className={`block truncate ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
                               {formatTime(apt.scheduled_for)} {apt.lead?.homeowner_name || 'Appointment'}
                             </span>
                             {appointmentNeedsCloser(apt) && (
@@ -940,13 +974,13 @@ export default function CalendarPage() {
                               onClick={() => setSelectedAppointment(apt)}
                               className={`w-full text-left px-2 py-1 rounded text-xs text-white mb-1 ${getTypeColor(apt.appointment_type, apt.status)} ${
                                 appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300' : ''
-                              }`}
+                              } ${apt.status === 'cancelled' ? 'opacity-60' : ''}`}
                             >
-                              <div className="font-medium truncate">{apt.lead?.homeowner_name || 'Appointment'}</div>
+                              <div className={`font-medium truncate ${apt.status === 'cancelled' ? 'line-through' : ''}`}>{apt.lead?.homeowner_name || 'Appointment'}</div>
                               <div className="opacity-80">{formatTime(apt.scheduled_for)}</div>
                               <div className="opacity-90 text-[10px] leading-tight mt-0.5">
-                                {appointmentKindLabel(apt.appointment_type)}
-                                {appointmentNeedsCloser(apt) ? ' · Needs rep' : apt.closer ? ` · ${apt.closer.full_name}` : ''}
+                                {apt.status === 'cancelled' ? 'Cancelled' : appointmentKindLabel(apt.appointment_type)}
+                                {apt.status !== 'cancelled' && (appointmentNeedsCloser(apt) ? ' · Needs rep' : apt.closer ? ` · ${apt.closer.full_name}` : '')}
                               </div>
                             </button>
                           ))}
@@ -986,13 +1020,13 @@ export default function CalendarPage() {
                           onClick={() => setSelectedAppointment(apt)}
                           className={`w-full text-left px-3 py-2 rounded-lg text-white mb-2 ${getTypeColor(apt.appointment_type, apt.status)} ${
                             appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300' : ''
-                          }`}
+                          } ${apt.status === 'cancelled' ? 'opacity-60' : ''}`}
                         >
-                          <div className="font-semibold">{apt.lead?.homeowner_name || 'Appointment'}</div>
+                          <div className={`font-semibold ${apt.status === 'cancelled' ? 'line-through' : ''}`}>{apt.lead?.homeowner_name || 'Appointment'}</div>
                           <div className="text-sm opacity-90">{formatTime(apt.scheduled_for)} - {apt.lead?.address_text || apt.address_text}</div>
                           <div className="text-xs opacity-85 mt-0.5">
-                            {appointmentKindLabel(apt.appointment_type)}
-                            {appointmentNeedsCloser(apt) ? ' · Needs rep' : apt.closer ? ` · ${apt.closer.full_name}` : ''}
+                            {apt.status === 'cancelled' ? 'Cancelled' : appointmentKindLabel(apt.appointment_type)}
+                            {apt.status !== 'cancelled' && (appointmentNeedsCloser(apt) ? ' · Needs rep' : apt.closer ? ` · ${apt.closer.full_name}` : '')}
                           </div>
                         </button>
                       ))}
@@ -1013,7 +1047,7 @@ export default function CalendarPage() {
                   <button
                     key={apt.id}
                     onClick={() => setSelectedAppointment(apt)}
-                    className="w-full p-4 text-left hover:bg-gray-50 flex items-start gap-4"
+                    className={`w-full p-4 text-left hover:bg-gray-50 flex items-start gap-4 ${apt.status === 'cancelled' ? 'opacity-60' : ''}`}
                   >
                     <div className="text-center min-w-[60px]">
                       <div className="text-xs text-gray-500">
@@ -1029,7 +1063,7 @@ export default function CalendarPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`w-2 h-2 rounded-full ${getTypeColor(apt.appointment_type, apt.status)}`} />
-                        <span className="font-semibold text-gray-900">
+                        <span className={`font-semibold text-gray-900 ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
                           {apt.lead?.homeowner_name || 'Appointment'}
                         </span>
                         <span className="text-sm text-gray-500">
@@ -1171,6 +1205,24 @@ export default function CalendarPage() {
                   </div>
                   {reassignError && (
                     <p className="mt-1 text-xs text-red-600">{reassignError}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Cancel appointment — managers/admins only, not already cancelled, not synthetic close-only */}
+              {canReassignAppointments &&
+                selectedAppointment.status !== 'cancelled' &&
+                selectedAppointment._calendarSource !== 'close_only' && (
+                <div className="pt-3 border-t">
+                  <button
+                    onClick={() => handleCancel(selectedAppointment.id)}
+                    disabled={cancelling}
+                    className="w-full py-2 bg-red-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 hover:bg-red-700"
+                  >
+                    {cancelling ? 'Cancelling…' : 'Cancel Appointment'}
+                  </button>
+                  {cancelError && (
+                    <p className="mt-1 text-xs text-red-600">{cancelError}</p>
                   )}
                 </div>
               )}
