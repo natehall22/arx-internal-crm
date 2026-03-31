@@ -5,7 +5,11 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { canViewOrgWideScheduledAppointments, deriveCalendarAccess } from '@/lib/permissions'
+import {
+  canReassignAppointmentsFromProfile,
+  canViewOrgWideScheduledAppointments,
+  deriveCalendarAccess,
+} from '@/lib/permissions'
 
 export type SalesCalendarRow = {
   id: string
@@ -40,10 +44,32 @@ export type FetchSalesCalendarArgs = {
   teamLaneFullOrg?: boolean
 }
 
-function canSeeOrgWide(profile: unknown): boolean {
-  return (
-    canViewOrgWideScheduledAppointments(profile) || deriveCalendarAccess(profile) !== 'none'
-  )
+/**
+ * Who may load the full org's scheduled rows for the calendar (no closer/canvas filter).
+ * Uses permission helpers first, then falls back to `users.role` alone so we still work when
+ * `custom_roles` / nested role_permissions fail to load in the browser (a common cause of an empty
+ * calendar for admins and managers).
+ */
+export function calendarReadsOrgWideScheduled(profile: unknown): boolean {
+  if (canViewOrgWideScheduledAppointments(profile) || deriveCalendarAccess(profile) !== 'none') {
+    return true
+  }
+  if (canReassignAppointmentsFromProfile(profile)) {
+    return true
+  }
+  const role = String((profile as { role?: string })?.role || '')
+    .toLowerCase()
+    .trim()
+  if (!role) return false
+  return [
+    'admin',
+    'owner',
+    'operations',
+    'sales_manager',
+    'setter_manager',
+    'regional_manager',
+    'regional_setter_manager',
+  ].includes(role)
 }
 
 export async function fetchSalesCalendarSlice(
@@ -62,7 +88,7 @@ export async function fetchSalesCalendarSlice(
     teamLaneFullOrg,
   } = args
 
-  const wide = canSeeOrgWide(profile)
+  const wide = calendarReadsOrgWideScheduled(profile)
 
   let saQuery = supabase
     .from('scheduled_appointments')
@@ -94,15 +120,27 @@ export async function fetchSalesCalendarSlice(
   const scheduled = (scheduledRows || []) as SalesCalendarRow[]
   const scheduledIds = new Set(scheduled.map((r) => r.id))
 
-  const { data: closeRows, error: caError } = await supabase
-    .from('close_appointments')
-    .select('id, opportunity_id, scheduled_for, scheduled_appointment_id')
-    .eq('org_id', orgId)
-    .gte('scheduled_for', start.toISOString())
-    .lte('scheduled_for', end.toISOString())
+  // Standalone close_appointments rows are org-wide; only merge when the user is allowed to see
+  // org-wide calendar data (same as scheduled_appointments filter above).
+  let closeRows: Array<{
+    id: string
+    opportunity_id?: string | null
+    scheduled_for: string
+    scheduled_appointment_id?: string | null
+  }> = []
+  if (wide || teamLaneFullOrg) {
+    const { data: cr, error: caError } = await supabase
+      .from('close_appointments')
+      .select('id, opportunity_id, scheduled_for, scheduled_appointment_id')
+      .eq('org_id', orgId)
+      .gte('scheduled_for', start.toISOString())
+      .lte('scheduled_for', end.toISOString())
 
-  if (caError) {
-    console.warn('close_appointments calendar query (non-fatal):', caError.message)
+    if (caError) {
+      console.warn('close_appointments calendar query (non-fatal):', caError.message)
+    } else {
+      closeRows = cr || []
+    }
   }
 
   const oppIds = Array.from(
