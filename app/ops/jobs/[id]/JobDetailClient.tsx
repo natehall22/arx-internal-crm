@@ -18,6 +18,7 @@ import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
+import OperationsSnapshotCard from '@/components/ops/OperationsSnapshotCard'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
@@ -75,9 +76,13 @@ interface Job {
   salesperson?: { id: string; full_name: string } | null
   project?: {
     id: string
-    scope_of_work: string
-    product_summary: string
-    ops_notes: string
+    scope_of_work: string | null
+    product_summary: string | null
+    ops_notes: string | null
+    permits_status?: string | null
+    install_date?: string | null
+    /** Latest project review questionnaire JSON (all fields shown in Operations Snapshot) */
+    project_review?: unknown
     payment_method?: string | null
   } | null
   installation_agreement?: { pdf_url: string | null; status: string } | null
@@ -794,23 +799,19 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               </div>
             </div>
 
-            {(job.project?.scope_of_work || job.project?.product_summary) && (
-              <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Job Details</h2>
-                {job.project?.product_summary && (
-                  <div className="mb-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-1">Product</h3>
-                    <p className="text-sm sm:text-base text-gray-900 break-words">{job.project.product_summary}</p>
-                  </div>
-                )}
-                {job.project?.scope_of_work && (
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900 mb-1">Scope of Work</h3>
-                    <p className="text-sm sm:text-base text-gray-900 whitespace-pre-wrap break-words">{job.project.scope_of_work}</p>
-                  </div>
-                )}
-              </div>
-            )}
+            <OperationsSnapshotCard
+              project={job.project}
+              headerAction={
+                job.project_id ? (
+                  <Link
+                    href={`/projects/${job.project_id}`}
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-800 shrink-0"
+                  >
+                    View project →
+                  </Link>
+                ) : undefined
+              }
+            />
 
             {/* Sold Scope + Job Packet - What was sold (from accepted proposal) */}
             <SoldScopeCard 

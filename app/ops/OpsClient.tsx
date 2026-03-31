@@ -7,6 +7,9 @@ import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
+import OperationsSnapshotCard, {
+  hasOperationsSnapshotData,
+} from '@/components/ops/OperationsSnapshotCard'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
 
@@ -34,6 +37,8 @@ interface Job {
     scope_of_work: string | null
     product_summary: string | null
     ops_notes?: string | null
+    permits_status?: string | null
+    install_date?: string | null
     project_review?: unknown
   } | null
 }
@@ -90,6 +95,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [snapshotJob, setSnapshotJob] = useState<Job | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [completedSearchQuery, setCompletedSearchQuery] = useState('')
@@ -254,6 +260,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
     const profitability = getProfitability(job)
     const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
+    const hasOpsSnapshot = hasOperationsSnapshotData(job.project ?? null)
 
     // Status indicators
     const needsMaterials = job.materials_status === 'not_ordered'
@@ -305,10 +312,24 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           <div className="text-sm text-gray-500 truncate">{job.address_text}</div>
         </div>
 
-        {handoffPreview && (
+        {(handoffPreview || hasOpsSnapshot) && (
           <div className="mb-3 rounded-md border border-indigo-100 bg-indigo-50/80 px-2.5 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Sales handoff</p>
-            <p className="text-xs text-gray-700 line-clamp-4 mt-0.5 leading-snug">{handoffPreview}</p>
+            {handoffPreview && (
+              <>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Sales handoff</p>
+                <p className="text-xs text-gray-700 line-clamp-4 mt-0.5 leading-snug">{handoffPreview}</p>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setSnapshotJob(job)
+              }}
+              className={`text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-2' : ''}`}
+            >
+              Full operations snapshot
+            </button>
           </div>
         )}
 
@@ -892,6 +913,64 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           </div>
         </div>
       </div>
+
+      {snapshotJob && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setSnapshotJob(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b px-5 py-4 flex justify-between items-start gap-3 z-10">
+              <div>
+                <p className="font-mono text-sm text-gray-500">{snapshotJob.job_number}</p>
+                <p className="font-medium text-gray-900 mt-1">{snapshotJob.customer?.name || '—'}</p>
+                <p className="text-sm text-gray-600">{snapshotJob.address_text}</p>
+              </div>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSnapshotJob(null)}
+                  className="text-gray-500 hover:text-gray-800 text-sm"
+                >
+                  Close
+                </button>
+                <Link
+                  href={`/ops/jobs/${snapshotJob.id}`}
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                >
+                  Open job →
+                </Link>
+              </div>
+            </div>
+            <div className="p-5">
+              {hasOperationsSnapshotData(snapshotJob.project) ? (
+                <OperationsSnapshotCard
+                  project={snapshotJob.project}
+                  headerAction={
+                    <Link
+                      href={`/projects/${snapshotJob.project_id}`}
+                      className="text-sm font-medium text-indigo-600 hover:text-indigo-800 shrink-0"
+                    >
+                      View project →
+                    </Link>
+                  }
+                />
+              ) : (
+                <p className="text-sm text-gray-500">
+                  No operations snapshot on the linked project yet. Add details or a project review on the{' '}
+                  <Link href={`/projects/${snapshotJob.project_id}`} className="text-indigo-600 hover:underline">
+                    project page
+                  </Link>
+                  .
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showScheduleModal && selectedJob && (
         <ScheduleJobModal

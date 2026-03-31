@@ -34,7 +34,7 @@ export default async function OpsPage() {
         assigned_sub:sub_contractors(id, company_name),
         customer:customers(id, name, phone),
         salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, project_review, customers(id, name, phone), leads(id, homeowner_name, phone))
+        project:projects(id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, customers(id, name, phone), leads(id, homeowner_name, phone))
       `)
       .eq('org_id', profile.org_id)
       .order('scheduled_date', { ascending: true, nullsFirst: false }),

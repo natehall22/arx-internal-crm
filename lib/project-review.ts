@@ -18,6 +18,8 @@ export type ProjectReviewAnswers = {
   permitsAndHoa: string
   /** What the homeowner was told about timeline / process */
   customerExpectations: string
+  /** Financing product, lender, payment structure, promo, what was explained to homeowner */
+  financing: string
   /** Anything ops must know before install */
   openItems: string
 }
@@ -30,6 +32,7 @@ export const emptyProjectReviewAnswers = (): ProjectReviewAnswers => ({
   siteConditions: '',
   permitsAndHoa: '',
   customerExpectations: '',
+  financing: '',
   openItems: '',
 })
 
@@ -46,7 +49,20 @@ export function parseProjectReviewStored(raw: unknown): ProjectReviewStored | nu
   return raw as ProjectReviewStored
 }
 
-const LABELS: Record<keyof ProjectReviewAnswers, string> = {
+/** Display order for questionnaire fields (job detail, exports, notes). */
+export const PROJECT_REVIEW_FIELD_ORDER: (keyof ProjectReviewAnswers)[] = [
+  'scopeSummary',
+  'materialsAndProducts',
+  'tearOffAndDecking',
+  'accessories',
+  'siteConditions',
+  'permitsAndHoa',
+  'customerExpectations',
+  'financing',
+  'openItems',
+]
+
+export const PROJECT_REVIEW_FIELD_LABELS: Record<keyof ProjectReviewAnswers, string> = {
   scopeSummary: 'What was sold (scope)',
   materialsAndProducts: 'Materials & products',
   tearOffAndDecking: 'Tear-off, layers & decking',
@@ -54,6 +70,7 @@ const LABELS: Record<keyof ProjectReviewAnswers, string> = {
   siteConditions: 'Site / access / safety',
   permitsAndHoa: 'Permits & HOA',
   customerExpectations: 'Customer expectations',
+  financing: 'Financing',
   openItems: 'Open questions / handoff items',
 }
 
@@ -71,10 +88,10 @@ export function formatProjectReviewForJobNote(
     })} — ${meta.submitterName}`,
     '',
   ]
-  for (const key of Object.keys(LABELS) as (keyof ProjectReviewAnswers)[]) {
+  for (const key of PROJECT_REVIEW_FIELD_ORDER) {
     const v = answers[key]?.trim()
     if (v) {
-      lines.push(`${LABELS[key]}`, v, '')
+      lines.push(`${PROJECT_REVIEW_FIELD_LABELS[key]}`, v, '')
     }
   }
   const syncId = meta.submittedAt.toISOString()
@@ -106,6 +123,7 @@ export function handoffPreviewForJobBoard(project: {
     const parts = [
       pr.answers.scopeSummary,
       pr.answers.materialsAndProducts,
+      pr.answers.financing,
       pr.answers.openItems,
     ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
     if (parts.length) return truncatePreview(parts[0], 220)

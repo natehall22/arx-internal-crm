@@ -167,6 +167,12 @@ export default function ProjectReviewButton({ projectId, jobId, initialReview }:
                 onChange={(v) => update('customerExpectations', v)}
               />
               <Field
+                label="Financing"
+                hint="Lender or in-house program, term, payment schedule, promos, and what the homeowner agreed to."
+                value={answers.financing}
+                onChange={(v) => update('financing', v)}
+              />
+              <Field
                 label="Open questions / handoff"
                 hint="Anything ops must resolve before or during install."
                 value={answers.openItems}
