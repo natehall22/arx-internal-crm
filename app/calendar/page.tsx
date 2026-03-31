@@ -189,27 +189,61 @@ export default function CalendarPage() {
 
   const loadData = async () => {
     setLoading(true)
-    
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    setProfileLoadError(null)
+
+    // Prefer getSession (reads localStorage, no network round-trip) so auth
+    // can't time out while waiting for the Supabase Auth server.
+    let userId: string | null = null
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      userId = session?.user?.id ?? null
+      if (!userId) {
+        // Fall back to getUser() which hits the server
+        const { data: { user } } = await supabase.auth.getUser()
+        userId = user?.id ?? null
+      }
+    } catch {
+      // ignore; handled below
+    }
+
+    if (!userId) {
+      setProfileLoadError('Not authenticated — please refresh the page or log in again.')
       setLoading(false)
       return
     }
 
-    const { data: profileBase, error: profileError } = await supabase
+    // Try full profile first; if that fails, fall back to minimal fields
+    // so a missing column (e.g. not-yet-run migration) doesn't blank the calendar.
+    let profileBase: any = null
+    let profileError: any = null
+
+    const { data: fullProfile, error: fullError } = await supabase
       .from('users')
       .select('id, org_id, role, team_id, region_id, custom_role_id, dashboard_view')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
 
-    if (profileError || !profileBase?.org_id) {
+    if (!fullError && fullProfile?.org_id) {
+      profileBase = fullProfile
+    } else {
+      // Fallback: minimal fields (no dashboard_view / custom_role_id which require migrations)
+      const { data: minProfile, error: minError } = await supabase
+        .from('users')
+        .select('id, org_id, role, team_id, region_id')
+        .eq('id', userId)
+        .single()
+
+      if (!minError && minProfile?.org_id) {
+        profileBase = { ...minProfile, custom_role_id: null, dashboard_view: 'sales' }
+      } else {
+        profileError = minError || fullError
+      }
+    }
+
+    if (!profileBase?.org_id) {
+      const msg = profileError?.message || 'Profile row missing or org_id not set.'
       console.error('Calendar profile load error:', profileError)
-      setProfileLoadError(
-        profileError?.message
-          ? `Could not load your profile: ${profileError.message}`
-          : 'Could not load your profile. Refresh or contact an admin.'
-      )
+      setProfileLoadError(`Could not load your profile: ${msg}`)
       setLoading(false)
       return
     }
@@ -331,7 +365,7 @@ export default function CalendarPage() {
 
     const { rows: calendarRows, error: calendarErr } = await fetchSalesCalendarSlice(supabase, {
       orgId: profile.org_id,
-      authUserId: user.id,
+      authUserId: userId,
       profile,
       start: startDate,
       end: endDate,
@@ -442,8 +476,19 @@ export default function CalendarPage() {
     setLoading(false)
   }
 
+  // Wrap the real loadData in a catch so any unexpected throw surfaces in the UI
+  const loadDataSafe = async () => {
+    try {
+      await loadData()
+    } catch (err: any) {
+      console.error('Calendar loadData unexpected error:', err)
+      setProfileLoadError(`Unexpected error: ${err?.message || String(err)}`)
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    loadData()
+    loadDataSafe()
   }, [currentDate, selectedUserId, selectedMemberId, viewMode])
 
   const navigatePrev = () => {
@@ -488,7 +533,7 @@ export default function CalendarPage() {
       }
       setSelectedAppointment(null)
       setReassignCloserId('')
-      loadData()
+      loadDataSafe()
     } catch {
       setReassignError('Network error — try again')
     } finally {
