@@ -448,6 +448,12 @@ export default async function OpportunityDetailPage({
           </div>
         )}
 
+        <InspectionResultForm
+          opportunityId={params.id}
+          inspectionAppointmentId={inspectionAppointment?.id ?? null}
+          currentUserRole={profile.role}
+        />
+
         {/* Roof Measurements Section */}
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -691,12 +697,6 @@ export default async function OpportunityDetailPage({
         {!(orderFormContracts && orderFormContracts.some((c: any) => c.status === 'completed')) && (
           <ContractUpload opportunityId={params.id} />
         )}
-
-        <InspectionResultForm
-          opportunityId={params.id}
-          inspectionAppointmentId={inspectionAppointment?.id ?? null}
-          currentUserRole={profile.role}
-        />
 
         <CloseAppointmentStatusSection
           opportunityId={params.id}

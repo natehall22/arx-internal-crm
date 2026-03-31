@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Nav from '@/components/Nav'
-import { canReassignAppointmentsFromProfile } from '@/lib/permissions'
+import { canReassignAppointmentsFromProfile, canViewOrgWideScheduledAppointments } from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
 
@@ -15,6 +15,8 @@ interface Appointment {
   status: string
   address_text: string | null
   notes: string | null
+  appointment_type?: string | null
+  closer_user_id?: string | null
   lead?: { homeowner_name: string | null; address_text: string | null } | null
   opportunity?: { id: string; name: string | null } | null
   closer?: { full_name: string | null } | null
@@ -55,6 +57,17 @@ interface Region {
 
 const TEAM_MEMBER_ROLE_ALLOWLIST = ['sales_rep', 'rep', 'sales_manager', 'setter_manager', 'admin']
 
+function appointmentKindLabel(appointmentType: string | null | undefined): string {
+  const t = appointmentType || 'inspection'
+  if (t === 'close') return 'Close'
+  if (t === 'insurance_follow_up') return 'Follow-up'
+  return 'Inspection'
+}
+
+function appointmentNeedsCloser(apt: Appointment): boolean {
+  return !apt.closer_user_id && apt.status !== 'cancelled'
+}
+
 type CalendarAccessLevel = 'none' | 'team' | 'regional' | 'admin'
 
 function deriveCalendarAccess(profile: any): CalendarAccessLevel {
@@ -71,6 +84,9 @@ function deriveCalendarAccess(profile: any): CalendarAccessLevel {
     ['admin', 'owner'].includes(role) ||
     customPermissionNames.has('admin:full')
   if (hasAdminAccess) return 'admin'
+
+  // Org-wide scheduling coordination (reassign, unassigned queue) — same Team lane scope as admin
+  if (role === 'operations' || customPermissionNames.has('scheduling:manage_queue')) return 'admin'
 
   const hasRegionalAccess =
     ['regional_manager', 'regional_setter_manager'].includes(role) ||
@@ -228,8 +244,10 @@ export default function CalendarPage() {
       startDate.setHours(0, 0, 0, 0)
       endDate.setHours(23, 59, 59, 999)
     } else if (viewMode === 'week') {
+      // Start of local Sunday; end must be derived from startDate (not currentDate's month)
       startDate.setDate(startDate.getDate() - startDate.getDay())
       startDate.setHours(0, 0, 0, 0)
+      endDate.setTime(startDate.getTime())
       endDate.setDate(startDate.getDate() + 6)
       endDate.setHours(23, 59, 59, 999)
     } else if (viewMode === 'month') {
@@ -238,8 +256,10 @@ export default function CalendarPage() {
       endDate.setMonth(endDate.getMonth() + 1, 0)
       endDate.setHours(23, 59, 59, 999)
     } else {
-      // Agenda - next 30 days
+      // Agenda - next 30 days from today
+      startDate.setHours(0, 0, 0, 0)
       endDate.setDate(endDate.getDate() + 30)
+      endDate.setHours(23, 59, 59, 999)
     }
 
     // Fetch appointments - simple query first, then enrich
@@ -251,9 +271,8 @@ export default function CalendarPage() {
       .lte('scheduled_for', endDate.toISOString())
       .order('scheduled_for', { ascending: true })
 
-    // For non-admin roles, default to showing only their appointments
-    const canSeeAllAppointments =
-      calendarAccess !== 'none' || ['operations', 'manager'].includes(role)
+    // Org-wide: managers/coordinators who reassign or run the closer queue; not only calendar "tier" UI
+    const canSeeAllAppointments = canViewOrgWideScheduledAppointments(profile)
 
     if (selectedUserId !== 'all') {
       query = query.eq('closer_user_id', selectedUserId)
@@ -415,8 +434,8 @@ export default function CalendarPage() {
     })
   }, [currentDate])
 
-  // Time slots for day/week view (7 AM to 8 PM)
-  const timeSlots = Array.from({ length: 14 }, (_, i) => i + 7) // 7 AM to 8 PM
+  // Time slots for day/week view (6 AM–10 PM local) — narrow range hid off-hour / late appointments
+  const timeSlots = Array.from({ length: 17 }, (_, i) => i + 6) // hours 6–22
 
   const formatTime = (dateStr: string) => {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })
@@ -735,9 +754,17 @@ export default function CalendarPage() {
                           <button
                             key={apt.id}
                             onClick={() => setSelectedAppointment(apt)}
-                            className={`w-full text-left px-1.5 py-0.5 rounded text-xs text-white truncate ${getStatusColor(apt.status)}`}
+                            title={`${appointmentKindLabel(apt.appointment_type)}${appointmentNeedsCloser(apt) ? ' — needs rep' : ''}`}
+                            className={`w-full text-left px-1.5 py-0.5 rounded text-xs text-white truncate ${getStatusColor(apt.status)} ${
+                              appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300 ring-inset' : ''
+                            }`}
                           >
-                            {formatTime(apt.scheduled_for)} {apt.lead?.homeowner_name || 'Appointment'}
+                            <span className="block truncate">
+                              {formatTime(apt.scheduled_for)} {apt.lead?.homeowner_name || 'Appointment'}
+                            </span>
+                            {appointmentNeedsCloser(apt) && (
+                              <span className="block text-[10px] opacity-95 truncate">Needs rep</span>
+                            )}
                           </button>
                         ))}
                         {totalItems > 3 && (
@@ -788,10 +815,16 @@ export default function CalendarPage() {
                             <button
                               key={apt.id}
                               onClick={() => setSelectedAppointment(apt)}
-                              className={`w-full text-left px-2 py-1 rounded text-xs text-white mb-1 ${getStatusColor(apt.status)}`}
+                              className={`w-full text-left px-2 py-1 rounded text-xs text-white mb-1 ${getStatusColor(apt.status)} ${
+                                appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300' : ''
+                              }`}
                             >
                               <div className="font-medium truncate">{apt.lead?.homeowner_name || 'Appointment'}</div>
                               <div className="opacity-80">{formatTime(apt.scheduled_for)}</div>
+                              <div className="opacity-90 text-[10px] leading-tight mt-0.5">
+                                {appointmentKindLabel(apt.appointment_type)}
+                                {appointmentNeedsCloser(apt) ? ' · Needs rep' : ''}
+                              </div>
                             </button>
                           ))}
                         </div>
@@ -819,11 +852,16 @@ export default function CalendarPage() {
                         <button
                           key={apt.id}
                           onClick={() => setSelectedAppointment(apt)}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-white mb-2 ${getStatusColor(apt.status)}`}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-white mb-2 ${getStatusColor(apt.status)} ${
+                            appointmentNeedsCloser(apt) ? 'ring-2 ring-amber-300' : ''
+                          }`}
                         >
                           <div className="font-semibold">{apt.lead?.homeowner_name || 'Appointment'}</div>
                           <div className="text-sm opacity-90">{formatTime(apt.scheduled_for)} - {apt.lead?.address_text || apt.address_text}</div>
-                          {apt.closer && <div className="text-xs opacity-80 mt-1">Rep: {apt.closer.full_name}</div>}
+                          <div className="text-xs opacity-85 mt-0.5">
+                            {appointmentKindLabel(apt.appointment_type)}
+                            {appointmentNeedsCloser(apt) ? ' · Needs rep' : apt.closer ? ` · ${apt.closer.full_name}` : ''}
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -857,7 +895,7 @@ export default function CalendarPage() {
                       </div>
                     </div>
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`w-2 h-2 rounded-full ${getStatusColor(apt.status)}`} />
                         <span className="font-semibold text-gray-900">
                           {apt.lead?.homeowner_name || 'Appointment'}
@@ -865,6 +903,14 @@ export default function CalendarPage() {
                         <span className="text-sm text-gray-500">
                           {formatTime(apt.scheduled_for)}
                         </span>
+                        <span className="text-xs text-gray-500">
+                          {appointmentKindLabel(apt.appointment_type)}
+                        </span>
+                        {appointmentNeedsCloser(apt) && (
+                          <span className="text-xs font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                            Needs rep
+                          </span>
+                        )}
                       </div>
                       <div className="text-sm text-gray-600">
                         {apt.lead?.address_text || apt.address_text}
@@ -926,12 +972,20 @@ export default function CalendarPage() {
                   {selectedAppointment.lead?.address_text || selectedAppointment.address_text || 'No address'}
                 </p>
               </div>
-              {selectedAppointment.closer && (
-                <div>
-                  <p className="text-sm text-gray-500">Sales Rep</p>
+              <div>
+                <p className="text-sm text-gray-500">Type</p>
+                <p className="font-semibold text-gray-900">{appointmentKindLabel(selectedAppointment.appointment_type)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Sales Rep</p>
+                {appointmentNeedsCloser(selectedAppointment) ? (
+                  <p className="font-semibold text-amber-800">Unassigned — use scheduling tools to assign or reassign</p>
+                ) : selectedAppointment.closer ? (
                   <p className="font-semibold text-gray-900">{selectedAppointment.closer.full_name}</p>
-                </div>
-              )}
+                ) : (
+                  <p className="font-semibold text-gray-500">—</p>
+                )}
+              </div>
               {selectedAppointment.canvasser && (
                 <div>
                   <p className="text-sm text-gray-500">Set By</p>

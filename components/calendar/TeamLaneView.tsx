@@ -25,6 +25,13 @@ type AppointmentRow = {
   status: string
   address_text: string | null
   lead_id: string | null
+  appointment_type: string | null
+}
+
+type CloserMeta = {
+  full_name: string | null
+  region_id: string | null
+  team_id: string | null
 }
 
 type DisplayAppointment = AppointmentRow & {
@@ -152,28 +159,79 @@ export default function TeamLaneView({
       const scopedClosers = (closersData || []) as CloserRow[]
       setClosers(scopedClosers)
 
-      const closerIds = scopedClosers.map((c) => c.id)
-      if (closerIds.length === 0) {
-        setAppointments([])
-        setLoading(false)
-        return
-      }
-
       const startOfDay = new Date(date)
       startOfDay.setHours(0, 0, 0, 0)
       const endOfDay = new Date(date)
       endOfDay.setHours(23, 59, 59, 999)
 
+      // Full day in org: include unassigned + every assigned inspection (closers outside the lane list too)
       const { data: appointmentsData } = await supabase
         .from('scheduled_appointments')
-        .select('id, closer_user_id, canvasser_user_id, scheduled_for, duration_minutes, status, address_text, lead_id')
-        .in('closer_user_id', closerIds)
+        .select(
+          'id, closer_user_id, canvasser_user_id, scheduled_for, duration_minutes, status, address_text, lead_id, appointment_type'
+        )
+        .eq('org_id', orgId)
         .gte('scheduled_for', startOfDay.toISOString())
-        .lt('scheduled_for', endOfDay.toISOString())
+        .lte('scheduled_for', endOfDay.toISOString())
         .neq('status', 'cancelled')
         .order('scheduled_for')
 
-      const appts = (appointmentsData || []) as AppointmentRow[]
+      let appts = (appointmentsData || []) as AppointmentRow[]
+
+      const allCloserIds = Array.from(
+        new Set(appts.map((a) => a.closer_user_id).filter(Boolean))
+      ) as string[]
+
+      const closerMetaById: Record<string, CloserMeta> = {}
+      if (allCloserIds.length > 0) {
+        const { data: closerUsers } = await supabase
+          .from('users')
+          .select('id, full_name, region_id, team_id')
+          .eq('org_id', orgId)
+          .in('id', allCloserIds)
+
+        for (const u of closerUsers || []) {
+          closerMetaById[u.id] = {
+            full_name: u.full_name,
+            region_id: u.region_id,
+            team_id: u.team_id,
+          }
+        }
+      }
+
+      // Match calendar scope (region / team / single member)
+      appts = appts.filter((a) => {
+        if (memberId) {
+          if (!a.closer_user_id) return false
+          return a.closer_user_id === memberId
+        }
+        const meta = a.closer_user_id ? closerMetaById[a.closer_user_id] : undefined
+        if (isCalendarTeamManager && viewerTeamId) {
+          if (!a.closer_user_id) return true
+          return meta?.team_id === viewerTeamId
+        }
+        if (isCalendarRegional) {
+          if (viewerRegionId) {
+            if (!a.closer_user_id) return true
+            return meta?.region_id === viewerRegionId
+          }
+          if (teamId) {
+            if (!a.closer_user_id) return true
+            return meta?.team_id === teamId
+          }
+        }
+        if (isCalendarAdmin) {
+          if (regionId) {
+            if (!a.closer_user_id) return true
+            return meta?.region_id === regionId
+          }
+          if (teamId) {
+            if (!a.closer_user_id) return true
+            return meta?.team_id === teamId
+          }
+        }
+        return true
+      })
       const leadIds = Array.from(new Set(appts.map((a) => a.lead_id).filter(Boolean))) as string[]
       const setterIds = Array.from(new Set(appts.map((a) => a.canvasser_user_id).filter(Boolean))) as string[]
 
@@ -200,14 +258,12 @@ export default function TeamLaneView({
         )
       }
 
-      const closerNameMap = Object.fromEntries(
-        scopedClosers.map((closer) => [closer.id, closer.full_name || 'Unknown'])
-      )
-
       const displayRows: DisplayAppointment[] = appts.map((appt) => ({
         ...appt,
         lead: appt.lead_id ? leadsMap[appt.lead_id] || null : null,
-        closer_name: appt.closer_user_id ? closerNameMap[appt.closer_user_id] || null : null,
+        closer_name: appt.closer_user_id
+          ? closerMetaById[appt.closer_user_id]?.full_name || null
+          : null,
         canvasser_name: appt.canvasser_user_id ? setterMap[appt.canvasser_user_id] || null : null,
       }))
 
@@ -260,6 +316,13 @@ export default function TeamLaneView({
   const totalGridHeight = (END_HOUR - START_HOUR) * ROW_HEIGHT
   const timeRows = useMemo(() => Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i), [])
 
+  const scopedCloserIdSet = useMemo(() => new Set(closers.map((c) => c.id)), [closers])
+  const otherAssigneeAppointments = useMemo(
+    () =>
+      appointments.filter((a) => a.closer_user_id && !scopedCloserIdSet.has(a.closer_user_id)),
+    [appointments, scopedCloserIdSet]
+  )
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-x-auto">
@@ -279,6 +342,104 @@ export default function TeamLaneView({
                 </div>
               ))}
             </div>
+
+            {otherAssigneeAppointments.length > 0 && (
+              <div className="flex-shrink-0 border-r border-slate-200" style={{ minWidth: 220, width: 280 }}>
+                <div className="h-12 border-b px-3 py-1.5 bg-slate-50">
+                  <p className="text-sm font-semibold text-slate-900 truncate">Other assignees</p>
+                  <p className="text-xs text-slate-600">
+                    {otherAssigneeAppointments.length} not in this rep list (other roles / teams)
+                  </p>
+                </div>
+                <div className="relative bg-slate-50/40" style={{ height: totalGridHeight }}>
+                  {timeRows.map((hour, idx) => (
+                    <div
+                      key={hour}
+                      className="absolute left-0 right-0 border-b border-slate-100"
+                      style={{ top: idx * ROW_HEIGHT }}
+                    />
+                  ))}
+                  {otherAssigneeAppointments.map((appt) => (
+                    <button
+                      type="button"
+                      key={appt.id}
+                      onClick={() => setSelectedAppointment(appt)}
+                      className="absolute left-1 right-1 rounded-md px-2 py-1 text-left bg-slate-50 border border-slate-200 hover:bg-slate-100 overflow-hidden"
+                      style={{ top: getTopOffset(appt.scheduled_for), height: getCardHeight(appt.duration_minutes) }}
+                    >
+                      <p className="text-[10px] font-medium text-slate-600 truncate">
+                        {appt.closer_name || 'Assigned rep'}
+                      </p>
+                      <p className="text-xs font-semibold text-slate-900 truncate">
+                        {appt.lead?.homeowner_name || 'Appointment'}
+                      </p>
+                      <p className="text-[11px] text-slate-700 truncate">
+                        {new Date(appt.scheduled_for).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                      </p>
+                      <p className="text-[10px] text-slate-600 truncate">
+                        {(appt.appointment_type || 'inspection') === 'close' ? 'Close' : 'Inspection'}
+                      </p>
+                      <p className="text-[10px] text-gray-700 truncate">{appt.address_text || 'No address'}</p>
+                      <span
+                        className={`inline-flex mt-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${statusColor(appt.status)}`}
+                      >
+                        {appt.status}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {appointments.some((a) => !a.closer_user_id) && (
+              <div className="flex-shrink-0 border-r border-amber-200" style={{ minWidth: 220, width: 260 }}>
+                <div className="h-12 border-b px-3 py-1.5 bg-amber-50">
+                  <p className="text-sm font-semibold text-amber-900 truncate">Unassigned</p>
+                  <p className="text-xs text-amber-800">
+                    {(() => {
+                      const n = appointments.filter((a) => !a.closer_user_id).length
+                      return `${n} ${n === 1 ? 'needs' : 'need'} a rep`
+                    })()}
+                  </p>
+                </div>
+                <div className="relative bg-amber-50/30" style={{ height: totalGridHeight }}>
+                  {timeRows.map((hour, idx) => (
+                    <div
+                      key={hour}
+                      className="absolute left-0 right-0 border-b border-amber-100"
+                      style={{ top: idx * ROW_HEIGHT }}
+                    />
+                  ))}
+                  {appointments
+                    .filter((appt) => !appt.closer_user_id)
+                    .map((appt) => (
+                      <button
+                        type="button"
+                        key={appt.id}
+                        onClick={() => setSelectedAppointment(appt)}
+                        className="absolute left-1 right-1 rounded-md px-2 py-1 text-left bg-amber-50 border-2 border-amber-300 hover:bg-amber-100 overflow-hidden"
+                        style={{ top: getTopOffset(appt.scheduled_for), height: getCardHeight(appt.duration_minutes) }}
+                      >
+                        <p className="text-xs font-semibold text-amber-950 truncate">
+                          {appt.lead?.homeowner_name || 'Appointment'}
+                        </p>
+                        <p className="text-[11px] text-amber-900 truncate">
+                          {new Date(appt.scheduled_for).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        </p>
+                        <p className="text-[10px] text-amber-900/90 truncate">
+                          {(appt.appointment_type || 'inspection') === 'close' ? 'Close' : 'Inspection'}
+                        </p>
+                        <p className="text-[10px] text-gray-700 truncate">{appt.address_text || 'No address'}</p>
+                        <span
+                          className={`inline-flex mt-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${statusColor(appt.status)}`}
+                        >
+                          {appt.status}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
 
             {closers.map((closer) => {
               const closerAppointments = appointments.filter((appt) => appt.closer_user_id === closer.id)
@@ -314,6 +475,9 @@ export default function TeamLaneView({
                         <p className="text-[11px] text-indigo-700 truncate">
                           {new Date(appt.scheduled_for).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                         </p>
+                        <p className="text-[10px] text-gray-600 truncate">
+                          {(appt.appointment_type || 'inspection') === 'close' ? 'Close' : 'Inspection'}
+                        </p>
                         <p className="text-[10px] text-gray-700 truncate">{appt.address_text || 'No address'}</p>
                         <span
                           className={`inline-flex mt-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${statusColor(appt.status)}`}
@@ -333,7 +497,7 @@ export default function TeamLaneView({
               )
             })}
 
-            {!loading && closers.length === 0 && (
+            {!loading && closers.length === 0 && appointments.length === 0 && (
               <div className="flex items-center justify-center flex-1 min-h-[320px] text-sm text-gray-500">
                 No members found for this scope.
               </div>
@@ -372,7 +536,9 @@ export default function TeamLaneView({
               </p>
               <p>
                 <span className="text-gray-500">Closer:</span>{' '}
-                <span className="text-gray-900">{selectedAppointment.closer_name || 'Unknown'}</span>
+                <span className={selectedAppointment.closer_user_id ? 'text-gray-900' : 'text-amber-800 font-medium'}>
+                  {selectedAppointment.closer_name || (selectedAppointment.closer_user_id ? 'Unknown' : 'Unassigned')}
+                </span>
               </p>
               <p>
                 <span className="text-gray-500">Setter:</span>{' '}
@@ -398,7 +564,7 @@ export default function TeamLaneView({
                   >
                     <option value="">Select closer...</option>
                     {closers
-                      .filter((c) => c.id !== selectedAppointment.closer_user_id)
+                      .filter((c) => c.id !== (selectedAppointment.closer_user_id || ''))
                       .map((c) => (
                         <option key={c.id} value={c.id}>{c.full_name || 'Unknown'}</option>
                       ))}

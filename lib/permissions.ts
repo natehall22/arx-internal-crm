@@ -612,6 +612,24 @@ export function canReassignAppointmentsFromProfile(profile: unknown): boolean {
 }
 
 /**
+ * Calendar "All Team Members" loads org-wide scheduled_appointments (not only the current user).
+ * Aligns with reassignment + scheduling coordination: managers, operations, queue admins, etc.
+ */
+export function canViewOrgWideScheduledAppointments(profile: unknown): boolean {
+  if (!profile || typeof profile !== 'object') return false
+  const p = profile as { role?: string } & ProfileWithNestedCustomRole
+  const role = (p.role || '') as UserRole
+
+  if (canReassignAppointmentsFromProfile(profile)) return true
+  if (role === 'operations') return true
+
+  const permNames = extractCustomPermissionNamesFromProfile(p)
+  if (permNames.has('scheduling:manage_queue')) return true
+
+  return false
+}
+
+/**
  * Server-side: resolve reassign permission using legacy role matrix plus `role_permissions` when `custom_role_id` is set.
  */
 export async function resolveCanReassignAppointment(
