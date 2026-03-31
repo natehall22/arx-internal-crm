@@ -2,6 +2,21 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Nav from '@/components/Nav'
+import {
+  formatEasternHourLabel,
+  formatNyDayOfMonth,
+  formatNyMonthYearTitle,
+  formatNyWeekdayShort,
+  hourInBusinessTz,
+  nyAgendaRangeUtc,
+  nyDayRangeUtc,
+  nyMonthCalendarDays,
+  nyMonthKey,
+  nyMonthRangeUtc,
+  nyWeekDayDates,
+  nyWeekRangeUtc,
+  ymdInBusinessTz,
+} from '@/lib/calendar-business-tz'
 import { canReassignAppointmentsFromProfile, canViewOrgWideScheduledAppointments } from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
@@ -71,7 +86,7 @@ function appointmentNeedsCloser(apt: Appointment): boolean {
 type CalendarAccessLevel = 'none' | 'team' | 'regional' | 'admin'
 
 function deriveCalendarAccess(profile: any): CalendarAccessLevel {
-  const role = profile?.role || ''
+  const role = String(profile?.role || '').toLowerCase()
   const customRole = Array.isArray(profile?.custom_role) ? profile.custom_role[0] : profile?.custom_role
   const rolePermissions = Array.isArray(customRole?.role_permissions) ? customRole.role_permissions : []
   const customPermissionNames = new Set(
@@ -236,30 +251,25 @@ export default function CalendarPage() {
       setSelectedMemberId('')
     }
 
-    // Calculate date range based on view
-    const startDate = new Date(currentDate)
-    const endDate = new Date(currentDate)
-
+    // Date range for queries: America/New_York business calendar (matches formatTime + DB timestamptz)
+    let startDate: Date
+    let endDate: Date
     if (viewMode === 'day') {
-      startDate.setHours(0, 0, 0, 0)
-      endDate.setHours(23, 59, 59, 999)
+      const r = nyDayRangeUtc(currentDate)
+      startDate = r.start
+      endDate = r.end
     } else if (viewMode === 'week') {
-      // Start of local Sunday; end must be derived from startDate (not currentDate's month)
-      startDate.setDate(startDate.getDate() - startDate.getDay())
-      startDate.setHours(0, 0, 0, 0)
-      endDate.setTime(startDate.getTime())
-      endDate.setDate(startDate.getDate() + 6)
-      endDate.setHours(23, 59, 59, 999)
+      const r = nyWeekRangeUtc(currentDate)
+      startDate = r.start
+      endDate = r.end
     } else if (viewMode === 'month') {
-      startDate.setDate(1)
-      startDate.setHours(0, 0, 0, 0)
-      endDate.setMonth(endDate.getMonth() + 1, 0)
-      endDate.setHours(23, 59, 59, 999)
+      const r = nyMonthRangeUtc(currentDate)
+      startDate = r.start
+      endDate = r.end
     } else {
-      // Agenda - next 30 days from today
-      startDate.setHours(0, 0, 0, 0)
-      endDate.setDate(endDate.getDate() + 30)
-      endDate.setHours(23, 59, 59, 999)
+      const r = nyAgendaRangeUtc(currentDate, 30)
+      startDate = r.start
+      endDate = r.end
     }
 
     // Fetch appointments - simple query first, then enrich
@@ -271,8 +281,9 @@ export default function CalendarPage() {
       .lte('scheduled_for', endDate.toISOString())
       .order('scheduled_for', { ascending: true })
 
-    // Org-wide: managers/coordinators who reassign or run the closer queue; not only calendar "tier" UI
-    const canSeeAllAppointments = canViewOrgWideScheduledAppointments(profile)
+    // Org-wide: reassign/queue + anyone with team/regional/admin calendar tier (covers custom-role edge cases)
+    const canSeeAllAppointments =
+      canViewOrgWideScheduledAppointments(profile) || calendarAccess !== 'none'
 
     if (selectedUserId !== 'all') {
       query = query.eq('closer_user_id', selectedUserId)
@@ -380,62 +391,26 @@ export default function CalendarPage() {
 
   const goToToday = () => setCurrentDate(new Date())
 
-  // Generate calendar days for month view
-  const calendarDays = useMemo(() => {
-    const year = currentDate.getFullYear()
-    const month = currentDate.getMonth()
-    const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
-    const startPadding = firstDay.getDay()
-    const days: Date[] = []
+  // Month grid: Sun–Sat weeks in America/New_York (matches API range + appointment placement)
+  const calendarDays = useMemo(() => nyMonthCalendarDays(currentDate), [currentDate])
 
-    // Previous month padding
-    for (let i = startPadding - 1; i >= 0; i--) {
-      const d = new Date(year, month, -i)
-      days.push(d)
-    }
-
-    // Current month
-    for (let i = 1; i <= lastDay.getDate(); i++) {
-      days.push(new Date(year, month, i))
-    }
-
-    // Next month padding
-    const remaining = 42 - days.length
-    for (let i = 1; i <= remaining; i++) {
-      days.push(new Date(year, month + 1, i))
-    }
-
-    return days
-  }, [currentDate])
-
-  // Get appointments for a specific day
   const getAppointmentsForDay = (date: Date) => {
-    return appointments.filter(apt => {
-      const aptDate = new Date(apt.scheduled_for)
-      return aptDate.toDateString() === date.toDateString()
-    })
+    const key = ymdInBusinessTz(date)
+    return appointments.filter((apt) => ymdInBusinessTz(new Date(apt.scheduled_for)) === key)
   }
 
-  // Get scheduled jobs for a specific day
   const getJobsForDay = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0]
-    return scheduledJobs.filter(job => job.scheduled_date?.split('T')[0] === dateStr)
+    const key = ymdInBusinessTz(date)
+    return scheduledJobs.filter((job) => {
+      const raw = job.scheduled_date?.split('T')[0] || ''
+      return raw === key
+    })
   }
 
-  // Week days
-  const weekDays = useMemo(() => {
-    const start = new Date(currentDate)
-    start.setDate(start.getDate() - start.getDay())
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(start)
-      d.setDate(start.getDate() + i)
-      return d
-    })
-  }, [currentDate])
+  const weekDays = useMemo(() => nyWeekDayDates(currentDate), [currentDate])
 
-  // Time slots for day/week view (6 AM–10 PM local) — narrow range hid off-hour / late appointments
-  const timeSlots = Array.from({ length: 17 }, (_, i) => i + 6) // hours 6–22
+  // Eastern hour rows (0–23) so events align with formatTime / stored timestamptz
+  const timeSlots = Array.from({ length: 24 }, (_, i) => i)
 
   const formatTime = (dateStr: string) => {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })
@@ -451,8 +426,8 @@ export default function CalendarPage() {
     }
   }
 
-  const isToday = (date: Date) => date.toDateString() === new Date().toDateString()
-  const isCurrentMonth = (date: Date) => date.getMonth() === currentDate.getMonth()
+  const isToday = (date: Date) => ymdInBusinessTz(date) === ymdInBusinessTz(new Date())
+  const isCurrentMonth = (date: Date) => nyMonthKey(date) === nyMonthKey(currentDate)
   const calendarAccess = deriveCalendarAccess(currentUser)
   const isCalendarAdmin = calendarAccess === 'admin'
   const isCalendarRegional = calendarAccess === 'regional'
@@ -517,7 +492,7 @@ export default function CalendarPage() {
       }
       return `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`
     }
-    return currentDate.toLocaleDateString([], { month: 'long', year: 'numeric' })
+    return formatNyMonthYearTitle(currentDate)
   }, [currentDate, viewMode, weekDays])
 
   useEffect(() => {
@@ -731,7 +706,7 @@ export default function CalendarPage() {
                       <div className={`text-sm font-medium mb-1 ${
                         isToday(day) ? 'text-indigo-600' : isCurrentMonth(day) ? 'text-gray-900' : 'text-gray-400'
                       }`}>
-                        {day.getDate()}
+                        {formatNyDayOfMonth(day)}
                       </div>
                       <div className="space-y-1">
                         {/* Scheduled Jobs */}
@@ -789,9 +764,9 @@ export default function CalendarPage() {
                     key={idx}
                     className={`px-2 py-3 text-center border-l ${isToday(day) ? 'bg-indigo-50' : ''}`}
                   >
-                    <div className="text-xs text-gray-500">{day.toLocaleDateString([], { weekday: 'short' })}</div>
+                    <div className="text-xs text-gray-500">{formatNyWeekdayShort(day)}</div>
                     <div className={`text-lg font-semibold ${isToday(day) ? 'text-indigo-600' : 'text-gray-900'}`}>
-                      {day.getDate()}
+                      {formatNyDayOfMonth(day)}
                     </div>
                   </div>
                 ))}
@@ -802,12 +777,11 @@ export default function CalendarPage() {
                 {timeSlots.map(hour => (
                   <div key={hour} className="grid grid-cols-8 border-b min-h-[60px]">
                     <div className="w-16 px-2 py-1 text-xs text-gray-500 text-right">
-                      {hour > 12 ? `${hour - 12} PM` : hour === 12 ? '12 PM' : `${hour} AM`}
+                      {formatEasternHourLabel(hour)}
                     </div>
                     {weekDays.map((day, idx) => {
-                      const dayAppointments = getAppointmentsForDay(day).filter(apt => {
-                        const aptHour = new Date(apt.scheduled_for).getHours()
-                        return aptHour === hour
+                      const dayAppointments = getAppointmentsForDay(day).filter((apt) => {
+                        return hourInBusinessTz(apt.scheduled_for) === hour
                       })
                       return (
                         <div key={idx} className="border-l p-1 relative">
@@ -838,14 +812,17 @@ export default function CalendarPage() {
             /* Day View */
             <div className="h-full overflow-auto">
               {timeSlots.map(hour => {
-                const hourAppointments = appointments.filter(apt => {
-                  const aptDate = new Date(apt.scheduled_for)
-                  return aptDate.toDateString() === currentDate.toDateString() && aptDate.getHours() === hour
+                const dayKey = ymdInBusinessTz(currentDate)
+                const hourAppointments = appointments.filter((apt) => {
+                  return (
+                    ymdInBusinessTz(new Date(apt.scheduled_for)) === dayKey &&
+                    hourInBusinessTz(apt.scheduled_for) === hour
+                  )
                 })
                 return (
                   <div key={hour} className="flex border-b min-h-[80px]">
                     <div className="w-20 px-3 py-2 text-sm text-gray-500 text-right border-r bg-gray-50">
-                      {hour > 12 ? `${hour - 12} PM` : hour === 12 ? '12 PM' : `${hour} AM`}
+                      {formatEasternHourLabel(hour)}
                     </div>
                     <div className="flex-1 p-2">
                       {hourAppointments.map(apt => (

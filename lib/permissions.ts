@@ -292,10 +292,11 @@ const rolePermissions: Record<UserRole, Permission[]> = {
  * Check if a role has a specific permission
  */
 export function hasPermission(role: UserRole, permission: Permission): boolean {
-  // Owner and Admin have all permissions
-  if (role === 'admin' || role === 'owner') return true
-  
-  return rolePermissions[role]?.includes(permission) ?? false
+  // Owner and Admin have all permissions (normalize casing from DB / imports)
+  const r = String(role || '').toLowerCase() as UserRole
+  if (r === 'admin' || r === 'owner') return true
+
+  return rolePermissions[r]?.includes(permission) ?? false
 }
 
 /**
@@ -618,13 +619,21 @@ export function canReassignAppointmentsFromProfile(profile: unknown): boolean {
 export function canViewOrgWideScheduledAppointments(profile: unknown): boolean {
   if (!profile || typeof profile !== 'object') return false
   const p = profile as { role?: string } & ProfileWithNestedCustomRole
-  const role = (p.role || '') as UserRole
+  const roleNorm = String(p.role || '').toLowerCase()
 
   if (canReassignAppointmentsFromProfile(profile)) return true
-  if (role === 'operations') return true
+  if (roleNorm === 'operations') return true
 
   const permNames = extractCustomPermissionNamesFromProfile(p)
   if (permNames.has('scheduling:manage_queue')) return true
+
+  // Explicit org-wide calendar (matches deriveCalendarAccess tiers when custom_role load fails)
+  if (['admin', 'owner'].includes(roleNorm)) return true
+  if (
+    ['regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(roleNorm)
+  ) {
+    return true
+  }
 
   return false
 }
