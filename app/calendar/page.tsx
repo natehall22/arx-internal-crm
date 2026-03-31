@@ -19,7 +19,11 @@ import {
   ymdInBusinessTz,
 } from '@/lib/calendar-business-tz'
 import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
-import { canReassignAppointmentsFromProfile, deriveCalendarAccess } from '@/lib/permissions'
+import {
+  canReassignAppointmentsFromProfile,
+  canViewOrgWideScheduledAppointments,
+  deriveCalendarAccess,
+} from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
 
@@ -324,19 +328,50 @@ export default function CalendarPage() {
       rangeParams.set('closerUserId', selectedUserId)
     }
 
+    let appointmentsData: Appointment[] = []
+
     const scheduledRes = await fetch(`/api/calendar/scheduled?${rangeParams.toString()}`, {
       credentials: 'include',
     })
-    if (!scheduledRes.ok) {
-      const errBody = await scheduledRes.json().catch(() => ({}))
-      console.error('Error loading appointments:', scheduledRes.status, errBody)
-      setAppointments([])
-      setLoading(false)
-      return
-    }
 
-    const { appointments: appointmentsData } = (await scheduledRes.json()) as {
-      appointments: Appointment[]
+    if (scheduledRes.ok) {
+      const json = (await scheduledRes.json()) as { appointments: Appointment[] }
+      appointmentsData = json.appointments ?? []
+    } else {
+      const errBody = await scheduledRes.json().catch(() => ({}))
+      console.warn('Calendar API failed, falling back to browser Supabase:', scheduledRes.status, errBody)
+
+      const canSeeAllAppointments =
+        canViewOrgWideScheduledAppointments(profile) || calendarAccess !== 'none'
+
+      let fallbackQuery = supabase
+        .from('scheduled_appointments')
+        .select('*')
+        .eq('org_id', profile?.org_id)
+        .gte('scheduled_for', startDate.toISOString())
+        .lte('scheduled_for', endDate.toISOString())
+        .order('scheduled_for', { ascending: true })
+
+      if (canAccessTeamCalendar) {
+        if (selectedMemberId) {
+          fallbackQuery = fallbackQuery.eq('closer_user_id', selectedMemberId)
+        }
+      } else if (selectedUserId !== 'all') {
+        fallbackQuery = fallbackQuery.eq('closer_user_id', selectedUserId)
+      } else if (!canSeeAllAppointments) {
+        fallbackQuery = fallbackQuery.or(
+          `closer_user_id.eq.${user.id},canvasser_user_id.eq.${user.id}`
+        )
+      }
+
+      const { data: browserRows, error: browserErr } = await fallbackQuery
+      if (browserErr) {
+        console.error('Calendar browser fallback failed:', browserErr)
+        setAppointments([])
+        setLoading(false)
+        return
+      }
+      appointmentsData = (browserRows || []) as Appointment[]
     }
 
     // Get lead IDs to fetch lead info

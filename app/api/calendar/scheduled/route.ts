@@ -2,62 +2,11 @@ import {
   canViewOrgWideScheduledAppointments,
   deriveCalendarAccess,
 } from '@/lib/permissions'
+import { createServerClient } from '@supabase/ssr'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
-
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
-  }
-}
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -75,13 +24,24 @@ function getAdminClient() {
  */
 export async function GET(request: NextRequest) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll() {
+          // Read-only route; session refresh is handled by the browser client.
+        },
+      },
+    })
 
-    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    const {
+      data: { user },
+      error: userError,
+    } = await supabaseAuth.auth.getUser()
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
