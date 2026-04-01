@@ -18,7 +18,12 @@ export function canAccessJobBilling(args: {
   customRoleDisplayName?: MaybeString
 }): boolean {
   const role = normalizeLabel(args.role)
-  if (role === 'owner' || role === 'finance_admin') {
+  if (
+    role === 'owner' ||
+    role === 'finance_admin' ||
+    role === 'admin' ||
+    role === 'operations'
+  ) {
     return true
   }
 

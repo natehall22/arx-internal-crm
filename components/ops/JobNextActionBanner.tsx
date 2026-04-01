@@ -286,10 +286,12 @@ export default function JobNextActionBanner({
   const handleClick = () => {
     switch (nextAction.action) {
       case 'deposit':
-      case 'collect':
-        // Scroll to payments section
-        document.getElementById('payments-section')?.scrollIntoView({ behavior: 'smooth' })
+      case 'collect': {
+        // Scroll to payments section (must exist — same gating as JobDetailClient payments card)
+        const el = document.getElementById('payments-section')
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         break
+      }
       case 'materials':
         // Scroll to materials section
         document.getElementById('materials-section')?.scrollIntoView({ behavior: 'smooth' })
