@@ -13,6 +13,7 @@ import CreateContractButton from '@/components/contracts/CreateContractButton'
 import ContractListItem from '@/components/contracts/ContractListItem'
 import CloseAppointmentStatusSection from '@/components/opportunities/CloseAppointmentStatusSection'
 import DeleteRoofMeasurementButton from '@/components/opportunities/DeleteRoofMeasurementButton'
+import DeleteProposalButton from '@/components/opportunities/DeleteProposalButton'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 
@@ -107,7 +108,7 @@ export default async function OpportunityDetailPage({
   // Fetch proposals for this opportunity
   const { data: proposals } = await supabase
     .from('proposals')
-    .select('id, proposal_number, title, status, total, created_at')
+    .select('id, proposal_number, title, status, total, created_at, created_by')
     .eq('opportunity_id', params.id)
     .order('created_at', { ascending: false })
 
@@ -621,38 +622,49 @@ export default async function OpportunityDetailPage({
           {proposals && proposals.length > 0 ? (
             <div className="space-y-3">
               {proposals.map((proposal: any) => (
-                <Link
+                <div
                   key={proposal.id}
-                  href={`/proposals/${proposal.id}`}
-                  className="block p-4 border rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-all"
+                  className="flex items-stretch gap-2 border rounded-lg hover:border-indigo-300 hover:bg-indigo-50/50 transition-all"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">{proposal.proposal_number}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          proposal.status === 'draft' ? 'bg-gray-100 text-gray-700' :
-                          proposal.status === 'sent' ? 'bg-blue-100 text-blue-700' :
-                          proposal.status === 'viewed' ? 'bg-amber-100 text-amber-700' :
-                          proposal.status === 'accepted' ? 'bg-green-100 text-green-700' :
-                          proposal.status === 'declined' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {proposal.status.charAt(0).toUpperCase() + proposal.status.slice(1)}
-                        </span>
+                  <Link href={`/proposals/${proposal.id}`} className="flex-1 block p-4 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">{proposal.proposal_number}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            proposal.status === 'draft' ? 'bg-gray-100 text-gray-700' :
+                            proposal.status === 'sent' ? 'bg-blue-100 text-blue-700' :
+                            proposal.status === 'viewed' ? 'bg-amber-100 text-amber-700' :
+                            proposal.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                            proposal.status === 'declined' ? 'bg-red-100 text-red-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {proposal.status.charAt(0).toUpperCase() + proposal.status.slice(1)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1">{proposal.title || 'Untitled Proposal'}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Created {new Date(proposal.created_at).toLocaleDateString()}
+                        </p>
                       </div>
-                      <p className="text-sm text-gray-500 mt-1">{proposal.title || 'Untitled Proposal'}</p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Created {new Date(proposal.created_at).toLocaleDateString()}
-                      </p>
+                      <div className="text-right shrink-0 ml-4">
+                        <p className="text-lg font-bold text-indigo-600">
+                          ${(proposal.total || 0).toLocaleString()}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-indigo-600">
-                        ${(proposal.total || 0).toLocaleString()}
-                      </p>
-                    </div>
+                  </Link>
+                  <div className="flex items-center pr-2 border-l border-gray-100">
+                    <DeleteProposalButton
+                      proposalId={proposal.id}
+                      proposalNumber={proposal.proposal_number}
+                      status={proposal.status}
+                      createdBy={proposal.created_by}
+                      currentUserId={profile.id}
+                      userRole={profile.role}
+                    />
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           ) : (
