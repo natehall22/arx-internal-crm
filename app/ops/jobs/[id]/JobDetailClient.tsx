@@ -1093,15 +1093,24 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               />
             )}
 
-            {canViewJobBilling && (
-              <div id="payments-section">
+            <div id="payments-section" className="scroll-mt-20">
+              {canViewJobBilling ? (
                 <JobPaymentsCard
                   jobId={job.id}
                   saleAmount={job.sale_amount}
                   onPaymentChange={() => setPaymentsRefreshKey(k => k + 1)}
                 />
-              </div>
-            )}
+              ) : (
+                <div className="bg-white rounded-xl shadow-sm border border-amber-200 p-4 sm:p-6">
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">Payments</h2>
+                  <p className="text-sm text-gray-700">
+                    Recording deposits and job payments is limited to admin, owner, operations, and finance roles.
+                    Ask operations or an admin to record the deposit, or request billing access if your role should
+                    include it.
+                  </p>
+                </div>
+              )}
+            </div>
 
             {canViewJobBilling && (
               <div id="invoices-section">

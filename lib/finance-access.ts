@@ -22,7 +22,10 @@ export function canAccessJobBilling(args: {
     role === 'owner' ||
     role === 'finance_admin' ||
     role === 'admin' ||
-    role === 'operations'
+    role === 'operations' ||
+    /** Same jobs/ops surface as Nav ops links — can record deposits and view job payments */
+    role === 'regional_manager' ||
+    role === 'manager'
   ) {
     return true
   }
