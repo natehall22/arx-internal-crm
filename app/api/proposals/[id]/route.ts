@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { PROPOSAL_DELETE_PRIVILEGED_ROLES } from '@/lib/proposal-delete-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -145,6 +146,7 @@ export async function GET(
       rep: proposal.users,
       measurement,
       role: profile.role,
+      current_user_id: user.id,
     })
   } catch (error) {
     console.error('Proposal detail API error:', error)
@@ -410,20 +412,18 @@ export async function DELETE(
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
 
-    // Only allow deletion of draft proposals, or by admins/managers
-    const isAdmin = profile.role === 'admin' || profile.role === 'manager'
-    const isOwner = proposal.created_by === user.id
-    
-    if (proposal.status !== 'draft' && !isAdmin) {
-      return NextResponse.json({ 
-        error: 'Only draft proposals can be deleted. Contact an admin to delete sent proposals.' 
-      }, { status: 403 })
+    if (proposal.status === 'accepted' || proposal.status === 'declined') {
+      return NextResponse.json(
+        { error: 'Cannot delete proposals that have been accepted or declined.' },
+        { status: 400 }
+      )
     }
 
-    if (!isOwner && !isAdmin) {
-      return NextResponse.json({ 
-        error: 'You can only delete your own proposals' 
-      }, { status: 403 })
+    const isPrivileged = PROPOSAL_DELETE_PRIVILEGED_ROLES.includes(profile.role)
+    const isOwner = proposal.created_by === user.id
+
+    if (!isOwner && !isPrivileged) {
+      return NextResponse.json({ error: 'You can only delete your own proposals' }, { status: 403 })
     }
 
     // Delete line items first (should cascade, but being explicit)

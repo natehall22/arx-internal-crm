@@ -110,7 +110,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch proposals' }, { status: 500 })
     }
 
-    return NextResponse.json({ proposals: proposals || [], role: profile.role })
+    return NextResponse.json({
+      proposals: proposals || [],
+      role: profile.role,
+      current_user_id: user.id,
+    })
   } catch (error) {
     console.error('Proposals API error:', error)
     return NextResponse.json({ 

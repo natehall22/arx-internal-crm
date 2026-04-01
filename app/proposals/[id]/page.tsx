@@ -8,9 +8,11 @@ import { pdf } from '@react-pdf/renderer'
 import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import SignaturePadInline from '@/components/SignaturePadInline'
+import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 
 interface Proposal {
   id: string
+  created_by?: string | null
   proposal_number: string
   customer_name: string
   customer_email: string
@@ -143,6 +145,8 @@ export default function ProposalDetailPage() {
   const [showDeclineModal, setShowDeclineModal] = useState(false)
   const [declineReason, setDeclineReason] = useState('')
   const [declining, setDeclining] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState('')
+  const [deletingProposal, setDeletingProposal] = useState(false)
 
   useEffect(() => {
     loadProposal()
@@ -175,6 +179,7 @@ export default function ProposalDetailPage() {
       setRep(data.rep)
       setMeasurement(data.measurement)
       setUserRole(data.role || '')
+      setCurrentUserId(typeof data.current_user_id === 'string' ? data.current_user_id : '')
       // Restore inspection notes from proposal (persisted in DB)
       const notes = data.proposal?.inspection_notes
       setInspectionNotes(Array.isArray(notes) ? notes : [])
@@ -502,6 +507,25 @@ export default function ProposalDetailPage() {
     }
   }
 
+  const handleDeleteProposal = async () => {
+    if (!proposal) return
+    if (!confirm(`Delete ${proposal.proposal_number}? This cannot be undone.`)) return
+    setDeletingProposal(true)
+    try {
+      const response = await fetch(`/api/proposals/${proposalId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to delete proposal')
+        return
+      }
+      router.push('/proposals')
+    } catch {
+      alert('Failed to delete proposal')
+    } finally {
+      setDeletingProposal(false)
+    }
+  }
+
   const toggleItemVisibility = async (itemId: string, showToCustomer: boolean) => {
     setSavingVisibility(itemId)
     try {
@@ -548,6 +572,14 @@ export default function ProposalDetailPage() {
 
   const displayPricing = getDisplayPricing(proposal)
   const canEditProposal = !['accepted', 'declined'].includes(proposal.status)
+  const canDeleteProposal =
+    !!currentUserId &&
+    userCanDeleteProposal({
+      status: proposal.status,
+      createdBy: proposal.created_by,
+      currentUserId,
+      role: userRole,
+    })
   const proposalBuilderHref = `/proposals/builder?proposal_id=${encodeURIComponent(proposal.id)}${
     proposal.opportunity_id ? `&opportunity_id=${encodeURIComponent(proposal.opportunity_id)}` : ''
   }`
@@ -596,6 +628,23 @@ export default function ProposalDetailPage() {
                 </svg>
                 Edit proposal
               </Link>
+            )}
+            {canDeleteProposal && (
+              <button
+                type="button"
+                onClick={handleDeleteProposal}
+                disabled={deletingProposal}
+                className="px-4 py-2 border border-red-200 text-red-700 rounded-lg font-medium hover:bg-red-50 flex items-center gap-2 disabled:opacity-50"
+              >
+                {deletingProposal ? (
+                  <span className="inline-block w-4 h-4 border-2 border-red-200 border-t-red-600 rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                )}
+                Delete
+              </button>
             )}
             <div className="relative">
               <button
