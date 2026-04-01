@@ -241,11 +241,16 @@ export default function DashboardClient({
       const appointmentId = activePrompt.scheduled_appointments?.id || activePrompt.appointment_id
       console.log('Submitting status for appointment:', appointmentId, 'prompt:', activePrompt)
       
+      const leadIdFallback =
+        activePrompt.scheduled_appointments?.lead_id ?? activePrompt.scheduled_appointments?.lead?.id
+
       const res = await fetch('/api/inspections/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           appointment_id: appointmentId,
+          /** Ensures inspection_status_updates.lead_id matches the lead page query (dashboard embed can omit FK). */
+          lead_id: leadIdFallback || undefined,
           outcome: data.outcome,
           notes: data.notes,
           setter_feedback: data.setterFeedback,

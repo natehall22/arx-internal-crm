@@ -10,6 +10,13 @@ import {
   getCloseSlotDurationFromTable,
 } from '@/lib/org-appointment-types'
 import { materializeSaleFromInspectionOutcome } from '@/lib/opportunity-sale-pipeline'
+import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
+
+/** Supabase may return embedded FK rows as object or single-element array. */
+function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
+  if (row == null) return null
+  return Array.isArray(row) ? row[0] ?? null : row
+}
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -130,60 +137,23 @@ function getMailTransport() {
   })
 }
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const sessionData = getSessionFromRequest(request)
-    
-    if (!sessionData?.access_token) {
+    const accessToken = getAccessTokenFromApiRequest(request)
+
+    if (!accessToken) {
       console.log('=== AUTH FAILED: No session data ===')
       return NextResponse.json({ error: 'Unauthorized - no session' }, { status: 401 })
     }
-    
-    // Verify the token
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const authClient = createClient(supabaseUrl, supabaseKey, {
       auth: { autoRefreshToken: false, persistSession: false },
-      global: { headers: { Authorization: `Bearer ${sessionData.access_token}` } },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
     })
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(sessionData.access_token)
+
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
     if (userError || !user) {
       console.log('=== AUTH FAILED: Invalid token ===', userError)
       return NextResponse.json({ error: 'Unauthorized - invalid token' }, { status: 401 })
@@ -334,17 +304,18 @@ export async function POST(request: NextRequest) {
           
           opportunity = opportunityData
         } else {
-          // No lead_id fallback - return success so the UI can move on
-          return NextResponse.json({ 
-            success: true, 
-            message: 'Appointment no longer exists - prompt dismissed',
-            skipped: true 
-          })
+          return NextResponse.json(
+            {
+              error:
+                'Appointment not found. Pass lead_id in the request body to record inspection feedback for the lead.',
+            },
+            { status: 400 }
+          )
         }
       } else {
         appointment = appointmentData
-        lead = appointmentData.leads
-        opportunity = appointmentData.opportunities
+        lead = firstEmbeddedRow(appointmentData.leads)
+        opportunity = firstEmbeddedRow(appointmentData.opportunities)
       }
     } else if (directLeadId) {
       // Direct lead update without appointment - fetch lead and opportunity
@@ -428,7 +399,25 @@ export async function POST(request: NextRequest) {
     console.log('Should create opportunity:', shouldCreateOpportunity)
     console.log('Using default outcomes:', !hasConfiguredOutcomes)
 
-    const leadId = appointment?.lead_id || directLeadId || lead?.id || null
+    let leadId = appointment?.lead_id || directLeadId || lead?.id || null
+    if (!leadId && appointment_id && !appointment) {
+      const { data: apptOnly } = await supabase
+        .from('scheduled_appointments')
+        .select('lead_id')
+        .eq('id', appointment_id)
+        .maybeSingle()
+      leadId = apptOnly?.lead_id ?? null
+    }
+    if (!leadId) {
+      return NextResponse.json(
+        {
+          error:
+            'Cannot record inspection feedback without a linked lead. Ensure the appointment has lead_id or pass lead_id.',
+        },
+        { status: 400 }
+      )
+    }
+
     let opportunityId = appointment?.opportunity_id || opportunity?.id || null
     let createdOpportunity = null
     
@@ -1011,21 +1000,20 @@ export async function POST(request: NextRequest) {
 // Get pending status prompts for current user
 export async function GET(request: NextRequest) {
   try {
-    const sessionData = getSessionFromRequest(request)
-    
-    if (!sessionData?.access_token) {
+    const accessToken = getAccessTokenFromApiRequest(request)
+
+    if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
-    // Verify the token
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const authClient = createClient(supabaseUrl, supabaseKey, {
       auth: { autoRefreshToken: false, persistSession: false },
-      global: { headers: { Authorization: `Bearer ${sessionData.access_token}` } },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
     })
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(sessionData.access_token)
+
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

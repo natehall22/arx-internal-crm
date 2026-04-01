@@ -206,20 +206,27 @@ export async function POST(
       tag: 'contract',
     })
 
-    // Update opportunity status
-    await adminClient
-      .from('opportunities')
-      .update({ status: 'won', customer_id: customerId })
-      .eq('id', opportunityId)
-      .eq('org_id', profile.org_id)
-
-    // Update lead status if exists
-    if (opportunity.lead_id) {
+    // Only mark won when a project exists (create may have failed silently before).
+    if (projectId) {
       await adminClient
-        .from('leads')
-        .update({ status: 'won' })
-        .eq('id', opportunity.lead_id)
+        .from('opportunities')
+        .update({ status: 'won', customer_id: customerId })
+        .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
+
+      // Update lead status if exists
+      if (opportunity.lead_id) {
+        await adminClient
+          .from('leads')
+          .update({ status: 'won' })
+          .eq('id', opportunity.lead_id)
+          .eq('org_id', profile.org_id)
+      }
+    } else {
+      console.error(
+        '[Opportunity Contract] No project id after create/lookup; opportunity not marked won. opportunityId=',
+        opportunityId
+      )
     }
 
     // Create activity records
@@ -228,7 +235,9 @@ export async function POST(
       opportunity_id: opportunityId,
       user_id: profile.id,
       type: 'status_change',
-      body: 'Signed contract uploaded. Project created.',
+      body: projectId
+        ? 'Signed contract uploaded. Project created.'
+        : 'Signed contract uploaded; project was not created — check server logs.',
     })
 
     if (projectId) {
@@ -241,10 +250,12 @@ export async function POST(
       })
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       projectId,
-      message: 'Contract uploaded successfully. Project created.' 
+      message: projectId
+        ? 'Contract uploaded successfully. Project created.'
+        : 'Contract uploaded but project could not be created. Opportunity was not marked won.',
     })
   } catch (error) {
     console.error('Contract upload API error:', error)

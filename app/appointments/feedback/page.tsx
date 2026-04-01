@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
+import CloseVisitDebriefWizard from '@/components/inspection/CloseVisitDebriefWizard'
 
 type FeedbackOutcome = 'sale' | 'moving_to_close' | 'insurance_follow_up' | 'said_no' | 'not_home' | 'no_problems_found' | 'needs_repair' | 'rescheduled'
 
@@ -37,6 +37,7 @@ export default function AppointmentFeedbackPage() {
   const searchParams = useSearchParams()
   const appointmentId = searchParams.get('id')
   const leadId = searchParams.get('lead_id')
+  const redirectPath = leadId ? `/leads/${leadId}` : '/dashboard'
 
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -54,15 +55,13 @@ export default function AppointmentFeedbackPage() {
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
   
-  // Moving to close: canvass-style scheduling (team RR vs individual closer)
-  const [showCloseSchedule, setShowCloseSchedule] = useState(false)
-  const [showCloseModal, setShowCloseModal] = useState(false)
-  const [closeSchedulePayload, setCloseSchedulePayload] = useState<CloseScheduleConfirm | null>(null)
   const [schedulingUsers, setSchedulingUsers] = useState<
     Array<{ id: string; full_name: string; has_calendar?: boolean }>
   >([])
   const [schedulingTeams, setSchedulingTeams] = useState<Array<{ id: string; name: string }>>([])
   const [closeDurationMinutes, setCloseDurationMinutes] = useState(60)
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
+  const [closeVisitDebrief, setCloseVisitDebrief] = useState<{ opportunityId: string } | null>(null)
 
   // Insurance follow-up: schedule next touchpoint (required date + time)
   const [showInsuranceSchedule, setShowInsuranceSchedule] = useState(false)
@@ -102,6 +101,9 @@ export default function AppointmentFeedbackPage() {
         }
         if (typeof data.closeDurationMinutes === 'number' && data.closeDurationMinutes > 0) {
           setCloseDurationMinutes(data.closeDurationMinutes)
+        }
+        if (typeof data.currentUserRole === 'string') {
+          setCurrentUserRole(data.currentUserRole)
         }
       } catch {
         /* non-fatal */
@@ -169,16 +171,7 @@ export default function AppointmentFeedbackPage() {
   const handleOutcomeChange = (newOutcome: FeedbackOutcome) => {
     setOutcome(newOutcome)
     setShowReschedule(newOutcome === 'rescheduled')
-    const isClose = newOutcome === 'moving_to_close'
-    setShowCloseSchedule(isClose)
     setShowInsuranceSchedule(newOutcome === 'insurance_follow_up')
-    if (!isClose) {
-      setCloseSchedulePayload(null)
-      setShowCloseModal(false)
-    } else if (appointmentId) {
-      setCloseSchedulePayload(null)
-      setShowCloseModal(true)
-    }
   }
 
   const handleSubmit = async () => {
@@ -198,11 +191,6 @@ export default function AppointmentFeedbackPage() {
       return
     }
 
-    if (outcome === 'moving_to_close' && appointmentId && !closeSchedulePayload) {
-      setError('Open “Schedule close” and pick a team or closer and time slot')
-      return
-    }
-
     if (outcome === 'insurance_follow_up' && (!insuranceDate || !insuranceTime)) {
       setError('Please select a date and time for the insurance follow-up')
       return
@@ -210,9 +198,6 @@ export default function AppointmentFeedbackPage() {
 
     setSubmitting(true)
     setError(null)
-
-    // Determine the redirect path based on whether we came from a lead or appointment
-    const redirectPath = leadId ? `/leads/${leadId}` : '/dashboard'
 
     try {
       if (outcome === 'rescheduled') {
@@ -237,7 +222,6 @@ export default function AppointmentFeedbackPage() {
         setSuccess(true)
         setTimeout(() => router.push(redirectPath), 2000)
       } else if (outcome === 'moving_to_close') {
-        // First submit the inspection outcome
         const statusResponse = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -255,35 +239,15 @@ export default function AppointmentFeedbackPage() {
           throw new Error(data.error || 'Failed to submit feedback')
         }
 
-        // Then schedule the close appointment (only if we have an appointment)
-        if (appointmentId && closeSchedulePayload) {
-          const body: Record<string, unknown> = {
-            original_appointment_id: appointmentId,
-            scheduled_for: closeSchedulePayload.scheduledLocal,
-            notes: feedbackNotes || 'Close appointment scheduled from inspection',
-            use_round_robin: closeSchedulePayload.useRoundRobin,
-          }
-          if (closeSchedulePayload.useRoundRobin && closeSchedulePayload.teamId) {
-            body.team_id = closeSchedulePayload.teamId
-          }
-          if (!closeSchedulePayload.useRoundRobin && closeSchedulePayload.closerUserId) {
-            body.closer_user_id = closeSchedulePayload.closerUserId
-          }
-
-          const scheduleResponse = await fetch('/api/inspections/schedule-close', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          })
-
-          if (!scheduleResponse.ok) {
-            const data = await scheduleResponse.json()
-            throw new Error(data.error || 'Failed to schedule close appointment')
-          }
+        const statusData = (await statusResponse.json()) as { opportunity_id?: string | null }
+        if (!statusData.opportunity_id) {
+          throw new Error(
+            'Could not resolve an opportunity for this lead. Ensure Moving to Close is allowed for your org and try again.'
+          )
         }
 
-        setSuccess(true)
-        setTimeout(() => router.push(redirectPath), 2000)
+        setCloseVisitDebrief({ opportunityId: statusData.opportunity_id })
+        return
       } else if (outcome === 'insurance_follow_up') {
         const localDateTime = `${insuranceDate}T${insuranceTime}`
         const response = await fetch('/api/inspections/status', {
@@ -388,6 +352,37 @@ export default function AppointmentFeedbackPage() {
   const appointmentDate = appointment ? new Date(appointment.scheduled_for) : null
   const inspectionDate = lead?.inspection_scheduled_for ? new Date(lead.inspection_scheduled_for) : null
   const backLink = leadId ? `/leads/${leadId}` : '/dashboard'
+
+  const finishCloseVisitDebrief = () => {
+    setCloseVisitDebrief(null)
+    setSuccess(true)
+    setTimeout(() => router.push(redirectPath), 2000)
+  }
+
+  if (closeVisitDebrief) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Nav />
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          <div className="mb-6">
+            <Link href={backLink} className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+              ← Back
+            </Link>
+          </div>
+          <CloseVisitDebriefWizard
+            opportunityId={closeVisitDebrief.opportunityId}
+            inspectionAppointmentId={appointmentId}
+            currentUserRole={currentUserRole}
+            closeDurationMinutes={closeDurationMinutes}
+            users={schedulingUsers}
+            teams={schedulingTeams}
+            onComplete={finishCloseVisitDebrief}
+            onFinishLater={() => router.push(redirectPath)}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -711,48 +706,11 @@ export default function AppointmentFeedbackPage() {
             </div>
           )}
 
-          {/* Schedule Close Appointment — same model as canvass (team RR vs individual) */}
-          {showCloseSchedule && (
-            <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
-              <h3 className="font-medium text-green-800 mb-2">Schedule close appointment</h3>
-              {!appointmentId ? (
-                <p className="text-sm text-amber-800">
-                  Link this feedback to an appointment to schedule a close slot. Without an appointment id, only
-                  the outcome is saved.
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm text-green-800 mb-3">
-                    Choose a team (round-robin) or a specific closer, then pick a free time—same flow as the
-                    canvass scheduling modal. Uses your close duration from Admin → Scheduling.
-                  </p>
-                  {closeSchedulePayload ? (
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-green-900">
-                      <span className="font-medium">Ready:</span>
-                      <span>
-                        {closeSchedulePayload.useRoundRobin
-                          ? `Team round-robin · ${closeSchedulePayload.scheduledLocal.replace('T', ' ')}`
-                          : `Closer assigned · ${closeSchedulePayload.scheduledLocal.replace('T', ' ')}`}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowCloseModal(true)}
-                        className="text-indigo-600 font-medium hover:underline"
-                      >
-                        Change
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setShowCloseModal(true)}
-                      className="mt-1 px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
-                    >
-                      Schedule close (team or closer)
-                    </button>
-                  )}
-                </>
-              )}
+          {outcome === 'moving_to_close' && (
+            <div className="mb-6 p-4 bg-emerald-50 rounded-lg border border-emerald-200 text-sm text-emerald-900">
+              After you submit, you&apos;ll complete the <strong>close visit debrief</strong>: photos, briefing
+              fields for the closer, optional close scheduling, then final submit (with optional email to the
+              closer).
             </div>
           )}
 
@@ -788,18 +746,6 @@ export default function AppointmentFeedbackPage() {
           </button>
         </div>
       </div>
-
-      <CloseScheduleModal
-        open={showCloseModal}
-        onClose={() => setShowCloseModal(false)}
-        onConfirm={(params) => {
-          setCloseSchedulePayload(params)
-          setShowCloseModal(false)
-        }}
-        closeDurationMinutes={closeDurationMinutes}
-        users={schedulingUsers}
-        teams={schedulingTeams}
-      />
     </div>
   )
 }

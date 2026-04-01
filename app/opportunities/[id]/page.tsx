@@ -12,7 +12,7 @@ import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import ContractListItem from '@/components/contracts/ContractListItem'
 import CloseAppointmentStatusSection from '@/components/opportunities/CloseAppointmentStatusSection'
-import InspectionResultForm from '@/components/opportunities/InspectionResultForm'
+import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 
 export default async function OpportunityDetailPage({
@@ -455,10 +455,10 @@ export default async function OpportunityDetailPage({
           </div>
         )}
 
-        <InspectionResultForm
+        <InspectionResultReadOnlyCard
           opportunityId={params.id}
+          leadId={leadRow?.id ?? null}
           inspectionAppointmentId={inspectionAppointment?.id ?? null}
-          currentUserRole={profile.role}
         />
 
         {/* Roof Measurements Section */}

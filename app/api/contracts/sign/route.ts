@@ -245,6 +245,7 @@ export async function POST(request: NextRequest) {
     }
 
     let projectId = null
+    let projectCreateError: string | null = null
     try {
       let existingProject: { id: string } | null = null
       if (contract.opportunity_id) {
@@ -322,7 +323,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        const { data: project } = await supabase
+        const { data: project, error: projectInsertError } = await supabase
           .from('projects')
           .insert({
             org_id: contract.org_id,
@@ -349,9 +350,15 @@ export async function POST(request: NextRequest) {
           .select('id')
           .single()
 
-        projectId = project?.id
+        if (projectInsertError) {
+          projectCreateError = projectInsertError.message
+          console.error('[Contract Sign] Project insert failed (opportunity not marked won):', projectInsertError)
+        }
 
-        if (contract.opportunity_id) {
+        projectId = project?.id ?? null
+
+        // Only mark the deal won when a project row actually exists — avoids won opportunities with no project.
+        if (projectId && contract.opportunity_id) {
           await supabase
             .from('opportunities')
             .update({ status: 'won', customer_id: customerId })
@@ -583,6 +590,16 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    if (projectCreateError && contract.opportunity_id) {
+      await supabase.from('activities').insert({
+        org_id: contract.org_id,
+        opportunity_id: contract.opportunity_id,
+        user_id: contract.created_by,
+        type: 'status_change',
+        body: `Project was not created after contract sign (opportunity not marked won). ${projectCreateError}`,
+      })
+    }
+
     // Always try to send confirmation email if customer has email
     let emailSent = false
     if (contract.customer_email) {
@@ -687,6 +704,7 @@ ARX Roofing & Exteriors LLC`
       projectId,
       emailSent,
       pdfGenerationError,
+      projectCreateError,
     })
   } catch (error) {
     console.error('Contract sign error:', error)
