@@ -317,7 +317,7 @@ export default function OpportunitiesPage() {
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-500 mt-2">Owner: {opportunity.users?.full_name || 'Unassigned'}</div>
+                        <div className="text-xs text-gray-500 mt-2">Assigned: {opportunity.users?.full_name || 'Unassigned'}</div>
                         <div className="mt-3">
                           <Link
                             href={`/opportunities/${opportunity.id}`}
@@ -357,7 +357,7 @@ export default function OpportunitiesPage() {
                       Inspection Result
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Owner
+                      Assigned
                     </th>
                     <th className="sticky right-0 z-10 bg-gray-50 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions

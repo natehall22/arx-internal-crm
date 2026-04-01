@@ -121,6 +121,7 @@ export default function ProposalBuilderPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const opportunityId = searchParams.get('opportunity_id') || searchParams.get('opportunity')
+  const proposalIdParam = searchParams.get('proposal_id')
   const measurementId = searchParams.get('measurement_id')
   const urlSquares = searchParams.get('squares')
   const urlCustomerName = searchParams.get('customer_name')
@@ -147,10 +148,16 @@ export default function ProposalBuilderPage() {
   const [wastePercent, setWastePercent] = useState<number>(10) // Default 10% waste
   const [quantityModalItem, setQuantityModalItem] = useState<PricebookItem | null>(null)
   const [quantityModalValue, setQuantityModalValue] = useState<number>(1)
+  const [editingProposalId, setEditingProposalId] = useState<string | null>(null)
+  const [resolvedOpportunityId, setResolvedOpportunityId] = useState<string | null>(null)
+  /** When editing, preserve sent/viewed so Save does not downgrade status */
+  const [initialProposalStatus, setInitialProposalStatus] = useState<string | null>(null)
+
+  const effectiveOpportunityId = opportunityId || resolvedOpportunityId
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [opportunityId, measurementId, proposalIdParam])
 
   const loadData = async () => {
     try {
@@ -158,6 +165,7 @@ export default function ProposalBuilderPage() {
       const params = new URLSearchParams()
       if (opportunityId) params.set('opportunity_id', opportunityId)
       if (measurementId) params.set('measurement_id', measurementId)
+      if (proposalIdParam) params.set('proposal_id', proposalIdParam)
 
       const response = await fetch(`/api/proposals/builder?${params.toString()}`)
       
@@ -201,8 +209,8 @@ export default function ProposalBuilderPage() {
         }
       }
 
-      // Apply opportunity data
-      if (data.opportunity) {
+      // Apply opportunity data (skip overwriting customer when loading an existing proposal for edit)
+      if (data.opportunity && !data.existingProposal) {
         const opp = data.opportunity
         const lead = opp.leads
           ? Array.isArray(opp.leads)
@@ -229,7 +237,7 @@ export default function ProposalBuilderPage() {
         }))
       }
 
-      // Apply measurement data
+      // Apply measurement data (do not auto-fill line items when editing an existing proposal)
       if (data.measurement) {
         setMeasurementData(data.measurement)
 
@@ -247,15 +255,64 @@ export default function ProposalBuilderPage() {
           }))
         }
 
-        const squares = data.measurement.total_squares || parseFloat(urlSquares || '0')
-        if (squares > 0) {
-          autoPopulateLineItems(data.pricebookItems || [], squares)
+        if (!data.existingProposal) {
+          const squares = data.measurement.total_squares || parseFloat(urlSquares || '0')
+          if (squares > 0) {
+            autoPopulateLineItems(data.pricebookItems || [], squares)
+          }
         }
-      } else if (urlSquares) {
+      } else if (urlSquares && !data.existingProposal) {
         const squares = parseFloat(urlSquares)
         if (squares > 0) {
           autoPopulateLineItems(data.pricebookItems || [], squares)
         }
+      }
+
+      if (data.existingProposal) {
+        const p = data.existingProposal.proposal as Record<string, unknown>
+        setEditingProposalId(String(p.id))
+        setInitialProposalStatus(typeof p.status === 'string' ? p.status : null)
+        if (data.opportunityIdFromProposal) {
+          setResolvedOpportunityId(String(data.opportunityIdFromProposal))
+        }
+        setForm({
+          customer_name: String(p.customer_name || ''),
+          customer_email: String(p.customer_email || ''),
+          customer_phone: String(p.customer_phone || ''),
+          customer_address: String(p.customer_address || ''),
+          title: String(p.title || 'Roofing Proposal'),
+          scope_of_work: String(p.scope_of_work || ''),
+          materials_description: String(p.materials_description || ''),
+          warranty_info: String(p.warranty_info || ''),
+          discount_amount: Number(p.discount_amount) || 0,
+          discount_percent: Number(p.discount_percent) || 0,
+          tax_rate: Number(p.tax_rate) || 8.25,
+          financing_available: Boolean(p.financing_available),
+          financing_term_months: Number(p.financing_term_months) || 60,
+          financing_rate: Number(p.financing_rate) || 9.99,
+          accent_color: String(p.accent_color || '#4f46e5'),
+          roofing_type_id: null,
+        })
+        const mapped: LineItem[] = (data.existingProposal.lineItems || []).map((row: Record<string, unknown>) => ({
+          id: String(row.id ?? crypto.randomUUID()),
+          pricebook_item_id: (row.pricebook_item_id as string) || null,
+          category: String(row.category ?? ''),
+          name: String(row.name ?? ''),
+          description: String(row.description ?? ''),
+          unit: String(row.unit ?? 'each'),
+          quantity: Number(row.quantity) || 0,
+          unit_price: Number(row.unit_price) || 0,
+          line_total: Number(row.line_total) || 0,
+          is_adder: Boolean(row.is_adder),
+          show_to_customer: Boolean(row.show_to_customer ?? false),
+          price_type: (row.price_type as LineItem['price_type']) ?? null,
+        }))
+        setLineItems(mapped)
+        setStep(4)
+      } else {
+        setEditingProposalId(null)
+        setInitialProposalStatus(null)
+        setResolvedOpportunityId(null)
       }
     } catch (error) {
       console.error('Error loading builder data:', error)
@@ -620,14 +677,24 @@ export default function ProposalBuilderPage() {
     try {
       const totals = calculateTotals()
 
+      const statusForSave =
+        editingProposalId &&
+        asDraft &&
+        initialProposalStatus &&
+        ['sent', 'viewed'].includes(initialProposalStatus)
+          ? initialProposalStatus
+          : asDraft
+            ? 'draft'
+            : 'sent'
+
       const proposalData = {
-        opportunity_id: opportunityId || null,
+        opportunity_id: effectiveOpportunityId || null,
         customer_name: form.customer_name,
         customer_email: form.customer_email,
         customer_phone: form.customer_phone,
         customer_address: form.customer_address,
         title: form.title,
-        status: asDraft ? 'draft' : 'sent',
+        status: statusForSave,
         subtotal: totals.subtotal,
         discount_amount: totals.discountAmount,
         discount_percent: form.discount_percent,
@@ -658,12 +725,20 @@ export default function ProposalBuilderPage() {
       }))
 
       const response = await fetch('/api/proposals/builder', {
-        method: 'POST',
+        method: editingProposalId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          proposal: proposalData,
-          lineItems: lineItemsData,
-        })
+        body: JSON.stringify(
+          editingProposalId
+            ? {
+                proposal_id: editingProposalId,
+                proposal: proposalData,
+                lineItems: lineItemsData,
+              }
+            : {
+                proposal: proposalData,
+                lineItems: lineItemsData,
+              }
+        ),
       })
 
       if (!response.ok) {
@@ -741,8 +816,8 @@ export default function ProposalBuilderPage() {
         <div className="mb-6">
           <button
             onClick={() => {
-              if (opportunityId) {
-                router.push(`/opportunities/${opportunityId}`)
+              if (effectiveOpportunityId) {
+                router.push(`/opportunities/${effectiveOpportunityId}`)
               } else {
                 router.back()
               }
@@ -752,7 +827,7 @@ export default function ProposalBuilderPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            {opportunityId ? 'Back to Opportunity' : 'Back'}
+            {effectiveOpportunityId ? 'Back to Opportunity' : 'Back'}
           </button>
         </div>
 

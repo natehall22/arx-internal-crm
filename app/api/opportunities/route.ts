@@ -183,42 +183,50 @@ export async function GET(request: NextRequest) {
     if (fullData && enrichedOpportunities.length > 0) {
       // Get unique IDs for related lookups
       const oppIdList = enrichedOpportunities.map((o: any) => o.id)
-      const ownerIdList = enrichedOpportunities.map((o: any) => o.owner_user_id).filter(Boolean)
       const leadIdList = enrichedOpportunities.map((o: any) => o.lead_id).filter(Boolean)
       const customerIdList = enrichedOpportunities.map((o: any) => o.customer_id).filter(Boolean)
-      
-      // Fetch owners
-      if (ownerIdList.length > 0) {
-        const { data: owners } = await adminClient
-          .from('users')
-          .select('id, full_name')
-          .in('id', ownerIdList)
 
-        const ownerMap: Record<string, string> = {}
-        ;(owners || []).forEach((u: any) => { ownerMap[u.id] = u.full_name })
-        
-        enrichedOpportunities.forEach((opp: any) => {
-          opp.users = opp.owner_user_id ? { full_name: ownerMap[opp.owner_user_id] || null } : null
-        })
-      }
-      
-      // Fetch leads with phone/email for search
+      // Leads first — closer_user_id is source of truth for assigned rep (calendar reassignment, etc.)
+      const leadMap: Record<string, any> = {}
       if (leadIdList.length > 0) {
         const { data: leads } = await adminClient
           .from('leads')
-          .select('id, homeowner_name, phone, email')
+          .select('id, homeowner_name, phone, email, closer_user_id')
           .in('id', leadIdList)
 
-        const leadMap: Record<string, any> = {}
-        ;(leads || []).forEach((l: any) => { leadMap[l.id] = l })
-        
-        enrichedOpportunities.forEach((opp: any) => {
-          const lead = opp.lead_id ? leadMap[opp.lead_id] : null
-          opp.leads = lead ? { homeowner_name: lead.homeowner_name || null } : null
-          opp.lead_phone = lead?.phone || null
-          opp.lead_email = lead?.email || null
+        ;(leads || []).forEach((l: any) => {
+          leadMap[l.id] = l
         })
       }
+
+      const userIdsForDisplay = new Set<string>()
+      enrichedOpportunities.forEach((opp: any) => {
+        if (opp.owner_user_id) userIdsForDisplay.add(opp.owner_user_id)
+        const lead = opp.lead_id ? leadMap[opp.lead_id] : null
+        if (lead?.closer_user_id) userIdsForDisplay.add(lead.closer_user_id)
+      })
+
+      const userMap: Record<string, string> = {}
+      if (userIdsForDisplay.size > 0) {
+        const { data: users } = await adminClient
+          .from('users')
+          .select('id, full_name')
+          .in('id', [...userIdsForDisplay])
+
+        ;(users || []).forEach((u: any) => {
+          userMap[u.id] = u.full_name
+        })
+      }
+
+      enrichedOpportunities.forEach((opp: any) => {
+        const lead = opp.lead_id ? leadMap[opp.lead_id] : null
+        const leadCloserId = lead?.closer_user_id ?? null
+        const displayUserId = leadCloserId || opp.owner_user_id || null
+        opp.users = displayUserId ? { full_name: userMap[displayUserId] || null } : null
+        opp.leads = lead ? { homeowner_name: lead.homeowner_name || null } : null
+        opp.lead_phone = lead?.phone || null
+        opp.lead_email = lead?.email || null
+      })
       
       // Fetch customers
       if (customerIdList.length > 0) {

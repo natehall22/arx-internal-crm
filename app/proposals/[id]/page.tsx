@@ -547,6 +547,10 @@ export default function ProposalDetailPage() {
   }
 
   const displayPricing = getDisplayPricing(proposal)
+  const canEditProposal = !['accepted', 'declined'].includes(proposal.status)
+  const proposalBuilderHref = `/proposals/builder?proposal_id=${encodeURIComponent(proposal.id)}${
+    proposal.opportunity_id ? `&opportunity_id=${encodeURIComponent(proposal.opportunity_id)}` : ''
+  }`
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -556,8 +560,11 @@ export default function ProposalDetailPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <Link href="/proposals" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mb-2 inline-block">
-              ← Back to Proposals
+            <Link
+              href={proposal.opportunity_id ? `/opportunities/${proposal.opportunity_id}` : '/proposals'}
+              className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mb-2 inline-block"
+            >
+              {proposal.opportunity_id ? '← Back to Opportunity' : '← Back to Proposals'}
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">{proposal.proposal_number}</h1>
             <p className="text-gray-500">Created {new Date(proposal.created_at).toLocaleDateString()}</p>
@@ -578,6 +585,17 @@ export default function ProposalDetailPage() {
                 </svg>
                 View PDF
               </a>
+            )}
+            {canEditProposal && (
+              <Link
+                href={proposalBuilderHref}
+                className="px-4 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 flex items-center gap-2 text-gray-800"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+                Edit proposal
+              </Link>
             )}
             <div className="relative">
               <button

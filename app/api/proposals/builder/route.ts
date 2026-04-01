@@ -94,8 +94,37 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams
-    const opportunityId = searchParams.get('opportunity_id')
+    const opportunityIdParam = searchParams.get('opportunity_id')
     const measurementId = searchParams.get('measurement_id')
+    const proposalIdParam = searchParams.get('proposal_id')
+
+    let existingProposal: { proposal: Record<string, unknown>; lineItems: Record<string, unknown>[] } | null = null
+    let proposalOpportunityId: string | null = null
+
+    if (proposalIdParam) {
+      const { data: propRow, error: propErr } = await adminClient
+        .from('proposals')
+        .select('*')
+        .eq('id', proposalIdParam)
+        .eq('org_id', profile.org_id)
+        .single()
+
+      if (!propErr && propRow) {
+        proposalOpportunityId = (propRow as { opportunity_id?: string | null }).opportunity_id ?? null
+        const { data: lineRows } = await adminClient
+          .from('proposal_line_items')
+          .select('*')
+          .eq('proposal_id', proposalIdParam)
+          .order('sort_order')
+
+        existingProposal = {
+          proposal: propRow as Record<string, unknown>,
+          lineItems: (lineRows || []) as Record<string, unknown>[],
+        }
+      }
+    }
+
+    const effectiveOpportunityId = opportunityIdParam || proposalOpportunityId
 
     // Load pricebook items
     const { data: items } = await adminClient
@@ -130,13 +159,13 @@ export async function GET(request: NextRequest) {
 
     const orgPricing = org?.settings?.pricing || {}
 
-    // Load opportunity data if provided
+    // Load opportunity data if provided (URL or from proposal being edited)
     let opportunity = null
-    if (opportunityId) {
+    if (effectiveOpportunityId) {
       const { data: opp } = await adminClient
         .from('opportunities')
         .select('*, leads(*)')
-        .eq('id', opportunityId)
+        .eq('id', effectiveOpportunityId)
         .eq('org_id', profile.org_id)
         .single()
       opportunity = opp
@@ -156,11 +185,11 @@ export async function GET(request: NextRequest) {
     }
     
     // If no measurement yet, try to find one linked to the opportunity
-    if (!measurement && opportunityId) {
+    if (!measurement && effectiveOpportunityId) {
       const { data: oppMeasurement } = await adminClient
         .from('roof_measurements')
         .select('*')
-        .eq('opportunity_id', opportunityId)
+        .eq('opportunity_id', effectiveOpportunityId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -260,6 +289,8 @@ export async function GET(request: NextRequest) {
       roofingTypes: roofingTypes || [],
       opportunity,
       measurement,
+      existingProposal,
+      opportunityIdFromProposal: proposalOpportunityId,
       role: profile.role,
       orgId: profile.org_id,
       userId: user.id,
@@ -404,5 +435,158 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       error: error instanceof Error ? error.message : 'Failed to create proposal' 
     }, { status: 500 })
+  }
+}
+
+// PUT — Update an existing proposal and replace line items (draft / sent / viewed)
+export async function PUT(request: NextRequest) {
+  try {
+    const { client: authClient, accessToken } = getAuthClient(request)
+
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const adminClient = getAdminClient()
+
+    const { data: profile } = await adminClient
+      .from('users')
+      .select('org_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const body = await request.json()
+    const { proposal_id, proposal, lineItems } = body as {
+      proposal_id?: string
+      proposal: Record<string, unknown>
+      lineItems?: unknown[]
+    }
+
+    if (!proposal_id || typeof proposal_id !== 'string') {
+      return NextResponse.json({ error: 'proposal_id is required' }, { status: 400 })
+    }
+
+    const { data: existing, error: existingError } = await adminClient
+      .from('proposals')
+      .select('id, org_id, status')
+      .eq('id', proposal_id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (existingError || !existing) {
+      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+    }
+
+    if (['accepted', 'declined'].includes(String(existing.status))) {
+      return NextResponse.json(
+        { error: 'Cannot edit accepted or declined proposals' },
+        { status: 400 }
+      )
+    }
+
+    if (!proposal?.customer_name || !String(proposal.customer_name).trim()) {
+      return NextResponse.json({ error: 'Customer name is required' }, { status: 400 })
+    }
+    if (!proposal?.customer_address || !String(proposal.customer_address).trim()) {
+      return NextResponse.json({ error: 'Customer address is required' }, { status: 400 })
+    }
+
+    const cleanProposal = {
+      customer_name: String(proposal.customer_name).trim(),
+      customer_email: proposal.customer_email ? String(proposal.customer_email).trim() : null,
+      customer_phone: proposal.customer_phone ? String(proposal.customer_phone).trim() : null,
+      customer_address: String(proposal.customer_address).trim(),
+      opportunity_id: proposal.opportunity_id ? String(proposal.opportunity_id) : null,
+      title: proposal.title ? String(proposal.title) : 'Roofing Proposal',
+      status: proposal.status ? String(proposal.status) : 'draft',
+      subtotal: roundMoney(Number(proposal.subtotal) || 0),
+      discount_amount: roundMoney(Number(proposal.discount_amount) || 0),
+      discount_percent: Number(proposal.discount_percent) || 0,
+      tax_rate: Number(proposal.tax_rate) || 0,
+      tax_amount: roundMoney(Number(proposal.tax_amount) || 0),
+      total: roundMoney(Number(proposal.total) || 0),
+      financing_available: Boolean(proposal.financing_available),
+      financing_term_months: proposal.financing_term_months != null ? Number(proposal.financing_term_months) : null,
+      financing_rate: proposal.financing_rate != null ? Number(proposal.financing_rate) : null,
+      monthly_payment: proposal.monthly_payment != null ? roundMoney(Number(proposal.monthly_payment)) : null,
+      scope_of_work: proposal.scope_of_work != null ? String(proposal.scope_of_work) : null,
+      materials_description: proposal.materials_description != null ? String(proposal.materials_description) : null,
+      warranty_info: proposal.warranty_info != null ? String(proposal.warranty_info) : null,
+      accent_color: proposal.accent_color ? String(proposal.accent_color) : '#4f46e5',
+      updated_at: new Date().toISOString(),
+    }
+
+    const { data: updated, error: updateError } = await adminClient
+      .from('proposals')
+      .update(cleanProposal)
+      .eq('id', proposal_id)
+      .eq('org_id', profile.org_id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Proposal update error:', updateError)
+      return NextResponse.json({ error: `Failed to update proposal: ${updateError.message}` }, { status: 400 })
+    }
+
+    const { error: delErr } = await adminClient
+      .from('proposal_line_items')
+      .delete()
+      .eq('proposal_id', proposal_id)
+
+    if (delErr) {
+      console.error('Line items delete error:', delErr)
+      return NextResponse.json({ error: `Failed to clear line items: ${delErr.message}` }, { status: 400 })
+    }
+
+    if (lineItems && lineItems.length > 0) {
+      const lineItemsToInsert = lineItems.map((item: any, index: number) => {
+        const qty = Number(item.quantity)
+        const unitPrice = Number(item.unit_price)
+        const lineTotal = Number(item.line_total)
+        return {
+          org_id: profile.org_id,
+          proposal_id,
+          pricebook_item_id: item.pricebook_item_id || null,
+          category: String(item.category ?? 'General').trim() || 'General',
+          name: String(item.name ?? 'Line item').trim() || 'Line item',
+          description: item.description != null ? String(item.description) : '',
+          unit: String(item.unit ?? 'each').trim() || 'each',
+          quantity: Number.isFinite(qty) ? qty : 0,
+          unit_price: Number.isFinite(unitPrice) ? roundMoney(unitPrice) : 0,
+          line_total: Number.isFinite(lineTotal) ? roundMoney(lineTotal) : 0,
+          is_adder: item.is_adder || false,
+          show_to_customer: item.show_to_customer ?? false,
+          sort_order: index,
+        }
+      })
+
+      const { error: lineItemsError } = await adminClient.from('proposal_line_items').insert(lineItemsToInsert)
+
+      if (lineItemsError) {
+        console.error('Line items insert error:', lineItemsError)
+        return NextResponse.json(
+          { error: `Failed to save proposal line items: ${lineItemsError.message}` },
+          { status: 400 }
+        )
+      }
+    }
+
+    return NextResponse.json({ proposal: updated })
+  } catch (error) {
+    console.error('Proposal builder PUT error:', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to update proposal' },
+      { status: 500 }
+    )
   }
 }
