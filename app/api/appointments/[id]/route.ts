@@ -398,8 +398,41 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update appointment' }, { status: 500 })
     }
 
-    // If reassigning, point pending feedback prompts at the new closer (DB trigger also does this)
+    // Reassignment: sync lead + opportunity rep fields with calendar assignee (same as canvass scheduling:
+    // lead.closer_user_id + opportunities.owner_user_id track the rep; lead.owner_user_id stays the setter).
+    // Also point pending feedback prompts at the new closer (DB trigger also updates pending prompts).
     if (new_closer_id && new_closer_id !== appointment.closer_user_id) {
+      if (appointment.lead_id) {
+        const { error: leadSyncErr } = await adminClient
+          .from('leads')
+          .update({ closer_user_id: new_closer_id })
+          .eq('id', appointment.lead_id)
+          .eq('org_id', profile.org_id)
+        if (leadSyncErr) {
+          console.error('Appointment reassignment: failed to sync lead closer_user_id:', leadSyncErr)
+        }
+      }
+      const oppId = appointment.opportunity_id as string | null
+      if (oppId) {
+        const { error: oppSyncErr } = await adminClient
+          .from('opportunities')
+          .update({ owner_user_id: new_closer_id })
+          .eq('id', oppId)
+          .eq('org_id', profile.org_id)
+        if (oppSyncErr) {
+          console.error('Appointment reassignment: failed to sync opportunity owner_user_id:', oppSyncErr)
+        }
+      } else if (appointment.lead_id) {
+        const { error: oppSyncErr } = await adminClient
+          .from('opportunities')
+          .update({ owner_user_id: new_closer_id })
+          .eq('lead_id', appointment.lead_id)
+          .eq('org_id', profile.org_id)
+        if (oppSyncErr) {
+          console.error('Appointment reassignment: failed to sync opportunity owner_user_id:', oppSyncErr)
+        }
+      }
+
       const { error: promptRedirectError } = await adminClient
         .from('pending_status_prompts')
         .update({ closer_user_id: new_closer_id, dismissed: false })

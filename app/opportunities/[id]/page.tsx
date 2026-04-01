@@ -25,20 +25,34 @@ export default async function OpportunityDetailPage({
   const supabase = createServiceClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
-  let opportunityQuery = supabase
+  const opportunityQuery = supabase
     .from('opportunities')
     .select('*, customers(*), leads(*)')
     .eq('id', params.id)
     .eq('org_id', profile.org_id)
 
-  if (profile.role === 'rep') {
-    opportunityQuery = opportunityQuery.eq('owner_user_id', profile.id)
-  }
-
   const { data: opportunity } = await opportunityQuery.single()
 
   if (!opportunity) {
     notFound()
+  }
+
+  // Closer on opportunities: display from linked lead (source of truth for assigned rep)
+  const leadRow = opportunity.leads
+    ? Array.isArray(opportunity.leads)
+      ? opportunity.leads[0]
+      : opportunity.leads
+    : null
+  const closerUserIdFromLead = leadRow?.closer_user_id ?? null
+
+  const repLikeRoles = ['rep', 'sales_rep', 'closer'] as const
+  if (repLikeRoles.includes(profile.role as (typeof repLikeRoles)[number])) {
+    const isOwner = opportunity.owner_user_id === profile.id
+    const isSetter = opportunity.setter_user_id === profile.id
+    const isLeadCloser = closerUserIdFromLead === profile.id
+    if (!isOwner && !isSetter && !isLeadCloser) {
+      notFound()
+    }
   }
 
   // Fetch setter info if setter_user_id exists
@@ -51,14 +65,6 @@ export default async function OpportunityDetailPage({
       .single()
     setter = setterData
   }
-
-  // Closer on opportunities: display from linked lead (source of truth for assigned rep)
-  const leadRow = opportunity.leads
-    ? Array.isArray(opportunity.leads)
-      ? opportunity.leads[0]
-      : opportunity.leads
-    : null
-  const closerUserIdFromLead = leadRow?.closer_user_id ?? null
 
   let closer = null
   if (closerUserIdFromLead) {

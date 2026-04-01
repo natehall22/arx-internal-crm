@@ -136,8 +136,23 @@ export async function GET(request: NextRequest) {
         // Setters see opportunities they set (setter_user_id)
         query = query.eq('setter_user_id', user.id)
       } else if (isRep) {
-        // Closers see opportunities they own OR they set
-        query = query.or(`owner_user_id.eq.${user.id},setter_user_id.eq.${user.id}`)
+        // Closers see opportunities they own, set, or are assigned on the lead (lead.closer_user_id is source of truth when calendar reassignment syncs the rep)
+        const { data: closerLeadRows } = await adminClient
+          .from('leads')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('closer_user_id', user.id)
+
+        const leadIdsWhereCloser = (closerLeadRows || []).map((r: { id: string }) => r.id)
+
+        const orParts = [
+          `owner_user_id.eq.${user.id}`,
+          `setter_user_id.eq.${user.id}`,
+        ]
+        if (leadIdsWhereCloser.length > 0) {
+          orParts.push(`lead_id.in.(${leadIdsWhereCloser.join(',')})`)
+        }
+        query = query.or(orParts.join(','))
       }
     }
 
