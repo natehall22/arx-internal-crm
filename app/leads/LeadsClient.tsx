@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
@@ -106,9 +106,10 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, page: 1 }))
+  // Reset to page 1 when filters change. useLayoutEffect so page is 1 before the fetch effect
+  // runs — otherwise loadLeads briefly uses a stale page (e.g. page 3 with a new search).
+  useLayoutEffect(() => {
+    setPagination(prev => (prev.page === 1 ? prev : { ...prev, page: 1 }))
   }, [filterStatus, filterCampaign, filterSource, filterOwner, debouncedSearch, viewMode])
 
   const loadLeads = useCallback(async (page: number) => {

@@ -15,6 +15,7 @@ import {
   refreshAccessToken,
   CalendarEvent 
 } from '@/lib/google-calendar'
+import { easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -226,15 +227,15 @@ export default async function LeadDetailPage({
       }
     }
 
+    const scheduledForUtcIso = easternDatetimeLocalToUtcIso(inspectionScheduledFor)
+
     const updates: Record<string, any> = {
       status,
       source: source || null,
       canvass_disposition: canvassDisposition || null,
       closer_user_id: closerUserId || null,
       canvass_notes: canvassNotes || null,
-      inspection_scheduled_for: inspectionScheduledFor
-        ? new Date(inspectionScheduledFor).toISOString()
-        : null,
+      inspection_scheduled_for: scheduledForUtcIso,
     }
 
     if (status === 'inspection' && !freshLead.inspection_scheduled_at) {
@@ -250,7 +251,7 @@ export default async function LeadDetailPage({
 
     // Check if inspection time changed and sync to Google Calendar
     const oldScheduledTime = freshLead.inspection_scheduled_for
-    const newScheduledTime = inspectionScheduledFor ? new Date(inspectionScheduledFor).toISOString() : null
+    const newScheduledTime = scheduledForUtcIso
     
     if (newScheduledTime && oldScheduledTime !== newScheduledTime) {
       // Find existing appointment for this lead

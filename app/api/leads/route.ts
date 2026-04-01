@@ -265,13 +265,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 })
     }
 
-    // Filter out unconverted door_to_door leads
-    const filteredLeads = (rawLeads || []).filter((lead: { id: string; source: string | null }) => {
-      if (lead.source !== 'door_to_door') {
-        return true
+    // Hide raw door knocks until there is real pipeline activity. Opportunity alone used to
+    // be the signal, but opportunities are often created at inspection outcome — so a lead can
+    // be in "inspection" with a scheduled time and still have no opportunity row yet.
+    const progressedDoorToDoorStatuses = new Set([
+      'appointment',
+      'inspection',
+      'estimate_sent',
+      'won',
+      'lost',
+    ])
+
+    const filteredLeads = (rawLeads || []).filter(
+      (lead: {
+        id: string
+        source: string | null
+        status: string | null
+        inspection_scheduled_for: string | null
+      }) => {
+        if (lead.source !== 'door_to_door') {
+          return true
+        }
+        if (leadIdsWithOpportunities.has(lead.id)) {
+          return true
+        }
+        if (lead.inspection_scheduled_for) {
+          return true
+        }
+        if (lead.status && progressedDoorToDoorStatuses.has(lead.status)) {
+          return true
+        }
+        return false
       }
-      return leadIdsWithOpportunities.has(lead.id)
-    })
+    )
 
     // Get opportunity IDs for the filtered leads in a single query
     const filteredLeadIds = filteredLeads.map((l: { id: string }) => l.id)
