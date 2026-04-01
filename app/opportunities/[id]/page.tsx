@@ -12,6 +12,7 @@ import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import ContractListItem from '@/components/contracts/ContractListItem'
 import CloseAppointmentStatusSection from '@/components/opportunities/CloseAppointmentStatusSection'
+import DeleteRoofMeasurementButton from '@/components/opportunities/DeleteRoofMeasurementButton'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 
@@ -493,7 +494,7 @@ export default async function OpportunityDetailPage({
                   key={measurement.id}
                   className="p-4 border rounded-lg bg-gray-50"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -517,11 +518,14 @@ export default async function OpportunityDetailPage({
                         {new Date(measurement.created_at).toLocaleDateString()}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-gray-900">
-                        {measurement.total_squares?.toFixed(1) || '—'}
-                      </p>
-                      <p className="text-xs text-gray-500">squares</p>
+                    <div className="flex items-center gap-4 shrink-0">
+                      <DeleteRoofMeasurementButton measurementId={measurement.id} />
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-gray-900">
+                          {measurement.total_squares?.toFixed(1) || '—'}
+                        </p>
+                        <p className="text-xs text-gray-500">squares</p>
+                      </div>
                     </div>
                   </div>
                   {measurement.status === 'completed' && (

@@ -325,24 +325,32 @@ export default function ProposalBuilderPage() {
     wastePercent,
   ])
 
+  const unitLower = (u?: string) => (u || '').trim().toLowerCase()
+  const isPerSqftUnit = (u?: string) => unitLower(u) === 'per_sqft'
+
   // Convert quantity based on unit type
   // 1 square = 100 sq ft
   const convertQuantityForUnit = (squares: number, unit: string): number => {
-    const unitLower = unit?.toLowerCase() || ''
-    
-    if (unitLower === 'sqft' || unitLower === 'sq ft' || unitLower === 'sf') {
+    const u = unitLower(unit)
+
+    // Manual sq ft (e.g. siding) — never from roof squares; use 1 until user enters quantity
+    if (u === 'per_sqft') {
+      return 1
+    }
+
+    if (u === 'sqft' || u === 'sq ft' || u === 'sf') {
       // Convert squares to square feet (1 square = 100 sq ft)
       return squares * 100
     }
-    if (unitLower === 'square' || unitLower === 'sq' || unitLower === 'squares') {
+    if (u === 'square' || u === 'sq' || u === 'squares') {
       return squares
     }
     // For "each", "job", "per job" - these are fixed quantity items, default to 1
-    if (unitLower === 'each' || unitLower === 'job' || unitLower === 'per job') {
+    if (u === 'each' || u === 'job' || u === 'per job') {
       return 1
     }
     // For linear foot, we don't have that measurement, default to 1
-    if (unitLower === 'lf' || unitLower === 'linear foot' || unitLower === 'linear feet') {
+    if (u === 'lf' || u === 'linear foot' || u === 'linear feet') {
       return 1
     }
     // For other unknown units, default to 1 (safer than using squares)
@@ -350,8 +358,10 @@ export default function ProposalBuilderPage() {
   }
 
   const getUnitLabel = (unit: string): string => {
-    const unitLower = unit?.toLowerCase() || ''
-    switch (unitLower) {
+    const u = unitLower(unit)
+    switch (u) {
+      case 'per_sqft':
+        return 'sq ft'
       case 'square':
       case 'sq':
       case 'squares':
@@ -441,17 +451,33 @@ export default function ProposalBuilderPage() {
     }
   }
 
-  // Check if an item needs quantity input (for "each", "sheet", "bundle", "linear foot" type items)
+  // Check if an item needs quantity input (for "each", "sheet", "bundle", "linear foot", per-sq-ft type items)
   const needsQuantityInput = (unit: string): boolean => {
-    const unitLower = unit?.toLowerCase() || ''
-    return ['each', 'sheet', 'sheets', 'bundle', 'bundles', 'roll', 'rolls', 'piece', 'pieces', 'unit', 'units', 'lf', 'linear foot', 'linear feet'].includes(unitLower)
+    const u = unitLower(unit)
+    return [
+      'each',
+      'sheet',
+      'sheets',
+      'bundle',
+      'bundles',
+      'roll',
+      'rolls',
+      'piece',
+      'pieces',
+      'unit',
+      'units',
+      'lf',
+      'linear foot',
+      'linear feet',
+      'per_sqft',
+    ].includes(u)
   }
 
   const addLineItem = (item: PricebookItem, quantity?: number) => {
     // If this is an "each" type item and no quantity provided, show the quantity modal
     if (needsQuantityInput(item.unit) && !quantity) {
       setQuantityModalItem(item)
-      setQuantityModalValue(1)
+      setQuantityModalValue(isPerSqftUnit(item.unit) ? 100 : 1)
       return
     }
 
@@ -483,7 +509,11 @@ export default function ProposalBuilderPage() {
 
   const confirmQuantityAndAdd = () => {
     if (!quantityModalItem) return
-    
+
+    const qty = isPerSqftUnit(quantityModalItem.unit)
+      ? Math.max(0.01, quantityModalValue)
+      : Math.max(1, Math.round(quantityModalValue))
+
     const newItem: LineItem = {
       id: crypto.randomUUID(),
       pricebook_item_id: quantityModalItem.id,
@@ -491,9 +521,9 @@ export default function ProposalBuilderPage() {
       name: quantityModalItem.name,
       description: '',
       unit: quantityModalItem.unit,
-      quantity: quantityModalValue,
+      quantity: qty,
       unit_price: quantityModalItem.unit_price,
-      line_total: quantityModalItem.unit_price * quantityModalValue,
+      line_total: quantityModalItem.unit_price * qty,
       is_adder: quantityModalItem.is_adder,
       show_to_customer: quantityModalItem.show_to_customer ?? false,
       price_type: quantityModalItem.price_type,
@@ -1416,20 +1446,47 @@ export default function ProposalBuilderPage() {
                           {!isPercent && needsQuantityInput(item.unit) ? (
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() => updateLineItem(item.id, 'quantity', Math.max(1, item.quantity - 1))}
+                                type="button"
+                                onClick={() =>
+                                  updateLineItem(
+                                    item.id,
+                                    'quantity',
+                                    isPerSqftUnit(item.unit)
+                                      ? Math.max(0.01, item.quantity - 10)
+                                      : Math.max(1, item.quantity - 1)
+                                  )
+                                }
                                 className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600"
                               >
                                 −
                               </button>
                               <input
                                 type="number"
-                                min="1"
+                                min={isPerSqftUnit(item.unit) ? 0.01 : 1}
+                                step={isPerSqftUnit(item.unit) ? 1 : 1}
                                 value={item.quantity}
-                                onChange={(e) => updateLineItem(item.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
-                                className="w-16 px-2 py-1 border border-gray-300 rounded-lg text-center font-medium"
+                                onChange={(e) => {
+                                  const raw = e.target.value
+                                  if (isPerSqftUnit(item.unit)) {
+                                    const v = Math.max(0.01, parseFloat(raw) || 0.01)
+                                    updateLineItem(item.id, 'quantity', v)
+                                  } else {
+                                    updateLineItem(item.id, 'quantity', Math.max(1, parseInt(raw, 10) || 1))
+                                  }
+                                }}
+                                className={`border border-gray-300 rounded-lg text-center font-medium ${
+                                  isPerSqftUnit(item.unit) ? 'w-24 px-2 py-1' : 'w-16 px-2 py-1'
+                                }`}
                               />
                               <button
-                                onClick={() => updateLineItem(item.id, 'quantity', item.quantity + 1)}
+                                type="button"
+                                onClick={() =>
+                                  updateLineItem(
+                                    item.id,
+                                    'quantity',
+                                    isPerSqftUnit(item.unit) ? item.quantity + 10 : item.quantity + 1
+                                  )
+                                }
                                 className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600"
                               >
                                 +
@@ -1880,18 +1937,22 @@ export default function ProposalBuilderPage() {
             <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
               <div className="p-6 border-b">
                 <h2 className="text-xl font-bold text-gray-900">
-                  {quantityModalItem.unit?.toLowerCase() === 'lf' || 
-                   quantityModalItem.unit?.toLowerCase() === 'linear foot' || 
-                   quantityModalItem.unit?.toLowerCase() === 'linear feet'
-                    ? 'Enter Total Linear Feet'
-                    : 'Enter Quantity'}
+                  {isPerSqftUnit(quantityModalItem.unit)
+                    ? 'Enter square feet'
+                    : quantityModalItem.unit?.toLowerCase() === 'lf' ||
+                        quantityModalItem.unit?.toLowerCase() === 'linear foot' ||
+                        quantityModalItem.unit?.toLowerCase() === 'linear feet'
+                      ? 'Enter Total Linear Feet'
+                      : 'Enter Quantity'}
                 </h2>
                 <p className="text-gray-500 text-sm mt-1">
-                  {quantityModalItem.unit?.toLowerCase() === 'lf' || 
-                   quantityModalItem.unit?.toLowerCase() === 'linear foot' || 
-                   quantityModalItem.unit?.toLowerCase() === 'linear feet'
-                    ? 'Enter the total linear feet needed'
-                    : `How many ${getUnitLabel(quantityModalItem.unit)} do you need?`}
+                  {isPerSqftUnit(quantityModalItem.unit)
+                    ? 'Use the actual coverage area (e.g. siding). This is separate from roof squares.'
+                    : quantityModalItem.unit?.toLowerCase() === 'lf' ||
+                        quantityModalItem.unit?.toLowerCase() === 'linear foot' ||
+                        quantityModalItem.unit?.toLowerCase() === 'linear feet'
+                      ? 'Enter the total linear feet needed'
+                      : `How many ${getUnitLabel(quantityModalItem.unit)} do you need?`}
                 </p>
               </div>
               <div className="p-6">
@@ -1908,51 +1969,88 @@ export default function ProposalBuilderPage() {
                   </div>
 
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Quantity ({getUnitLabel(quantityModalItem.unit)})
+                    {isPerSqftUnit(quantityModalItem.unit)
+                      ? 'Square feet'
+                      : `Quantity (${getUnitLabel(quantityModalItem.unit)})`}
                   </label>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setQuantityModalValue(Math.max(1, quantityModalValue - 1))}
-                      className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
-                    >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      min="1"
-                      value={quantityModalValue}
-                      onChange={(e) => setQuantityModalValue(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold"
-                    />
-                    <button
-                      onClick={() => setQuantityModalValue(quantityModalValue + 1)}
-                      className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
-                    >
-                      +
-                    </button>
-                  </div>
+                  {isPerSqftUnit(quantityModalItem.unit) ? (
+                    <>
+                      <input
+                        type="number"
+                        min={0.01}
+                        step={1}
+                        value={quantityModalValue}
+                        onChange={(e) =>
+                          setQuantityModalValue(Math.max(0.01, parseFloat(e.target.value) || 0.01))
+                        }
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold"
+                      />
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {[100, 250, 500, 760, 1000, 1500, 2000].map((sq) => (
+                          <button
+                            key={sq}
+                            type="button"
+                            onClick={() => setQuantityModalValue(sq)}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                              quantityModalValue === sq
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {sq}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setQuantityModalValue(Math.max(1, quantityModalValue - 1))}
+                          className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min="1"
+                          value={quantityModalValue}
+                          onChange={(e) => setQuantityModalValue(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setQuantityModalValue(quantityModalValue + 1)}
+                          className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
+                        >
+                          +
+                        </button>
+                      </div>
 
-                  {/* Quick quantity buttons - different presets for linear foot vs other units */}
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {(quantityModalItem.unit?.toLowerCase() === 'lf' || 
-                      quantityModalItem.unit?.toLowerCase() === 'linear foot' || 
-                      quantityModalItem.unit?.toLowerCase() === 'linear feet'
-                      ? [10, 25, 50, 75, 100, 150, 200, 250, 300]
-                      : [1, 2, 4, 6, 8, 10, 12, 16, 20]
-                    ).map((qty) => (
-                      <button
-                        key={qty}
-                        onClick={() => setQuantityModalValue(qty)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                          quantityModalValue === qty
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {qty}
-                      </button>
-                    ))}
-                  </div>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {(quantityModalItem.unit?.toLowerCase() === 'lf' ||
+                        quantityModalItem.unit?.toLowerCase() === 'linear foot' ||
+                        quantityModalItem.unit?.toLowerCase() === 'linear feet'
+                          ? [10, 25, 50, 75, 100, 150, 200, 250, 300]
+                          : [1, 2, 4, 6, 8, 10, 12, 16, 20]
+                        ).map((qty) => (
+                          <button
+                            key={qty}
+                            type="button"
+                            onClick={() => setQuantityModalValue(qty)}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                              quantityModalValue === qty
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {qty}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Line total preview */}

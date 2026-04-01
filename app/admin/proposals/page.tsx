@@ -32,6 +32,18 @@ interface ProposalTemplate {
 
 type Tab = 'pricing' | 'adders' | 'templates'
 
+/** Human-readable unit for labels and tables (stored value may be `per_sqft`, etc.) */
+function unitLabelForDisplay(unit: string): string {
+  switch (unit) {
+    case 'per_sqft':
+      return 'sq ft'
+    case 'sqft':
+      return 'sq ft (roof auto)'
+    default:
+      return unit
+  }
+}
+
 const visibilityOptions = [
   { value: 'admin_only', label: 'Admin Only', description: 'Only admins can see pricing' },
   { value: 'managers', label: 'Managers', description: 'Admins and managers' },
@@ -429,7 +441,7 @@ export default function AdminProposalsPage() {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
                     <td className="px-6 py-4 text-gray-500">{item.category}</td>
-                    <td className="px-6 py-4 text-right text-gray-900">${item.unit_price.toFixed(2)}/{item.unit}</td>
+                    <td className="px-6 py-4 text-right text-gray-900">${item.unit_price.toFixed(2)}/{unitLabelForDisplay(item.unit)}</td>
                     <td className="px-6 py-4">
                       <select
                         value={item.visibility || 'sales_reps'}
@@ -579,7 +591,8 @@ export default function AdminProposalsPage() {
                         </p>
                       ) : (
                         <p className="text-lg font-bold text-indigo-600 mt-2">
-                          ${(item.unit_price || 0).toFixed(2)} <span className="text-sm font-normal text-gray-400">per {item.unit}</span>
+                          ${(item.unit_price || 0).toFixed(2)}{' '}
+                          <span className="text-sm font-normal text-gray-400">per {unitLabelForDisplay(item.unit)}</span>
                         </p>
                       )}
                       <div className="flex flex-wrap gap-1.5 mt-2">
@@ -763,14 +776,22 @@ export default function AdminProposalsPage() {
                       >
                         <option value="each">Each</option>
                         <option value="lf">Linear Foot</option>
-                        <option value="square">Square</option>
+                        <option value="square">Square (roof)</option>
+                        <option value="per_sqft">Per sq ft (manual quantity)</option>
+                        <option value="sqft">Sq ft (from roof — auto)</option>
                         <option value="job">Per Job</option>
                       </select>
+                      {adderForm.unit === 'per_sqft' && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          Use for materials priced by coverage area that differs from roof size (e.g. 760 sq ft siding on a 10-square roof).
+                          Reps enter square feet on the proposal; it is not tied to roof squares.
+                        </p>
+                      )}
                     </div>
 
                     {/* Cost Inputs */}
                     <div className="p-4 bg-gray-50 rounded-lg">
-                      <p className="text-sm font-medium text-gray-700 mb-3">Your Costs (per {adderForm.unit})</p>
+                      <p className="text-sm font-medium text-gray-700 mb-3">Your Costs (per {unitLabelForDisplay(adderForm.unit)})</p>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Material Cost</label>
@@ -865,7 +886,7 @@ export default function AdminProposalsPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Selling Price (per {adderForm.unit})</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Selling Price (per {unitLabelForDisplay(adderForm.unit)})</label>
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                         <input
