@@ -62,10 +62,53 @@ async function getValidAccessToken(
   return tokenRow.access_token
 }
 
+/**
+ * Delete a Google event that was created under a team member's calendar.
+ * Try the assignee first, then the canvasser/setter — some flows create the event with
+ * whoever had OAuth connected at scheduling time.
+ */
+async function deleteGoogleEventWithFallback(
+  adminClient: ReturnType<typeof getAdminClient>,
+  eventId: string,
+  userIdsInOrder: (string | null | undefined)[]
+): Promise<{ ok: boolean; triedUsers: string[]; lastError?: string }> {
+  const triedUsers: string[] = []
+  for (const uid of userIdsInOrder) {
+    if (!uid) continue
+    triedUsers.push(uid)
+    const token = await getValidAccessToken(adminClient, uid)
+    if (!token) continue
+    try {
+      await deleteCalendarEvent(token, eventId)
+      return { ok: true, triedUsers }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('deleteGoogleEventWithFallback: delete failed for user', uid, msg)
+    }
+  }
+  return { ok: false, triedUsers, lastError: 'No token or all delete attempts failed' }
+}
+
 function homeownerFromAppointment(appointment: { leads?: unknown }): string {
   const raw = appointment.leads as { homeowner_name?: string } | { homeowner_name?: string }[] | null | undefined
   if (Array.isArray(raw)) return raw[0]?.homeowner_name || 'Customer'
   return raw?.homeowner_name || 'Customer'
+}
+
+function leadContactFromAppointment(appointment: { leads?: unknown }): {
+  homeowner_name: string
+  phone: string
+} {
+  const raw = appointment.leads as
+    | { homeowner_name?: string | null; phone?: string | null }
+    | { homeowner_name?: string | null; phone?: string | null }[]
+    | null
+    | undefined
+  const row = Array.isArray(raw) ? raw[0] : raw
+  return {
+    homeowner_name: row?.homeowner_name?.trim() || 'Unknown',
+    phone: row?.phone?.trim() || 'N/A',
+  }
 }
 
 // GET - Fetch single appointment
@@ -219,7 +262,7 @@ export async function PATCH(
     // Get current appointment
     const { data: appointment, error: fetchError } = await adminClient
       .from('scheduled_appointments')
-      .select('*, leads(homeowner_name)')
+      .select('*, leads(homeowner_name, phone, email)')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -287,6 +330,22 @@ export async function PATCH(
         data: { appointment_id: params.id },
       })
 
+      // Setter / canvasser (when not old or new assignee — those get their own notifications above)
+      if (
+        appointment.canvasser_user_id &&
+        appointment.canvasser_user_id !== new_closer_id &&
+        appointment.canvasser_user_id !== appointment.closer_user_id
+      ) {
+        await adminClient.from('notifications').insert({
+          org_id: profile.org_id,
+          user_id: appointment.canvasser_user_id,
+          type: 'appointment_reassigned',
+          title: 'Appointment reassigned',
+          body: `${appointment.appointment_type === 'close' ? 'Close' : 'Inspection'} for ${homeownerLabel} was reassigned to ${newCloser.full_name} by ${profile.full_name}.`,
+          data: { appointment_id: params.id },
+        })
+      }
+
       // Email both assignees when SMTP is configured (in-app notifications alone are not email).
       try {
         if (process.env.SMTP_HOST) {
@@ -297,15 +356,28 @@ export async function PATCH(
         const scheduledTime = formatDateTimeInTimezone(appointment.scheduled_for)
         const typeLabel = appointment.appointment_type === 'close' ? 'Close' : 'Inspection'
         const transporter = getMailTransport()
+        const leadContact = leadContactFromAppointment(appointment)
+        let previousCloserName = 'the previous assignee'
+        if (appointment.closer_user_id) {
+          const { data: oc } = await adminClient
+            .from('users')
+            .select('full_name')
+            .eq('id', appointment.closer_user_id)
+            .maybeSingle()
+          if (oc?.full_name?.trim()) previousCloserName = oc.full_name.trim()
+        }
 
         if (newCloser.email?.includes('@')) {
-          await transporter.sendMail({
-            from: 'info@arxroofing.com',
-            to: newCloser.email,
-            subject: `${typeLabel} reassigned to you — ${homeownerLabel}`,
-            text: `Hi ${newCloser.full_name},\n\nYou were assigned this ${typeLabel.toLowerCase()} appointment (reassigned by ${profile.full_name}).\n\nCustomer: ${homeownerLabel}\nWhen: ${scheduledTime} ET\nAddress: ${appointment.address_text || 'TBD'}\n\nOpen: ${recordUrl}`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+          // Match canvass "You were assigned an inspection" for non-close; close keeps explicit Close copy
+          const isClose = appointment.appointment_type === 'close'
+          const subject = isClose
+            ? `${typeLabel} reassigned to you — ${homeownerLabel}`
+            : 'You were assigned an inspection'
+          const textBody = isClose
+            ? `Hi ${newCloser.full_name},\n\nYou were assigned this ${typeLabel.toLowerCase()} appointment (reassigned by ${profile.full_name}).\n\nCustomer: ${homeownerLabel}\nWhen: ${scheduledTime} ET\nAddress: ${appointment.address_text || 'TBD'}\n\nOpen: ${recordUrl}`
+            : `Hi ${newCloser.full_name},\n\nYou were just assigned an inspection (reassigned by ${profile.full_name}).\n\nLead Name: ${leadContact.homeowner_name}\nAddress: ${appointment.address_text || 'TBD'}\nPhone: ${leadContact.phone}\nScheduled: ${scheduledTime} ET\n\nOpen in CRM: ${recordUrl}`
+          const htmlBody = isClose
+            ? `<div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
                 <h2 style="color: #111827;">${typeLabel} reassigned to you</h2>
                 <p style="color: #374151;">Hi ${newCloser.full_name},</p>
                 <p style="color: #374151;">You were assigned this appointment (reassigned by <strong>${profile.full_name}</strong>).</p>
@@ -315,7 +387,26 @@ export async function PATCH(
                   <tr><td style="padding: 6px 0; color: #6B7280;">Address</td><td style="padding: 6px 0; color: #111827;">${appointment.address_text || 'TBD'}</td></tr>
                 </table>
                 <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
-              </div>`,
+              </div>`
+            : `<div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                <h2 style="margin: 0 0 12px; color: #111827;">You were assigned an inspection</h2>
+                <p style="color: #374151;">Hi ${newCloser.full_name},</p>
+                <p style="color: #374151;">You were just assigned an inspection (reassigned by <strong>${profile.full_name}</strong>).</p>
+                <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+                  <tr><td style="padding: 6px 0; color: #6B7280; width: 120px;">Lead Name:</td><td style="padding: 6px 0; color: #111827;">${leadContact.homeowner_name}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #6B7280;">Address:</td><td style="padding: 6px 0; color: #111827;">${appointment.address_text || 'TBD'}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #6B7280;">Phone:</td><td style="padding: 6px 0; color: #111827;">${leadContact.phone}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #6B7280;">Scheduled:</td><td style="padding: 6px 0; color: #111827;">${scheduledTime} ET</td></tr>
+                </table>
+                <p><a href="${recordUrl}" style="color: #4f46e5; text-decoration: none;">Open in CRM</a></p>
+              </div>`
+
+          await transporter.sendMail({
+            from: 'info@arxroofing.com',
+            to: newCloser.email,
+            subject,
+            text: textBody,
+            html: htmlBody,
           })
         }
 
@@ -337,6 +428,36 @@ export async function PATCH(
                   <h2 style="color: #111827;">Appointment reassigned</h2>
                   <p style="color: #374151;">Hi ${prevUser.full_name || 'there'},</p>
                   <p style="color: #374151;">The <strong>${typeLabel}</strong> with <strong>${homeownerLabel}</strong> (${scheduledTime} ET) was reassigned to <strong>${newCloser.full_name}</strong> by ${profile.full_name}. You can remove it from your calendar if it is still there.</p>
+                  <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
+                </div>`,
+            })
+          }
+        }
+
+        // Setter / canvasser: keep them in the loop when they are not the old or new assignee (those already got mail above)
+        const setterId = appointment.canvasser_user_id as string | null | undefined
+        if (
+          setterId &&
+          setterId !== appointment.closer_user_id &&
+          setterId !== new_closer_id
+        ) {
+          const { data: setterUser } = await adminClient
+            .from('users')
+            .select('email, full_name')
+            .eq('id', setterId)
+            .maybeSingle()
+
+          if (setterUser?.email?.includes('@')) {
+            await transporter.sendMail({
+              from: 'info@arxroofing.com',
+              to: setterUser.email,
+              subject: `${typeLabel} reassigned — ${homeownerLabel}`,
+              text: `Hi ${setterUser.full_name || 'there'},\n\nThe ${typeLabel.toLowerCase()} with ${homeownerLabel} (${scheduledTime} ET) was reassigned from ${previousCloserName} to ${newCloser.full_name} by ${profile.full_name}.\n\nYou are included as a Google Calendar attendee on the new assignee's event (same as when this was first scheduled).\n\n${recordUrl}`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                  <h2 style="color: #111827;">Appointment reassigned</h2>
+                  <p style="color: #374151;">Hi ${setterUser.full_name || 'there'},</p>
+                  <p style="color: #374151;">The <strong>${typeLabel}</strong> for <strong>${homeownerLabel}</strong> (${scheduledTime} ET) was reassigned from <strong>${previousCloserName}</strong> to <strong>${newCloser.full_name}</strong> by ${profile.full_name}. You are added as a calendar attendee on the new assignee’s Google event (matching the original scheduling flow).</p>
                   <p style="margin: 16px 0 0;"><a href="${recordUrl}" style="color: #4f46e5;">Open in ARX CRM</a></p>
                 </div>`,
             })
@@ -449,42 +570,40 @@ export async function PATCH(
       const existingEventId = appointment.google_event_id as string | null
       const homeownerName = homeownerFromAppointment(appointment)
 
-      if (status === 'cancelled' && existingEventId && appointment.closer_user_id) {
-        // Cancellation: delete the event from the current closer's calendar
-        const token = await getValidAccessToken(adminClient, appointment.closer_user_id)
-        if (!token) {
-          calendarSync.warnings.push('Google Calendar: no valid token for assignee; event not removed from calendar.')
+      if (status === 'cancelled' && existingEventId) {
+        // Cancellation: remove from whoever's calendar created the event (assignee + setter fallback)
+        const del = await deleteGoogleEventWithFallback(adminClient, existingEventId, [
+          appointment.closer_user_id,
+          appointment.canvasser_user_id,
+        ])
+        if (!del.ok) {
+          calendarSync.warnings.push(
+            'Google Calendar: could not remove cancelled event (no OAuth token or delete failed). It may still appear on a calendar.'
+          )
         } else {
           try {
-            await deleteCalendarEvent(token, existingEventId)
             await adminClient
               .from('scheduled_appointments')
               .update({ google_event_id: null })
               .eq('id', params.id)
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e)
-            console.error('Appointment cancel: Google delete failed:', msg)
-            calendarSync.warnings.push(`Google Calendar: could not delete event (${msg})`)
+            console.error('Appointment cancel: clearing google_event_id failed:', msg)
           }
         }
 
       } else if (new_closer_id && new_closer_id !== appointment.closer_user_id) {
-        // Reassignment: delete from old closer's calendar, create on new closer's calendar
+        // Reassignment: delete from old calendar (assignee + setter fallback), create on new closer's calendar
 
-        if (existingEventId && appointment.closer_user_id) {
-          const oldToken = await getValidAccessToken(adminClient, appointment.closer_user_id)
-          if (!oldToken) {
+        if (existingEventId) {
+          const del = await deleteGoogleEventWithFallback(adminClient, existingEventId, [
+            appointment.closer_user_id,
+            appointment.canvasser_user_id,
+          ])
+          if (!del.ok) {
             calendarSync.warnings.push(
-              'Google Calendar: no valid token for previous assignee; old calendar event may still exist.'
+              'Google Calendar: could not remove event from previous assignee (or setter); old calendar copy may still exist.'
             )
-          } else {
-            try {
-              await deleteCalendarEvent(oldToken, existingEventId)
-            } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : String(e)
-              console.error('Appointment reassignment: Google delete failed:', msg)
-              calendarSync.warnings.push(`Google Calendar: could not remove from previous assignee (${msg})`)
-            }
           }
         }
 
@@ -495,6 +614,29 @@ export async function PATCH(
         ).toISOString()
         const typeLabel = appointment.appointment_type === 'close' ? 'Close' : 'Inspection'
         const eventNotes = notes !== undefined ? notes : appointment.notes
+
+        let setterInviteEmail: string | null = null
+        if (appointment.canvasser_user_id) {
+          const { data: setterRow } = await adminClient
+            .from('users')
+            .select('email')
+            .eq('id', appointment.canvasser_user_id)
+            .maybeSingle()
+          if (setterRow?.email?.includes('@')) {
+            setterInviteEmail = setterRow.email.trim()
+          }
+        }
+        const newCloserRow = await adminClient
+          .from('users')
+          .select('email')
+          .eq('id', new_closer_id)
+          .maybeSingle()
+        const newCloserEmailLower = newCloserRow.data?.email?.trim().toLowerCase() ?? ''
+        const attendees =
+          setterInviteEmail &&
+          setterInviteEmail.toLowerCase() !== newCloserEmailLower
+            ? [{ email: setterInviteEmail }]
+            : undefined
 
         let newEventId: string | null = null
         if (!newToken) {
@@ -511,9 +653,10 @@ export async function PATCH(
                 ...(appointment.address_text && { location: appointment.address_text }),
                 start: { dateTime: startIso },
                 end: { dateTime: endIso },
+                ...(attendees ? { attendees } : {}),
               },
               'primary',
-              'none'
+              attendees ? 'all' : 'none'
             )
             newEventId = created?.id ?? null
           } catch (e: unknown) {
