@@ -211,7 +211,7 @@ export async function GET(request: NextRequest) {
         const { data: users } = await adminClient
           .from('users')
           .select('id, full_name')
-          .in('id', [...userIdsForDisplay])
+          .in('id', Array.from(userIdsForDisplay))
 
         ;(users || []).forEach((u: any) => {
           userMap[u.id] = u.full_name
