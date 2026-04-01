@@ -20,7 +20,11 @@ import {
 } from '@/lib/calendar-business-tz'
 import { fetchSalesCalendarSlice } from '@/lib/calendar-sales'
 import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
-import { canReassignAppointmentsFromProfile, deriveCalendarAccess } from '@/lib/permissions'
+import {
+  canAccessJobBoard,
+  canReassignAppointmentsFromProfile,
+  deriveCalendarAccess,
+} from '@/lib/permissions'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import TeamLaneView from '@/components/calendar/TeamLaneView'
@@ -1318,15 +1322,17 @@ export default function CalendarPage() {
                 <p className="font-semibold text-gray-900 capitalize">{selectedJob.status.replace('_', ' ')}</p>
               </div>
               <div className="pt-4 flex gap-3">
-                <a
-                  href={`/ops/jobs/${selectedJob.id}`}
-                  className="flex-1 py-2 bg-indigo-600 text-white text-center font-medium rounded-lg hover:bg-indigo-700"
-                >
-                  View Job Details
-                </a>
+                {canAccessJobBoard(currentUser?.role) ? (
+                  <a
+                    href={`/ops/jobs/${selectedJob.id}`}
+                    className="flex-1 py-2 bg-indigo-600 text-white text-center font-medium rounded-lg hover:bg-indigo-700"
+                  >
+                    View Job Details
+                  </a>
+                ) : null}
                 <button
                   onClick={() => setSelectedJob(null)}
-                  className="flex-1 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50"
+                  className={`py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 ${canAccessJobBoard(currentUser?.role) ? 'flex-1' : 'w-full'}`}
                 >
                   Close
                 </button>

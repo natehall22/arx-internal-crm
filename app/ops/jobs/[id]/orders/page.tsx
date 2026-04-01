@@ -2,10 +2,14 @@ import { createClient } from '@/lib/supabase/server'
 import { requireAuth } from '@/lib/auth'
 import { redirect, notFound } from 'next/navigation'
 import ProductOrdersClient from './ProductOrdersClient'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 export default async function ProductOrdersPage({ params }: { params: { id: string } }) {
   const { profile } = await requireAuth()
   if (!profile) redirect('/login')
+  if (!canAccessJobBoard(profile.role)) {
+    redirect('/dashboard')
+  }
 
   const supabase = createClient()
 

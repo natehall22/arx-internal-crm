@@ -10,13 +10,16 @@ interface ProjectFinancialSnapshotProps {
   jobId: string | null
   jobNumber: string | null
   contractTotal: number | null
+  /** When false, hide the link to `/ops/jobs/:id` (e.g. user cannot access job board). */
+  showJobDetailLink?: boolean
 }
 
 export default function ProjectFinancialSnapshot({ 
   projectId, 
   jobId, 
   jobNumber,
-  contractTotal 
+  contractTotal,
+  showJobDetailLink = false,
 }: ProjectFinancialSnapshotProps) {
   const [summary, setSummary] = useState<JobPaymentSummary | null>(null)
   const [loading, setLoading] = useState(!!jobId)
@@ -52,7 +55,7 @@ export default function ProjectFinancialSnapshot({
     <div className="bg-white shadow rounded-lg p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Financial Snapshot</h2>
-        {jobId && jobNumber && (
+        {jobId && jobNumber && showJobDetailLink && (
           <Link 
             href={`/ops/jobs/${jobId}`}
             className="text-xs text-indigo-600 hover:text-indigo-800"

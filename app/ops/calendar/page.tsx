@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 interface Job {
   id: string
@@ -39,6 +40,7 @@ export default function ProductionCalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<'month' | 'week'>('week')
   const [filterCrew, setFilterCrew] = useState<string>('all')
+  const [canJobBoard, setCanJobBoard] = useState(false)
 
   const supabase = createClientBrowser()
 
@@ -68,6 +70,8 @@ export default function ProductionCalendarPage() {
       console.log('[Calendar] No profile found')
       return
     }
+
+    setCanJobBoard(canAccessJobBoard(profile.role))
 
     console.log('[Calendar] Role check:', profile.role, 'allowed:', ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile.role))
     
@@ -216,8 +220,8 @@ export default function ProductionCalendarPage() {
     
     return (
       <div
-        onClick={() => router.push(`/ops/jobs/${job.id}`)}
-        className="px-2 py-1.5 rounded text-xs cursor-pointer hover:opacity-90 transition mb-1"
+        onClick={() => canJobBoard && router.push(`/ops/jobs/${job.id}`)}
+        className={`px-2 py-1.5 rounded text-xs transition mb-1 ${canJobBoard ? 'cursor-pointer hover:opacity-90' : 'cursor-default'}`}
         style={{ 
           backgroundColor: `${bgColor}15`,
           borderLeft: `3px solid ${bgColor}`,
@@ -246,10 +250,10 @@ export default function ProductionCalendarPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link
-              href="/ops"
+              href={canJobBoard ? '/ops' : '/ops/dashboard'}
               className="px-4 py-2 border border-gray-300 bg-white rounded-lg hover:bg-gray-50 text-sm font-medium text-gray-700"
             >
-              ← Back to Board
+              {canJobBoard ? '← Back to Board' : '← Ops Dashboard'}
             </Link>
           </div>
         </div>
@@ -414,8 +418,8 @@ export default function ProductionCalendarPage() {
                       {dayJobs.slice(0, 3).map(job => (
                         <div
                           key={job.id}
-                          onClick={() => router.push(`/ops/jobs/${job.id}`)}
-                          className="px-1.5 py-0.5 rounded text-xs cursor-pointer truncate"
+                          onClick={() => canJobBoard && router.push(`/ops/jobs/${job.id}`)}
+                          className={`px-1.5 py-0.5 rounded text-xs truncate ${canJobBoard ? 'cursor-pointer' : 'cursor-default'}`}
                           style={{ 
                             backgroundColor: `${job.assigned_crew?.color || '#6B7280'}20`,
                             color: job.assigned_crew?.color || '#6B7280',

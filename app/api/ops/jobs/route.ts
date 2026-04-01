@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { importProjectReviewNoteToJob } from '@/lib/project-review'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 function sanitizeJobsForRole(jobs: any[], role: string) {
   if (role === 'admin') return jobs
@@ -153,6 +154,10 @@ export async function GET(request: Request) {
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (!canAccessJobBoard(profile.role)) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 
     const { searchParams } = new URL(request.url)

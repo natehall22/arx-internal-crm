@@ -288,6 +288,17 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   ],
 }
 
+/** Roles that may access the Production Job Board (`/ops`) and job detail routes under `/ops/jobs/*`. */
+const JOB_BOARD_ACCESS_ROLES = new Set(['admin', 'operations', 'owner'])
+
+/**
+ * Whether the user may open the job board and ops job detail pages (server + nav should match).
+ */
+export function canAccessJobBoard(role: string | null | undefined): boolean {
+  if (!role) return false
+  return JOB_BOARD_ACCESS_ROLES.has(String(role).toLowerCase())
+}
+
 /**
  * Check if a role has a specific permission
  */

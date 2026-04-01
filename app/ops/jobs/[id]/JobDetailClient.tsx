@@ -615,6 +615,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
           financeSubmittedAt={job.finance_submitted_at || null}
           refreshKey={paymentsRefreshKey}
           onSchedule={() => setShowScheduleModal(true)}
+          onMarkJobComplete={handleCompleteClick}
+          onStartJob={() => updateStatus('in_progress')}
         />
         <AINextActionBanner
           job={{

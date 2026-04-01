@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
 
@@ -26,6 +27,8 @@ export default async function OpsDashboardPage() {
   if (!opsRoles.includes(profile.role)) {
     redirect('/dashboard')
   }
+
+  const canJobBoard = canAccessJobBoard(profile.role)
 
   // Get today's date for filtering
   const today = new Date()
@@ -140,12 +143,14 @@ export default async function OpsDashboardPage() {
             </p>
           </div>
           <div className="flex gap-3">
-            <Link
-              href="/ops"
-              className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium"
-            >
-              Job Board
-            </Link>
+            {canJobBoard && (
+              <Link
+                href="/ops"
+                className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium"
+              >
+                Job Board
+              </Link>
+            )}
             <Link
               href="/ops/calendar"
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
@@ -167,20 +172,32 @@ export default async function OpsDashboardPage() {
             </div>
           </div>
           <div className="grid grid-cols-5 gap-4">
-            {(['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as JobStatus[]).map((status) => (
-              <Link
-                key={status}
-                href={`/ops?status=${status}`}
-                className={`p-4 rounded-lg ${statusConfig[status].bgColor} hover:opacity-80 transition-opacity`}
-              >
-                <div className={`text-3xl font-bold ${statusConfig[status].color}`}>
-                  {pipelineStats[status]}
+            {(['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as JobStatus[]).map((status) => {
+              const inner = (
+                <>
+                  <div className={`text-3xl font-bold ${statusConfig[status].color}`}>
+                    {pipelineStats[status]}
+                  </div>
+                  <div className={`text-sm font-medium ${statusConfig[status].color}`}>
+                    {statusConfig[status].label}
+                  </div>
+                </>
+              )
+              const boxClass = `p-4 rounded-lg ${statusConfig[status].bgColor}`
+              return canJobBoard ? (
+                <Link
+                  key={status}
+                  href={`/ops?status=${status}`}
+                  className={`${boxClass} hover:opacity-80 transition-opacity`}
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <div key={status} className={boxClass}>
+                  {inner}
                 </div>
-                <div className={`text-sm font-medium ${statusConfig[status].color}`}>
-                  {statusConfig[status].label}
-                </div>
-              </Link>
-            ))}
+              )
+            })}
           </div>
         </div>
 
@@ -197,12 +214,8 @@ export default async function OpsDashboardPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {todaysJobsList.map((job: any) => (
-                  <Link
-                    key={job.id}
-                    href={`/ops/jobs/${job.id}`}
-                    className="block p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
+                {todaysJobsList.map((job: any) => {
+                  const card = (
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
@@ -236,8 +249,21 @@ export default async function OpsDashboardPage() {
                         )}
                       </div>
                     </div>
-                  </Link>
-                ))}
+                  )
+                  return canJobBoard ? (
+                    <Link
+                      key={job.id}
+                      href={`/ops/jobs/${job.id}`}
+                      className="block p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      {card}
+                    </Link>
+                  ) : (
+                    <div key={job.id} className="block p-4 bg-gray-50 rounded-lg">
+                      {card}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -282,23 +308,34 @@ export default async function OpsDashboardPage() {
                 <p className="text-gray-500 text-sm">All materials on track</p>
               ) : (
                 <div className="space-y-2">
-                  {materialsNeeded.map((job: any) => (
-                    <Link
-                      key={job.id}
-                      href={`/ops/jobs/${job.id}`}
-                      className="block p-2 rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-900">#{job.job_number}</span>
-                        <span className={`text-xs font-medium ${
-                          job.materials_status === 'not_ordered' ? 'text-red-600' : 'text-amber-600'
-                        }`}>
-                          {job.materials_status === 'not_ordered' ? 'Not Ordered' : 'Ordered'}
-                        </span>
+                  {materialsNeeded.map((job: any) => {
+                    const row = (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-900">#{job.job_number}</span>
+                          <span className={`text-xs font-medium ${
+                            job.materials_status === 'not_ordered' ? 'text-red-600' : 'text-amber-600'
+                          }`}>
+                            {job.materials_status === 'not_ordered' ? 'Not Ordered' : 'Ordered'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
+                      </>
+                    )
+                    return canJobBoard ? (
+                      <Link
+                        key={job.id}
+                        href={`/ops/jobs/${job.id}`}
+                        className="block p-2 rounded-lg hover:bg-gray-50"
+                      >
+                        {row}
+                      </Link>
+                    ) : (
+                      <div key={job.id} className="block p-2 rounded-lg">
+                        {row}
                       </div>
-                      <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
-                    </Link>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -319,37 +356,48 @@ export default async function OpsDashboardPage() {
               <p className="text-gray-500 text-sm">No upcoming jobs scheduled</p>
             ) : (
               <div className="space-y-2">
-                {upcomingJobsList.map((job: any) => (
-                  <Link
-                    key={job.id}
-                    href={`/ops/jobs/${job.id}`}
-                    className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="text-center min-w-[50px]">
-                        <p className="text-xs text-gray-500">
-                          {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/New_York' })}
-                        </p>
-                        <p className="text-lg font-bold text-gray-900">
-                          {new Date(job.scheduled_date + 'T12:00:00').getDate()}
-                        </p>
+                {upcomingJobsList.map((job: any) => {
+                  const row = (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <div className="text-center min-w-[50px]">
+                          <p className="text-xs text-gray-500">
+                            {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/New_York' })}
+                          </p>
+                          <p className="text-lg font-bold text-gray-900">
+                            {new Date(job.scheduled_date + 'T12:00:00').getDate()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">#{job.job_number}</p>
+                          <p className="text-xs text-gray-500 truncate max-w-[200px]">{job.address_text}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">#{job.job_number}</p>
-                        <p className="text-xs text-gray-500 truncate max-w-[200px]">{job.address_text}</p>
-                      </div>
+                      {job.assigned_crew && (
+                        <div className="flex items-center gap-1">
+                          <div 
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: job.assigned_crew.color }}
+                          />
+                          <span className="text-xs text-gray-600">{job.assigned_crew.name}</span>
+                        </div>
+                      )}
+                    </>
+                  )
+                  return canJobBoard ? (
+                    <Link
+                      key={job.id}
+                      href={`/ops/jobs/${job.id}`}
+                      className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50"
+                    >
+                      {row}
+                    </Link>
+                  ) : (
+                    <div key={job.id} className="flex items-center justify-between p-3 rounded-lg">
+                      {row}
                     </div>
-                    {job.assigned_crew && (
-                      <div className="flex items-center gap-1">
-                        <div 
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: job.assigned_crew.color }}
-                        />
-                        <span className="text-xs text-gray-600">{job.assigned_crew.name}</span>
-                      </div>
-                    )}
-                  </Link>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -367,12 +415,18 @@ export default async function OpsDashboardPage() {
                   return (
                     <div key={note.id} className="p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center justify-between mb-1">
-                        <Link 
-                          href={`/ops/jobs/${job?.id}`}
-                          className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
-                        >
-                          #{job?.job_number}
-                        </Link>
+                        {canJobBoard ? (
+                          <Link 
+                            href={`/ops/jobs/${job?.id}`}
+                            className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                          >
+                            #{job?.job_number}
+                          </Link>
+                        ) : (
+                          <span className="text-sm font-medium text-gray-900">
+                            #{job?.job_number}
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400">
                           {new Date(note.created_at).toLocaleDateString('en-US', { 
                             month: 'short', 

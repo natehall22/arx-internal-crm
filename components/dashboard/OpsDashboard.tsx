@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 interface OpsStats {
   activeJobs: number
@@ -52,6 +53,7 @@ const statusConfig = {
 }
 
 export default function OpsDashboard({ profile }: OpsDashboardProps) {
+  const canJobBoard = canAccessJobBoard(profile?.role)
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<OpsStats>({
     activeJobs: 0,
@@ -188,9 +190,11 @@ export default function OpsDashboard({ profile }: OpsDashboardProps) {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-base sm:text-lg font-semibold text-gray-900">Jobs Needing Attention</h2>
-          <Link href="/ops/jobs" className="text-sm text-purple-600 hover:text-purple-800">
-            View All Jobs
-          </Link>
+          {canJobBoard ? (
+            <Link href="/ops" className="text-sm text-purple-600 hover:text-purple-800">
+              View All Jobs
+            </Link>
+          ) : null}
         </div>
         {jobsNeedingAttention.length === 0 ? (
           <div className="p-8 text-center">
@@ -229,12 +233,14 @@ export default function OpsDashboard({ profile }: OpsDashboardProps) {
                     {job.assigned_pm && (
                       <span className="text-xs text-gray-500">{job.assigned_pm}</span>
                     )}
-                    <Link
-                      href={`/ops/jobs/${job.id}`}
-                      className="text-sm text-purple-600 hover:text-purple-800 whitespace-nowrap"
-                    >
-                      View Job →
-                    </Link>
+                    {canJobBoard ? (
+                      <Link
+                        href={`/ops/jobs/${job.id}`}
+                        className="text-sm text-purple-600 hover:text-purple-800 whitespace-nowrap"
+                      >
+                        View Job →
+                      </Link>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -258,32 +264,39 @@ export default function OpsDashboard({ profile }: OpsDashboardProps) {
             <div className="divide-y divide-gray-100">
               {recentOrders.map((order) => {
                 const config = statusConfig[order.status]
-                return (
+                const body = (
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium text-purple-600">{order.job_number}</span>
+                      </div>
+                      <p className="text-sm text-gray-900 truncate">{order.description}</p>
+                      {order.supplier && (
+                        <p className="text-xs text-gray-500 truncate">{order.supplier}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-sm font-medium text-gray-900">
+                        {formatCurrency(order.amount)}
+                      </span>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${config.bg} ${config.text}`}>
+                        {config.label}
+                      </span>
+                    </div>
+                  </div>
+                )
+                return canJobBoard ? (
                   <Link
                     key={order.id}
                     href={`/ops/jobs/${order.job_id}/orders`}
                     className="block p-4 hover:bg-gray-50"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-purple-600">{order.job_number}</span>
-                        </div>
-                        <p className="text-sm text-gray-900 truncate">{order.description}</p>
-                        {order.supplier && (
-                          <p className="text-xs text-gray-500 truncate">{order.supplier}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className="text-sm font-medium text-gray-900">
-                          {formatCurrency(order.amount)}
-                        </span>
-                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${config.bg} ${config.text}`}>
-                          {config.label}
-                        </span>
-                      </div>
-                    </div>
+                    {body}
                   </Link>
+                ) : (
+                  <div key={order.id} className="block p-4">
+                    {body}
+                  </div>
                 )
               })}
             </div>

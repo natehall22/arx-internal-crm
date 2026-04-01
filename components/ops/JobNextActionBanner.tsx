@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
-import { checkDepositStatus } from '@/lib/job-deposit'
+import { checkDepositStatus, type DepositCheckResult } from '@/lib/job-deposit'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -20,13 +20,24 @@ interface JobNextActionBannerProps {
   refreshKey?: number
   onOrderMaterials?: () => void
   onSchedule?: () => void
+  onMarkJobComplete?: () => void
+  onStartJob?: () => void
 }
 
 interface NextAction {
   message: string
   buttonText: string
   color: 'blue' | 'amber' | 'purple' | 'green' | 'gray'
-  action: 'deposit' | 'materials' | 'schedule' | 'assign' | 'collect' | 'finance_submit' | 'done'
+  action:
+    | 'deposit'
+    | 'materials'
+    | 'schedule'
+    | 'assign'
+    | 'collect'
+    | 'finance_submit'
+    | 'mark_complete'
+    | 'start_job'
+    | 'done'
 }
 
 function getNextAction(
@@ -35,6 +46,8 @@ function getNextAction(
   scheduledDate: string | null,
   hasCrewOrSub: boolean,
   depositSatisfied: boolean,
+  depositStatus: DepositCheckResult,
+  saleAmountCents: number,
   remainingBalance: number,
   isFinanceJob: boolean,
   financePaymentSubmitted: boolean
@@ -105,6 +118,23 @@ function getNextAction(
     }
   }
 
+  // Collected enough to satisfy threshold but no payment typed as "deposit" — prompt for a deposit line (tracking)
+  if (
+    !isFinanceJob &&
+    depositStatus.satisfied &&
+    depositStatus.reason === 'threshold_met' &&
+    !depositStatus.hasDepositPayment &&
+    saleAmountCents > 0 &&
+    ['sold', 'materials', 'scheduled', 'in_progress'].includes(status)
+  ) {
+    return {
+      message: 'Add a deposit payment for tracking (collected amount already meets the minimum)',
+      buttonText: 'Record Deposit',
+      color: 'blue',
+      action: 'deposit',
+    }
+  }
+
   // Materials not ordered
   if (materialsStatus === 'not_ordered') {
     return {
@@ -141,7 +171,7 @@ function getNextAction(
       message: 'Job in progress',
       buttonText: 'Mark Job Complete',
       color: 'blue',
-      action: 'done',
+      action: 'mark_complete',
     }
   }
 
@@ -151,7 +181,7 @@ function getNextAction(
       message: 'Ready for install',
       buttonText: 'Start Job',
       color: 'green',
-      action: 'done',
+      action: 'start_job',
     }
   }
 
@@ -194,6 +224,8 @@ export default function JobNextActionBanner({
   refreshKey = 0,
   onOrderMaterials,
   onSchedule,
+  onMarkJobComplete,
+  onStartJob,
 }: JobNextActionBannerProps) {
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -278,6 +310,8 @@ export default function JobNextActionBanner({
     scheduledDate,
     hasCrewOrSub,
     depositSatisfied,
+    depositStatus,
+    saleAmountCents,
     remainingCents,
     isFinanceJob,
     financePaymentSubmitted
@@ -306,6 +340,12 @@ export default function JobNextActionBanner({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ finance_submitted_at: new Date().toISOString() }),
         }).catch((err) => console.error('Failed to persist finance_submitted_at:', err))
+        break
+      case 'mark_complete':
+        onMarkJobComplete?.()
+        break
+      case 'start_job':
+        onStartJob?.()
         break
       default:
         // No action needed

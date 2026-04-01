@@ -2,9 +2,10 @@ export const dynamic = 'force-dynamic'
 
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { canAccessJobBilling } from '@/lib/finance-access'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 interface PageProps {
   params: { id: string }
@@ -30,6 +31,9 @@ const jobSelectWithoutPaymentMethod = `
 
 export default async function JobDetailPage({ params }: PageProps) {
   const { profile } = await requireAuth()
+  if (!canAccessJobBoard(profile.role)) {
+    redirect('/dashboard')
+  }
   const supabase = createClient()
 
   const customRole = profile.custom_role_id

@@ -17,6 +17,7 @@ import JobNotesReadOnly from '@/components/JobNotesReadOnly'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import { parseProjectReviewStored } from '@/lib/project-review'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 export default async function ProjectDetailPage({
   params,
@@ -24,6 +25,7 @@ export default async function ProjectDetailPage({
   params: { id: string }
 }) {
   const { profile } = await requireAuth()
+  const showOpsJobLinks = canAccessJobBoard(profile.role)
   const supabase = createClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
@@ -268,6 +270,7 @@ export default async function ProjectDetailPage({
           jobId={productionJob?.id || null}
           jobNumber={productionJob?.job_number || null}
           contractTotal={productionJob?.sale_amount || null}
+          showJobDetailLink={showOpsJobLinks}
         />
 
         <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -279,6 +282,7 @@ export default async function ProjectDetailPage({
                   projectId={project.id}
                   existingJobId={productionJob?.id}
                   existingJobNumber={productionJob?.job_number}
+                  canOpenOpsJobDetail={showOpsJobLinks}
                 />
               )}
               <ProjectReviewButton
@@ -468,12 +472,14 @@ export default async function ProjectDetailPage({
           <div className="bg-white shadow rounded-lg p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900">Job Notes</h2>
-              <Link
-                href={`/ops/jobs/${productionJob.id}`}
-                className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-              >
-                View Job →
-              </Link>
+              {showOpsJobLinks ? (
+                <Link
+                  href={`/ops/jobs/${productionJob.id}`}
+                  className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                >
+                  View Job →
+                </Link>
+              ) : null}
             </div>
             <JobNotesReadOnly jobId={productionJob.id} limit={10} />
           </div>
@@ -484,14 +490,14 @@ export default async function ProjectDetailPage({
           <div className="bg-white shadow rounded-lg p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">Operations Snapshot</h2>
-              {productionJob && (
+              {productionJob && showOpsJobLinks ? (
                 <Link
                   href={`/ops/jobs/${productionJob.id}`}
                   className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
                 >
                   Edit on Job →
                 </Link>
-              )}
+              ) : null}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               {project.scope_of_work && (

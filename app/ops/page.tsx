@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import OpsClient from './OpsClient'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 function sanitizeJobForRole(job: any, role: string) {
   const isAdmin = role === 'admin'
@@ -17,8 +18,7 @@ function sanitizeJobForRole(job: any, role: string) {
 export default async function OpsPage() {
   const { profile } = await requireAuth()
   
-  // Check role access
-  if (!['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(profile.role)) {
+  if (!canAccessJobBoard(profile.role)) {
     redirect('/dashboard')
   }
 
