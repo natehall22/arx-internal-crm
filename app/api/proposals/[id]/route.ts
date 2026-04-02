@@ -359,6 +359,7 @@ export async function PATCH(
             body: `Project created from accepted proposal "${proposal.title || proposal.proposal_number}"`,
           })
       }
+
     }
 
     return NextResponse.json({ proposal, project_id: projectId })

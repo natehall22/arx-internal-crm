@@ -16,6 +16,7 @@ import ProjectSoldScope from '@/components/ProjectSoldScope'
 import JobNotesReadOnly from '@/components/JobNotesReadOnly'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
+import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
 import { parseProjectReviewStored } from '@/lib/project-review'
 import { canAccessJobBoard } from '@/lib/permissions'
 
@@ -252,6 +253,37 @@ export default async function ProjectDetailPage({
     revalidatePath(`/projects/${params.id}`)
   }
 
+  const updateAddress = async (formData: FormData) => {
+    'use server'
+    const { profile } = await requireAuth()
+    const supabase = createClient()
+
+    if (!['admin', 'operations', 'regional_manager'].includes(profile.role)) {
+      return
+    }
+
+    const address = String(formData.get('address') ?? '').trim()
+    if (!address) return
+
+    await supabase
+      .from('projects')
+      .update({ address_text: address })
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+
+    await supabase.from('activities').insert({
+      org_id: profile.org_id,
+      project_id: params.id,
+      user_id: profile.id,
+      type: 'note',
+      body: 'Project job site address updated.',
+    })
+
+    revalidatePath(`/projects/${params.id}`)
+  }
+
+  const canEditProjectAddress = ['admin', 'operations', 'regional_manager'].includes(profile.role)
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -340,9 +372,22 @@ export default async function ProjectDetailPage({
               <h3 className="text-sm font-medium text-gray-500">Project Type</h3>
               <p className="mt-1 text-sm text-gray-900 capitalize">{project.project_type}</p>
             </div>
-            <div>
+            <div className="md:col-span-2">
               <h3 className="text-sm font-medium text-gray-500">Address</h3>
-              <p className="mt-1 text-sm text-gray-900">{project.address_text || 'N/A'}</p>
+              {canEditProjectAddress ? (
+                <ProjectAddressEdit
+                  currentAddress={project.address_text}
+                  updateAddressAction={updateAddress}
+                />
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-gray-900">{project.address_text || 'N/A'}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Job site address stored on the project (from proposal/lead when created). Ask an admin or
+                    ops to correct it if needed.
+                  </p>
+                </>
+              )}
             </div>
             {project.roof_squares && (
               <div>

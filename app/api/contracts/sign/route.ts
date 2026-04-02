@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 
 function getAdminClient() {
@@ -127,6 +128,27 @@ export async function POST(request: NextRequest) {
         { error: 'Failed to sign contract' },
         { status: 500 }
       )
+    }
+
+    try {
+      const soldDescription = buildOrderFormContractSaleDescription(contract)
+      const totalAmount =
+        contract.project_cost != null && Number.isFinite(Number(contract.project_cost))
+          ? Number(contract.project_cost)
+          : null
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+      const recordUrl = contract.opportunity_id
+        ? `${appUrl}/opportunities/${contract.opportunity_id}`
+        : undefined
+      await notifyOrgAdminsOfSale(supabase, {
+        orgId: contract.org_id,
+        customerName: contract.customer_name || 'Customer',
+        soldDescription,
+        totalAmount,
+        recordUrl,
+      })
+    } catch (adminSaleErr) {
+      console.error('notifyOrgAdminsOfSale (contract sign):', adminSaleErr)
     }
 
     // Void and delete any older contracts for this opportunity

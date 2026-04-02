@@ -5,8 +5,21 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import CloseVisitDebriefWizard from '@/components/inspection/CloseVisitDebriefWizard'
+import {
+  DEFAULT_INSPECTION_OUTCOMES,
+  inspectionOutcomeRequiresCloseSchedule,
+  normalizeInspectionOutcomeId,
+  sortActiveOutcomes,
+  type InspectionOutcomeConfigRow,
+} from '@/lib/inspection-outcomes'
 
-type FeedbackOutcome = 'sale' | 'moving_to_close' | 'insurance_follow_up' | 'said_no' | 'not_home' | 'no_problems_found' | 'needs_repair' | 'rescheduled'
+function isRescheduledOutcomeId(id: string | null): boolean {
+  return normalizeInspectionOutcomeId(id) === 'rescheduled'
+}
+
+function isInsuranceFollowUpOutcomeId(id: string | null): boolean {
+  return normalizeInspectionOutcomeId(id) === 'insurance_follow_up'
+}
 
 interface Appointment {
   id: string
@@ -46,8 +59,11 @@ export default function AppointmentFeedbackPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  // Form state
-  const [outcome, setOutcome] = useState<FeedbackOutcome | null>(null)
+  // Form state — outcome id from org settings (admin Inspection Outcomes)
+  const [outcomeRows, setOutcomeRows] = useState<InspectionOutcomeConfigRow[]>(() =>
+    sortActiveOutcomes([...DEFAULT_INSPECTION_OUTCOMES])
+  )
+  const [outcome, setOutcome] = useState<string | null>(null)
   const [feedbackNotes, setFeedbackNotes] = useState('')
   
   // Reschedule state
@@ -114,6 +130,25 @@ export default function AppointmentFeedbackPage() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/inspections/outcomes')
+        if (!res.ok) return
+        const data = await res.json()
+        const rows = data?.outcomes as InspectionOutcomeConfigRow[] | undefined
+        if (cancelled || !Array.isArray(rows) || rows.length === 0) return
+        setOutcomeRows(sortActiveOutcomes(rows))
+      } catch {
+        /* keep defaults */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const loadAppointment = async () => {
     try {
       const response = await fetch(`/api/appointments/${appointmentId}`)
@@ -168,10 +203,10 @@ export default function AppointmentFeedbackPage() {
     }
   }
 
-  const handleOutcomeChange = (newOutcome: FeedbackOutcome) => {
-    setOutcome(newOutcome)
-    setShowReschedule(newOutcome === 'rescheduled')
-    setShowInsuranceSchedule(newOutcome === 'insurance_follow_up')
+  const handleOutcomeChange = (newOutcomeId: string) => {
+    setOutcome(newOutcomeId)
+    setShowReschedule(isRescheduledOutcomeId(newOutcomeId))
+    setShowInsuranceSchedule(isInsuranceFollowUpOutcomeId(newOutcomeId))
   }
 
   const handleSubmit = async () => {
@@ -181,17 +216,17 @@ export default function AppointmentFeedbackPage() {
     }
 
     // Reschedule only works with appointment ID
-    if (outcome === 'rescheduled' && !appointmentId) {
+    if (isRescheduledOutcomeId(outcome) && !appointmentId) {
       setError('Cannot reschedule without an existing appointment. Please select a different outcome.')
       return
     }
 
-    if (outcome === 'rescheduled' && (!rescheduleDate || !rescheduleTime)) {
+    if (isRescheduledOutcomeId(outcome) && (!rescheduleDate || !rescheduleTime)) {
       setError('Please select a new date and time for the reschedule')
       return
     }
 
-    if (outcome === 'insurance_follow_up' && (!insuranceDate || !insuranceTime)) {
+    if (isInsuranceFollowUpOutcomeId(outcome) && (!insuranceDate || !insuranceTime)) {
       setError('Please select a date and time for the insurance follow-up')
       return
     }
@@ -200,7 +235,7 @@ export default function AppointmentFeedbackPage() {
     setError(null)
 
     try {
-      if (outcome === 'rescheduled') {
+      if (isRescheduledOutcomeId(outcome)) {
         // Handle reschedule - send local time string directly
         const localDateTime = `${rescheduleDate}T${rescheduleTime}`
         
@@ -221,14 +256,19 @@ export default function AppointmentFeedbackPage() {
 
         setSuccess(true)
         setTimeout(() => router.push(redirectPath), 2000)
-      } else if (outcome === 'moving_to_close') {
+      } else if (
+        outcome &&
+        inspectionOutcomeRequiresCloseSchedule(
+          outcomeRows.find((o) => o.id === outcome) ?? { id: outcome, label: '' }
+        )
+      ) {
         const statusResponse = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             appointment_id: appointmentId || undefined,
             lead_id: leadId || undefined,
-            outcome: 'moving_to_close',
+            outcome,
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
           }),
@@ -248,7 +288,7 @@ export default function AppointmentFeedbackPage() {
 
         setCloseVisitDebrief({ opportunityId: statusData.opportunity_id })
         return
-      } else if (outcome === 'insurance_follow_up') {
+      } else if (outcome && isInsuranceFollowUpOutcomeId(outcome)) {
         const localDateTime = `${insuranceDate}T${insuranceTime}`
         const response = await fetch('/api/inspections/status', {
           method: 'POST',
@@ -256,7 +296,7 @@ export default function AppointmentFeedbackPage() {
           body: JSON.stringify({
             appointment_id: appointmentId || undefined,
             lead_id: leadId || undefined,
-            outcome: 'insurance_follow_up',
+            outcome,
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
             schedule_follow_up: true,
@@ -352,6 +392,10 @@ export default function AppointmentFeedbackPage() {
   const appointmentDate = appointment ? new Date(appointment.scheduled_for) : null
   const inspectionDate = lead?.inspection_scheduled_for ? new Date(lead.inspection_scheduled_for) : null
   const backLink = leadId ? `/leads/${leadId}` : '/dashboard'
+
+  const selectedOutcomeRow = outcome ? outcomeRows.find((o) => o.id === outcome) : undefined
+  const showMovingToCloseNote =
+    selectedOutcomeRow != null && inspectionOutcomeRequiresCloseSchedule(selectedOutcomeRow)
 
   const finishCloseVisitDebrief = () => {
     setCloseVisitDebrief(null)
@@ -460,191 +504,35 @@ export default function AppointmentFeedbackPage() {
         {/* Feedback Form */}
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">What was the outcome?</h2>
-          
+
           <div className="grid grid-cols-2 gap-3 mb-6">
-            {/* Sale */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('sale')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'sale'
-                  ? 'border-green-500 bg-green-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'sale' ? 'bg-green-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg font-bold">✓</span>
+            {outcomeRows.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => handleOutcomeChange(opt.id)}
+                className={`p-4 rounded-lg border-2 text-left transition-all ${
+                  outcome === opt.id
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-lg font-bold ${
+                      opt.color?.startsWith('#') ? 'text-white' : opt.color || 'bg-gray-500 text-white'
+                    }`}
+                    style={opt.color?.startsWith('#') ? { backgroundColor: opt.color } : undefined}
+                  >
+                    {opt.icon}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900">{opt.label}</p>
+                    <p className="text-xs text-gray-500">{opt.description}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Sale</p>
-                  <p className="text-xs text-gray-500">Customer signed the contract</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Moving to Close */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('moving_to_close')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'moving_to_close'
-                  ? 'border-emerald-500 bg-emerald-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'moving_to_close' ? 'bg-emerald-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg font-bold">→</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Moving to Close</p>
-                  <p className="text-xs text-gray-500">Schedule close appointment</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Insurance Follow Up */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('insurance_follow_up')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'insurance_follow_up'
-                  ? 'border-purple-500 bg-purple-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'insurance_follow_up' ? 'bg-purple-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg">📋</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Insurance Follow Up</p>
-                  <p className="text-xs text-gray-500">Waiting on insurance claim</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Said No */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('said_no')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'said_no'
-                  ? 'border-red-500 bg-red-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'said_no' ? 'bg-red-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg font-bold">✗</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Said No</p>
-                  <p className="text-xs text-gray-500">Customer declined</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Not Home */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('not_home')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'not_home'
-                  ? 'border-amber-500 bg-amber-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'not_home' ? 'bg-amber-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg font-bold">?</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Not Home</p>
-                  <p className="text-xs text-gray-500">Customer wasn't there</p>
-                </div>
-              </div>
-            </button>
-
-            {/* No Problems Found */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('no_problems_found')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'no_problems_found'
-                  ? 'border-gray-500 bg-gray-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'no_problems_found' ? 'bg-gray-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg font-bold">○</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">No Problems Found</p>
-                  <p className="text-xs text-gray-500">Roof is in good condition</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Needs Repair */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('needs_repair')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'needs_repair'
-                  ? 'border-orange-500 bg-orange-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'needs_repair' ? 'bg-orange-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg">🔧</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Needs Repair</p>
-                  <p className="text-xs text-gray-500">Roof needs repair, not replacement</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Rescheduled */}
-            <button
-              type="button"
-              onClick={() => handleOutcomeChange('rescheduled')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                outcome === 'rescheduled'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  outcome === 'rescheduled' ? 'bg-blue-500 text-white' : 'bg-gray-100'
-                }`}>
-                  <span className="text-lg font-bold">↻</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Rescheduled</p>
-                  <p className="text-xs text-gray-500">Moved to new date</p>
-                </div>
-              </div>
-            </button>
+              </button>
+            ))}
           </div>
 
           {/* Reschedule Date/Time */}
@@ -706,7 +594,7 @@ export default function AppointmentFeedbackPage() {
             </div>
           )}
 
-          {outcome === 'moving_to_close' && (
+          {showMovingToCloseNote && (
             <div className="mb-6 p-4 bg-emerald-50 rounded-lg border border-emerald-200 text-sm text-emerald-900">
               After you submit, you&apos;ll complete the <strong>close visit debrief</strong>: photos, briefing
               fields for the closer, optional close scheduling, then final submit (with optional email to the
