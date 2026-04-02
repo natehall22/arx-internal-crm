@@ -1,5 +1,6 @@
 'use client'
 
+import type { DragEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClientBrowser } from '@/lib/supabase/client'
 
@@ -66,6 +67,15 @@ function formatUserDisplay(uploadedByName?: string | null) {
   return uploadedByName
 }
 
+function isImageFile(file: File) {
+  if (file.type.startsWith('image/')) return true
+  return /\.(heic|heif|jpg|jpeg|png|gif|webp|bmp|tiff?)$/i.test(file.name)
+}
+
+function hasFilePayload(e: DragEvent) {
+  return e.dataTransfer.types.includes('Files')
+}
+
 export default function JobFileWorkspaceCard({
   jobId,
   userRole,
@@ -80,6 +90,9 @@ export default function JobFileWorkspaceCard({
   const [attachmentCountByLine, setAttachmentCountByLine] = useState<Record<string, number>>({})
   const [tableUnavailable, setTableUnavailable] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [photoUploadProgress, setPhotoUploadProgress] = useState<{ done: number; total: number } | null>(
+    null
+  )
   const [uploadingDocument, setUploadingDocument] = useState(false)
   const [uploadingCostAttachment, setUploadingCostAttachment] = useState(false)
   const [replacingDocumentId, setReplacingDocumentId] = useState<string | null>(null)
@@ -88,12 +101,18 @@ export default function JobFileWorkspaceCard({
   const [documentRole, setDocumentRole] = useState('')
   const [documentTitle, setDocumentTitle] = useState('')
   const [documentDescription, setDocumentDescription] = useState('')
-  const [pendingDocumentFile, setPendingDocumentFile] = useState<File | null>(null)
+  const [pendingDocumentFiles, setPendingDocumentFiles] = useState<File[]>([])
   const [selectedCostLineId, setSelectedCostLineId] = useState('')
   const [statusMessage, setStatusMessage] = useState<StatusMessage>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const documentInputRef = useRef<HTMLInputElement>(null)
   const costAttachmentInputRef = useRef<HTMLInputElement>(null)
+  const photoDragDepth = useRef(0)
+  const documentDragDepth = useRef(0)
+  const costDragDepth = useRef(0)
+  const [photoDropActive, setPhotoDropActive] = useState(false)
+  const [documentDropActive, setDocumentDropActive] = useState(false)
+  const [costDropActive, setCostDropActive] = useState(false)
 
   const loadData = async (aliveRef?: { current: boolean }, options?: { keepLoadedUI?: boolean }) => {
     if (!options?.keepLoadedUI) {
@@ -244,118 +263,150 @@ export default function JobFileWorkspaceCard({
     }
   }, [registerOpenCostAttachmentShortcut, tableUnavailable, uploadingCostAttachment, costLines.length])
 
-  const handlePhotoSelected = async (file?: File | null) => {
-    if (!file) return
+  const handlePhotosSelected = async (fileList?: FileList | null) => {
+    const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
+    if (files.length === 0) return
     setUploadingPhoto(true)
+    setPhotoUploadProgress({ done: 0, total: files.length })
     setStatusMessage(null)
-    try {
-      const formData = new FormData()
-      formData.append('photo_tag', photoTag)
-      formData.append('file', file)
+    let ok = 0
+    let firstError = ''
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      setPhotoUploadProgress({ done: i, total: files.length })
+      try {
+        const formData = new FormData()
+        formData.append('photo_tag', photoTag)
+        formData.append('file', file)
 
-      const response = await fetch(`/api/ops/jobs/${jobId}/photos`, {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to upload photo')
+        const response = await fetch(`/api/ops/jobs/${jobId}/photos`, {
+          method: 'POST',
+          body: formData,
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Failed to upload photo')
 
-      if (data?.photo) {
-        setPhotos((prev) => [data.photo as PhotoRow, ...prev])
+        if (data?.photo) {
+          setPhotos((prev) => [data.photo as PhotoRow, ...prev])
+        }
+        ok++
+      } catch (error: any) {
+        if (!firstError) firstError = error?.message || 'Upload failed'
       }
-
-      setStatusMessage({
-        type: 'success',
-        text: 'Photo uploaded successfully.',
-      })
-      await loadData(undefined, { keepLoadedUI: true })
-    } catch (error: any) {
-      setStatusMessage({
-        type: 'error',
-        text: error?.message || 'Photo upload failed. Please try again.',
-      })
-    } finally {
-      setUploadingPhoto(false)
-      if (photoInputRef.current) photoInputRef.current.value = ''
+      setPhotoUploadProgress({ done: i + 1, total: files.length })
     }
+
+    setStatusMessage({
+      type: ok < files.length ? 'error' : 'success',
+      text:
+        ok === files.length
+          ? `Uploaded ${ok} photo${ok === 1 ? '' : 's'} successfully.`
+          : `Uploaded ${ok} of ${files.length}.${firstError ? ` ${firstError}` : ''}`,
+    })
+    await loadData(undefined, { keepLoadedUI: true })
+    setUploadingPhoto(false)
+    setPhotoUploadProgress(null)
+    if (photoInputRef.current) photoInputRef.current.value = ''
   }
 
-  const handleDocumentSelected = (file?: File | null) => {
-    if (!file) return
-    setPendingDocumentFile(file)
+  const handleDocumentsSelected = (fileList?: FileList | null) => {
+    const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
+    if (files.length === 0) return
+    setPendingDocumentFiles(files)
     setStatusMessage(null)
     if (documentInputRef.current) documentInputRef.current.value = ''
   }
 
   const handleDocumentUpload = async () => {
-    if (!pendingDocumentFile) return
+    if (pendingDocumentFiles.length === 0) return
     setUploadingDocument(true)
     setStatusMessage(null)
-    try {
-      const formData = new FormData()
-      formData.append('category', documentCategory)
-      if (documentRole) formData.append('document_role', documentRole)
-      if (documentTitle) formData.append('title', documentTitle)
-      if (documentDescription) formData.append('description', documentDescription)
-      formData.append('file', pendingDocumentFile)
+    const files = pendingDocumentFiles
+    let ok = 0
+    let firstError = ''
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      try {
+        const formData = new FormData()
+        formData.append('category', documentCategory)
+        if (documentRole) formData.append('document_role', documentRole)
+        const baseTitle =
+          files.length === 1 && documentTitle.trim()
+            ? documentTitle.trim()
+            : file.name.replace(/\.[^.]+$/, '') || file.name
+        formData.append('title', baseTitle)
+        if (documentDescription) formData.append('description', documentDescription)
+        formData.append('file', file)
 
-      const response = await fetch(`/api/ops/jobs/${jobId}/documents`, {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to upload document')
+        const response = await fetch(`/api/ops/jobs/${jobId}/documents`, {
+          method: 'POST',
+          body: formData,
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Failed to upload document')
+        ok++
+      } catch (error: any) {
+        if (!firstError) firstError = error?.message || 'Document upload failed.'
+      }
+    }
 
+    if (ok === files.length) {
       setDocumentTitle('')
       setDocumentDescription('')
       setDocumentRole('')
       setDocumentCategory('misc')
-      setPendingDocumentFile(null)
-      setStatusMessage({
-        type: 'success',
-        text: 'Document uploaded successfully.',
-      })
-      await loadData(undefined, { keepLoadedUI: true })
-    } catch (error: any) {
-      setStatusMessage({
-        type: 'error',
-        text: error?.message || 'Document upload failed. Please try again.',
-      })
-    } finally {
-      setUploadingDocument(false)
+      setPendingDocumentFiles([])
     }
+    setStatusMessage({
+      type: ok < files.length ? 'error' : 'success',
+      text:
+        ok === files.length
+          ? ok === 1
+            ? 'Document uploaded successfully.'
+            : `Uploaded ${ok} documents successfully.`
+          : `Uploaded ${ok} of ${files.length}.${firstError ? ` ${firstError}` : ''}`,
+    })
+    await loadData(undefined, { keepLoadedUI: true })
+    setUploadingDocument(false)
   }
 
-  const handleCostAttachmentSelected = async (file?: File | null) => {
-    if (!file || !selectedCostLineId) return
+  const handleCostAttachmentsSelected = async (fileList?: FileList | null) => {
+    const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
+    if (files.length === 0 || !selectedCostLineId) return
     setUploadingCostAttachment(true)
     setStatusMessage(null)
-    try {
-      const formData = new FormData()
-      formData.append('job_cost_line_id', selectedCostLineId)
-      formData.append('file', file)
+    let ok = 0
+    let firstError = ''
+    for (const file of files) {
+      try {
+        const formData = new FormData()
+        formData.append('job_cost_line_id', selectedCostLineId)
+        formData.append('file', file)
 
-      const response = await fetch(`/api/ops/jobs/${jobId}/cost-attachments`, {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to upload attachment')
-
-      setStatusMessage({
-        type: 'success',
-        text: 'Cost attachment uploaded successfully.',
-      })
-      await loadData(undefined, { keepLoadedUI: true })
-    } catch (error: any) {
-      setStatusMessage({
-        type: 'error',
-        text: error?.message || 'Cost attachment upload failed. Please try again.',
-      })
-    } finally {
-      setUploadingCostAttachment(false)
-      if (costAttachmentInputRef.current) costAttachmentInputRef.current.value = ''
+        const response = await fetch(`/api/ops/jobs/${jobId}/cost-attachments`, {
+          method: 'POST',
+          body: formData,
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Failed to upload attachment')
+        ok++
+      } catch (error: any) {
+        if (!firstError) firstError = error?.message || 'Upload failed'
+      }
     }
+
+    setStatusMessage({
+      type: ok < files.length ? 'error' : 'success',
+      text:
+        ok === files.length
+          ? ok === 1
+            ? 'Cost attachment uploaded successfully.'
+            : `Uploaded ${ok} attachments successfully.`
+          : `Uploaded ${ok} of ${files.length}.${firstError ? ` ${firstError}` : ''}`,
+    })
+    await loadData(undefined, { keepLoadedUI: true })
+    setUploadingCostAttachment(false)
+    if (costAttachmentInputRef.current) costAttachmentInputRef.current.value = ''
   }
 
   const handleReplaceDocument = async (documentId: string, file?: File | null) => {
@@ -386,6 +437,139 @@ export default function JobFileWorkspaceCard({
     } finally {
       setReplacingDocumentId(null)
     }
+  }
+
+  const fileListFromFiles = (files: File[]) => {
+    const dt = new DataTransfer()
+    files.forEach((f) => dt.items.add(f))
+    return dt.files
+  }
+
+  const resetPhotoDrag = () => {
+    photoDragDepth.current = 0
+    setPhotoDropActive(false)
+  }
+
+  const onPhotoDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingPhoto) return
+    e.preventDefault()
+    e.stopPropagation()
+    photoDragDepth.current += 1
+    setPhotoDropActive(true)
+  }
+
+  const onPhotoDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    photoDragDepth.current -= 1
+    if (photoDragDepth.current <= 0) {
+      photoDragDepth.current = 0
+      setPhotoDropActive(false)
+    }
+  }
+
+  const onPhotoDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingPhoto) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onPhotoDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingPhoto) return
+    e.preventDefault()
+    e.stopPropagation()
+    resetPhotoDrag()
+    const images = Array.from(e.dataTransfer.files).filter(isImageFile)
+    if (images.length === 0) {
+      setStatusMessage({ type: 'error', text: 'Drop image files only for photos.' })
+      return
+    }
+    void handlePhotosSelected(fileListFromFiles(images))
+  }
+
+  const resetDocumentDrag = () => {
+    documentDragDepth.current = 0
+    setDocumentDropActive(false)
+  }
+
+  const onDocumentDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingDocument) return
+    e.preventDefault()
+    e.stopPropagation()
+    documentDragDepth.current += 1
+    setDocumentDropActive(true)
+  }
+
+  const onDocumentDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    documentDragDepth.current -= 1
+    if (documentDragDepth.current <= 0) {
+      documentDragDepth.current = 0
+      setDocumentDropActive(false)
+    }
+  }
+
+  const onDocumentDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingDocument) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onDocumentDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingDocument) return
+    e.preventDefault()
+    e.stopPropagation()
+    resetDocumentDrag()
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.size > 0)
+    if (files.length === 0) return
+    handleDocumentsSelected(fileListFromFiles(files))
+  }
+
+  const resetCostDrag = () => {
+    costDragDepth.current = 0
+    setCostDropActive(false)
+  }
+
+  const onCostDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    costDragDepth.current += 1
+    setCostDropActive(true)
+  }
+
+  const onCostDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    costDragDepth.current -= 1
+    if (costDragDepth.current <= 0) {
+      costDragDepth.current = 0
+      setCostDropActive(false)
+    }
+  }
+
+  const onCostDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onCostDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    resetCostDrag()
+    if (!selectedCostLineId) {
+      setStatusMessage({ type: 'error', text: 'Select a cost line before dropping attachments.' })
+      return
+    }
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.size > 0)
+    if (files.length === 0) return
+    void handleCostAttachmentsSelected(fileListFromFiles(files))
   }
 
   const canSeeAmounts = userRole === 'admin' || userRole === 'owner' || userRole === 'operations'
@@ -450,60 +634,84 @@ export default function JobFileWorkspaceCard({
                 disabled={uploadingPhoto || tableUnavailable}
                 className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
-                {uploadingPhoto ? 'Uploading...' : 'Upload Photo'}
+                {uploadingPhoto
+                  ? photoUploadProgress
+                    ? `Uploading ${photoUploadProgress.done}/${photoUploadProgress.total}…`
+                    : 'Uploading…'
+                  : 'Upload Photos'}
               </button>
               <input
                 ref={photoInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
-                onChange={(e) => handlePhotoSelected(e.target.files?.[0])}
+                onChange={(e) => void handlePhotosSelected(e.target.files)}
               />
             </div>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            Upload before/progress/final photos so office and production can track the job clearly.
+            Upload before/progress/final photos so office and production can track the job clearly. Select multiple
+            images in the file picker (Shift- or Cmd/Ctrl-click) or drag files into the area below.
           </p>
 
-          {loading ? (
-            <p className="text-sm text-gray-500">Loading photos...</p>
-          ) : photos.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-gray-600">
-              No photos yet. Use "Upload Photo" to add before/progress/final job photos.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-medium">Type</th>
-                    <th className="text-left px-3 py-2 font-medium">File</th>
-                    <th className="text-left px-3 py-2 font-medium">Uploaded</th>
-                    <th className="text-left px-3 py-2 font-medium">By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {photos.map((photo) => (
-                    <tr key={photo.id} className="border-t">
-                      <td className="px-3 py-2 text-gray-700">{photo.photo_tag || 'general'}</td>
-                      <td className="px-3 py-2">
-                        <a
-                          href={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
-                        >
-                          {photo.filename}
-                        </a>
-                      </td>
-                      <td className="px-3 py-2 text-gray-700">{formatDate(photo.created_at)}</td>
-                      <td className="px-3 py-2 text-gray-700">{formatUserDisplay(photo.uploaded_by_name)}</td>
+          <div
+            className={`rounded-lg border-2 border-dashed transition-colors ${
+              photoDropActive ? 'border-indigo-500 bg-indigo-50/90' : 'border-gray-200'
+            }`}
+            onDragEnter={onPhotoDragEnter}
+            onDragLeave={onPhotoDragLeave}
+            onDragOver={onPhotoDragOver}
+            onDrop={onPhotoDrop}
+            role="region"
+            aria-label="Photo drop zone"
+          >
+            {photoDropActive && (
+              <p className="text-center text-sm font-medium text-indigo-800 py-2 border-b border-indigo-200/80">
+                Drop images to upload with the selected photo type
+              </p>
+            )}
+            {loading ? (
+              <p className="text-sm text-gray-500 p-4">Loading photos...</p>
+            ) : photos.length === 0 ? (
+              <div className="p-4 text-sm text-gray-600">
+                <p className="mb-1">No photos yet.</p>
+                <p>Use &quot;Upload Photos&quot; or drag image files here (HEIC, JPEG, PNG, etc.).</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Type</th>
+                      <th className="text-left px-3 py-2 font-medium">File</th>
+                      <th className="text-left px-3 py-2 font-medium">Uploaded</th>
+                      <th className="text-left px-3 py-2 font-medium">By</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {photos.map((photo) => (
+                      <tr key={photo.id} className="border-t">
+                        <td className="px-3 py-2 text-gray-700">{photo.photo_tag || 'general'}</td>
+                        <td className="px-3 py-2">
+                          <a
+                            href={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
+                          >
+                            {photo.filename}
+                          </a>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{formatDate(photo.created_at)}</td>
+                        <td className="px-3 py-2 text-gray-700">{formatUserDisplay(photo.uploaded_by_name)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </section>
 
         <section>
@@ -515,26 +723,43 @@ export default function JobFileWorkspaceCard({
               disabled={uploadingDocument || tableUnavailable}
               className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
             >
-              Upload File
+              Upload files
             </button>
           </div>
           <input
             ref={documentInputRef}
             type="file"
+            multiple
             className="hidden"
-            onChange={(e) => handleDocumentSelected(e.target.files?.[0])}
+            onChange={(e) => handleDocumentsSelected(e.target.files)}
           />
-          {pendingDocumentFile && (
+          {pendingDocumentFiles.length > 0 && (
             <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
               <p className="text-sm text-gray-700 mb-2">
-                Selected file: <span className="font-medium">{pendingDocumentFile.name}</span>
+                {pendingDocumentFiles.length === 1 ? (
+                  <>
+                    Selected file:{' '}
+                    <span className="font-medium">{pendingDocumentFiles[0].name}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium">{pendingDocumentFiles.length} files selected</span>
+                    <span className="block mt-1 text-xs text-gray-600 max-h-24 overflow-y-auto">
+                      {pendingDocumentFiles.map((f) => f.name).join(', ')}
+                    </span>
+                  </>
+                )}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-2">
                 <input
                   type="text"
                   value={documentTitle}
                   onChange={(e) => setDocumentTitle(e.target.value)}
-                  placeholder="Title (optional)"
+                  placeholder={
+                    pendingDocumentFiles.length > 1
+                      ? 'Title (single file only; batch uses filenames)'
+                      : 'Title (optional)'
+                  }
                   className="text-sm border rounded-lg px-2 py-2 text-gray-900"
                 />
                 <select
@@ -576,11 +801,11 @@ export default function JobFileWorkspaceCard({
                   disabled={uploadingDocument || tableUnavailable}
                   className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
                 >
-                  {uploadingDocument ? 'Uploading...' : 'Save Document'}
+                  {uploadingDocument ? 'Uploading...' : pendingDocumentFiles.length > 1 ? 'Save documents' : 'Save document'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPendingDocumentFile(null)}
+                  onClick={() => setPendingDocumentFiles([])}
                   disabled={uploadingDocument}
                   className="text-sm px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                 >
@@ -589,79 +814,99 @@ export default function JobFileWorkspaceCard({
               </div>
             </div>
           )}
-          {!pendingDocumentFile && (
+          {pendingDocumentFiles.length === 0 && (
             <div className="mb-3 rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-600">
-              Choose a document file first, then add optional details before saving.
+              Choose one or more files, then add optional details before saving. You can also drag files into the
+              documents area below. Batch uploads share category, role, and description; each file gets its own title
+              from the filename unless you upload a single file with a custom title.
             </div>
           )}
           <p className="text-xs text-gray-500 mb-3">
             Documents are versioned. Replacing a document keeps prior versions in history and never overwrites files.
           </p>
 
-          {loading ? (
-            <p className="text-sm text-gray-500">Loading documents...</p>
-          ) : documents.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-gray-600">
-              No documents yet. Add contracts, change-order files, and supporting documents here.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-medium">Title / File</th>
-                    <th className="text-left px-3 py-2 font-medium">Category</th>
-                    <th className="text-left px-3 py-2 font-medium">Role</th>
-                    <th className="text-left px-3 py-2 font-medium">Version</th>
-                    <th className="text-left px-3 py-2 font-medium">Status</th>
-                    <th className="text-left px-3 py-2 font-medium">Updated</th>
-                    <th className="text-left px-3 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {documents.map((doc) => (
-                    <tr key={doc.id} className="border-t">
-                      <td className="px-3 py-2 text-gray-900">
-                        <div className="flex items-center gap-2">
-                          <a
-                            href={`/api/ops/jobs/${jobId}/documents/${doc.id}/download`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
-                          >
-                            {doc.title || doc.filename}
-                          </a>
-                          {doc.is_protected && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Protected</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-gray-700">{doc.category}</td>
-                      <td className="px-3 py-2 text-gray-700">{doc.document_role || '-'}</td>
-                      <td className="px-3 py-2 text-gray-700">v{doc.version}</td>
-                      <td className="px-3 py-2 text-gray-700">{doc.status}</td>
-                      <td className="px-3 py-2 text-gray-700">{formatDate(doc.updated_at || doc.created_at)}</td>
-                      <td className="px-3 py-2 text-gray-700">
-                        {doc.is_protected && !canReplaceProtectedDocuments ? (
-                          <span className="text-xs text-gray-500">Restricted (protected doc)</span>
-                        ) : (
-                          <label className="text-sm text-indigo-700 hover:text-indigo-900 cursor-pointer">
-                            {replacingDocumentId === doc.id ? 'Replacing...' : 'Replace Version'}
-                            <input
-                              type="file"
-                              className="hidden"
-                              disabled={replacingDocumentId !== null}
-                              onChange={(e) => handleReplaceDocument(doc.id, e.target.files?.[0])}
-                            />
-                          </label>
-                        )}
-                      </td>
+          <div
+            className={`rounded-lg border-2 border-dashed transition-colors ${
+              documentDropActive ? 'border-indigo-500 bg-indigo-50/90' : 'border-gray-200'
+            }`}
+            onDragEnter={onDocumentDragEnter}
+            onDragLeave={onDocumentDragLeave}
+            onDragOver={onDocumentDragOver}
+            onDrop={onDocumentDrop}
+            role="region"
+            aria-label="Document drop zone"
+          >
+            {documentDropActive && (
+              <p className="text-center text-sm font-medium text-indigo-800 py-2 border-b border-indigo-200/80">
+                Drop files to queue them — add details, then save
+              </p>
+            )}
+            {loading ? (
+              <p className="text-sm text-gray-500 p-4">Loading documents...</p>
+            ) : documents.length === 0 ? (
+              <div className="p-4 text-sm text-gray-600">
+                <p className="mb-1">No documents yet.</p>
+                <p>Add contracts, change-order files, and supporting documents here (upload or drag and drop).</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Title / File</th>
+                      <th className="text-left px-3 py-2 font-medium">Category</th>
+                      <th className="text-left px-3 py-2 font-medium">Role</th>
+                      <th className="text-left px-3 py-2 font-medium">Version</th>
+                      <th className="text-left px-3 py-2 font-medium">Status</th>
+                      <th className="text-left px-3 py-2 font-medium">Updated</th>
+                      <th className="text-left px-3 py-2 font-medium">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {documents.map((doc) => (
+                      <tr key={doc.id} className="border-t">
+                        <td className="px-3 py-2 text-gray-900">
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`/api/ops/jobs/${jobId}/documents/${doc.id}/download`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
+                            >
+                              {doc.title || doc.filename}
+                            </a>
+                            {doc.is_protected && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Protected</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{doc.category}</td>
+                        <td className="px-3 py-2 text-gray-700">{doc.document_role || '-'}</td>
+                        <td className="px-3 py-2 text-gray-700">v{doc.version}</td>
+                        <td className="px-3 py-2 text-gray-700">{doc.status}</td>
+                        <td className="px-3 py-2 text-gray-700">{formatDate(doc.updated_at || doc.created_at)}</td>
+                        <td className="px-3 py-2 text-gray-700">
+                          {doc.is_protected && !canReplaceProtectedDocuments ? (
+                            <span className="text-xs text-gray-500">Restricted (protected doc)</span>
+                          ) : (
+                            <label className="text-sm text-indigo-700 hover:text-indigo-900 cursor-pointer">
+                              {replacingDocumentId === doc.id ? 'Replacing...' : 'Replace Version'}
+                              <input
+                                type="file"
+                                className="hidden"
+                                disabled={replacingDocumentId !== null}
+                                onChange={(e) => handleReplaceDocument(doc.id, e.target.files?.[0])}
+                              />
+                            </label>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </section>
 
         <section>
@@ -686,18 +931,20 @@ export default function JobFileWorkspaceCard({
                 disabled={uploadingCostAttachment || costLines.length === 0 || tableUnavailable}
                 className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
-                {uploadingCostAttachment ? 'Uploading...' : 'Attach Receipt / Invoice'}
+                {uploadingCostAttachment ? 'Uploading...' : 'Attach receipts / invoices'}
               </button>
               <input
                 ref={costAttachmentInputRef}
                 type="file"
+                multiple
                 className="hidden"
-                onChange={(e) => handleCostAttachmentSelected(e.target.files?.[0])}
+                onChange={(e) => void handleCostAttachmentsSelected(e.target.files)}
               />
             </div>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            Attach receipts/invoices to a selected cost line for cleaner bookkeeping.
+            Attach receipts/invoices to a selected cost line for cleaner bookkeeping. You can drag files onto the
+            cost table when a line is selected.
           </p>
           {!canSeeAmounts && (
             <p className="text-xs text-gray-500 mb-3">
@@ -705,40 +952,57 @@ export default function JobFileWorkspaceCard({
             </p>
           )}
 
-          {loading ? (
-            <p className="text-sm text-gray-500">Loading costs...</p>
-          ) : costLines.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-gray-600">
-              No job cost lines yet. Add labor, material, permit, and miscellaneous costs here.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-medium">Item</th>
-                    <th className="text-left px-3 py-2 font-medium">Vendor</th>
-                    {canSeeAmounts && <th className="text-left px-3 py-2 font-medium">Amount</th>}
-                    <th className="text-left px-3 py-2 font-medium">Category</th>
-                    <th className="text-left px-3 py-2 font-medium">Status</th>
-                    <th className="text-left px-3 py-2 font-medium">Attachments</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {costLines.map((line) => (
-                    <tr key={line.id} className="border-t">
-                      <td className="px-3 py-2 text-gray-900">{line.description}</td>
-                      <td className="px-3 py-2 text-gray-700">{line.vendor_name || '-'}</td>
-                      {canSeeAmounts && <td className="px-3 py-2 text-gray-700">{formatCurrency(line.amount)}</td>}
-                      <td className="px-3 py-2 text-gray-700">{line.cost_type}</td>
-                      <td className="px-3 py-2 text-gray-700">{line.status}</td>
-                      <td className="px-3 py-2 text-gray-700">{attachmentCountByLine[line.id] || 0}</td>
+          <div
+            className={`rounded-lg border-2 border-dashed transition-colors ${
+              costDropActive ? 'border-indigo-500 bg-indigo-50/90' : 'border-gray-200'
+            }`}
+            onDragEnter={onCostDragEnter}
+            onDragLeave={onCostDragLeave}
+            onDragOver={onCostDragOver}
+            onDrop={onCostDrop}
+            role="region"
+            aria-label="Cost attachment drop zone"
+          >
+            {costDropActive && (
+              <p className="text-center text-sm font-medium text-indigo-800 py-2 border-b border-indigo-200/80">
+                Drop files to attach to the selected cost line
+              </p>
+            )}
+            {loading ? (
+              <p className="text-sm text-gray-500 p-4">Loading costs...</p>
+            ) : costLines.length === 0 ? (
+              <div className="p-4 text-sm text-gray-600">
+                No job cost lines yet. Add labor, material, permit, and miscellaneous costs here.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Item</th>
+                      <th className="text-left px-3 py-2 font-medium">Vendor</th>
+                      {canSeeAmounts && <th className="text-left px-3 py-2 font-medium">Amount</th>}
+                      <th className="text-left px-3 py-2 font-medium">Category</th>
+                      <th className="text-left px-3 py-2 font-medium">Status</th>
+                      <th className="text-left px-3 py-2 font-medium">Attachments</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {costLines.map((line) => (
+                      <tr key={line.id} className="border-t">
+                        <td className="px-3 py-2 text-gray-900">{line.description}</td>
+                        <td className="px-3 py-2 text-gray-700">{line.vendor_name || '-'}</td>
+                        {canSeeAmounts && <td className="px-3 py-2 text-gray-700">{formatCurrency(line.amount)}</td>}
+                        <td className="px-3 py-2 text-gray-700">{line.cost_type}</td>
+                        <td className="px-3 py-2 text-gray-700">{line.status}</td>
+                        <td className="px-3 py-2 text-gray-700">{attachmentCountByLine[line.id] || 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </section>
       </div>
     </div>
