@@ -6,8 +6,15 @@ const BUCKET = 'inspection-photos'
 const MAX_PHOTOS = 20
 
 const ROLES_CAN_UPLOAD = new Set([
-  'admin', 'owner', 'setter_manager', 'regional_setter_manager',
-  'sales_manager', 'regional_manager', 'rep',
+  'admin',
+  'owner',
+  'setter_manager',
+  'regional_setter_manager',
+  'sales_manager',
+  'regional_manager',
+  'rep',
+  'sales_rep',
+  'closer',
 ])
 
 // GET — list photos for this opportunity's inspection result (with signed URLs)
@@ -116,27 +123,40 @@ export async function POST(
     }
 
     const formData = await request.formData()
-    const file = formData.get('file') as File | null
+    const raw = formData.get('file')
 
-    if (!file || file.size === 0) {
+    if (!raw || typeof raw === 'string' || !(raw instanceof Blob) || raw.size === 0) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    if (!file.type.startsWith('image/')) {
+    const fileName = raw instanceof File ? raw.name : 'upload.jpg'
+    const mime = (raw.type || '').toLowerCase()
+    const looksLikeImage =
+      mime.startsWith('image/') ||
+      /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(fileName)
+
+    if (!looksLikeImage) {
       return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 })
     }
 
+    const contentType =
+      mime.startsWith('image/') && mime.length > 0
+        ? mime
+        : /\.png$/i.test(fileName)
+          ? 'image/png'
+          : 'image/jpeg'
+
     // Sanitize filename
-    const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100)
+    const safeFilename = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100)
     const photoId = crypto.randomUUID()
     const storagePath = `${profile.org_id}/${params.id}/${photoId}_${safeFilename}`
 
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
+    const fileBuffer = Buffer.from(await raw.arrayBuffer())
 
     const { error: uploadError } = await admin.storage
       .from(BUCKET)
       .upload(storagePath, fileBuffer, {
-        contentType: file.type,
+        contentType,
         upsert: false,
       })
 

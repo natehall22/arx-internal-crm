@@ -24,6 +24,8 @@ export const CLOSE_VISIT_DEBRIEF_ROLES = new Set([
   'sales_manager',
   'regional_manager',
   'rep',
+  'sales_rep',
+  'closer',
 ])
 
 export function canSubmitCloseVisitDebrief(role: string | null | undefined): boolean {
@@ -31,7 +33,22 @@ export function canSubmitCloseVisitDebrief(role: string | null | undefined): boo
 }
 
 export async function compressImage(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file)
+  let bitmap: ImageBitmap
+  try {
+    bitmap = await createImageBitmap(file)
+  } catch {
+    // iPhone HEIC / odd formats: some browsers can’t decode — upload original if reasonable size
+    const ext = file.name.toLowerCase()
+    const maybeHeic = ext.endsWith('.heic') || ext.endsWith('.heif')
+    if (
+      file.size > 0 &&
+      file.size <= 12 * 1024 * 1024 &&
+      (file.type.startsWith('image/') || maybeHeic)
+    ) {
+      return file
+    }
+    throw new Error('Could not read this image. Try exporting as JPEG or PNG, or use a different browser.')
+  }
   const { width: origW, height: origH } = bitmap
 
   let w = origW
@@ -159,13 +176,22 @@ export function CloseVisitPhotoUpload({
           const res = await fetch(`/api/opportunities/${opportunityId}/inspection-photos`, {
             method: 'POST',
             body: fd,
+            credentials: 'same-origin',
           })
 
           if (!res.ok) {
-            const d = await res.json()
+            let msg = 'Upload failed'
+            try {
+              const d = (await res.json()) as { error?: string }
+              if (typeof d.error === 'string' && d.error) msg = d.error
+            } catch {
+              if (res.status === 403) msg = 'Not authorized to upload'
+              else if (res.status === 401) msg = 'Sign in again, then retry'
+              else msg = `Upload failed (${res.status})`
+            }
             onPhotosChange((prev) =>
               prev.map((p) =>
-                p.id === placeholder.id ? { ...p, uploading: false, error: d.error || 'Upload failed' } : p
+                p.id === placeholder.id ? { ...p, uploading: false, error: msg } : p
               )
             )
             return
@@ -179,10 +205,12 @@ export function CloseVisitPhotoUpload({
                 : p
             )
           )
-        } catch {
+        } catch (err) {
+          const msg =
+            err instanceof Error && err.message ? err.message : 'Upload failed'
           onPhotosChange((prev) =>
             prev.map((p) =>
-              p.id === placeholder.id ? { ...p, uploading: false, error: 'Upload failed' } : p
+              p.id === placeholder.id ? { ...p, uploading: false, error: msg } : p
             )
           )
         }
@@ -241,8 +269,10 @@ export function CloseVisitPhotoUpload({
                 </div>
               )}
               {photo.error && (
-                <div className="absolute inset-0 bg-red-500/70 flex items-center justify-center p-1">
-                  <span className="text-white text-xs text-center leading-tight">Failed</span>
+                <div className="absolute inset-0 bg-red-500/80 flex items-center justify-center p-1">
+                  <span className="text-white text-[10px] sm:text-xs text-center leading-snug line-clamp-4 break-words">
+                    {photo.error}
+                  </span>
                 </div>
               )}
               {!photo.uploading && (
