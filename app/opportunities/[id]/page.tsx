@@ -14,6 +14,7 @@ import ContractListItem from '@/components/contracts/ContractListItem'
 import CloseAppointmentStatusSection from '@/components/opportunities/CloseAppointmentStatusSection'
 import DeleteRoofMeasurementButton from '@/components/opportunities/DeleteRoofMeasurementButton'
 import DeleteProposalButton from '@/components/opportunities/DeleteProposalButton'
+import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 
@@ -212,49 +213,6 @@ export default async function OpportunityDetailPage({
           orgSettings?.settings?.close_outcomes as CloseOutcomeConfigRow[] | undefined
         )
       : null
-
-  const uploadDesignPdf = async (formData: FormData) => {
-    'use server'
-    const { profile } = await requireAuth()
-    const supabase = createServiceClient()
-
-    const file = formData.get('design_pdf')
-    if (!(file instanceof File) || file.size === 0) return
-
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
-    const storagePath = `org/${profile.org_id}/opportunities/${params.id}/design/${Date.now()}_${file.name}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('files')
-      .upload(storagePath, fileBuffer, {
-        contentType: file.type,
-        upsert: false,
-      })
-
-    if (uploadError) {
-      console.error('Design upload error:', uploadError)
-      return
-    }
-
-    await supabase
-      .from('opportunities')
-      .update({
-        design_pdf_path: storagePath,
-        status: opportunity.status === 'open' ? 'in_progress' : opportunity.status,
-      })
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-
-    await supabase.from('activities').insert({
-      org_id: profile.org_id,
-      opportunity_id: params.id,
-      user_id: profile.id,
-      type: 'note',
-      body: 'Design PDF uploaded.',
-    })
-
-    revalidatePath(`/opportunities/${params.id}`)
-  }
 
   const markOpportunityLost = async () => {
     'use server'
@@ -589,19 +547,7 @@ export default async function OpportunityDetailPage({
           ) : (
             <p className="text-sm text-gray-500 mb-4">No design PDF uploaded yet.</p>
           )}
-          <form
-            action={uploadDesignPdf}
-            className="flex flex-wrap items-center gap-3"
-            encType="multipart/form-data"
-          >
-            <input type="file" name="design_pdf" accept="application/pdf" required />
-            <button
-              type="submit"
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-            >
-              Upload Design PDF
-            </button>
-          </form>
+          <DesignPdfUpload opportunityId={params.id} />
         </div>
 
         {/* Proposals Section */}

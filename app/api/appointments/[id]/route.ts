@@ -95,6 +95,39 @@ function homeownerFromAppointment(appointment: { leads?: unknown }): string {
   return raw?.homeowner_name || 'Customer'
 }
 
+/** Map Postgres / trigger errors from scheduled_appointments updates to API responses (see migration 077). */
+function mapScheduledAppointmentUpdateError(err: {
+  message?: string
+  code?: string
+  details?: string
+}): { message: string; status: number } {
+  const raw = [err.message, err.details].filter(Boolean).join(' ')
+  if (
+    err.code === '23P01' ||
+    raw.includes('Scheduling conflict') ||
+    raw.includes('overlapping appointment')
+  ) {
+    return {
+      message:
+        'This rep already has another appointment that overlaps this time. Reschedule one of the appointments, change duration if appropriate, or pick a different rep.',
+      status: 409,
+    }
+  }
+  if (err.code === '23505' || raw.includes('Rapid duplicate')) {
+    return {
+      message: 'A matching appointment was just created. Refresh the page and try again.',
+      status: 409,
+    }
+  }
+  if (err.code === '23505' && raw.toLowerCase().includes('lead_id')) {
+    return {
+      message: 'Another active appointment already exists for this lead at this time.',
+      status: 409,
+    }
+  }
+  return { message: 'Failed to update appointment', status: 500 }
+}
+
 function leadContactFromAppointment(appointment: { leads?: unknown }): {
   homeowner_name: string
   phone: string
@@ -516,7 +549,8 @@ export async function PATCH(
 
     if (updateError) {
       console.error('Update error:', updateError)
-      return NextResponse.json({ error: 'Failed to update appointment' }, { status: 500 })
+      const { message, status } = mapScheduledAppointmentUpdateError(updateError)
+      return NextResponse.json({ error: message }, { status })
     }
 
     // Reassignment: sync lead + opportunity rep fields with calendar assignee (same as canvass scheduling:
