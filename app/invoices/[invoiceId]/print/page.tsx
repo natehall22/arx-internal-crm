@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
 import { redirect } from 'next/navigation'
 import PrintButton from './PrintButton'
 
@@ -308,7 +309,7 @@ export default async function PrintInvoicePage({
             <div>
               <div className="company-name">{org?.name || 'ARX Roofing & Exteriors, LLC'}</div>
               <div className="company-address">
-                {companyAddress || '123 Main Street\nCity, State 12345'}
+                {companyAddress || ARX_DEFAULT_OFFICE_ADDRESS}
                 {org?.phone && `\n${org.phone}`}
                 {org?.email && `\n${org.email}`}
               </div>

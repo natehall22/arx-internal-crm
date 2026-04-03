@@ -146,6 +146,10 @@ export default function JobInvoicesCard({
   const activeInvoices = invoices.filter(i => i.status !== 'void')
   const voidedInvoices = invoices.filter(i => i.status === 'void')
 
+  const saleAmountCents = depositInfo.saleAmountCents || Math.round((saleAmount || 0) * 100)
+  const totalInvoicedCents = activeInvoices.reduce((sum, i) => sum + (i.total_cents || 0), 0)
+  const remainingContractCents = Math.max(0, saleAmountCents - totalInvoicedCents)
+
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
       <div className="flex items-center justify-between mb-4">
@@ -317,7 +321,8 @@ export default function JobInvoicesCard({
       {showCreateModal && (
         <CreateInvoiceModal
           jobId={jobId}
-          saleAmountCents={depositInfo.saleAmountCents || Math.round((saleAmount || 0) * 100)}
+          saleAmountCents={saleAmountCents}
+          remainingContractCents={remainingContractCents}
           depositInfo={depositInfo}
           onClose={() => setShowCreateModal(false)}
           onCreated={handleInvoiceCreated}

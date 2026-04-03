@@ -7,6 +7,7 @@ import {
   getInvoicesForJob,
   createDepositInvoiceV2,
   createFinalInvoice,
+  createCustomAmountInvoice,
   getDepositInfo,
 } from '@/lib/invoices'
 
@@ -117,7 +118,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { invoice_kind = 'standard' } = body
+    const { invoice_kind = 'standard', amount_cents: rawAmountCents, line_description: rawLineDescription } = body
 
     let invoice
 
@@ -137,6 +138,29 @@ export async function POST(
           user.id
         )
         break
+
+      case 'custom': {
+        const amountCents =
+          typeof rawAmountCents === 'number'
+            ? Math.round(rawAmountCents)
+            : Math.round(parseFloat(String(rawAmountCents ?? '')))
+        const lineDescription =
+          typeof rawLineDescription === 'string' ? rawLineDescription : undefined
+        if (!Number.isFinite(amountCents) || amountCents <= 0) {
+          return NextResponse.json(
+            { error: 'Valid amount_cents greater than zero is required' },
+            { status: 400 }
+          )
+        }
+        invoice = await createCustomAmountInvoice(
+          adminClient,
+          params.id,
+          user.id,
+          amountCents,
+          lineDescription
+        )
+        break
+      }
 
       case 'standard':
       default:

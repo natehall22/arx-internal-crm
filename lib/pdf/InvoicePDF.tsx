@@ -1,5 +1,6 @@
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
+import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
 import { JobInvoice, JobInvoiceItem } from '@/lib/types/invoices'
 
 const styles = StyleSheet.create({
@@ -243,7 +244,7 @@ export function InvoicePDF({
           <View style={styles.companyBlock}>
             <Text style={styles.companyName}>{company.name}</Text>
             <Text style={styles.companyAddress}>
-              {company.address}
+              {company.address || ARX_DEFAULT_OFFICE_ADDRESS}
               {company.phone && `\n${company.phone}`}
               {company.email && `\n${company.email}`}
             </Text>

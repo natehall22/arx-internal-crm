@@ -11,6 +11,7 @@ import {
   DepositInfo,
 } from './types/invoices'
 import { enqueueInvoiceFinalized, enqueueInvoiceVoided } from './integrations'
+import { formatCurrency } from './job-payments'
 
 /**
  * Get all active (non-void) invoices for a job
@@ -170,6 +171,88 @@ export async function createInvoiceForJob(
   }
 
   return invoice as JobInvoice
+}
+
+/**
+ * Sum of non-void invoice totals for a job (used for remaining-balance checks).
+ */
+export async function getTotalInvoicedCentsForJob(
+  supabase: SupabaseClient,
+  jobId: string
+): Promise<number> {
+  const { data: rows } = await supabase
+    .from('job_invoices')
+    .select('total_cents')
+    .eq('job_id', jobId)
+    .neq('status', 'void')
+
+  return (rows || []).reduce((sum, r) => sum + (r.total_cents || 0), 0)
+}
+
+/**
+ * Create a standard invoice with a single line at a custom amount (e.g. progress billing).
+ * Amount cannot exceed remaining contract balance when the job has a positive sale amount.
+ */
+export async function createCustomAmountInvoice(
+  supabase: SupabaseClient,
+  jobId: string,
+  createdBy: string,
+  amountCents: number,
+  lineDescription?: string | null
+): Promise<JobInvoice> {
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    throw new Error('Amount must be greater than zero')
+  }
+
+  const { data: job } = await supabase
+    .from('production_jobs')
+    .select('sale_amount, job_type')
+    .eq('id', jobId)
+    .single()
+
+  const saleAmountCents = Math.round((job?.sale_amount || 0) * 100)
+
+  if (saleAmountCents > 0) {
+    const totalInvoiced = await getTotalInvoicedCentsForJob(supabase, jobId)
+    const remaining = saleAmountCents - totalInvoiced
+    if (amountCents > remaining) {
+      throw new Error(
+        `Amount exceeds remaining contract balance (${formatCurrency(Math.max(0, remaining))} available of ${formatCurrency(saleAmountCents)} contract)`
+      )
+    }
+  }
+
+  const { data: invoice, error: invoiceError } = await supabase
+    .from('job_invoices')
+    .insert({
+      job_id: jobId,
+      created_by: createdBy,
+      status: 'draft',
+      invoice_kind: 'standard',
+    })
+    .select()
+    .single()
+
+  if (invoiceError || !invoice) {
+    throw new Error(`Failed to create invoice: ${invoiceError?.message || 'Unknown error'}`)
+  }
+
+  const defaultDesc = `${job?.job_type || 'Roofing'} - Per Contract`
+  const description = lineDescription?.trim() || defaultDesc
+
+  await addInvoiceItem(supabase, invoice.id, {
+    description,
+    qty: 1,
+    unit_price_cents: amountCents,
+  })
+
+  const { data: refreshed } = await supabase
+    .from('job_invoices')
+    .select()
+    .eq('id', invoice.id)
+    .single()
+
+  return (refreshed || invoice) as JobInvoice
 }
 
 /**

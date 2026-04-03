@@ -7,6 +7,8 @@ import { DepositInfo } from '@/lib/types/invoices'
 interface CreateInvoiceModalProps {
   jobId: string
   saleAmountCents: number
+  /** Contract balance not yet on a non-void invoice (for custom / validation hints) */
+  remainingContractCents: number
   depositInfo: DepositInfo
   onClose: () => void
   onCreated: () => void
@@ -15,12 +17,15 @@ interface CreateInvoiceModalProps {
 export default function CreateInvoiceModal({
   jobId,
   saleAmountCents,
+  remainingContractCents,
   depositInfo,
   onClose,
   onCreated,
 }: CreateInvoiceModalProps) {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [customAmount, setCustomAmount] = useState('')
+  const [customDescription, setCustomDescription] = useState('')
 
   const handleCreate = async (invoiceKind: 'deposit' | 'final' | 'standard') => {
     setCreating(true)
@@ -29,7 +34,51 @@ export default function CreateInvoiceModal({
       const response = await fetch(`/api/ops/jobs/${jobId}/invoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ invoice_kind: invoiceKind }),
+      })
+
+      if (response.ok) {
+        onCreated()
+        onClose()
+      } else {
+        const data = await response.json()
+        setError(data.error || 'Failed to create invoice')
+      }
+    } catch (err) {
+      setError('Failed to create invoice')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleCreateCustom = async () => {
+    setCreating(true)
+    setError(null)
+    const parsed = parseFloat(customAmount.replace(/,/g, '').trim())
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      setError('Enter a valid amount greater than zero')
+      setCreating(false)
+      return
+    }
+    const amountCents = Math.round(parsed * 100)
+    if (saleAmountCents > 0 && amountCents > remainingContractCents) {
+      setError(
+        `Amount cannot exceed remaining contract balance (${formatCurrency(remainingContractCents)} available)`
+      )
+      setCreating(false)
+      return
+    }
+    try {
+      const response = await fetch(`/api/ops/jobs/${jobId}/invoices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          invoice_kind: 'custom',
+          amount_cents: amountCents,
+          line_description: customDescription.trim() || undefined,
+        }),
       })
 
       if (response.ok) {
@@ -49,6 +98,7 @@ export default function CreateInvoiceModal({
   const remainingBalance = saleAmountCents - depositInfo.appliedDepositCents
   const canCreateDeposit = depositInfo.hasDeposit && !depositInfo.hasActiveDepositInvoice
   const canCreateFinal = depositInfo.hasActiveDepositInvoice && remainingBalance > 0
+  const showCustomAmount = saleAmountCents <= 0 || remainingContractCents > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -123,6 +173,56 @@ export default function CreateInvoiceModal({
                 </span>
               </div>
             </button>
+          )}
+
+          {/* Custom amount (progress / partial billing) */}
+          {showCustomAmount && (
+            <div className="p-4 border-2 border-indigo-200 rounded-lg bg-indigo-50/50 space-y-3">
+              <div className="font-medium text-gray-900">Custom amount</div>
+              <p className="text-xs text-gray-600">
+                {saleAmountCents > 0
+                  ? `Invoice up to ${formatCurrency(remainingContractCents)} remaining on this contract.`
+                  : 'Enter any amount for this invoice.'}
+              </p>
+              <div>
+                <label htmlFor="invoice-custom-amount" className="block text-xs font-medium text-gray-500 mb-1">
+                  Amount (USD)
+                </label>
+                <input
+                  id="invoice-custom-amount"
+                  type="text"
+                  inputMode="decimal"
+                  value={customAmount}
+                  onChange={(e) => setCustomAmount(e.target.value)}
+                  placeholder="e.g. 5000.00"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  disabled={creating}
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label htmlFor="invoice-custom-desc" className="block text-xs font-medium text-gray-500 mb-1">
+                  Line description (optional)
+                </label>
+                <input
+                  id="invoice-custom-desc"
+                  type="text"
+                  value={customDescription}
+                  onChange={(e) => setCustomDescription(e.target.value)}
+                  placeholder="e.g. Progress payment"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  disabled={creating}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateCustom}
+                disabled={creating}
+                className="w-full min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium text-sm"
+              >
+                Create invoice for this amount
+              </button>
+            </div>
           )}
 
           {/* Standard/Full Invoice Option */}
