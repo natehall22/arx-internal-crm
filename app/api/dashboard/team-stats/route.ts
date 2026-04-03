@@ -320,8 +320,9 @@ export async function GET(request: NextRequest) {
         isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
       ).length
 
+      // Sits always attributed to whoever generated the appointment (setter_user_id)
       const sits = (sitOpportunities || []).filter((o) =>
-        isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
+        o.setter_user_id === member.id
       ).length
 
       // ---- CLOSE RATE ----

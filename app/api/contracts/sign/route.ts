@@ -147,22 +147,23 @@ export async function POST(request: NextRequest) {
       if (contract.opportunity_id) {
         const { data: opp } = await supabase
           .from('opportunities')
-          .select('setter_user_id, leads(closer_user_id)')
+          .select('setter_user_id, leads(owner_user_id, closer_user_id)')
           .eq('id', contract.opportunity_id)
           .maybeSingle()
 
-        const closerUserId = Array.isArray(opp?.leads)
-          ? opp.leads[0]?.closer_user_id
-          : (opp?.leads as any)?.closer_user_id ?? null
+        const leadData = Array.isArray(opp?.leads) ? opp.leads[0] : (opp?.leads as any) ?? null
+        const closerUserId = leadData?.closer_user_id ?? null
+        // Fall back to lead.owner_user_id for older records where setter_user_id was not populated
+        const resolvedSetterUserId = opp?.setter_user_id ?? leadData?.owner_user_id ?? null
 
-        const userIds = [opp?.setter_user_id, closerUserId].filter(Boolean) as string[]
+        const userIds = [resolvedSetterUserId, closerUserId].filter(Boolean) as string[]
         if (userIds.length > 0) {
           const { data: salesUsers } = await supabase
             .from('users')
             .select('id, full_name')
             .in('id', userIds)
           const userMap = Object.fromEntries((salesUsers || []).map((u: { id: string; full_name: string }) => [u.id, u.full_name]))
-          if (opp?.setter_user_id) setterName = userMap[opp.setter_user_id] ?? null
+          if (resolvedSetterUserId) setterName = userMap[resolvedSetterUserId] ?? null
           if (closerUserId) closerName = userMap[closerUserId] ?? null
         }
       }

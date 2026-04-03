@@ -48,24 +48,28 @@ export default async function OpportunityDetailPage({
     : null
   const closerUserIdFromLead = leadRow?.closer_user_id ?? null
 
+  // Setter: opportunity.setter_user_id is source of truth.
+  // Fall back to lead.owner_user_id for older records where setter_user_id was not populated.
+  const setterUserId = opportunity.setter_user_id ?? leadRow?.owner_user_id ?? null
+
   const repLikeRoles = ['rep', 'sales_rep', 'closer'] as const
   if (repLikeRoles.includes(profile.role as (typeof repLikeRoles)[number])) {
     const isOwner = opportunity.owner_user_id === profile.id
-    const isSetter = opportunity.setter_user_id === profile.id
+    const isSetter = setterUserId === profile.id
     const isLeadCloser = closerUserIdFromLead === profile.id
     if (!isOwner && !isSetter && !isLeadCloser) {
       notFound()
     }
   }
 
-  // Fetch setter info if setter_user_id exists
+  // Fetch setter info
   let setter = null
-  if (opportunity.setter_user_id) {
+  if (setterUserId) {
     const { data: setterData } = await supabase
       .from('users')
       .select('id, full_name, email')
-      .eq('id', opportunity.setter_user_id)
-      .single()
+      .eq('id', setterUserId)
+      .maybeSingle()
     setter = setterData
   }
 
