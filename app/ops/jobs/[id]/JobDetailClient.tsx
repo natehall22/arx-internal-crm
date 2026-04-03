@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -156,7 +156,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
   const [autoCollecting, setAutoCollecting] = useState(false)
   const openCostAttachmentShortcutRef = useRef<(() => void) | null>(null)
-  
+  const registerOpenCostAttachmentShortcut = useCallback((openPicker: (() => void) | null) => {
+    openCostAttachmentShortcutRef.current = openPicker
+  }, [])
+  // Mobile tab navigation (lg+ always shows all sections)
+  const [mobileTab, setMobileTab] = useState<'overview' | 'scope' | 'costs' | 'photos' | 'notes'>('overview')
+
   // Mention/tagging state
   const [orgUsers, setOrgUsers] = useState<OrgUser[]>([])
   const [showMentionDropdown, setShowMentionDropdown] = useState(false)
@@ -183,6 +188,22 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
     }
     loadPayments()
   }, [job.id, canViewJobBilling])
+
+  // On mobile: deep links / hash → correct tab (initial load + client-side hash changes)
+  useEffect(() => {
+    const applyHashToTab = () => {
+      if (typeof window === 'undefined' || window.innerWidth >= 1024) return
+      const hash = window.location.hash
+      if (hash === '#payments-section' || hash === '#invoices-section' || hash === '#materials-section') {
+        setMobileTab('costs')
+      } else if (hash === '#job-files-workspace-section') {
+        setMobileTab('photos')
+      }
+    }
+    applyHashToTab()
+    window.addEventListener('hashchange', applyHashToTab)
+    return () => window.removeEventListener('hashchange', applyHashToTab)
+  }, [])
 
   useEffect(() => {
     const loadMaterialOrdersTotal = async () => {
@@ -583,11 +604,20 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
 
   const handleAttachReceiptInvoiceShortcut = () => {
-    openCostAttachmentShortcutRef.current?.()
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
 
-    const workspaceEl = document.getElementById('job-files-workspace-section')
-    if (workspaceEl) {
-      workspaceEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (isMobile) {
+      // Show Photos tab first so JobFileWorkspaceCard (and file input) are in the layout — then open picker + scroll
+      setMobileTab('photos')
+      setTimeout(() => {
+        openCostAttachmentShortcutRef.current?.()
+        const workspaceEl = document.getElementById('job-files-workspace-section')
+        if (workspaceEl) workspaceEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+    } else {
+      openCostAttachmentShortcutRef.current?.()
+      const workspaceEl = document.getElementById('job-files-workspace-section')
+      if (workspaceEl) workspaceEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }
 
@@ -691,6 +721,31 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 {materials.label}
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Mobile tab bar — hidden on desktop */}
+        <div className="lg:hidden bg-white border rounded-xl shadow-sm mb-4 overflow-hidden">
+          <div className="flex">
+            {([
+              { key: 'overview', label: 'Overview' },
+              { key: 'scope',    label: 'Details' },
+              { key: 'costs',    label: 'Materials' },
+              { key: 'photos',   label: 'Photos' },
+              { key: 'notes',    label: 'Notes' },
+            ] as const).map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setMobileTab(tab.key)}
+                className={`flex-1 py-3 text-xs font-medium border-b-2 transition-colors ${
+                  mobileTab === tab.key
+                    ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -801,36 +856,39 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               </div>
             </div>
 
-            <OperationsSnapshotCard
-              project={job.project}
-              headerAction={
-                job.project_id ? (
-                  <Link
-                    href={`/projects/${job.project_id}`}
-                    className="text-sm font-medium text-indigo-600 hover:text-indigo-800 shrink-0"
-                  >
-                    View project →
-                  </Link>
-                ) : undefined
-              }
-            />
+            {/* SCOPE TAB */}
+            <div className={mobileTab !== 'scope' ? 'hidden lg:block' : undefined}>
+              <OperationsSnapshotCard
+                project={job.project}
+                headerAction={
+                  job.project_id ? (
+                    <Link
+                      href={`/projects/${job.project_id}`}
+                      className="text-sm font-medium text-indigo-600 hover:text-indigo-800 shrink-0"
+                    >
+                      View project →
+                    </Link>
+                  ) : undefined
+                }
+              />
 
-            {/* Sold Scope + Job Packet - What was sold (from accepted proposal) */}
-            <SoldScopeCard 
-              projectId={job.project_id}
-              acceptedProposalId={job.accepted_proposal_id}
-              acceptedEstimateId={job.accepted_estimate_id}
-              linkedProposalId={job.linked_proposal_id}
-              opportunityId={job.opportunity_id}
-              jobId={job.id}
-              orgId={job.org_id}
-              showJobPacketButton={true}
-              jobScopeOfWork={job.project?.scope_of_work || null}
-              jobMaterialsNotes={job.materials_notes}
-            />
+              {/* Sold Scope + Job Packet - What was sold (from accepted proposal) */}
+              <SoldScopeCard
+                projectId={job.project_id}
+                acceptedProposalId={job.accepted_proposal_id}
+                acceptedEstimateId={job.accepted_estimate_id}
+                linkedProposalId={job.linked_proposal_id}
+                opportunityId={job.opportunity_id}
+                jobId={job.id}
+                orgId={job.org_id}
+                showJobPacketButton={true}
+                jobScopeOfWork={job.project?.scope_of_work || null}
+                jobMaterialsNotes={job.materials_notes}
+              />
+            </div>
 
-            {/* Materials / Labor / Product Orders */}
-            <div id="materials-section">
+            {/* COSTS TAB */}
+            <div id="materials-section" className={mobileTab !== 'costs' ? 'hidden lg:block' : undefined}>
               <JobMaterialsCard
                 jobId={job.id}
                 userRole={userRole}
@@ -849,17 +907,17 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               />
             </div>
 
-            <div id="job-files-workspace-section">
+            {/* PHOTOS & FILES TAB */}
+            <div id="job-files-workspace-section" className={mobileTab !== 'photos' ? 'hidden lg:block' : undefined}>
               <JobFileWorkspaceCard
                 jobId={job.id}
                 userRole={userRole}
-                registerOpenCostAttachmentShortcut={(openPicker) => {
-                  openCostAttachmentShortcutRef.current = openPicker
-                }}
+                registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
               />
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+            {/* NOTES TAB */}
+            <div className={`bg-white rounded-xl shadow-sm border p-4 sm:p-6 ${mobileTab !== 'notes' ? 'hidden lg:block' : ''}`}>
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
               
               {/* Add new note */}
@@ -930,6 +988,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
           </div>
 
           <div className="space-y-4 sm:space-y-6">
+            {/* OVERVIEW TAB — Schedule, Assignment, Customer */}
+            <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Schedule</h2>
               {job.scheduled_date ? (
@@ -1040,6 +1100,10 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               )}
             </div>
 
+            </div>{/* end overview tab wrapper */}
+
+            {/* COSTS TAB — Financials, Payments, Invoices, Work Orders */}
+            <div className={mobileTab !== 'costs' ? 'hidden lg:block' : undefined}>
             {canViewFinancials && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Financials</h2>
@@ -1126,8 +1190,15 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
             )}
 
             <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
+            </div>{/* end costs tab wrapper */}
 
+            {/* PHOTOS TAB — Final Photos */}
+            <div className={mobileTab !== 'photos' ? 'hidden lg:block' : undefined}>
             <FinalPhotosCard jobId={job.id} projectId={job.project_id} orgId={job.org_id} />
+            </div>{/* end photos tab wrapper */}
+
+            {/* OVERVIEW TAB — Permit + Related (below photos on desktop) */}
+            <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
 
             {job.permit_required && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
@@ -1202,10 +1273,11 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 )}
               </div>
             </div>
+            </div>{/* end overview tab wrapper (permit + related) */}
 
-            {/* Mobile-only: Admin delete button */}
+            {/* NOTES TAB — Mobile delete (admin) */}
             {userRole === 'admin' && (
-              <div className="lg:hidden">
+              <div className={`lg:hidden ${mobileTab !== 'notes' ? 'hidden' : ''}`}>
                 <button
                   onClick={deleteJob}
                   disabled={deleting}

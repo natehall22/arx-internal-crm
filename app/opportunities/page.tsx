@@ -77,6 +77,7 @@ export default function OpportunitiesPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterInspectionOutcome, setFilterInspectionOutcome] = useState('')
   const [filterProjectType, setFilterProjectType] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
   const [inspectionOutcomeRows, setInspectionOutcomeRows] = useState<InspectionOutcomeConfigRow[]>(() =>
     sortInspectionOutcomes([...DEFAULT_INSPECTION_OUTCOMES], { includeInactive: true })
   )
@@ -182,32 +183,43 @@ export default function OpportunitiesPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Opportunities</h1>
-            <p className="text-gray-500 mt-1">{filteredOpportunities.length} opportunities</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Opportunities</h1>
+            <p className="text-gray-500 mt-1 text-sm">{filteredOpportunities.length} opportunities</p>
           </div>
+          {/* Mobile filter toggle */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="md:hidden flex items-center gap-1.5 px-3 py-2 bg-white border rounded-lg text-sm text-gray-700 shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+            </svg>
+            Filters
+            {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-indigo-600 ml-0.5" />}
+          </button>
         </div>
 
-        {/* Filters */}
-        <div className="bg-white shadow rounded-lg p-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+        {/* Filters — always visible on desktop, toggleable on mobile */}
+        <div className={`bg-white shadow rounded-lg p-4 mb-4 sm:mb-6 ${showFilters ? 'block' : 'hidden'} md:block`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+            <div className="sm:col-span-2 lg:col-span-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
               <input
                 type="text"
                 placeholder="Name, address..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Statuses</option>
                 <option value="open">Open</option>
@@ -218,11 +230,11 @@ export default function OpportunitiesPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Inspection Result</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Inspection Result</label>
               <select
                 value={filterInspectionOutcome}
                 onChange={(e) => setFilterInspectionOutcome(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Results</option>
                 <option value="none">No Inspection Yet</option>
@@ -242,11 +254,11 @@ export default function OpportunitiesPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Project Type</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Project Type</label>
               <select
                 value={filterProjectType}
                 onChange={(e) => setFilterProjectType(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Types</option>
                 <option value="roofing">Roofing</option>
@@ -259,7 +271,7 @@ export default function OpportunitiesPage() {
               {hasActiveFilters && (
                 <button
                   onClick={clearFilters}
-                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                  className="w-full sm:w-auto px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Clear Filters
                 </button>
@@ -279,59 +291,68 @@ export default function OpportunitiesPage() {
             <div className="p-8 text-center text-gray-500">Loading opportunities...</div>
           ) : (
             <>
-              {/* Mobile cards */}
-              <div className="md:hidden divide-y divide-gray-200">
+              {/* Mobile cards — full card is tappable */}
+              <div className="md:hidden divide-y divide-gray-100">
                 {filteredOpportunities.length > 0 ? (
                   filteredOpportunities.map((opportunity) => {
                     const outcomeInfo = getInspectionOutcomeDisplay(
                       opportunity.inspection_outcome,
                       outcomeLookup
                     )
+                    const customerName = opportunity.leads?.homeowner_name || opportunity.customers?.name || 'Unknown'
                     return (
-                      <div key={opportunity.id} className="p-4">
-                        <div className="text-sm font-semibold text-gray-900">
-                          {opportunity.leads?.homeowner_name || opportunity.customers?.name || 'N/A'}
-                        </div>
-                        <div className="text-sm text-gray-600 mt-1 break-words">{opportunity.address_text || 'N/A'}</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
-                            {opportunity.project_type}
-                          </span>
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
+                      <Link
+                        key={opportunity.id}
+                        href={`/opportunities/${opportunity.id}`}
+                        className="block px-4 py-4 hover:bg-gray-50 active:bg-gray-100 transition"
+                      >
+                        {/* Name + status badge */}
+                        <div className="flex items-start justify-between gap-3 mb-1">
+                          <p className="font-semibold text-gray-900 text-base leading-snug">{customerName}</p>
+                          <span className={`shrink-0 px-2.5 py-0.5 text-xs font-semibold rounded-full capitalize ${
                             statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
                           }`}>
                             {opportunity.status.replace(/_/g, ' ')}
                           </span>
+                        </div>
+
+                        {/* Address */}
+                        <p className="text-sm text-gray-500 mb-2 truncate">{opportunity.address_text || 'No address'}</p>
+
+                        {/* Type + inspection outcome */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600 capitalize">
+                            {opportunity.project_type}
+                          </span>
                           {outcomeInfo ? (
                             <span
-                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                outcomeInfo.style ? '' : outcomeInfo.color
-                              }`}
+                              className={`px-2 py-0.5 text-xs font-medium rounded-full ${outcomeInfo.style ? '' : outcomeInfo.color}`}
                               style={outcomeInfo.style}
                             >
                               {outcomeInfo.label}
                             </span>
                           ) : (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600">
-                              No Inspection
+                            <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-50 text-yellow-700 font-medium">
+                              No inspection yet
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-500 mt-2">Assigned: {opportunity.users?.full_name || 'Unassigned'}</div>
-                        <div className="mt-3">
-                          <Link
-                            href={`/opportunities/${opportunity.id}`}
-                            className="inline-flex min-h-[40px] items-center px-3 py-2 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm font-medium"
-                          >
-                            View
-                          </Link>
-                        </div>
-                      </div>
+
+                        {/* Assigned rep */}
+                        {opportunity.users?.full_name && (
+                          <p className="text-xs text-gray-400 mt-2">{opportunity.users.full_name}</p>
+                        )}
+                      </Link>
                     )
                   })
                 ) : (
-                  <div className="px-6 py-8 text-center text-gray-500">
-                    {hasActiveFilters ? 'No opportunities match your filters' : 'No opportunities found'}
+                  <div className="px-6 py-10 text-center text-gray-500">
+                    <p className="text-sm">{hasActiveFilters ? 'No opportunities match your filters' : 'No opportunities found'}</p>
+                    {hasActiveFilters && (
+                      <button onClick={clearFilters} className="mt-2 text-indigo-600 text-sm hover:underline">
+                        Clear filters
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

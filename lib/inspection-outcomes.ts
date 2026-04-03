@@ -7,6 +7,8 @@ export interface InspectionOutcomeConfigRow {
   icon: string
   active: boolean
   converts_to_opportunity: boolean
+  /** When true, opportunities with this inspection_outcome count toward Team Stats "Sits". */
+  counts_as_sit?: boolean
   sort_order: number
 }
 
@@ -30,6 +32,7 @@ export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
     icon: '→',
     active: true,
     converts_to_opportunity: true,
+    counts_as_sit: true,
     sort_order: 1,
   },
   {
@@ -114,6 +117,25 @@ export function normalizeInspectionOutcomeId(id: string | null | undefined): str
     .trim()
     .toLowerCase()
     .replace(/-/g, '_')
+}
+
+/** Normalized outcome ids that count as a "sit" for Team Stats (admin Inspection outcomes). */
+export function getSitOutcomeNormalizedIdSet(
+  orgRows: InspectionOutcomeConfigRow[] | null | undefined
+): Set<string> {
+  const rows =
+    Array.isArray(orgRows) && orgRows.length > 0 ? orgRows : DEFAULT_INSPECTION_OUTCOMES
+  const set = new Set<string>()
+  for (const o of rows) {
+    if (o.active === false) continue
+    const idNorm = normalizeInspectionOutcomeId(o.id)
+    const countsAsSit =
+      o.counts_as_sit === true ||
+      (o.counts_as_sit === undefined && idNorm === 'moving_to_close')
+    if (!countsAsSit) continue
+    set.add(idNorm)
+  }
+  return set
 }
 
 /** True when id matches the built-in moving-to-close outcome after normalization. */

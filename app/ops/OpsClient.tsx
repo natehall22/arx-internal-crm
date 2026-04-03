@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -93,6 +93,13 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const [crews] = useState<Crew[]>(initialCrews)
   const [subs] = useState<SubContractor[]>(initialSubs)
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
+
+  // Default to list view on mobile — board's 5 columns stack awkwardly on small screens
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setViewMode('list')
+    }
+  }, [])
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [snapshotJob, setSnapshotJob] = useState<Job | null>(null)
@@ -257,45 +264,25 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
 
   const JobCard = ({ job }: { job: Job }) => {
     const priority = priorityConfig[job.priority] || priorityConfig.normal
-    const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
-    const profitability = getProfitability(job)
     const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
     const hasOpsSnapshot = hasOperationsSnapshotData(job.project ?? null)
 
-    // Status indicators
     const needsMaterials = job.materials_status === 'not_ordered'
     const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
     const isPastDue = job.scheduled_date && new Date(job.scheduled_date + 'T23:59:59') < new Date() && job.status !== 'complete' && job.status !== 'collected'
-    // Note: For balance check, we'd need payment data. For now, show on complete status without collected
-    const mayHaveBalance = job.status === 'complete'
 
     return (
-      <div 
-        className="group bg-white rounded-lg border shadow-sm p-4 hover:shadow-md transition cursor-pointer relative"
+      <div
+        className="bg-white rounded-lg border shadow-sm p-3.5 hover:shadow-md transition cursor-pointer"
         onClick={() => router.push(`/ops/jobs/${job.id}`)}
       >
-        {/* Status Indicator Dots */}
-        <div className="absolute top-2 right-2 flex gap-1">
-          {needsMaterials && (
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500" title="Materials not ordered" />
-          )}
-          {needsCrew && (
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" title="No crew assigned" />
-          )}
-          {isPastDue && (
-            <div className="w-2.5 h-2.5 rounded-full bg-orange-500" title="Past scheduled date" />
-          )}
-          {mayHaveBalance && (
-            <div className="w-2.5 h-2.5 rounded-full bg-purple-500" title="Check balance" />
-          )}
-        </div>
-
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex items-center gap-2">
-            {priority.icon && <span>{priority.icon}</span>}
-            <span className="text-xs font-mono text-gray-500">{job.job_number}</span>
+        {/* Job number + type badge */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            {priority.icon && <span className="text-sm">{priority.icon}</span>}
+            <span className="text-xs font-mono text-gray-400">{job.job_number}</span>
           </div>
-          <span className={`text-xs px-2 py-0.5 rounded-full mr-6 ${
+          <span className={`text-xs px-2 py-0.5 rounded-full ${
             job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
             job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
             job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
@@ -305,167 +292,122 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           </span>
         </div>
 
-        <div className="mb-3">
+        {/* Customer + address — primary identity */}
+        <div className="mb-2.5">
           {job.customer?.name && (
-            <div className="font-medium text-gray-900 truncate">{job.customer.name}</div>
+            <div className="font-semibold text-gray-900 truncate">{job.customer.name}</div>
           )}
-          <div className="text-sm text-gray-500 truncate">{job.address_text}</div>
+          <div className="text-xs text-gray-500 truncate">{job.address_text}</div>
         </div>
 
+        {/* Alert badges — text only, no cryptic dots */}
+        {(needsMaterials || needsCrew || isPastDue) && (
+          <div className="flex flex-wrap gap-1 mb-2.5">
+            {isPastDue && (
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 font-medium">Overdue</span>
+            )}
+            {needsMaterials && (
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">Materials needed</span>
+            )}
+            {needsCrew && (
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 font-medium">No crew</span>
+            )}
+          </div>
+        )}
+
+        {/* Ops snapshot / sales handoff */}
         {(handoffPreview || hasOpsSnapshot) && (
-          <div className="mb-3 rounded-md border border-indigo-100 bg-indigo-50/80 px-2.5 py-2">
+          <div className="mb-2.5 rounded-md border border-indigo-100 bg-indigo-50/80 px-2.5 py-2">
             {handoffPreview && (
-              <>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Sales handoff</p>
-                <p className="text-xs text-gray-700 line-clamp-4 mt-0.5 leading-snug">{handoffPreview}</p>
-              </>
+              <p className="text-xs text-gray-700 line-clamp-2 leading-snug">{handoffPreview}</p>
             )}
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setSnapshotJob(job)
-              }}
-              className={`text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-2' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setSnapshotJob(job) }}
+              className={`text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-1.5 block' : ''}`}
             >
-              Full operations snapshot
+              Operations snapshot
             </button>
           </div>
         )}
 
-        <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
+        {/* Crew + sale amount */}
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {job.assigned_crew && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full truncate max-w-[120px]"
+                style={{ backgroundColor: `${job.assigned_crew.color}20`, color: job.assigned_crew.color }}
+              >
+                {job.assigned_crew.name}
+              </span>
+            )}
+            {job.assigned_sub && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 truncate max-w-[120px]">
+                Sub: {job.assigned_sub.company_name}
+              </span>
+            )}
+            {!job.assigned_crew && !job.assigned_sub && (
+              <span className="text-xs text-gray-400">No crew assigned</span>
+            )}
+          </div>
           {job.sale_amount && (
-            <span className="font-medium text-gray-700">
+            <span className="text-xs font-semibold text-gray-700 shrink-0 ml-2">
               ${job.sale_amount.toLocaleString()}
             </span>
           )}
-          <span className={materials.color}>{materials.label}</span>
         </div>
 
-        {canViewProfitability && (
-          <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Profitability</p>
-            <div className="grid grid-cols-3 gap-2 text-[11px]">
-              <div>
-                <p className="text-gray-500">Revenue</p>
-                <p className="font-semibold text-gray-800">${profitability.revenue.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-gray-500">Costs</p>
-                <p className="font-semibold text-gray-800">
-                  {profitability.hasCompleteCosts ? `$${profitability.directCosts.toLocaleString()}` : 'Incomplete'}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-500">Profit</p>
-                <p className={`font-semibold ${profitability.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                  {profitability.hasCompleteCosts
-                    ? `$${profitability.profit.toLocaleString()}`
-                    : 'TBD'}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(job.assigned_crew || job.assigned_sub) && (
-          <div className="flex items-center gap-2 mb-3">
-            {job.assigned_crew && (
-              <div 
-                className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs"
-                style={{ backgroundColor: `${job.assigned_crew.color}20`, color: job.assigned_crew.color }}
-              >
-                <div 
-                  className="w-2 h-2 rounded-full" 
-                  style={{ backgroundColor: job.assigned_crew.color }}
-                />
-                {job.assigned_crew.name}
-              </div>
-            )}
-            {job.assigned_sub && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-700">
-                <span>Sub:</span> {job.assigned_sub.company_name}
-              </div>
-            )}
-          </div>
-        )}
-
+        {/* Scheduled date */}
         {job.scheduled_date && (
-          <div className={`text-xs font-medium ${isPastDue ? 'text-orange-600' : 'text-indigo-600'}`}>
-            📅 {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { 
-              weekday: 'short', 
-              month: 'short', 
-              day: 'numeric',
-              timeZone: 'America/New_York'
+          <div className={`text-xs font-medium mb-2.5 ${isPastDue ? 'text-orange-600' : 'text-indigo-600'}`}>
+            📅 {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
+              weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York',
             })}
-            {isPastDue && <span className="ml-1 text-orange-600">(overdue)</span>}
+            {isPastDue && ' · overdue'}
           </div>
         )}
 
-        {/* Default Actions */}
-        <div className="flex gap-2 mt-3 pt-3 border-t group-hover:hidden">
+        {/* Action buttons — always visible, touch-friendly, no hover swap */}
+        <div className="flex flex-wrap gap-1.5 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
           {job.status === 'sold' && (
             <button
-              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'materials'); }}
-              className="flex-1 text-xs py-1.5 px-2 bg-amber-50 text-amber-600 rounded hover:bg-amber-100"
+              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'materials') }}
+              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-amber-50 text-amber-700 rounded-lg font-medium hover:bg-amber-100 border border-amber-200"
             >
               Start Materials
             </button>
           )}
+          {needsMaterials && job.status === 'materials' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); updateMaterialsStatus(job.id, 'ordered') }}
+              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-red-50 text-red-700 rounded-lg font-medium hover:bg-red-100 border border-red-200"
+            >
+              Mark Ordered
+            </button>
+          )}
           <button
-            onClick={(e) => { e.stopPropagation(); openScheduleModal(job); }}
-            className="flex-1 text-xs py-1.5 px-2 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100"
+            onClick={(e) => { e.stopPropagation(); openScheduleModal(job) }}
+            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
           >
             {job.scheduled_date ? 'Reschedule' : 'Schedule'}
           </button>
           {job.status === 'scheduled' && (
             <button
-              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'in_progress'); }}
-              className="flex-1 text-xs py-1.5 px-2 bg-green-50 text-green-600 rounded hover:bg-green-100"
+              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'in_progress') }}
+              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
             >
               Start Job
             </button>
           )}
           {job.status === 'in_progress' && (
             <button
-              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'complete'); }}
-              className="flex-1 text-xs py-1.5 px-2 bg-green-50 text-green-600 rounded hover:bg-green-100"
+              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'complete') }}
+              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
             >
               Mark Complete
             </button>
           )}
-        </div>
-
-        {/* Hover Quick Actions */}
-        <div className="hidden group-hover:flex gap-1 mt-3 pt-3 border-t flex-wrap">
-          {needsCrew && (
-            <button
-              onClick={(e) => { e.stopPropagation(); openScheduleModal(job); }}
-              className="text-xs py-1 px-2 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100"
-            >
-              Assign Crew
-            </button>
-          )}
-          {needsMaterials && (
-            <button
-              onClick={(e) => { e.stopPropagation(); updateMaterialsStatus(job.id, 'ordered'); }}
-              className="text-xs py-1 px-2 bg-red-50 text-red-700 rounded hover:bg-red-100"
-            >
-              Mark Materials Ordered
-            </button>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); router.push(`/ops/jobs/${job.id}#payments-section`); }}
-            className="text-xs py-1 px-2 bg-purple-50 text-purple-700 rounded hover:bg-purple-100"
-          >
-            Add Payment
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); openScheduleModal(job); }}
-            className="text-xs py-1 px-2 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100"
-          >
-            {job.scheduled_date ? 'Reschedule' : 'Schedule'}
-          </button>
         </div>
       </div>
     )
@@ -616,70 +558,69 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         {viewMode === 'list' && (
           <>
             <div className="md:hidden space-y-3">
-              {jobs.filter(job => {
-                return matchesActiveFilters(job)
-              }).map(job => {
+              {filteredActiveJobs.map((job) => {
                 const config = statusConfig[job.status]
-                const profitability = getProfitability(job)
-                const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
+                const isPastDue = job.scheduled_date && new Date(job.scheduled_date + 'T23:59:59') < new Date() && job.status !== 'complete' && job.status !== 'collected'
+                const needsMaterials = job.materials_status === 'not_ordered'
                 return (
-                  <div key={job.id} className="bg-white rounded-lg border p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-mono text-sm text-gray-900">{job.job_number}</p>
-                        <p className="text-sm text-gray-700">{job.customer?.name || '-'}</p>
-                        <p className="text-xs text-gray-500 truncate">{job.address_text}</p>
-                        {handoffPreview && (
-                          <p className="text-xs text-indigo-900 mt-2 line-clamp-3 bg-indigo-50/80 border border-indigo-100 rounded px-2 py-1.5">
-                            <span className="font-semibold text-indigo-700">Handoff: </span>
-                            {handoffPreview}
-                          </p>
-                        )}
+                  <div key={job.id} className="bg-white rounded-xl border shadow-sm p-4">
+                    {/* Customer + status */}
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 truncate text-base">
+                          {job.customer?.name || 'Unknown customer'}
+                        </p>
+                        <p className="text-sm text-gray-500 truncate">{job.address_text}</p>
                       </div>
-                      <span className={`text-xs px-2 py-1 rounded-full ${config.bgColor} ${config.color}`}>
+                      <span className={`shrink-0 text-xs px-2 py-1 rounded-full ${config.bgColor} ${config.color}`}>
                         {config.label}
                       </span>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <p className="text-gray-500">Value</p>
-                        <p className="font-semibold text-gray-900">{job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Scheduled</p>
-                        <p className="font-semibold text-gray-900">
-                          {job.scheduled_date
-                            ? new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
-                            : '-'}
-                        </p>
-                      </div>
+
+                    {/* Job number + type */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xs font-mono text-gray-400">{job.job_number}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
+                        job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
+                        job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>{job.job_type}</span>
                     </div>
-                    {canViewProfitability && (
-                      <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-2.5">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Profitability</p>
-                        <div className="grid grid-cols-3 gap-2 text-[11px]">
-                          <div>
-                            <p className="text-gray-500">Revenue</p>
-                            <p className="font-semibold text-gray-800">${profitability.revenue.toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500">Costs</p>
-                            <p className="font-semibold text-gray-800">
-                              {profitability.hasCompleteCosts ? `$${profitability.directCosts.toLocaleString()}` : 'Incomplete'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500">Profit</p>
-                            <p className={`font-semibold ${profitability.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                              {profitability.hasCompleteCosts ? `$${profitability.profit.toLocaleString()}` : 'TBD'}
-                            </p>
-                          </div>
-                        </div>
+
+                    {/* Alerts */}
+                    {(isPastDue || needsMaterials) && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {isPastDue && <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 font-medium">Overdue</span>}
+                        {needsMaterials && <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">Materials needed</span>}
                       </div>
                     )}
-                    <div className="mt-3 flex justify-end">
-                      <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
-                        View Job
+
+                    {/* Crew + date */}
+                    <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
+                      <span className="truncate">
+                        {job.assigned_crew?.name || job.assigned_sub?.company_name || 'No crew assigned'}
+                      </span>
+                      <span className={`shrink-0 ml-2 font-medium ${isPastDue ? 'text-orange-600' : 'text-gray-700'}`}>
+                        {job.scheduled_date
+                          ? new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' })
+                          : 'Not scheduled'}
+                      </span>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-2 pt-3 border-t">
+                      <button
+                        onClick={() => openScheduleModal(job)}
+                        className="flex-1 min-h-[44px] text-sm py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg font-medium border border-indigo-200 hover:bg-indigo-100"
+                      >
+                        {job.scheduled_date ? 'Reschedule' : 'Schedule'}
+                      </button>
+                      <Link
+                        href={`/ops/jobs/${job.id}`}
+                        className="flex-1 min-h-[44px] flex items-center justify-center text-sm text-indigo-600 font-medium border border-indigo-200 rounded-lg hover:bg-indigo-50"
+                      >
+                        View Job →
                       </Link>
                     </div>
                   </div>

@@ -244,11 +244,97 @@ export default async function OpportunityDetailPage({
     revalidatePath(`/opportunities/${params.id}`)
   }
 
+  // Compute "next step" guidance server-side based on current state
+  const opportunityStatusColors: Record<string, string> = {
+    open: 'bg-blue-100 text-blue-800',
+    in_progress: 'bg-purple-100 text-purple-800',
+    negotiation: 'bg-orange-100 text-orange-800',
+    won: 'bg-green-100 text-green-800',
+    lost: 'bg-red-100 text-red-800',
+  }
+  const opportunityStatusBand: Record<string, string> = {
+    open: 'bg-blue-400',
+    in_progress: 'bg-purple-500',
+    negotiation: 'bg-orange-400',
+    won: 'bg-green-500',
+    lost: 'bg-red-400',
+  }
+
+  type NextStep = { icon: string; title: string; body: string; bg: string; titleColor: string }
+  let nextStep: NextStep | null = null
+
+  if (opportunity.status === 'won') {
+    nextStep = { icon: '🎉', title: 'Deal Won!', body: 'Check the Job Board to track production progress.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800' }
+  } else if (opportunity.status === 'lost') {
+    nextStep = { icon: '📋', title: 'Marked as Lost', body: 'You can still follow up or reopen this opportunity if the customer comes back.', bg: 'bg-gray-50 border-gray-200', titleColor: 'text-gray-700' }
+  } else if (!opportunity.inspection_outcome) {
+    nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Complete the inspection and submit your results using the feedback form.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800' }
+  } else if (opportunity.inspection_outcome === 'not_home') {
+    nextStep = { icon: '📞', title: 'Customer Was Not Home', body: 'Follow up to reschedule the inspection at a better time.', bg: 'bg-yellow-50 border-yellow-200', titleColor: 'text-yellow-800' }
+  } else if (opportunity.inspection_outcome === 'rescheduled') {
+    nextStep = { icon: '📅', title: 'Inspection Rescheduled', body: 'Confirm the new inspection time with the customer.', bg: 'bg-yellow-50 border-yellow-200', titleColor: 'text-yellow-800' }
+  } else if (opportunity.inspection_outcome === 'said_no') {
+    nextStep = { icon: '💬', title: 'Customer Said No', body: 'Consider following up in a few days, or mark this opportunity as lost.', bg: 'bg-red-50 border-red-200', titleColor: 'text-red-800' }
+  } else if (opportunity.inspection_outcome === 'insurance_follow_up') {
+    nextStep = { icon: '🏢', title: 'Waiting on Insurance', body: "Follow up with the customer on their insurance claim status before moving forward.", bg: 'bg-cyan-50 border-cyan-200', titleColor: 'text-cyan-800' }
+  } else if (opportunity.inspection_outcome === 'needs_repair') {
+    nextStep = { icon: '🔧', title: 'Repairs Needed First', body: 'Discuss repair options with the customer before creating a proposal.', bg: 'bg-orange-50 border-orange-200', titleColor: 'text-orange-800' }
+  } else if (opportunity.inspection_outcome === 'failed_credit') {
+    nextStep = {
+      icon: '💳',
+      title: 'Credit Did Not Qualify',
+      body: 'Follow up with the customer on payment options, or mark the opportunity lost if they are not moving forward.',
+      bg: 'bg-rose-50 border-rose-200',
+      titleColor: 'text-rose-800',
+    }
+  } else if (opportunity.inspection_outcome === 'no_problems_found') {
+    nextStep = {
+      icon: '✅',
+      title: 'No Major Issues Found',
+      body: 'If the homeowner still wants work or an upgrade, create a proposal. Otherwise follow up or close the loop.',
+      bg: 'bg-slate-50 border-slate-200',
+      titleColor: 'text-slate-800',
+    }
+  } else if (opportunity.inspection_outcome === 'sale' || opportunity.inspection_outcome === 'moving_to_close') {
+    if (!proposals || proposals.length === 0) {
+      nextStep = { icon: '📝', title: 'Create a Proposal', body: "Inspection went well — build and send a proposal to move this deal forward.", bg: 'bg-indigo-50 border-indigo-200', titleColor: 'text-indigo-800' }
+    } else if (!acceptedProposal) {
+      nextStep = { icon: '📤', title: 'Waiting for Proposal Acceptance', body: "Follow up with the customer to review and accept the proposal.", bg: 'bg-amber-50 border-amber-200', titleColor: 'text-amber-800' }
+    } else if (!orderFormContracts || orderFormContracts.length === 0) {
+      nextStep = { icon: '✍️', title: 'Proposal Accepted — Create the Contract', body: 'Click "Create Contract" below to generate the order form for the customer to sign.', bg: 'bg-emerald-50 border-emerald-200', titleColor: 'text-emerald-800' }
+    } else {
+      const pendingContract = orderFormContracts.find((c: any) => c.status !== 'completed')
+      if (pendingContract) {
+        nextStep = { icon: '✍️', title: 'Waiting for Customer Signature', body: 'Contract sent — follow up with the customer to get it signed.', bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800' }
+      } else {
+        nextStep = { icon: '📅', title: 'Contract Signed — Schedule the Close', body: 'All paperwork is done. Schedule or confirm the close appointment below.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800' }
+      }
+    }
+  }
+
+  // Any other recorded inspection outcome (unknown IDs, legacy values) — still show guidance
+  if (
+    !nextStep &&
+    opportunity.status !== 'won' &&
+    opportunity.status !== 'lost' &&
+    opportunity.inspection_outcome
+  ) {
+    nextStep = {
+      icon: '📌',
+      title: 'Review and follow up',
+      body: 'Check the inspection details below, then take the next step with your customer (proposal, follow-up, or mark lost if appropriate).',
+      bg: 'bg-gray-50 border-gray-200',
+      titleColor: 'text-gray-800',
+    }
+  }
+
+  const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <div className="mb-4 sm:mb-6">
           <Link
             href="/opportunities"
             className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
@@ -257,92 +343,101 @@ export default async function OpportunityDetailPage({
           </Link>
         </div>
 
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-            <h1 className="text-2xl font-bold text-gray-900">Opportunity</h1>
-            <div className="flex items-center gap-3">
-              <form action={markOpportunityLost}>
-                <button
-                  type="submit"
-                  className="rounded-md border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50"
-                >
-                  Mark Lost
-                </button>
-              </form>
+        {/* Header card — customer name as title */}
+        <div className="bg-white shadow rounded-xl overflow-hidden mb-4 sm:mb-6">
+          {/* Status color band */}
+          <div className={`h-1.5 ${opportunityStatusBand[opportunity.status] || 'bg-gray-300'}`} />
+          <div className="p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">{customerName}</h1>
+                <p className="text-gray-500 mt-0.5 text-sm sm:text-base break-words">{opportunity.address_text || 'No address'}</p>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full capitalize ${
+                    opportunityStatusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {opportunity.status.replace(/_/g, ' ')}
+                  </span>
+                  <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 capitalize">
+                    {opportunity.project_type}
+                  </span>
+                </div>
+              </div>
               {profile.role === 'admin' && (
-                <DeleteOpportunityButton 
-                  opportunityId={params.id} 
-                  customerName={opportunity.leads?.homeowner_name || opportunity.customers?.name}
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Lead</h3>
-              {opportunity.lead_id ? (
-                <Link
-                  href={`/leads/${opportunity.lead_id}`}
-                  className="mt-1 inline-block text-sm font-semibold text-indigo-600 hover:text-indigo-800"
-                >
-                  {opportunity.leads?.homeowner_name || 'View lead'}
-                </Link>
-              ) : (
-                <p className="mt-1 text-sm text-gray-900">
-                  {opportunity.leads?.homeowner_name || 'N/A'}
-                </p>
-              )}
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Status</h3>
-              <p className="mt-1 text-sm text-gray-900 capitalize">
-                {opportunity.status.replace('_', ' ')}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Type</h3>
-              <p className="mt-1 text-sm text-gray-900 capitalize">
-                {opportunity.project_type}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Address</h3>
-              <p className="mt-1 text-sm text-gray-900">{opportunity.address_text || 'N/A'}</p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Setter</h3>
-              <p className="mt-1 text-sm text-gray-900">{setter?.full_name || 'N/A'}</p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Closer</h3>
-              <p className="mt-1 text-sm text-gray-900">{closer?.full_name || 'N/A'}</p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500">Customer</h3>
-              {opportunity.customer_id ? (
-                <Link
-                  href={`/customers/${opportunity.customer_id}`}
-                  className="mt-1 inline-block text-sm font-semibold text-indigo-600 hover:text-indigo-800"
-                >
-                  {opportunity.customers?.name || 'View customer'}
-                </Link>
-              ) : (
-                <div className="mt-1">
-                  <p className="text-sm text-gray-500">Not linked</p>
-                  <LinkCustomerButton sourceType="opportunity" sourceId={opportunity.id} className="mt-1" />
+                <div className="shrink-0">
+                  <DeleteOpportunityButton
+                    opportunityId={params.id}
+                    customerName={customerName}
+                  />
                 </div>
               )}
             </div>
+
+            {/* Info grid — compact */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 pt-4 border-t text-sm">
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Setter</p>
+                <p className="text-gray-900 mt-0.5">{setter?.full_name || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Closer</p>
+                <p className="text-gray-900 mt-0.5">{closer?.full_name || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Customer</p>
+                {opportunity.customer_id ? (
+                  <Link href={`/customers/${opportunity.customer_id}`} className="text-indigo-600 hover:text-indigo-800 mt-0.5 inline-block">
+                    {opportunity.customers?.name || 'View'}
+                  </Link>
+                ) : (
+                  <div className="mt-0.5">
+                    <LinkCustomerButton sourceType="opportunity" sourceId={opportunity.id} className="" />
+                  </div>
+                )}
+              </div>
+              {opportunity.lead_id && (
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Lead</p>
+                  <Link href={`/leads/${opportunity.lead_id}`} className="text-indigo-600 hover:text-indigo-800 mt-0.5 inline-block">
+                    {leadRow?.homeowner_name || 'View lead'}
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* Mark Lost — de-emphasized, at bottom of card */}
+            {opportunity.status !== 'lost' && opportunity.status !== 'won' && (
+              <div className="mt-4 pt-3 border-t flex justify-end">
+                <form action={markOpportunityLost}>
+                  <button
+                    type="submit"
+                    className="text-sm text-gray-400 hover:text-red-600 transition-colors"
+                  >
+                    Mark as Lost
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Next Step Banner */}
+        {nextStep && (
+          <div className={`rounded-xl border p-4 mb-4 sm:mb-6 flex items-start gap-3 ${nextStep.bg}`}>
+            <span className="text-2xl shrink-0">{nextStep.icon}</span>
+            <div>
+              <p className={`font-semibold text-sm sm:text-base ${nextStep.titleColor}`}>{nextStep.title}</p>
+              <p className="text-sm text-gray-600 mt-0.5">{nextStep.body}</p>
+            </div>
+          </div>
+        )}
+
         {/* Canvass Notes Section */}
-        {opportunity.leads?.canvass_notes && (
+        {leadRow?.canvass_notes && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Canvass Notes</h2>
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{opportunity.leads.canvass_notes}</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{leadRow.canvass_notes}</p>
               <p className="text-xs text-gray-500 mt-2">
                 Notes from initial canvass visit
               </p>
@@ -555,7 +650,7 @@ export default async function OpportunityDetailPage({
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Proposals</h2>
             <Link
-              href={`/proposals/builder?opportunity_id=${params.id}&customer_name=${encodeURIComponent(opportunity.leads?.homeowner_name || '')}&customer_address=${encodeURIComponent(opportunity.address_text || '')}`}
+              href={`/proposals/builder?opportunity_id=${params.id}&customer_name=${encodeURIComponent(leadRow?.homeowner_name || '')}&customer_address=${encodeURIComponent(opportunity.address_text || '')}`}
               className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -620,7 +715,7 @@ export default async function OpportunityDetailPage({
               </svg>
               <p className="text-gray-500 text-sm mb-3">No proposals created yet</p>
               <Link
-                href={`/proposals/builder?opportunity_id=${params.id}&customer_name=${encodeURIComponent(opportunity.leads?.homeowner_name || '')}&customer_address=${encodeURIComponent(opportunity.address_text || '')}`}
+                href={`/proposals/builder?opportunity_id=${params.id}&customer_name=${encodeURIComponent(leadRow?.homeowner_name || '')}&customer_address=${encodeURIComponent(opportunity.address_text || '')}`}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
               >
                 Create First Proposal
@@ -636,9 +731,9 @@ export default async function OpportunityDetailPage({
             <CreateContractButton
               opportunityId={params.id}
               proposalId={acceptedProposal?.id}
-              customerName={opportunity.leads?.homeowner_name || opportunity.customers?.name || ''}
-              customerEmail={opportunity.leads?.email || opportunity.customers?.email || ''}
-              customerPhone={opportunity.leads?.phone || opportunity.customers?.phone || ''}
+              customerName={leadRow?.homeowner_name || opportunity.customers?.name || ''}
+              customerEmail={leadRow?.email || opportunity.customers?.email || ''}
+              customerPhone={leadRow?.phone || opportunity.customers?.phone || ''}
               projectAddress={opportunity.address_text || ''}
               projectCost={acceptedProposal?.total || 0}
               totalSquares={opportunity.roof_squares || undefined}

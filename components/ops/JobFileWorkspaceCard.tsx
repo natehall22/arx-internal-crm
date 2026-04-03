@@ -2,6 +2,7 @@
 
 import type { DragEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { fileWithSafeName } from '@/lib/files/storage'
 import { createClientBrowser } from '@/lib/supabase/client'
 
 type PhotoRow = {
@@ -277,7 +278,7 @@ export default function JobFileWorkspaceCard({
       try {
         const formData = new FormData()
         formData.append('photo_tag', photoTag)
-        formData.append('file', file)
+        formData.append('file', fileWithSafeName(file, `photo_${i + 1}`))
 
         const response = await fetch(`/api/ops/jobs/${jobId}/photos`, {
           method: 'POST',
@@ -336,7 +337,7 @@ export default function JobFileWorkspaceCard({
             : file.name.replace(/\.[^.]+$/, '') || file.name
         formData.append('title', baseTitle)
         if (documentDescription) formData.append('description', documentDescription)
-        formData.append('file', file)
+        formData.append('file', fileWithSafeName(file, `document_${i + 1}`))
 
         const response = await fetch(`/api/ops/jobs/${jobId}/documents`, {
           method: 'POST',
@@ -377,11 +378,12 @@ export default function JobFileWorkspaceCard({
     setStatusMessage(null)
     let ok = 0
     let firstError = ''
-    for (const file of files) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
       try {
         const formData = new FormData()
         formData.append('job_cost_line_id', selectedCostLineId)
-        formData.append('file', file)
+        formData.append('file', fileWithSafeName(file, `attachment_${i + 1}`))
 
         const response = await fetch(`/api/ops/jobs/${jobId}/cost-attachments`, {
           method: 'POST',
@@ -415,7 +417,7 @@ export default function JobFileWorkspaceCard({
     setStatusMessage(null)
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', fileWithSafeName(file, 'document'))
 
       const response = await fetch(`/api/ops/jobs/${jobId}/documents/${documentId}/replace`, {
         method: 'POST',

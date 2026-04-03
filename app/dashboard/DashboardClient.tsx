@@ -48,6 +48,8 @@ interface TeamMemberStat {
   doorsKnocked: number
   contacts: number
   inspectionsSet: number
+  /** Inspection outcomes flagged "counts as sit" in admin; attributed like sales */
+  sits: number
   sales: number
   closeRate: string
 }
@@ -626,7 +628,7 @@ export default function DashboardClient({
                           <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-5 gap-2 text-center">
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
                         <div>
                           <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                             {member.doorsKnocked}
@@ -644,6 +646,12 @@ export default function DashboardClient({
                             {member.inspectionsSet}
                           </p>
                           <p className="text-xs text-gray-500">Insp.</p>
+                        </div>
+                        <div>
+                          <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                            {member.sits ?? 0}
+                          </p>
+                          <p className="text-xs text-gray-500">Sits</p>
                         </div>
                         <div>
                           <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
@@ -697,6 +705,14 @@ export default function DashboardClient({
                     </th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <span className="flex items-center justify-center gap-1">
+                        <svg className="w-4 h-4 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        Sits
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-center gap-1">
                         <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
@@ -716,7 +732,7 @@ export default function DashboardClient({
                 <tbody className="divide-y divide-gray-100">
                   {loadingStats ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center">
+                      <td colSpan={8} className="px-4 py-8 text-center">
                         <div className="flex items-center justify-center gap-2 text-gray-500">
                           <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -767,6 +783,11 @@ export default function DashboardClient({
                       <td className="px-4 py-3 text-center">
                         <span className={`text-lg font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
                           {member.inspectionsSet}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                          {member.sits ?? 0}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">

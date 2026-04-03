@@ -9,6 +9,11 @@ import Nav from '@/components/Nav'
 import DashboardClient from './DashboardClient'
 import OpsDashboard from '@/components/dashboard/OpsDashboard'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import {
+  getSitOutcomeNormalizedIdSet,
+  normalizeInspectionOutcomeId,
+  type InspectionOutcomeConfigRow,
+} from '@/lib/inspection-outcomes'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -148,6 +153,38 @@ export default async function DashboardPage() {
     .eq('inspection_outcome', 'sale')
     .gte('inspection_outcome_at', weekStart.toISOString())
     .lt('inspection_outcome_at', weekEnd.toISOString())
+
+  const { data: orgForSits } = await supabase
+    .from('orgs')
+    .select('settings')
+    .eq('id', profile.org_id)
+    .single()
+
+  const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
+    orgForSits?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
+  )
+
+  let sitOpportunities: {
+    owner_user_id: string | null
+    setter_user_id: string | null
+    inspection_outcome: string | null
+  }[] = []
+
+  if (sitOutcomeIdSet.size > 0) {
+    const { data: sitRows } = await supabase
+      .from('opportunities')
+      .select('owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
+      .eq('org_id', profile.org_id)
+      .not('inspection_outcome', 'is', null)
+      .not('inspection_outcome_at', 'is', null)
+      .gte('inspection_outcome_at', weekStart.toISOString())
+      .lt('inspection_outcome_at', weekEnd.toISOString())
+
+    sitOpportunities =
+      (sitRows || []).filter((o) =>
+        sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
+      ) || []
+  }
 
   // Fetch scheduled_appointments created this week for accurate inspection attribution
   // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
@@ -351,6 +388,10 @@ export default async function DashboardPage() {
         const memberSales = (salesOpportunities || []).filter(o =>
           isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
         )
+
+        const sits = (sitOpportunities || []).filter((o) =>
+          isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
+        ).length
         
         // Close rate based on inspections run this week by this closer
         const inspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
@@ -363,14 +404,16 @@ export default async function DashboardPage() {
           doorsKnocked: finalDoors,
           contacts: finalContacts,
           inspectionsSet, // Credit to setter via scheduled_appointments.canvasser_user_id
+          sits,
           sales: memberSales.length, // Credit to closer
           closeRate: closeRate.toFixed(0),
         })
       }
       
-      // Sort by sales, then inspections, then doors
+      // Sort by sales, then sits, then inspections, then doors
       teamMemberStats.sort((a, b) => {
         if (b.sales !== a.sales) return b.sales - a.sales
+        if (b.sits !== a.sits) return b.sits - a.sits
         if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
         return b.doorsKnocked - a.doorsKnocked
       })

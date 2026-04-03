@@ -55,6 +55,8 @@ interface InspectionOutcomeType {
   icon: string
   active: boolean
   converts_to_opportunity: boolean
+  /** When true, counts toward dashboard Team Stats "Sits" for the outcome timestamp window */
+  counts_as_sit?: boolean
   sort_order: number
 }
 
@@ -160,14 +162,14 @@ export default function AdminSettingsPage() {
   
   // Inspection Outcomes
   const [inspectionOutcomes, setInspectionOutcomes] = useState<InspectionOutcomeType[]>([
-    { id: 'sale', label: 'Sale', description: 'Customer signed the contract', color: '#22c55e', icon: '✓', active: true, converts_to_opportunity: true, sort_order: 0 },
-    { id: 'moving_to_close', label: 'Moving to Close', description: 'Customer interested, following up to close', color: '#10b981', icon: '→', active: true, converts_to_opportunity: true, sort_order: 1 },
-    { id: 'insurance_follow_up', label: 'Insurance Follow Up', description: 'Waiting on insurance claim/approval', color: '#8b5cf6', icon: '📋', active: true, converts_to_opportunity: false, sort_order: 2 },
-    { id: 'said_no', label: 'Said No', description: 'Customer declined after presentation', color: '#ef4444', icon: '✗', active: true, converts_to_opportunity: false, sort_order: 3 },
-    { id: 'not_home', label: 'Not Home', description: 'Customer was not present', color: '#f59e0b', icon: '?', active: true, converts_to_opportunity: false, sort_order: 4 },
-    { id: 'no_problems_found', label: 'No Problems Found', description: 'Roof inspection showed no issues', color: '#6b7280', icon: '○', active: true, converts_to_opportunity: false, sort_order: 5 },
-    { id: 'needs_repair', label: 'Needs Repair', description: 'Roof needs repair work, not full replacement', color: '#f97316', icon: '🔧', active: true, converts_to_opportunity: false, sort_order: 6 },
-    { id: 'rescheduled', label: 'Rescheduled', description: 'Appointment moved to new date', color: '#3b82f6', icon: '↻', active: true, converts_to_opportunity: false, sort_order: 7 },
+    { id: 'sale', label: 'Sale', description: 'Customer signed the contract', color: '#22c55e', icon: '✓', active: true, converts_to_opportunity: true, counts_as_sit: false, sort_order: 0 },
+    { id: 'moving_to_close', label: 'Moving to Close', description: 'Customer interested, following up to close', color: '#10b981', icon: '→', active: true, converts_to_opportunity: true, counts_as_sit: true, sort_order: 1 },
+    { id: 'insurance_follow_up', label: 'Insurance Follow Up', description: 'Waiting on insurance claim/approval', color: '#8b5cf6', icon: '📋', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 2 },
+    { id: 'said_no', label: 'Said No', description: 'Customer declined after presentation', color: '#ef4444', icon: '✗', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 3 },
+    { id: 'not_home', label: 'Not Home', description: 'Customer was not present', color: '#f59e0b', icon: '?', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 4 },
+    { id: 'no_problems_found', label: 'No Problems Found', description: 'Roof inspection showed no issues', color: '#6b7280', icon: '○', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 5 },
+    { id: 'needs_repair', label: 'Needs Repair', description: 'Roof needs repair work, not full replacement', color: '#f97316', icon: '🔧', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 6 },
+    { id: 'rescheduled', label: 'Rescheduled', description: 'Appointment moved to new date', color: '#3b82f6', icon: '↻', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 7 },
   ])
   const [editingInspectionOutcome, setEditingInspectionOutcome] = useState<InspectionOutcomeType | null>(null)
   const [showAddInspectionOutcome, setShowAddInspectionOutcome] = useState(false)
@@ -2045,7 +2047,9 @@ export default function AdminSettingsPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Inspection outcomes</h1>
-                  <p className="text-gray-500 mt-1">Configure the outcomes closers can select after an inspection. Control which outcomes automatically create opportunities.</p>
+                  <p className="text-gray-500 mt-1">
+                    Configure the outcomes closers can select after an inspection. Control which outcomes create opportunities and which count as a &quot;Sit&quot; on the dashboard Team Stats leaderboard.
+                  </p>
                 </div>
                 <button
                   onClick={() => {
@@ -2057,6 +2061,7 @@ export default function AdminSettingsPage() {
                       icon: '•',
                       active: true,
                       converts_to_opportunity: false,
+                      counts_as_sit: false,
                       sort_order: inspectionOutcomes.length,
                     })
                     setShowAddInspectionOutcome(true)
@@ -2089,6 +2094,7 @@ export default function AdminSettingsPage() {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Creates Opportunity</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Counts as Sit</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
@@ -2124,6 +2130,25 @@ export default function AdminSettingsPage() {
                             }`}
                           >
                             {outcome.converts_to_opportunity ? '✓ Yes' : 'No'}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectionOutcomes((prev) =>
+                                prev.map((o) =>
+                                  o.id === outcome.id ? { ...o, counts_as_sit: !o.counts_as_sit } : o
+                                )
+                              )
+                            }}
+                            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                              outcome.counts_as_sit
+                                ? 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                          >
+                            {outcome.counts_as_sit ? '✓ Yes' : 'No'}
                           </button>
                         </td>
                         <td className="px-4 py-3">
@@ -2267,6 +2292,26 @@ export default function AdminSettingsPage() {
                         <label htmlFor="outcome-converts" className="text-sm text-gray-700">
                           <span className="font-medium">Creates Opportunity</span>
                           <p className="text-gray-500 text-xs mt-0.5">When selected, this outcome will automatically convert the lead to an opportunity</p>
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 bg-cyan-50 rounded-lg border border-cyan-200">
+                        <input
+                          type="checkbox"
+                          id="outcome-sit"
+                          checked={!!editingInspectionOutcome.counts_as_sit}
+                          onChange={(e) =>
+                            setEditingInspectionOutcome((prev) =>
+                              prev ? { ...prev, counts_as_sit: e.target.checked } : null
+                            )
+                          }
+                          className="w-5 h-5 rounded border-gray-300 text-cyan-600"
+                        />
+                        <label htmlFor="outcome-sit" className="text-sm text-gray-700">
+                          <span className="font-medium">Counts as Sit (Team Stats)</span>
+                          <p className="text-gray-500 text-xs mt-0.5">
+                            When a closer selects this outcome, it increments the Sits column on the dashboard leaderboard
+                            for the time period when the outcome was recorded.
+                          </p>
                         </label>
                       </div>
                       <div className="flex items-center gap-3">

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getDateRangeForTimeFrame, getDateRangeWithDebug } from '@/lib/date-ranges'
+import {
+  getSitOutcomeNormalizedIdSet,
+  normalizeInspectionOutcomeId,
+  type InspectionOutcomeConfigRow,
+} from '@/lib/inspection-outcomes'
 
 export const dynamic = 'force-dynamic'
 
@@ -221,6 +226,39 @@ export async function GET(request: NextRequest) {
 
     const { data: salesOpportunities } = await salesOppsQuery
 
+    const { data: orgForSits } = await supabase
+      .from('orgs')
+      .select('settings')
+      .eq('id', profile.org_id)
+      .single()
+
+    const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
+      orgForSits?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
+    )
+
+    let sitOpportunities: {
+      id: string
+      owner_user_id: string | null
+      setter_user_id: string | null
+      inspection_outcome: string | null
+    }[] = []
+
+    if (sitOutcomeIdSet.size > 0) {
+      const { data: sitRows } = await supabase
+        .from('opportunities')
+        .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
+        .eq('org_id', profile.org_id)
+        .not('inspection_outcome', 'is', null)
+        .not('inspection_outcome_at', 'is', null)
+        .gte('inspection_outcome_at', start.toISOString())
+        .lt('inspection_outcome_at', end.toISOString())
+
+      sitOpportunities =
+        (sitRows || []).filter((o) =>
+          sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
+        ) || []
+    }
+
     // Contact dispositions - where rep actually talked to someone
     const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
 
@@ -282,6 +320,10 @@ export async function GET(request: NextRequest) {
         isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
       ).length
 
+      const sits = (sitOpportunities || []).filter((o) =>
+        isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
+      ).length
+
       // ---- CLOSE RATE ----
       // Based on inspections RUN by this closer (not set)
       const totalInspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
@@ -294,6 +336,7 @@ export async function GET(request: NextRequest) {
         doorsKnocked: finalDoors,
         contacts: finalContacts,
         inspectionsSet,
+        sits,
         sales,
         closeRate: closeRate.toFixed(0),
       }
@@ -309,6 +352,7 @@ export async function GET(request: NextRequest) {
           contacts_display: finalContacts,
           inspections_set_raw: inspectionsSet,
           sales_raw: sales,
+          sits_raw: sits,
           inspections_run: totalInspectionsRun,
         }
       }
@@ -316,9 +360,10 @@ export async function GET(request: NextRequest) {
       return result
     })
 
-    // Sort by sales, then inspections, then doors
+    // Sort by sales, then sits, then inspections, then doors
     teamMemberStats.sort((a, b) => {
       if (b.sales !== a.sales) return b.sales - a.sales
+      if (b.sits !== a.sits) return b.sits - a.sits
       if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
       return b.doorsKnocked - a.doorsKnocked
     })
@@ -339,6 +384,8 @@ export async function GET(request: NextRequest) {
         total_appointments_in_range: appointments?.length || 0,
         total_opportunities_in_range: opportunities?.length || 0,
         total_sales_events_in_range: salesOpportunities?.length || 0,
+        sit_outcome_ids_configured: sitOutcomeIdSet.size,
+        total_sit_events_in_range: sitOpportunities.length,
         team_member_count: members.length,
         viewer_role: profile.role,
         viewer_team_id: profile.team_id,
