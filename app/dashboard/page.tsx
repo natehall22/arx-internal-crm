@@ -190,7 +190,7 @@ export default async function DashboardPage() {
   // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
   const { data: allAppointments } = await supabase
     .from('scheduled_appointments')
-    .select('id, canvasser_user_id, lead_id, created_at')
+    .select('id, canvasser_user_id, closer_user_id, lead_id, created_at')
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())
@@ -394,10 +394,11 @@ export default async function DashboardPage() {
           o.setter_user_id === member.id
         ).length
         
-        // Close rate based on inspections run this week by this closer
-        const inspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
-        const closeRate = inspectionsRun > 0 ? (memberSales.length / inspectionsRun * 100) : 0
-        
+        // Close rate = sales / sits; efficiency = sales / appointments on closer's calendar
+        const memberCloseRate = sits > 0 ? (memberSales.length / sits * 100) : 0
+        const memberApptsOnCalendar = (allAppointments || []).filter(a => a.closer_user_id === member.id).length
+        const memberEfficiency = memberApptsOnCalendar > 0 ? (memberSales.length / memberApptsOnCalendar * 100) : 0
+
         teamMemberStats.push({
           id: member.id,
           name: member.full_name || 'Unknown',
@@ -407,7 +408,8 @@ export default async function DashboardPage() {
           inspectionsSet, // Credit to setter via scheduled_appointments.canvasser_user_id
           sits,
           sales: memberSales.length, // Credit to closer
-          closeRate: closeRate.toFixed(0),
+          closeRate: memberCloseRate.toFixed(0),
+          efficiency: memberEfficiency.toFixed(0),
         })
       }
       
@@ -462,13 +464,19 @@ export default async function DashboardPage() {
       : (isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || ''))
   ).length
 
-  // Close rate based on inspections run by closer (owner)
-  const userOwnedOpps = (opportunities || []).filter(o => 
-    isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || '')
-  )
-  const totalInspectionsRun = userOwnedOpps.filter(o => o.inspection_outcome).length
-  const totalSales = userOwnedOpps.filter(o => o.inspection_outcome === 'sale').length
-  const closeRate = totalInspectionsRun > 0 ? (totalSales / totalInspectionsRun * 100).toFixed(1) : '0'
+  // Sits for the current user (attributed by setter_user_id)
+  const sitsThisWeek = (sitOpportunities || []).filter(o =>
+    isAdmin || o.setter_user_id === profile.id || teamMemberIds.includes(o.setter_user_id || '')
+  ).length
+
+  // Close rate = sales / sits
+  const closeRate = sitsThisWeek > 0 ? (salesThisWeek / sitsThisWeek * 100).toFixed(1) : '0'
+
+  // Efficiency = sales / appointments on closer's calendar
+  const appointmentsOnCalendar = (allAppointments || []).filter(a =>
+    isAdmin || a.closer_user_id === profile.id || teamMemberIds.includes(a.closer_user_id || '')
+  ).length
+  const efficiency = appointmentsOnCalendar > 0 ? (salesThisWeek / appointmentsOnCalendar * 100).toFixed(1) : '0'
 
   const goals = settings.goals || { doors_knocked: 100, inspections: 20, sales: 5 }
   const progress = {
@@ -488,9 +496,11 @@ export default async function DashboardPage() {
     activeProjects: projects?.filter(p => ['open', 'in_progress'].includes(p.status)).length || 0,
     // Weekly stats
     closeRate: parseFloat(closeRate),
+    efficiency: parseFloat(efficiency),
     doorsKnockedThisWeek: doorsKnocked,
     contactsThisWeek: contacts,
     inspectionsSetThisWeek: inspectionsSet,
+    sitsThisWeek,
     salesThisWeek,
   }
 

@@ -191,18 +191,14 @@ export async function GET(request: NextRequest) {
     // 2) SCHEDULED APPOINTMENTS (inspections set)
     // canvasser_user_id = the setter who scheduled the inspection
     // This is the SOURCE OF TRUTH for "who set the inspection"
-    let appointmentsQuery = supabase
+    // Fetch all org appointments (no user filter) — setter attribution uses canvasser_user_id,
+    // efficiency uses closer_user_id, so we need both and can't narrow by a single column.
+    const { data: appointments } = await supabase
       .from('scheduled_appointments')
-      .select('id, canvasser_user_id, lead_id, created_at')
+      .select('id, canvasser_user_id, closer_user_id, lead_id, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
-
-    if (!isAdmin && teamMemberIds.length > 0) {
-      appointmentsQuery = appointmentsQuery.in('canvasser_user_id', teamMemberIds)
-    }
-
-    const { data: appointments } = await appointmentsQuery
 
     // 3) OPPORTUNITIES (for sales - closer gets credit)
     // owner_user_id = the closer who ran the inspection
@@ -325,10 +321,12 @@ export async function GET(request: NextRequest) {
         o.setter_user_id === member.id
       ).length
 
-      // ---- CLOSE RATE ----
-      // Based on inspections RUN by this closer (not set)
-      const totalInspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
-      const closeRate = totalInspectionsRun > 0 ? (sales / totalInspectionsRun * 100) : 0
+      // ---- CLOSE RATE & EFFICIENCY ----
+      // Close rate = sales / sits
+      const closeRate = sits > 0 ? (sales / sits * 100) : 0
+      // Efficiency = sales / appointments on this closer's calendar
+      const apptsOnCalendar = (appointments || []).filter(a => a.closer_user_id === member.id).length
+      const efficiency = apptsOnCalendar > 0 ? (sales / apptsOnCalendar * 100) : 0
 
       const result: any = {
         id: member.id,
@@ -340,6 +338,7 @@ export async function GET(request: NextRequest) {
         sits,
         sales,
         closeRate: closeRate.toFixed(0),
+        efficiency: efficiency.toFixed(0),
       }
 
       // Include raw breakdown in debug mode
@@ -354,7 +353,6 @@ export async function GET(request: NextRequest) {
           inspections_set_raw: inspectionsSet,
           sales_raw: sales,
           sits_raw: sits,
-          inspections_run: totalInspectionsRun,
         }
       }
 

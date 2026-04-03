@@ -52,6 +52,7 @@ interface TeamMemberStat {
   sits: number
   sales: number
   closeRate: string
+  efficiency: string
 }
 
 type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all'
@@ -66,9 +67,11 @@ interface DashboardClientProps {
     totalProjects: number
     activeProjects: number
     closeRate: number
+    efficiency: number
     doorsKnockedThisWeek: number
     contactsThisWeek: number
     inspectionsSetThisWeek: number
+    sitsThisWeek: number
     salesThisWeek: number
   }
   progress: {
@@ -455,7 +458,7 @@ export default function DashboardClient({
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6 sm:mb-8">
           <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
@@ -489,6 +492,21 @@ export default function DashboardClient({
           <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
+                <p className="text-xl sm:text-2xl font-bold text-cyan-600">{stats.sitsThisWeek}</p>
+              </div>
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
                 <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
               </div>
@@ -513,7 +531,22 @@ export default function DashboardClient({
                 </svg>
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-1 sm:mt-2">All time</p>
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">Sits → Sales</p>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm text-gray-500 truncate">Efficiency</p>
+                <p className="text-xl sm:text-2xl font-bold text-purple-600">{stats.efficiency}%</p>
+              </div>
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">Appts → Sales</p>
           </div>
         </div>
 
@@ -628,7 +661,7 @@ export default function DashboardClient({
                           <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+                      <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center">
                         <div>
                           <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                             {member.doorsKnocked}
@@ -664,6 +697,12 @@ export default function DashboardClient({
                             {member.closeRate}%
                           </p>
                           <p className="text-xs text-gray-500">Close</p>
+                        </div>
+                        <div>
+                          <p className={`text-base font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                            {member.efficiency ?? '0'}%
+                          </p>
+                          <p className="text-xs text-gray-500">Effic.</p>
                         </div>
                       </div>
                     </div>
@@ -727,12 +766,20 @@ export default function DashboardClient({
                         Close %
                       </span>
                     </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-center gap-1">
+                        <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Effic. %
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {loadingStats ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center">
+                      <td colSpan={9} className="px-4 py-8 text-center">
                         <div className="flex items-center justify-center gap-2 text-gray-500">
                           <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -798,6 +845,11 @@ export default function DashboardClient({
                       <td className="px-4 py-3 text-center">
                         <span className={`text-lg font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
                           {member.closeRate}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                          {member.efficiency ?? '0'}%
                         </span>
                       </td>
                     </tr>
