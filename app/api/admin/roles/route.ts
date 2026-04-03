@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
   // Get users with their individual permissions
   const { data: usersData } = await adminClient
     .from('users')
-    .select('*, user_permissions(permission_id, permissions(*))')
+    .select('id, full_name, email, role, custom_role_id, user_permissions(permission_id, permissions(*))')
     .eq('org_id', profile.org_id)
     .eq('active', true)
     .order('full_name')

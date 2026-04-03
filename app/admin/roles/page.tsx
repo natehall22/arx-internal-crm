@@ -25,6 +25,7 @@ export default function RolesPage() {
   const [editingRole, setEditingRole] = useState<RoleWithPermissions | null>(null)
   const [editingUser, setEditingUser] = useState<UserWithPermissions | null>(null)
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
+  const [userCustomRoleId, setUserCustomRoleId] = useState<string>('')
   const [formName, setFormName] = useState('')
   const [formDisplayName, setFormDisplayName] = useState('')
   const [formDescription, setFormDescription] = useState('')
@@ -86,6 +87,7 @@ export default function RolesPage() {
         body: JSON.stringify({
           user_id: editingUser.id,
           permission_ids: Array.from(userPermissions),
+          custom_role_id: userCustomRoleId || null,
         }),
       })
 
@@ -98,6 +100,7 @@ export default function RolesPage() {
 
       setEditingUser(null)
       setUserPermissions(new Set())
+      setUserCustomRoleId('')
       await loadData()
     } catch {
       setError('Failed to save permissions')
@@ -107,6 +110,7 @@ export default function RolesPage() {
 
   const openUserPermissionsModal = async (user: UserWithPermissions) => {
     setEditingUser(user)
+    setUserCustomRoleId(user.custom_role_id || '')
     await loadUserPermissions(user.id)
     setError(null)
   }
@@ -458,9 +462,16 @@ export default function RolesPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="px-2 py-1 rounded text-sm bg-gray-100 text-gray-700 capitalize">
-                          {user.role?.replace('_', ' ')}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className="px-2 py-1 rounded text-sm bg-gray-100 text-gray-700 capitalize w-fit">
+                            {user.role?.replace('_', ' ')}
+                          </span>
+                          {user.custom_role_id && (
+                            <span className="px-2 py-1 rounded text-xs bg-indigo-50 text-indigo-700 w-fit">
+                              {roles.find(r => r.id === user.custom_role_id)?.display_name || 'Custom Role'}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         {user.user_permissions?.length > 0 ? (
@@ -839,6 +850,7 @@ export default function RolesPage() {
                   onClick={() => {
                     setEditingUser(null)
                     setUserPermissions(new Set())
+                    setUserCustomRoleId('')
                   }}
                   className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
@@ -870,9 +882,33 @@ export default function RolesPage() {
                   </div>
                 </div>
 
+                {/* Custom Role Assignment */}
+                {roles.length > 0 && (
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Custom Role
+                    </label>
+                    <select
+                      value={userCustomRoleId}
+                      onChange={(e) => setUserCustomRoleId(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white text-sm"
+                    >
+                      <option value="">No custom role (use base role only)</option>
+                      {roles.map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {role.display_name} — Level {role.hierarchy_level}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Assigning a custom role gives this user all permissions defined on that role.
+                    </p>
+                  </div>
+                )}
+
                 <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-sm text-amber-800">
-                    <strong>Note:</strong> These permissions are <em>in addition to</em> the user&apos;s role-based permissions. 
+                    <strong>Note:</strong> These permissions are <em>in addition to</em> the user&apos;s role-based permissions.
                     Checking a permission here grants it regardless of their role.
                   </p>
                 </div>
@@ -970,6 +1006,7 @@ export default function RolesPage() {
                   onClick={() => {
                     setEditingUser(null)
                     setUserPermissions(new Set())
+                    setUserCustomRoleId('')
                   }}
                   className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg font-medium"
                 >

@@ -122,7 +122,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { user_id, permission_ids } = body
+  const { user_id, permission_ids, custom_role_id } = body
 
   if (!user_id) {
     return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
@@ -139,13 +139,35 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 
-  // Delete existing permissions
-  await adminClient
+  // Snapshot individual grants so we can restore if the insert step fails after delete.
+  const { data: existingPerms } = await adminClient
+    .from('user_permissions')
+    .select('org_id, permission_id, granted_by')
+    .eq('user_id', user_id)
+
+  // Validate custom_role_id before mutating (actual update runs after permissions succeed)
+  if (Object.prototype.hasOwnProperty.call(body, 'custom_role_id') && custom_role_id) {
+    const { data: role } = await adminClient
+      .from('custom_roles')
+      .select('id')
+      .eq('id', custom_role_id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (!role) {
+      return NextResponse.json({ error: 'Custom role not found' }, { status: 404 })
+    }
+  }
+
+  const { error: deleteError } = await adminClient
     .from('user_permissions')
     .delete()
     .eq('user_id', user_id)
 
-  // Insert new permissions
+  if (deleteError) {
+    return NextResponse.json({ error: 'Failed to update permissions' }, { status: 500 })
+  }
+
   if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
     const permInserts = permission_ids.map((permId: string) => ({
       org_id: profile.org_id,
@@ -154,12 +176,34 @@ export async function PUT(request: NextRequest) {
       granted_by: user.id,
     }))
 
-    const { error: insertError } = await adminClient
-      .from('user_permissions')
-      .insert(permInserts)
+    const { error: insertError } = await adminClient.from('user_permissions').insert(permInserts)
 
     if (insertError) {
+      if (existingPerms && existingPerms.length > 0) {
+        const { error: restoreError } = await adminClient.from('user_permissions').insert(
+          existingPerms.map((row) => ({
+            org_id: row.org_id,
+            user_id,
+            permission_id: row.permission_id,
+            granted_by: row.granted_by ?? user.id,
+          }))
+        )
+        if (restoreError) {
+          console.error('user_permissions: restore after failed insert failed:', restoreError.message)
+        }
+      }
       return NextResponse.json({ error: 'Failed to save permissions' }, { status: 500 })
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'custom_role_id')) {
+    const { error: roleError } = await adminClient
+      .from('users')
+      .update({ custom_role_id: custom_role_id ?? null })
+      .eq('id', user_id)
+
+    if (roleError) {
+      return NextResponse.json({ error: 'Failed to update custom role' }, { status: 500 })
     }
   }
 
