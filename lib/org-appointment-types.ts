@@ -37,11 +37,42 @@ export async function fetchOrgAppointmentTypesFromTable(
     .eq('active', true)
     .order('sort_order', { ascending: true })
 
+  if (!error && data && data.length > 0) {
+    return data as AppointmentTypeTableRow[]
+  }
+
   if (error) {
     console.error('fetchOrgAppointmentTypesFromTable:', error)
-    return []
   }
-  return (data || []) as AppointmentTypeTableRow[]
+
+  // Fallback: read from orgs.settings.appointment_types JSON for orgs that haven't
+  // re-saved their admin settings since the appointment_types table was introduced.
+  const { data: orgData } = await supabase
+    .from('orgs')
+    .select('settings')
+    .eq('id', orgId)
+    .single()
+
+  const jsonTypes = orgData?.settings?.appointment_types
+  if (!Array.isArray(jsonTypes) || jsonTypes.length === 0) return []
+
+  // Admin JSON `id` is a stable key (e.g. 'inspection', 'follow_up', 'close'). Table + helpers use only
+  // category 'inspection' | 'close' (see findInspectionRow / findCloseKindRow).
+  return jsonTypes
+    .filter((t: any) => t.active !== false)
+    .map((t: any, i: number) => ({
+      // Synthetic id when not from DB — not a UUID; helpers only use category/name/durations.
+      id: t.id,
+      org_id: orgId,
+      name: t.name || t.id,
+      duration_minutes: typeof t.duration_minutes === 'number' ? t.duration_minutes : 60,
+      buffer_after_minutes: typeof t.buffer_after_minutes === 'number' ? t.buffer_after_minutes : 0,
+      color: t.color || '#6366f1',
+      description: t.description || null,
+      category: t.id === 'inspection' ? 'inspection' : 'close',
+      active: true,
+      sort_order: i,
+    })) as AppointmentTypeTableRow[]
 }
 
 function findCloseKindRow(

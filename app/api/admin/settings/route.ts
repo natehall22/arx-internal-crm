@@ -280,19 +280,78 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (type === 'appointment_types') {
+      // Sync to appointment_types table first (scheduling routes read the table).
+      // Persist orgs.settings JSON only after a successful sync so we don't claim success when the table is empty.
+      // Helpers (findInspectionRow / findCloseKindRow) use category 'inspection' vs 'close' only; name distinguishes close kinds.
+      if (Array.isArray(data.appointment_types)) {
+        if (data.appointment_types.length > 0) {
+          const { error: deleteError } = await adminClient
+            .from('appointment_types')
+            .delete()
+            .eq('org_id', profile.org_id)
+
+          if (deleteError) {
+            return NextResponse.json(
+              { error: `Failed to clear appointment types: ${deleteError.message}` },
+              { status: 500 }
+            )
+          }
+
+          const rows = data.appointment_types.map((t: any, i: number) => {
+            const bufferAfter =
+              typeof t.buffer_after_minutes === 'number' ? t.buffer_after_minutes : 0
+            const category = t.id === 'inspection' ? 'inspection' : 'close'
+            return {
+              org_id: profile.org_id,
+              name: t.name || t.id,
+              duration_minutes: typeof t.duration_minutes === 'number' ? t.duration_minutes : 60,
+              buffer_after_minutes: bufferAfter,
+              color: t.color || '#6366f1',
+              description: t.description || null,
+              category,
+              active: t.active !== false,
+              sort_order: i,
+            }
+          })
+
+          const { error: tableError } = await adminClient.from('appointment_types').insert(rows)
+
+          if (tableError) {
+            console.error('appointment_types table sync failed:', tableError.message)
+            return NextResponse.json(
+              { error: `Failed to sync appointment types: ${tableError.message}` },
+              { status: 500 }
+            )
+          }
+        } else {
+          const { error: clearError } = await adminClient
+            .from('appointment_types')
+            .delete()
+            .eq('org_id', profile.org_id)
+
+          if (clearError) {
+            return NextResponse.json(
+              { error: `Failed to clear appointment types: ${clearError.message}` },
+              { status: 500 }
+            )
+          }
+        }
+      }
+
       const { error } = await adminClient
         .from('orgs')
         .update({
           settings: {
             ...currentSettings,
             appointment_types: data.appointment_types,
-          }
+          },
         })
         .eq('id', profile.org_id)
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
+
       return NextResponse.json({ success: true })
     }
 
