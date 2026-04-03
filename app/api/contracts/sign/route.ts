@@ -140,11 +140,40 @@ export async function POST(request: NextRequest) {
       const recordUrl = contract.opportunity_id
         ? `${appUrl}/opportunities/${contract.opportunity_id}`
         : undefined
+
+      // Fetch setter and closer names from the linked opportunity
+      let setterName: string | null = null
+      let closerName: string | null = null
+      if (contract.opportunity_id) {
+        const { data: opp } = await supabase
+          .from('opportunities')
+          .select('setter_user_id, leads(closer_user_id)')
+          .eq('id', contract.opportunity_id)
+          .maybeSingle()
+
+        const closerUserId = Array.isArray(opp?.leads)
+          ? opp.leads[0]?.closer_user_id
+          : (opp?.leads as any)?.closer_user_id ?? null
+
+        const userIds = [opp?.setter_user_id, closerUserId].filter(Boolean) as string[]
+        if (userIds.length > 0) {
+          const { data: salesUsers } = await supabase
+            .from('users')
+            .select('id, full_name')
+            .in('id', userIds)
+          const userMap = Object.fromEntries((salesUsers || []).map((u: { id: string; full_name: string }) => [u.id, u.full_name]))
+          if (opp?.setter_user_id) setterName = userMap[opp.setter_user_id] ?? null
+          if (closerUserId) closerName = userMap[closerUserId] ?? null
+        }
+      }
+
       await notifyOrgAdminsOfSale(supabase, {
         orgId: contract.org_id,
         customerName: contract.customer_name || 'Customer',
         soldDescription,
         totalAmount,
+        setterName,
+        closerName,
         recordUrl,
       })
     } catch (adminSaleErr) {

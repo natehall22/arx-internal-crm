@@ -33,7 +33,7 @@ export function buildOrderFormContractSaleDescription(contract: {
 }
 
 /**
- * Email all active org admins and owners when a sale is recorded (contract signed is the primary trigger).
+ * Email all active sales org members and admins when a sale is recorded (contract signed is the primary trigger).
  * No-op when SMTP is not configured.
  */
 export async function notifyOrgAdminsOfSale(
@@ -44,26 +44,42 @@ export async function notifyOrgAdminsOfSale(
     /** Human-readable description of what was sold (scope, materials, etc.) */
     soldDescription: string
     totalAmount: number | null
+    setterName?: string | null
+    closerName?: string | null
     recordUrl?: string
   }
 ): Promise<void> {
   if (!process.env.SMTP_HOST) return
 
-  const { data: admins, error } = await supabase
+  const { data: recipients, error } = await supabase
     .from('users')
     .select('email')
     .eq('org_id', params.orgId)
-    .in('role', ['admin', 'owner'])
+    .in('role', [
+      'admin',
+      'owner',
+      'regional_manager',
+      'sales_manager',
+      'setter_manager',
+      'regional_setter_manager',
+      'rep',
+      'sales_rep',
+      'closer',
+    ])
     .eq('active', true)
 
   if (error) {
-    console.error('notifyOrgAdminsOfSale: admins query', error)
+    console.error('notifyOrgAdminsOfSale: recipients query', error)
     return
   }
 
-  const emails = (admins || [])
-    .map((a) => a.email?.trim())
-    .filter((e): e is string => typeof e === 'string' && e.includes('@'))
+  const emails = Array.from(
+    new Set(
+      (recipients || [])
+        .map((a) => a.email?.trim().toLowerCase())
+        .filter((e): e is string => typeof e === 'string' && e.includes('@'))
+    )
+  )
 
   if (emails.length === 0) return
 
@@ -76,7 +92,12 @@ export async function notifyOrgAdminsOfSale(
   const transporter = getMailTransport()
   const subject = `New sale: ${params.customerName} — ${totalStr}`
 
-  const sourceLabel = 'Contract signed'
+  const setterRow = params.setterName
+    ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Set by</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.setterName)}</td></tr>`
+    : ''
+  const closerRow = params.closerName
+    ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Sold by</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.closerName)}</td></tr>`
+    : ''
 
   const html = `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
@@ -84,12 +105,13 @@ export async function notifyOrgAdminsOfSale(
         <p style="color: #374151;">A sale was recorded in ARX CRM.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
           <tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Customer</td><td style="padding: 8px 0; color: #111827; font-weight: 600;">${escapeHtml(params.customerName)}</td></tr>
+          <tr><td style="padding: 8px 0; color: #6B7280;">Total</td><td style="padding: 8px 0; color: #111827; font-weight: 600; font-size: 16px;">${escapeHtml(totalStr)}</td></tr>
+          ${setterRow}
+          ${closerRow}
           <tr><td style="padding: 8px 0; color: #6B7280;">What was sold</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.soldDescription)}</td></tr>
-          <tr><td style="padding: 8px 0; color: #6B7280;">Total</td><td style="padding: 8px 0; color: #111827; font-weight: 600;">${escapeHtml(totalStr)}</td></tr>
-          <tr><td style="padding: 8px 0; color: #6B7280;">Source</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(sourceLabel)}</td></tr>
         </table>
         ${params.recordUrl ? `<p style="margin-top: 16px;"><a href="${escapeHtml(params.recordUrl)}" style="color: #4f46e5;">Open in ARX CRM</a></p>` : ''}
-        <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated message to organization admins and owners.</p>
+        <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated message to the sales org.</p>
       </div>
     `
 
