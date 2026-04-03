@@ -2,7 +2,7 @@
 
 import { useRef, type Dispatch, type SetStateAction } from 'react'
 
-export const MIN_PHOTOS = 6
+export const MIN_PHOTOS = 0
 export const MAX_PHOTOS = 20
 const MAX_MP = 2_000_000
 const TARGET_BYTES = 800_000
@@ -234,19 +234,14 @@ export function CloseVisitPhotoUpload({
     <div>
       <div className="flex items-center justify-between mb-2">
         <label className="block text-sm font-medium text-gray-700">
-          Close visit photos
-          <span className="text-red-500 ml-0.5">*</span>
-          <span className="text-gray-400 font-normal ml-1">
-            (min {MIN_PHOTOS}, max {MAX_PHOTOS})
-          </span>
+          Photos
+          <span className="text-gray-400 font-normal ml-1">(optional)</span>
         </label>
-        <span
-          className={`text-xs font-semibold ${
-            uploadedCount >= MIN_PHOTOS ? 'text-green-600' : 'text-amber-600'
-          }`}
-        >
-          {uploadedCount} / {MIN_PHOTOS} required
-        </span>
+        {uploadedCount > 0 && (
+          <span className="text-xs font-semibold text-green-600">
+            {uploadedCount} uploaded
+          </span>
+        )}
       </div>
 
       {photos.length > 0 && (
@@ -313,11 +308,6 @@ export function CloseVisitPhotoUpload({
         </>
       )}
 
-      {uploadedCount < MIN_PHOTOS && photos.length > 0 && uploadingCount === 0 && (
-        <p className="text-xs text-amber-600 mt-2">
-          Add {MIN_PHOTOS - uploadedCount} more photo{MIN_PHOTOS - uploadedCount > 1 ? 's' : ''} to continue.
-        </p>
-      )}
     </div>
   )
 }

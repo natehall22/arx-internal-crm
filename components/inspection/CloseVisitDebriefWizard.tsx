@@ -5,7 +5,6 @@ import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appo
 import {
   BoolToggle,
   CloseVisitPhotoUpload,
-  MIN_PHOTOS,
   type UploadedPhoto,
   canSubmitCloseVisitDebrief,
 } from '@/components/inspection/close-visit-shared'
@@ -89,7 +88,6 @@ export default function CloseVisitDebriefWizard({
   const [submitted, setSubmitted] = useState(false)
 
   const uploadedPhotoCount = photos.filter((p) => p.storagePath && !p.uploading).length
-  const photosReady = uploadedPhotoCount >= MIN_PHOTOS
 
   useEffect(() => {
     let cancelled = false
@@ -166,12 +164,7 @@ export default function CloseVisitDebriefWizard({
     if (bothDMs === null) return 'Were both decision makers present?'
     if (!bothDMs && !absentDMName.trim()) return 'Enter the name of the absent decision maker'
     if (!damageFound.trim()) return 'Describe the damage found'
-    if (!roofSlopes.trim()) return 'Enter the roof slopes'
-    if (!photosReady) return `Upload at least ${MIN_PHOTOS} photos before continuing`
-    if (!homeownerMood.trim()) return "Describe the homeowner's emotional state"
-    if (consequenceQs === null) return 'Were consequence questions asked?'
-    if (insuranceMentioned === null) return 'Was insurance discussed?'
-    if (!urgencyLevel) return 'Select an urgency level'
+    if (!urgencyLevel) return 'Select a close urgency level'
     return null
   }
 
@@ -289,8 +282,8 @@ export default function CloseVisitDebriefWizard({
         <div>
           <h2 className="text-xl font-bold text-gray-900">Close visit debrief</h2>
           <p className="text-sm text-gray-500 mt-1">
-            You marked this inspection as <span className="font-medium text-gray-700">Moving to Close</span>. Add
-            photos and briefing for the closer, then schedule the close appointment.
+            You marked this inspection as <span className="font-medium text-gray-700">Moving to Close</span>. Fill in
+            the briefing for the closer, then schedule the close appointment.
           </p>
         </div>
         <button
@@ -330,13 +323,9 @@ export default function CloseVisitDebriefWizard({
 
       {step === 1 && (
         <div className="space-y-5">
-          <p className="text-xs text-gray-500 -mt-1 mb-1">
-            Upload at least {MIN_PHOTOS} photos (roof / site). Use Add photos below.
-          </p>
 
-          <CloseVisitPhotoUpload opportunityId={opportunityId} photos={photos} onPhotosChange={setPhotos} />
-
-          <BoolToggle label="Were both decision makers present?" value={bothDMs} onChange={setBothDMs} required />
+          {/* Required fast-tap fields */}
+          <BoolToggle label="Both decision makers present?" value={bothDMs} onChange={setBothDMs} required />
 
           {bothDMs === false && (
             <div>
@@ -361,40 +350,14 @@ export default function CloseVisitDebriefWizard({
               value={damageFound}
               onChange={(e) => setDamageFound(e.target.value)}
               rows={3}
+              placeholder="Describe damage found during the inspection"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Roof Slopes <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={roofSlopes}
-              onChange={(e) => setRoofSlopes(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Homeowner&apos;s Emotional State <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={homeownerMood}
-              onChange={(e) => setHomeownerMood(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
-          <BoolToggle label="Were consequence questions asked?" value={consequenceQs} onChange={setConsequenceQs} required />
-          <BoolToggle label="Was insurance discussed?" value={insuranceMentioned} onChange={setInsuranceMentioned} required />
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Urgency Level <span className="text-red-500">*</span>
+              Close Urgency <span className="text-red-500">*</span>
             </label>
             <div className="flex gap-3">
               {(['low', 'medium', 'high'] as const).map((level) => (
@@ -418,14 +381,47 @@ export default function CloseVisitDebriefWizard({
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Additional Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          {/* Optional detail fields */}
+          <div className="border-t pt-4 space-y-4">
+            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Optional details</p>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Roof Slopes</label>
+              <input
+                type="text"
+                value={roofSlopes}
+                onChange={(e) => setRoofSlopes(e.target.value)}
+                placeholder="e.g. 6/12, 8/12"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Homeowner&apos;s Mood</label>
+              <input
+                type="text"
+                value={homeownerMood}
+                onChange={(e) => setHomeownerMood(e.target.value)}
+                placeholder="e.g. Interested, hesitant, motivated"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <BoolToggle label="Consequence questions asked?" value={consequenceQs} onChange={setConsequenceQs} />
+            <BoolToggle label="Insurance discussed?" value={insuranceMentioned} onChange={setInsuranceMentioned} />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes for Closer</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                placeholder="Anything the closer should know"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <CloseVisitPhotoUpload opportunityId={opportunityId} photos={photos} onPhotosChange={setPhotos} />
           </div>
 
           <div className="flex justify-end pt-2">

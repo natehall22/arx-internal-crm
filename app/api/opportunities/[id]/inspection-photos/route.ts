@@ -162,7 +162,7 @@ export async function POST(
 
     if (uploadError) {
       console.error('Photo upload error:', uploadError)
-      return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
+      return NextResponse.json({ error: uploadError.message || 'Upload failed' }, { status: 500 })
     }
 
     const { data: row, error: insertError } = await admin
