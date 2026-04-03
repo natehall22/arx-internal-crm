@@ -389,8 +389,9 @@ export default async function DashboardPage() {
           isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
         )
 
+        // Sits always attributed to the setter (canvasser who knocked the door and set the appointment)
         const sits = (sitOpportunities || []).filter((o) =>
-          isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
+          o.setter_user_id === member.id
         ).length
         
         // Close rate based on inspections run this week by this closer
