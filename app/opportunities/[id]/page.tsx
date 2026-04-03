@@ -260,71 +260,55 @@ export default async function OpportunityDetailPage({
     lost: 'bg-red-400',
   }
 
-  type NextStep = { icon: string; title: string; body: string; bg: string; titleColor: string }
+  type NextStep = { icon: string; title: string; body: string; bg: string; titleColor: string; link?: string; linkLabel?: string }
   let nextStep: NextStep | null = null
 
+  const proposalBuilderUrl = `/proposals/builder?opportunity_id=${params.id}&customer_name=${encodeURIComponent(leadRow?.homeowner_name || '')}&customer_address=${encodeURIComponent(opportunity.address_text || '')}`
+
+  // Flow: Inspection → Close Appointment → Proposal accepted at close → Contract → Won/Lost
   if (opportunity.status === 'won') {
-    nextStep = { icon: '🎉', title: 'Deal Won!', body: 'Check the Job Board to track production progress.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800' }
+    nextStep = { icon: '🎉', title: 'Deal Won!', body: 'Check the Job Board to track production progress.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800', link: '/ops', linkLabel: 'Go to Job Board' }
   } else if (opportunity.status === 'lost') {
     nextStep = { icon: '📋', title: 'Marked as Lost', body: 'You can still follow up or reopen this opportunity if the customer comes back.', bg: 'bg-gray-50 border-gray-200', titleColor: 'text-gray-700' }
   } else if (!opportunity.inspection_outcome) {
-    nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Complete the inspection and submit your results using the feedback form.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800' }
-  } else if (opportunity.inspection_outcome === 'not_home') {
-    nextStep = { icon: '📞', title: 'Customer Was Not Home', body: 'Follow up to reschedule the inspection at a better time.', bg: 'bg-yellow-50 border-yellow-200', titleColor: 'text-yellow-800' }
-  } else if (opportunity.inspection_outcome === 'rescheduled') {
-    nextStep = { icon: '📅', title: 'Inspection Rescheduled', body: 'Confirm the new inspection time with the customer.', bg: 'bg-yellow-50 border-yellow-200', titleColor: 'text-yellow-800' }
-  } else if (opportunity.inspection_outcome === 'said_no') {
-    nextStep = { icon: '💬', title: 'Customer Said No', body: 'Consider following up in a few days, or mark this opportunity as lost.', bg: 'bg-red-50 border-red-200', titleColor: 'text-red-800' }
-  } else if (opportunity.inspection_outcome === 'insurance_follow_up') {
-    nextStep = { icon: '🏢', title: 'Waiting on Insurance', body: "Follow up with the customer on their insurance claim status before moving forward.", bg: 'bg-cyan-50 border-cyan-200', titleColor: 'text-cyan-800' }
-  } else if (opportunity.inspection_outcome === 'needs_repair') {
-    nextStep = { icon: '🔧', title: 'Repairs Needed First', body: 'Discuss repair options with the customer before creating a proposal.', bg: 'bg-orange-50 border-orange-200', titleColor: 'text-orange-800' }
-  } else if (opportunity.inspection_outcome === 'failed_credit') {
-    nextStep = {
-      icon: '💳',
-      title: 'Credit Did Not Qualify',
-      body: 'Follow up with the customer on payment options, or mark the opportunity lost if they are not moving forward.',
-      bg: 'bg-rose-50 border-rose-200',
-      titleColor: 'text-rose-800',
-    }
-  } else if (opportunity.inspection_outcome === 'no_problems_found') {
-    nextStep = {
-      icon: '✅',
-      title: 'No Major Issues Found',
-      body: 'If the homeowner still wants work or an upgrade, create a proposal. Otherwise follow up or close the loop.',
-      bg: 'bg-slate-50 border-slate-200',
-      titleColor: 'text-slate-800',
-    }
-  } else if (opportunity.inspection_outcome === 'sale' || opportunity.inspection_outcome === 'moving_to_close') {
+    // Step 1 — no inspection result yet
+    nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: '#inspection-section', linkLabel: 'Submit Inspection' }
+  } else if (['not_home', 'rescheduled'].includes(opportunity.inspection_outcome)) {
+    // Inspection couldn't happen — needs reschedule
+    nextStep = { icon: '📞', title: 'Reschedule the Inspection', body: 'The customer was not home or requested a new time. Follow up to get it back on the calendar.', bg: 'bg-yellow-50 border-yellow-200', titleColor: 'text-yellow-800' }
+  } else if (['said_no', 'insurance_follow_up', 'failed_credit'].includes(opportunity.inspection_outcome)) {
+    // Stalled — follow up needed, nothing actionable on-page
+    nextStep = { icon: '💬', title: 'Follow Up With the Customer', body: 'The deal is stalled. Follow up to move it forward or mark it lost if they are not moving ahead.', bg: 'bg-red-50 border-red-200', titleColor: 'text-red-800' }
+  } else {
+    // Inspection ran — determine where we are in the proposal → close → contract flow
     if (!proposals || proposals.length === 0) {
-      nextStep = { icon: '📝', title: 'Create a Proposal', body: "Inspection went well — build and send a proposal to move this deal forward.", bg: 'bg-indigo-50 border-indigo-200', titleColor: 'text-indigo-800' }
+      // Step 2 — need a proposal to bring to the close
+      nextStep = { icon: '📝', title: 'Create a Proposal', body: 'Inspection is done — build a proposal to bring to the close appointment.', bg: 'bg-indigo-50 border-indigo-200', titleColor: 'text-indigo-800', link: proposalBuilderUrl, linkLabel: 'Build Proposal' }
+    } else if (!closeScheduledFor) {
+      // Step 3 — proposal exists, need to schedule the close
+      nextStep = { icon: '📅', title: 'Schedule the Close', body: 'Proposal is ready. Schedule the close appointment to sit down with the customer.', bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800', link: '#close-section', linkLabel: 'Schedule Close' }
     } else if (!acceptedProposal) {
-      nextStep = { icon: '📤', title: 'Waiting for Proposal Acceptance', body: "Follow up with the customer to review and accept the proposal.", bg: 'bg-amber-50 border-amber-200', titleColor: 'text-amber-800' }
+      // Step 4 — close is scheduled or happened, waiting on proposal acceptance
+      nextStep = { icon: '🤝', title: 'Close Appointment Scheduled', body: closeOutcome ? 'The close ran — follow up on the proposal or update the outcome.' : 'The close is coming up. Be ready to walk through the proposal with the customer.', bg: 'bg-amber-50 border-amber-200', titleColor: 'text-amber-800', link: '#proposals-section', linkLabel: 'View Proposals' }
     } else if (!orderFormContracts || orderFormContracts.length === 0) {
-      nextStep = { icon: '✍️', title: 'Proposal Accepted — Create the Contract', body: 'Click "Create Contract" below to generate the order form for the customer to sign.', bg: 'bg-emerald-50 border-emerald-200', titleColor: 'text-emerald-800' }
+      // Step 5 — proposal accepted at close, now create the contract
+      nextStep = { icon: '✍️', title: 'Proposal Accepted — Create the Contract', body: 'The customer said yes. Generate the order form for them to sign.', bg: 'bg-emerald-50 border-emerald-200', titleColor: 'text-emerald-800', link: '#contract-section', linkLabel: 'Create Contract' }
     } else {
+      // Step 6 — contract exists, waiting on signature (or all signed — prompt to close the loop in CRM)
       const pendingContract = orderFormContracts.find((c: any) => c.status !== 'completed')
       if (pendingContract) {
-        nextStep = { icon: '✍️', title: 'Waiting for Customer Signature', body: 'Contract sent — follow up with the customer to get it signed.', bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800' }
+        nextStep = { icon: '⏳', title: 'Waiting for Customer Signature', body: 'Contract is out. Follow up with the customer to get it signed.', bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800', link: '#contract-section', linkLabel: 'View Contract' }
       } else {
-        nextStep = { icon: '📅', title: 'Contract Signed — Schedule the Close', body: 'All paperwork is done. Schedule or confirm the close appointment below.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800' }
+        nextStep = {
+          icon: '✅',
+          title: 'Contract Complete',
+          body: 'Paperwork is signed. Mark the opportunity Won when the job is sold, or review the close section if anything is still pending.',
+          bg: 'bg-green-50 border-green-200',
+          titleColor: 'text-green-800',
+          link: '#close-section',
+          linkLabel: 'Review close',
+        }
       }
-    }
-  }
-
-  // Any other recorded inspection outcome (unknown IDs, legacy values) — still show guidance
-  if (
-    !nextStep &&
-    opportunity.status !== 'won' &&
-    opportunity.status !== 'lost' &&
-    opportunity.inspection_outcome
-  ) {
-    nextStep = {
-      icon: '📌',
-      title: 'Review and follow up',
-      body: 'Check the inspection details below, then take the next step with your customer (proposal, follow-up, or mark lost if appropriate).',
-      bg: 'bg-gray-50 border-gray-200',
-      titleColor: 'text-gray-800',
     }
   }
 
@@ -359,7 +343,7 @@ export default async function OpportunityDetailPage({
                     {opportunity.status.replace(/_/g, ' ')}
                   </span>
                   <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 capitalize">
-                    {opportunity.project_type}
+                    {opportunity.project_type || '—'}
                   </span>
                 </div>
               </div>
@@ -425,9 +409,17 @@ export default async function OpportunityDetailPage({
         {nextStep && (
           <div className={`rounded-xl border p-4 mb-4 sm:mb-6 flex items-start gap-3 ${nextStep.bg}`}>
             <span className="text-2xl shrink-0">{nextStep.icon}</span>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className={`font-semibold text-sm sm:text-base ${nextStep.titleColor}`}>{nextStep.title}</p>
               <p className="text-sm text-gray-600 mt-0.5">{nextStep.body}</p>
+              {nextStep.link && (
+                <Link
+                  href={nextStep.link}
+                  className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sm font-semibold rounded-lg shadow-sm hover:bg-gray-50 text-gray-800"
+                >
+                  {nextStep.linkLabel || 'Take Action'} →
+                </Link>
+              )}
             </div>
           </div>
         )}
@@ -516,11 +508,13 @@ export default async function OpportunityDetailPage({
           </div>
         )}
 
-        <InspectionResultReadOnlyCard
-          opportunityId={params.id}
-          leadId={leadRow?.id ?? null}
-          inspectionAppointmentId={inspectionAppointment?.id ?? null}
-        />
+        <div id="inspection-section" className="scroll-mt-20">
+          <InspectionResultReadOnlyCard
+            opportunityId={params.id}
+            leadId={leadRow?.id ?? null}
+            inspectionAppointmentId={inspectionAppointment?.id ?? null}
+          />
+        </div>
 
         {/* Roof Measurements Section */}
         <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -646,7 +640,7 @@ export default async function OpportunityDetailPage({
         </div>
 
         {/* Proposals Section */}
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
+        <div id="proposals-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Proposals</h2>
             <Link
@@ -725,7 +719,7 @@ export default async function OpportunityDetailPage({
         </div>
 
         {/* Contract Section */}
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
+        <div id="contract-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Contract</h2>
             <CreateContractButton
@@ -768,15 +762,17 @@ export default async function OpportunityDetailPage({
           <ContractUpload opportunityId={params.id} />
         )}
 
-        <CloseAppointmentStatusSection
-          opportunityId={params.id}
-          scheduledFor={closeScheduledFor}
-          outcome={closeOutcome}
-          outcomeLabel={closeOutcomeDisplayLabel}
-          outcomeSubmittedAt={closeOutcomeSubmittedAt}
-          closeAppointmentId={closeAppointmentId}
-          scheduledAppointmentId={closeAppointmentId ? null : closeScheduledAppointmentId}
-        />
+        <div id="close-section" className="scroll-mt-20">
+          <CloseAppointmentStatusSection
+            opportunityId={params.id}
+            scheduledFor={closeScheduledFor}
+            outcome={closeOutcome}
+            outcomeLabel={closeOutcomeDisplayLabel}
+            outcomeSubmittedAt={closeOutcomeSubmittedAt}
+            closeAppointmentId={closeAppointmentId}
+            scheduledAppointmentId={closeAppointmentId ? null : closeScheduledAppointmentId}
+          />
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white shadow rounded-lg p-6">

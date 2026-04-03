@@ -312,7 +312,7 @@ export default function OpportunitiesPage() {
                           <span className={`shrink-0 px-2.5 py-0.5 text-xs font-semibold rounded-full capitalize ${
                             statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
                           }`}>
-                            {opportunity.status.replace(/_/g, ' ')}
+                            {(opportunity.status || '—').replace(/_/g, ' ')}
                           </span>
                         </div>
 
@@ -415,7 +415,7 @@ export default function OpportunitiesPage() {
                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
                               statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
                             }`}>
-                              {opportunity.status.replace(/_/g, ' ')}
+                              {(opportunity.status || '—').replace(/_/g, ' ')}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">

@@ -770,28 +770,11 @@ export async function POST(request: Request) {
       const resolvedInspectionScheduledFor = inspectionScheduledFor as string
       const resolvedInspectionLocalTime = inspectionLocalTime as string
 
-      let setterInviteEmail: string | null = null
-      if (profile.id !== resolvedCloserUserId) {
-        if (typeof profile.email === 'string' && profile.email.includes('@')) {
-          setterInviteEmail = profile.email
-        } else {
-          const { data: setterData } = await supabase
-            .from('users')
-            .select('email')
-            .eq('id', profile.id)
-            .maybeSingle()
-          if (setterData?.email && setterData.email.includes('@')) {
-            setterInviteEmail = setterData.email
-          }
-        }
-      }
-
-      // Sync to closer's calendar and add setter as attendee to send one invite.
-      // Use local time for Google Calendar API (not UTC)
+      // Sync to closer's calendar only — setter gets a confirmation email instead of a calendar invite
       const calendarResult = await syncToGoogleCalendar(
         supabase,
         resolvedCloserUserId,
-        resolvedInspectionLocalTime, // Use local time, not UTC
+        resolvedInspectionLocalTime,
         inspectionDuration,
         leadRow.homeowner_name,
         leadRow.address_text,
@@ -800,28 +783,64 @@ export async function POST(request: Request) {
         leadRow.canvass_notes,
         leadRow.id,
         opportunityId,
-        profile.full_name, // Setter name
-        setterInviteEmail
+        profile.full_name, // Setter name (shown in event description only)
+        null // No setter calendar invite
       )
-      
+
       calendarSynced = calendarResult.synced
       googleEventId = calendarResult.eventId || null
       calendarError = calendarResult.error || null
-      
+
       if (!calendarSynced) {
         console.log('Closer calendar sync failed:', calendarError)
       }
 
-      if (profile.id === resolvedCloserUserId) {
-        setterCalendarSynced = true
-      } else if (setterInviteEmail) {
-        setterCalendarSynced = Boolean(calendarResult.setterInvited)
-        if (!setterCalendarSynced) {
-          setterCalendarError = 'Setter was not included as an invite attendee'
+      // Send setter a confirmation email (not a calendar invite)
+      if (profile.id !== resolvedCloserUserId) {
+        try {
+          let setterEmail: string | null = null
+          if (typeof profile.email === 'string' && profile.email.includes('@')) {
+            setterEmail = profile.email
+          } else {
+            const { data: setterData } = await supabase
+              .from('users')
+              .select('email')
+              .eq('id', profile.id)
+              .maybeSingle()
+            if (setterData?.email && setterData.email.includes('@')) {
+              setterEmail = setterData.email
+            }
+          }
+
+          if (setterEmail) {
+            const { data: closerProfile } = await supabase
+              .from('users')
+              .select('full_name')
+              .eq('id', resolvedCloserUserId)
+              .maybeSingle()
+
+            const closerName = closerProfile?.full_name || 'Unassigned'
+            const setterName = profile.full_name || 'Setter'
+            const scheduledTime = formatInspectionTimeEt(resolvedInspectionScheduledFor)
+
+            const { sendSetterEmail } = await import('@/lib/setter-email')
+            await sendSetterEmail({
+              to: setterEmail,
+              setterName,
+              subject: `🚀 ${leadRow.homeowner_name || 'Customer'} Inspection Set 🚀`,
+              introHtml: `<p style="color:#374151;">Your inspection has been scheduled. Here are the details:</p>`,
+              rows: [
+                { label: 'Customer', value: leadRow.homeowner_name || 'Unknown' },
+                { label: 'Address', value: leadRow.address_text || 'TBD' },
+                { label: 'Date & Time', value: scheduledTime },
+                { label: 'Inspector / Closer', value: closerName },
+              ],
+            })
+          }
+        } catch (setterEmailError) {
+          // Non-blocking
+          console.error('Failed to send setter confirmation email:', setterEmailError)
         }
-      } else {
-        setterCalendarSynced = false
-        setterCalendarError = 'Setter has no email configured for calendar invite'
       }
       
       // Store Google event ID in the appointment if we have one
@@ -850,12 +869,8 @@ export async function POST(request: Request) {
         ? `Inspection scheduled from canvassing. Assigned to ${assignedCloserName} via round-robin.`
         : 'Inspection scheduled from canvassing.'
       
-      if (calendarSynced && setterCalendarSynced) {
-        activityBody += ' Added to closer and setter calendars.'
-      } else if (calendarSynced) {
+      if (calendarSynced) {
         activityBody += ' Added to closer calendar.'
-      } else if (setterCalendarSynced) {
-        activityBody += ' Added to setter calendar.'
       }
       
       await supabase.from('activities').insert({

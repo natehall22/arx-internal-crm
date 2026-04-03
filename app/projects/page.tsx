@@ -10,6 +10,15 @@ function mapJobStatusToProjectStatus(jobStatus: string) {
   return 'in progress'
 }
 
+function leadFromProject(project: any) {
+  if (!project.leads) return null
+  return Array.isArray(project.leads) ? project.leads[0] : project.leads
+}
+
+function customerDisplayName(project: any) {
+  return project.customers?.name || leadFromProject(project)?.homeowner_name || 'N/A'
+}
+
 function resolveDisplayStatus(project: any) {
   const jobs = Array.isArray(project.production_jobs) ? project.production_jobs : []
   if (jobs.length > 0 && jobs[0]?.status) {
@@ -51,7 +60,42 @@ export default async function ProjectsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Projects</h1>
         </div>
 
-        <div className="bg-white shadow rounded-lg overflow-hidden">
+        {/* Mobile card list */}
+        <div className="md:hidden space-y-3">
+          {projects && projects.length > 0 ? (
+            projects.map((project: any) => {
+              const displayStatus = resolveDisplayStatus(project)
+              const customerName = customerDisplayName(project)
+              return (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="block bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-4 active:bg-gray-50"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-semibold text-gray-900 text-base leading-snug">{customerName}</span>
+                    <span className={`shrink-0 px-2 py-0.5 text-xs font-semibold rounded-full capitalize ${statusBadgeClass(displayStatus)}`}>
+                      {displayStatus}
+                    </span>
+                  </div>
+                  {project.address_text && (
+                    <p className="mt-1 text-sm text-gray-500 leading-snug">{project.address_text}</p>
+                  )}
+                  {project.project_type && (
+                    <span className="mt-2 inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800 capitalize">
+                      {project.project_type}
+                    </span>
+                  )}
+                </Link>
+              )
+            })
+          ) : (
+            <p className="text-center text-gray-500 py-8">No projects found</p>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block bg-white shadow rounded-lg overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -77,34 +121,34 @@ export default async function ProjectsPage() {
                 projects.map((project: any) => {
                   const displayStatus = resolveDisplayStatus(project)
                   return (
-                  <tr key={project.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {project.customers?.name || project.leads?.homeowner_name || 'N/A'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">{project.address_text || 'N/A'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
-                        {project.project_type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${statusBadgeClass(displayStatus)}`}>
-                        {displayStatus}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <Link
-                        href={`/projects/${project.id}`}
-                        className="text-indigo-600 hover:text-indigo-900"
-                      >
-                        View
-                      </Link>
-                    </td>
-                  </tr>
+                    <tr key={project.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {customerDisplayName(project)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">{project.address_text || 'N/A'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
+                          {project.project_type || '—'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${statusBadgeClass(displayStatus)}`}>
+                          {displayStatus}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <Link
+                          href={`/projects/${project.id}`}
+                          className="text-indigo-600 hover:text-indigo-900"
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
                   )
                 })
               ) : (
