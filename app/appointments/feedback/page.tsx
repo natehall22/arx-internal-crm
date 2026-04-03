@@ -77,6 +77,7 @@ export default function AppointmentFeedbackPage() {
   const [schedulingTeams, setSchedulingTeams] = useState<Array<{ id: string; name: string }>>([])
   const [closeDurationMinutes, setCloseDurationMinutes] = useState(60)
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [closeVisitDebrief, setCloseVisitDebrief] = useState<{ opportunityId: string } | null>(null)
 
   // Insurance follow-up: schedule next touchpoint (required date + time)
@@ -120,6 +121,9 @@ export default function AppointmentFeedbackPage() {
         }
         if (typeof data.currentUserRole === 'string') {
           setCurrentUserRole(data.currentUserRole)
+        }
+        if (typeof data.currentUserId === 'string') {
+          setCurrentUserId(data.currentUserId)
         }
       } catch {
         /* non-fatal */
@@ -417,6 +421,7 @@ export default function AppointmentFeedbackPage() {
             opportunityId={closeVisitDebrief.opportunityId}
             inspectionAppointmentId={appointmentId}
             currentUserRole={currentUserRole}
+            currentUserId={currentUserId}
             closeDurationMinutes={closeDurationMinutes}
             users={schedulingUsers}
             teams={schedulingTeams}

@@ -265,6 +265,14 @@ export default async function OpportunityDetailPage({
 
   const proposalBuilderUrl = `/proposals/builder?opportunity_id=${params.id}&customer_name=${encodeURIComponent(leadRow?.homeowner_name || '')}&customer_address=${encodeURIComponent(opportunity.address_text || '')}`
 
+  // Direct link to the inspection feedback form (avoids two-hop: banner → section → button)
+  const inspectionFeedbackUrl =
+    inspectionAppointment?.id && leadRow?.id
+      ? `/appointments/feedback?id=${inspectionAppointment.id}&lead_id=${leadRow.id}`
+      : leadRow?.id
+        ? `/appointments/feedback?lead_id=${leadRow.id}`
+        : '#inspection-section'
+
   // Flow: Inspection → Close Appointment → Contract → Won/Lost
   if (opportunity.status === 'won') {
     nextStep = { icon: '🎉', title: 'Deal Won!', body: 'Check the Job Board to track production progress.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800', link: '/ops', linkLabel: 'Go to Job Board' }
@@ -272,7 +280,7 @@ export default async function OpportunityDetailPage({
     nextStep = { icon: '📋', title: 'Marked as Lost', body: 'You can still follow up or reopen this opportunity if the customer comes back.', bg: 'bg-gray-50 border-gray-200', titleColor: 'text-gray-700' }
   } else if (!opportunity.inspection_outcome) {
     // Step 1 — no inspection result yet
-    nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: '#inspection-section', linkLabel: 'Submit Inspection' }
+    nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: inspectionFeedbackUrl, linkLabel: 'Submit Inspection' }
   } else if (['not_home', 'rescheduled'].includes(opportunity.inspection_outcome)) {
     // Inspection couldn't happen — needs reschedule
     nextStep = { icon: '📞', title: 'Reschedule the Inspection', body: 'The customer was not home or requested a new time. Follow up to get it back on the calendar.', bg: 'bg-yellow-50 border-yellow-200', titleColor: 'text-yellow-800' }
@@ -510,6 +518,7 @@ export default async function OpportunityDetailPage({
             opportunityId={params.id}
             leadId={leadRow?.id ?? null}
             inspectionAppointmentId={inspectionAppointment?.id ?? null}
+            hideWhenEmpty
           />
         </div>
 

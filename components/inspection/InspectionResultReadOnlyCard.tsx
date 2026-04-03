@@ -43,12 +43,15 @@ type Props = {
   opportunityId: string
   leadId: string | null
   inspectionAppointmentId: string | null
+  /** When true, renders nothing if there is no submitted result yet (banner handles the CTA). */
+  hideWhenEmpty?: boolean
 }
 
 export default function InspectionResultReadOnlyCard({
   opportunityId,
   leadId,
   inspectionAppointmentId,
+  hideWhenEmpty = false,
 }: Props) {
   const [loading, setLoading] = useState(true)
   const [existing, setExisting] = useState<InspectionResult | null>(null)
@@ -111,6 +114,7 @@ export default function InspectionResultReadOnlyCard({
   }
 
   if (!existing?.submitted_at) {
+    if (hideWhenEmpty) return null
     return (
       <div className="bg-white shadow rounded-lg p-6 mb-6">
         <h2 className="text-xl font-bold text-gray-900 mb-2">Close visit debrief</h2>
