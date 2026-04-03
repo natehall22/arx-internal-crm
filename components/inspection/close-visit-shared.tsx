@@ -171,7 +171,11 @@ export function CloseVisitPhotoUpload({
         try {
           const compressed = await compressImage(file)
           const fd = new FormData()
-          fd.append('file', compressed, file.name.replace(/\.[^.]+$/, '.jpg'))
+          const ext = file.name.toLowerCase()
+          const isHeicOriginal =
+            compressed === file && (ext.endsWith('.heic') || ext.endsWith('.heif'))
+          const uploadFileName = isHeicOriginal ? file.name : file.name.replace(/\.[^.]+$/, '.jpg')
+          fd.append('file', compressed, uploadFileName)
 
           const res = await fetch(`/api/opportunities/${opportunityId}/inspection-photos`, {
             method: 'POST',

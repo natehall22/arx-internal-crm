@@ -81,7 +81,7 @@ export default function OperationsSnapshotCard({
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
               {PROJECT_REVIEW_FIELD_ORDER.map((key) => {
                 const text = structured[key]?.trim()
                 if (!text) return null
@@ -93,8 +93,10 @@ export default function OperationsSnapshotCard({
                   key === 'openItems'
                 return (
                   <div key={key} className={fullWidth ? 'md:col-span-2' : ''}>
-                    <span className="font-medium text-gray-500">{PROJECT_REVIEW_FIELD_LABELS[key]}</span>
-                    <p className="mt-1 text-gray-900 whitespace-pre-wrap break-words">{text}</p>
+                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                      {PROJECT_REVIEW_FIELD_LABELS[key]}
+                    </span>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap break-words">{text}</p>
                   </div>
                 )
               })}
@@ -104,27 +106,27 @@ export default function OperationsSnapshotCard({
 
         {!structured && project.scope_of_work?.trim() && (
           <div className="md:col-span-2">
-            <span className="font-medium text-gray-500">Scope of Work</span>
-            <p className="mt-1 text-gray-900 whitespace-pre-wrap break-words">{project.scope_of_work}</p>
+            <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Scope of Work</span>
+            <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap break-words">{project.scope_of_work}</p>
           </div>
         )}
         {!structured && project.product_summary?.trim() && (
           <div>
-            <span className="font-medium text-gray-500">Product</span>
-            <p className="mt-1 text-gray-900 break-words">{project.product_summary}</p>
+            <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Product</span>
+            <p className="mt-1 text-sm text-gray-900 break-words">{project.product_summary}</p>
           </div>
         )}
 
         {project.permits_status?.trim() && (
           <div>
-            <span className="font-medium text-gray-500">Permits (project)</span>
-            <p className="mt-1 text-gray-900">{project.permits_status}</p>
+            <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Permits (project)</span>
+            <p className="mt-1 text-sm text-gray-900">{project.permits_status}</p>
           </div>
         )}
         {project.install_date && (
           <div>
-            <span className="font-medium text-gray-500">Install Date (project)</span>
-            <p className="mt-1 text-gray-900">
+            <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Install Date (project)</span>
+            <p className="mt-1 text-sm text-gray-900">
               {new Date(project.install_date).toLocaleDateString()}
             </p>
           </div>
@@ -132,10 +134,10 @@ export default function OperationsSnapshotCard({
 
         {opsNotesForDisplay && (
           <div className="md:col-span-2">
-            <span className="font-medium text-gray-500">
+            <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
               {structured ? 'Earlier ops notes' : 'Ops notes (full history)'}
             </span>
-            <p className="mt-1 text-gray-900 whitespace-pre-wrap break-words">{opsNotesForDisplay}</p>
+            <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap break-words">{opsNotesForDisplay}</p>
           </div>
         )}
       </div>

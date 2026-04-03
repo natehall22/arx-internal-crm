@@ -119,6 +119,152 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   received: { label: 'Received', color: 'text-green-600' },
 }
 
+/** First incomplete pipeline stage index (0–4), or 4 when fully done. */
+function depositMilestoneMet(job: Job): boolean {
+  if (job.status !== 'sold') return true
+  const sale = job.sale_amount
+  if (!sale || sale <= 0) return true
+  const pct = job.deposit_required_percent
+  if (pct == null || pct <= 0) return (job.deposit ?? 0) > 0
+  const required = sale * (pct / 100)
+  return (job.deposit ?? 0) >= required - 0.005
+}
+
+function getJobPipelineCurrentIndex(job: Job): number {
+  const d1 = depositMilestoneMet(job)
+  const d2 = !!job.scheduled_date
+  const d3 =
+    job.status === 'in_progress' ||
+    !!job.started_at ||
+    job.status === 'complete' ||
+    job.status === 'collected'
+  const d4 = job.status === 'complete' || job.status === 'collected' || !!job.completed_at
+  const done = [true, d1, d2, d3, d4]
+  const firstOpen = done.findIndex((v) => !v)
+  return firstOpen === -1 ? 4 : firstOpen
+}
+
+const PIPELINE_STAGES = ['Sold', 'Deposit', 'Scheduled', 'In Progress', 'Complete'] as const
+
+type WorkflowBtnId = 'schedule' | 'materials' | 'materialsReady' | 'startJob' | 'complete' | 'collected'
+
+function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
+  const show: Record<WorkflowBtnId, boolean> = {
+    schedule: true,
+    materials: job.status === 'sold',
+    materialsReady: job.status === 'materials' && job.materials_status === 'received',
+    startJob: job.status === 'scheduled',
+    complete: job.status === 'in_progress',
+    collected: job.status === 'complete',
+  }
+  let primary: WorkflowBtnId
+  if (!job.scheduled_date) primary = 'schedule'
+  else if (show.materials) primary = 'materials'
+  else if (show.materialsReady) primary = 'materialsReady'
+  else if (show.startJob) primary = 'startJob'
+  else if (show.complete) primary = 'complete'
+  else if (show.collected) primary = 'collected'
+  else primary = 'schedule'
+
+  const order: WorkflowBtnId[] = ['schedule', 'materials', 'materialsReady', 'startJob', 'complete', 'collected']
+  const secondary = order.filter((id) => id !== primary && show[id])
+  return { primary, secondary }
+}
+
+function renderWorkflowButton(
+  job: Job,
+  id: WorkflowBtnId,
+  isPrimary: boolean,
+  opts: {
+    saving: boolean
+    setShowScheduleModal: (v: boolean) => void
+    updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
+    handleCompleteClick: () => void
+  }
+) {
+  const outline =
+    'min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-800 disabled:opacity-50'
+  const primaryIndigo =
+    'min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50'
+  const primaryGreen =
+    'min-h-[44px] px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50'
+  const primaryGray =
+    'min-h-[44px] px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 text-sm font-medium disabled:opacity-50'
+  const pc = isPrimary ? primaryIndigo : outline
+  const pcGreen = isPrimary ? primaryGreen : outline
+  const pcGray = isPrimary ? primaryGray : outline
+  const { saving, setShowScheduleModal, updateStatus, handleCompleteClick } = opts
+
+  switch (id) {
+    case 'schedule':
+      return (
+        <button key={id} type="button" onClick={() => setShowScheduleModal(true)} className={pc}>
+          {job.scheduled_date ? 'Reschedule' : 'Schedule Job'}
+        </button>
+      )
+    case 'materials':
+      return (
+        <button
+          key={id}
+          type="button"
+          onClick={() => updateStatus('materials')}
+          disabled={saving}
+          className={pc}
+        >
+          Start Material Ordering
+        </button>
+      )
+    case 'materialsReady':
+      return (
+        <button
+          key={id}
+          type="button"
+          onClick={() => updateStatus('scheduled')}
+          disabled={saving}
+          className={pc}
+        >
+          Materials Ready — Schedule Job
+        </button>
+      )
+    case 'startJob':
+      return (
+        <button
+          key={id}
+          type="button"
+          onClick={() => updateStatus('in_progress')}
+          disabled={saving}
+          className={pcGreen}
+        >
+          Start Job
+        </button>
+      )
+    case 'complete':
+      return (
+        <button
+          key={id}
+          type="button"
+          onClick={handleCompleteClick}
+          disabled={saving}
+          className={pcGreen}
+        >
+          Mark Job Complete
+        </button>
+      )
+    case 'collected':
+      return (
+        <button
+          key={id}
+          type="button"
+          onClick={() => updateStatus('collected')}
+          disabled={saving}
+          className={pcGray}
+        >
+          Mark as Collected
+        </button>
+      )
+  }
+}
+
 interface JobDetailClientProps {
   initialJob: Job
   crews: Crew[]
@@ -671,40 +817,57 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
           }}
         />
 
-        {/* Mobile Quick Actions - visible only on small screens */}
+        {/* Mobile Quick Actions — same workflow priority as desktop */}
         <div className="lg:hidden mb-4 bg-white rounded-xl shadow-sm border p-4">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setShowScheduleModal(true)}
-              className="min-h-[44px] px-3 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-            >
-              {job.scheduled_date ? 'Reschedule' : 'Schedule'}
-            </button>
-            {job.status === 'in_progress' ? (
-              <button
-                onClick={handleCompleteClick}
-                disabled={saving}
-                className="min-h-[44px] px-3 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50"
-              >
-                Mark Job Complete
-              </button>
-            ) : job.status === 'scheduled' ? (
-              <button
-                onClick={() => updateStatus('in_progress')}
-                disabled={saving}
-                className="min-h-[44px] px-3 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50"
-              >
-                Start Job
-              </button>
-            ) : (
-              <button
-                onClick={() => updateStatus('on_hold')}
-                disabled={saving || job.status === 'on_hold' || job.status === 'complete' || job.status === 'collected'}
-                className="min-h-[44px] px-3 py-2.5 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 text-sm font-medium disabled:opacity-50"
-              >
-                Pause Job
-              </button>
-            )}
+          <div className="flex flex-col gap-2">
+            {(() => {
+              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
+              const wfOpts = {
+                saving,
+                setShowScheduleModal,
+                updateStatus,
+                handleCompleteClick,
+              }
+              const overflowAllowed =
+                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') || userRole === 'admin'
+              return (
+                <>
+                  <div className="w-full [&>button]:w-full">{renderWorkflowButton(job, primaryId, true, wfOpts)}</div>
+                  {secondaryIds.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 [&>button]:w-full">{secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}</div>
+                  )}
+                  {overflowAllowed && (
+                    <details className="relative">
+                      <summary className="list-none cursor-pointer min-h-[44px] w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 text-center select-none [&::-webkit-details-marker]:hidden">
+                        More actions ▾
+                      </summary>
+                      <div className="mt-1 rounded-lg border border-gray-200 bg-gray-50 py-1">
+                        {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
+                          <button
+                            type="button"
+                            onClick={() => updateStatus('on_hold')}
+                            disabled={saving}
+                            className="w-full text-left px-3 py-2.5 text-sm text-orange-700 disabled:opacity-50"
+                          >
+                            Pause Job
+                          </button>
+                        )}
+                        {userRole === 'admin' && (
+                          <button
+                            type="button"
+                            onClick={() => void deleteJob()}
+                            disabled={deleting}
+                            className="w-full text-left px-3 py-2.5 text-sm text-red-600 disabled:opacity-50"
+                          >
+                            {deleting ? 'Deleting…' : 'Delete Job'}
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </>
+              )
+            })()}
           </div>
           
           {/* Mobile Assignment & Materials Summary */}
@@ -770,7 +933,54 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">
                     {job.customer?.name || 'Customer'}
                   </h1>
-                  <p className="text-gray-900 mt-1 text-sm sm:text-base break-words">{job.address_text}</p>
+                  {job.address_text ? (
+                    <a
+                      href={`https://maps.google.com/?q=${encodeURIComponent(job.address_text)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 text-sm sm:text-base text-indigo-600 hover:text-indigo-800 break-words inline-flex items-start gap-1.5 min-h-[44px] sm:min-h-0 items-center"
+                    >
+                      <span className="break-words">{job.address_text}</span>
+                      <svg className="w-4 h-4 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  ) : (
+                    <p className="text-gray-500 mt-1 text-sm">No address</p>
+                  )}
+
+                  {/** Pipeline — derived from job milestones only */}
+                  <div className="mt-3 pt-3 border-t border-gray-100 overflow-x-auto pb-0.5">
+                    <div className="flex items-center min-w-[min(100%,520px)] sm:min-w-0">
+                      {PIPELINE_STAGES.map((label, i) => {
+                        const currentIdx = getJobPipelineCurrentIndex(job)
+                        return (
+                          <div key={label} className="flex items-center flex-1 min-w-0">
+                            {i > 0 && (
+                              <div
+                                className={`h-1 flex-1 rounded-full mx-0.5 sm:mx-1 min-w-[6px] ${
+                                  currentIdx >= i ? 'bg-emerald-400' : 'bg-gray-200'
+                                }`}
+                              />
+                            )}
+                            <div className="flex flex-col items-center shrink-0 w-[18%] sm:flex-1 sm:min-w-[3.25rem]">
+                              <span
+                                className={`text-[9px] sm:text-[10px] uppercase tracking-wide text-center leading-tight ${
+                                  i === currentIdx
+                                    ? 'text-indigo-800 font-semibold'
+                                    : i < currentIdx
+                                      ? 'text-gray-600'
+                                      : 'text-gray-400'
+                                }`}
+                              >
+                                {label}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
                 <span className={`text-sm px-3 py-1 rounded-full whitespace-nowrap self-start ${
                   job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
@@ -782,77 +992,58 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 </span>
               </div>
 
-              {/* Desktop action buttons - hidden on mobile */}
-              <div className="hidden lg:flex flex-wrap gap-2 pt-4 border-t">
-                <button
-                  onClick={() => setShowScheduleModal(true)}
-                  className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
-                >
-                  {job.scheduled_date ? 'Reschedule' : 'Schedule Job'}
-                </button>
-                {job.status === 'sold' && (
-                  <button
-                    onClick={() => updateStatus('materials')}
-                    disabled={saving}
-                    className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
-                  >
-                    Start Material Ordering
-                  </button>
-                )}
-                {job.status === 'materials' && job.materials_status === 'received' && (
-                  <button
-                    onClick={() => updateStatus('scheduled')}
-                    disabled={saving}
-                    className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm text-gray-900"
-                  >
-                    Materials Ready - Schedule Job
-                  </button>
-                )}
-                {job.status === 'scheduled' && (
-                  <button
-                    onClick={() => updateStatus('in_progress')}
-                    disabled={saving}
-                    className="min-h-[44px] px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
-                  >
-                    Start Job
-                  </button>
-                )}
-                {job.status === 'in_progress' && (
-                  <button
-                    onClick={handleCompleteClick}
-                    disabled={saving}
-                    className="min-h-[44px] px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
-                  >
-                    Mark Job Complete
-                  </button>
-                )}
-                {job.status === 'complete' && (
-                  <button
-                    onClick={() => updateStatus('collected')}
-                    disabled={saving}
-                    className="min-h-[44px] px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 text-sm"
-                  >
-                    Mark as Collected
-                  </button>
-                )}
-                {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
-                  <button
-                    onClick={() => updateStatus('on_hold')}
-                    disabled={saving}
-                    className="min-h-[44px] px-4 py-2 border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 text-sm"
-                  >
-                    Pause Job
-                  </button>
-                )}
-                {userRole === 'admin' && (
-                  <button
-                    onClick={deleteJob}
-                    disabled={deleting}
-                    className="min-h-[44px] px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm ml-auto"
-                  >
-                    {deleting ? 'Deleting...' : 'Delete Job'}
-                  </button>
-                )}
+              {/* Desktop: one primary CTA + outlined secondaries + More (pause/delete) */}
+              <div className="hidden lg:flex flex-wrap items-center gap-2 pt-4 border-t">
+                {(() => {
+                  const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
+                  const wfOpts = {
+                    saving,
+                    setShowScheduleModal,
+                    updateStatus,
+                    handleCompleteClick,
+                  }
+                  const overflowAllowed =
+                    (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') || userRole === 'admin'
+                  return (
+                    <>
+                      {renderWorkflowButton(job, primaryId, true, wfOpts)}
+                      {secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}
+                      <div className="flex-1 min-w-[8px]" aria-hidden />
+                      {overflowAllowed && (
+                        <details className="relative">
+                          <summary className="list-none cursor-pointer min-h-[44px] px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
+                            More
+                            <span className="text-gray-400">▾</span>
+                          </summary>
+                          <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-gray-200 bg-white shadow-lg z-20 py-1">
+                            {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
+                              <button
+                                type="button"
+                                onClick={() => updateStatus('on_hold')}
+                                disabled={saving}
+                                className="w-full text-left px-3 py-2.5 text-sm text-orange-700 hover:bg-orange-50 disabled:opacity-50"
+                              >
+                                Pause Job
+                              </button>
+                            )}
+                            {userRole === 'admin' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void deleteJob()
+                                }}
+                                disabled={deleting}
+                                className="w-full text-left px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              >
+                                {deleting ? 'Deleting…' : 'Delete Job'}
+                              </button>
+                            )}
+                          </div>
+                        </details>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
@@ -928,7 +1119,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                   onChange={handleNoteChange}
                   rows={3}
                   className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg mb-2 text-gray-900 text-base"
-                  placeholder="Add a note... Use @ to mention someone"
+                  placeholder="Add a note… Tip: type @ to mention a teammate."
                 />
                 
                 {/* @mention dropdown */}
@@ -954,7 +1145,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                   >
                     {saving ? 'Adding...' : 'Add Note'}
                   </button>
-                  <span className="text-xs text-gray-500 hidden sm:inline">Tip: Use @ to tag team members</span>
                 </div>
               </div>
 
@@ -1008,16 +1198,40 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                   {job.estimated_duration_hours && (
                     <p className="text-sm sm:text-base text-gray-900">Duration: {job.estimated_duration_hours} hours</p>
                   )}
+                  {(job.assigned_crew?.name || job.assigned_sub?.company_name) && (
+                    <p className="text-sm font-medium text-gray-800 mt-2 pt-2 border-t border-gray-100">
+                      {job.assigned_crew?.name ? (
+                        <>
+                          Crew: <span className="text-indigo-700">{job.assigned_crew.name}</span>
+                        </>
+                      ) : (
+                        <>
+                          Sub: <span className="text-indigo-700">{job.assigned_sub?.company_name}</span>
+                        </>
+                      )}
+                    </p>
+                  )}
                 </div>
               ) : (
-                <div className="text-center py-4">
-                  <p className="text-gray-900 mb-3">Not scheduled yet</p>
-                  <button
-                    onClick={() => setShowScheduleModal(true)}
-                    className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
-                  >
-                    Schedule Now
-                  </button>
+                <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-3 sm:py-4">
+                  <div className="flex gap-3">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700" aria-hidden>
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-amber-900">Not scheduled yet</p>
+                      <p className="text-xs text-amber-800/90 mt-0.5">Add a date to get this job on the calendar.</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowScheduleModal(true)}
+                        className="mt-3 min-h-[44px] w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+                      >
+                        Schedule now
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1275,18 +1489,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
             </div>
             </div>{/* end overview tab wrapper (permit + related) */}
 
-            {/* NOTES TAB — Mobile delete (admin) */}
-            {userRole === 'admin' && (
-              <div className={`lg:hidden ${mobileTab !== 'notes' ? 'hidden' : ''}`}>
-                <button
-                  onClick={deleteJob}
-                  disabled={deleting}
-                  className="w-full min-h-[44px] px-4 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm"
-                >
-                  {deleting ? 'Deleting...' : 'Delete Job'}
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>

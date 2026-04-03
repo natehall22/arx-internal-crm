@@ -625,6 +625,7 @@ export async function POST(request: Request) {
           lead_id: leadRow.id,
           customer_id: leadRow.customer_id || null,
           owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
+          setter_user_id: profile.id,
           status: 'open',
           project_type: 'roofing',
           address_text: leadRow.address_text || null,

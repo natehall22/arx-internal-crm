@@ -865,14 +865,10 @@ export default function JobFileWorkspaceCard({
           )}
           {pendingDocumentFiles.length === 0 && (
             <div className="mb-3 rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-600">
-              Choose one or more files, then add optional details before saving. You can also drag files into the
-              documents area below. Batch uploads share category, role, and description; each file gets its own title
-              from the filename unless you upload a single file with a custom title.
+              Upload files, set category and role, then save. Drag-and-drop supported.
             </div>
           )}
-          <p className="text-xs text-gray-500 mb-3">
-            Documents are versioned. Replacing a document keeps prior versions in history and never overwrites files.
-          </p>
+          <p className="text-xs text-gray-500 mb-3">Contracts, change orders, and supporting files.</p>
 
           <div
             className={`rounded-lg border-2 border-dashed transition-colors ${
@@ -893,10 +889,7 @@ export default function JobFileWorkspaceCard({
             {loading ? (
               <p className="text-sm text-gray-500 p-4">Loading documents...</p>
             ) : documents.length === 0 ? (
-              <div className="p-4 text-sm text-gray-600">
-                <p className="mb-1">No documents yet.</p>
-                <p>Add contracts, change-order files, and supporting documents here (upload or drag and drop).</p>
-              </div>
+              <div className="p-4 text-sm text-gray-500">No documents yet.</div>
             ) : (
               <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
                 <table className="min-w-full text-sm">

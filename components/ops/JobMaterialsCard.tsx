@@ -270,22 +270,36 @@ export default function JobMaterialsCard({
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {materialsWorkflowStatuses.map((status) => (
-                  <button
-                    key={status}
-                    onClick={() => onMaterialsStatusChange?.(status)}
-                    disabled={updatingMaterialsStatus || materialsStatus === status}
-                    className={`min-h-[40px] px-2 py-2 text-xs rounded-lg border transition ${
-                      materialsStatus === status
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'border-gray-300 hover:bg-gray-50 text-gray-900'
-                    } disabled:opacity-50`}
-                  >
-                    {status === 'not_ordered' ? 'Not Ordered' :
-                     status === 'ordered' ? 'Ordered' :
-                     status === 'partial' ? 'Partially Delivered' : 'Fully Delivered'}
-                  </button>
-                ))}
+                {materialsWorkflowStatuses.map((status) => {
+                  const active = materialsStatus === status
+                  const base = 'min-h-[40px] px-2 py-2 text-xs rounded-lg border font-medium transition'
+                  const activeClass =
+                    status === 'not_ordered'
+                      ? 'bg-gray-600 text-white border-gray-600 shadow-sm'
+                      : status === 'ordered'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : status === 'partial'
+                          ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                          : 'bg-green-600 text-white border-green-600 shadow-sm'
+                  const idleClass = 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
+                  return (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => onMaterialsStatusChange?.(status)}
+                      disabled={updatingMaterialsStatus || materialsStatus === status}
+                      className={`${base} ${active ? activeClass : idleClass} disabled:opacity-60`}
+                    >
+                      {status === 'not_ordered'
+                        ? 'Not Ordered'
+                        : status === 'ordered'
+                          ? 'Ordered'
+                          : status === 'partial'
+                            ? 'Partially Delivered'
+                            : 'Fully Delivered'}
+                    </button>
+                  )
+                })}
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 This tracks material delivery only.

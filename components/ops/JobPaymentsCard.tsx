@@ -89,12 +89,18 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
         </button>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-4 sm:mb-6">
+      {/* Summary stats + progress bar directly under Collected / Remaining */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-2">
         <div className="p-3 bg-gray-50 rounded-lg">
           <div className="text-xs text-gray-700 mb-1">Sale Amount</div>
           <div className="text-base sm:text-lg font-semibold text-gray-900">
             {formatCurrency(saleAmountCents)}
+          </div>
+        </div>
+        <div className="p-3 bg-indigo-50 rounded-lg">
+          <div className="text-xs text-gray-700 mb-1">% Collected</div>
+          <div className="text-base sm:text-lg font-semibold text-indigo-700">
+            {percentCollected}%
           </div>
         </div>
         <div className="p-3 bg-green-50 rounded-lg">
@@ -109,19 +115,16 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
             {formatCurrency(remainingCents)}
           </div>
         </div>
-        <div className="p-3 bg-indigo-50 rounded-lg">
-          <div className="text-xs text-gray-700 mb-1">% Collected</div>
-          <div className="text-base sm:text-lg font-semibold text-indigo-700">
-            {percentCollected}%
-          </div>
-        </div>
       </div>
 
-      {/* Progress Bar */}
       <div className="mb-4 sm:mb-6">
+        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-gray-500">
+          <span>Collected</span>
+          <span>Remaining</span>
+        </div>
         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-          <div 
-            className="h-full bg-green-500 transition-all duration-300"
+          <div
+            className="h-full bg-green-500 transition-all duration-300 rounded-full"
             style={{ width: `${Math.min(percentCollected, 100)}%` }}
           />
         </div>

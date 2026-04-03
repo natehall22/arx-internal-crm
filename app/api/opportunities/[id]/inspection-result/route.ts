@@ -8,7 +8,7 @@ const PHOTO_SIGNED_URL_TTL = 60 * 60 * 24 * 7 // 7 days
 
 const ROLES_CAN_SUBMIT = new Set([
   'admin', 'owner', 'setter_manager', 'regional_setter_manager',
-  'sales_manager', 'regional_manager', 'rep',
+  'sales_manager', 'regional_manager', 'rep', 'sales_rep', 'closer',
 ])
 
 export async function GET(

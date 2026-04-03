@@ -5,6 +5,14 @@ import { createServiceClient } from '@/lib/supabase/service'
 const BUCKET = 'inspection-photos'
 const MAX_PHOTOS = 20
 
+function storageUploadErrorMessage(err: unknown): string {
+  if (err == null || typeof err !== 'object') return 'Upload failed'
+  const o = err as { message?: unknown; error?: unknown }
+  if (typeof o.message === 'string' && o.message) return o.message
+  if (typeof o.error === 'string' && o.error) return o.error
+  return 'Upload failed'
+}
+
 const ROLES_CAN_UPLOAD = new Set([
   'admin',
   'owner',
@@ -139,12 +147,16 @@ export async function POST(
       return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 })
     }
 
+    const nameLower = fileName.toLowerCase()
+    const isHeicByName = nameLower.endsWith('.heic') || nameLower.endsWith('.heif')
     const contentType =
       mime.startsWith('image/') && mime.length > 0
         ? mime
         : /\.png$/i.test(fileName)
           ? 'image/png'
-          : 'image/jpeg'
+          : isHeicByName
+            ? 'image/heic'
+            : 'image/jpeg'
 
     // Sanitize filename
     const safeFilename = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100)
@@ -162,7 +174,7 @@ export async function POST(
 
     if (uploadError) {
       console.error('Photo upload error:', uploadError)
-      return NextResponse.json({ error: uploadError.message || 'Upload failed' }, { status: 500 })
+      return NextResponse.json({ error: storageUploadErrorMessage(uploadError) }, { status: 500 })
     }
 
     const { data: row, error: insertError } = await admin

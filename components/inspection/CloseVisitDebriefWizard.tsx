@@ -213,8 +213,14 @@ export default function CloseVisitDebriefWizard({
       })
 
       if (!res.ok) {
-        const d = await res.json()
-        setError(d.error || 'Failed to save')
+        let msg = 'Failed to save'
+        try {
+          const d = (await res.json()) as { error?: string }
+          if (typeof d.error === 'string' && d.error) msg = d.error
+        } catch {
+          /* non-JSON error body */
+        }
+        setError(msg)
         return
       }
 

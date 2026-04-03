@@ -277,6 +277,10 @@ export default async function OpportunityDetailPage({
         ? `/appointments/feedback?lead_id=${leadRow.id}`
         : '#inspection-section'
 
+  // Only hide the empty debrief card when the banner links straight to feedback; if we fall back to the
+  // in-page anchor (no lead), the card must still show instructions / "link a lead".
+  const hideInspectionEmptyCard = inspectionFeedbackUrl !== '#inspection-section'
+
   // Flow: Inspection → Close Appointment → Contract → Won/Lost
   if (opportunity.status === 'won') {
     nextStep = { icon: '🎉', title: 'Deal Won!', body: 'Check the Job Board to track production progress.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800', link: '/ops', linkLabel: 'Go to Job Board' }
@@ -522,7 +526,7 @@ export default async function OpportunityDetailPage({
             opportunityId={params.id}
             leadId={leadRow?.id ?? null}
             inspectionAppointmentId={inspectionAppointment?.id ?? null}
-            hideWhenEmpty
+            hideWhenEmpty={hideInspectionEmptyCard}
           />
         </div>
 

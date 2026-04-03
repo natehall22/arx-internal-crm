@@ -12,6 +12,15 @@ function getAdminClient() {
   )
 }
 
+type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
+
+/** Nested `leads` from Supabase may be an array, a single row, or absent; empty array → null. */
+function pickEmbeddedLead(leads: unknown): EmbeddedLeadRow | null {
+  if (leads == null) return null
+  if (Array.isArray(leads)) return (leads[0] as EmbeddedLeadRow | undefined) ?? null
+  return leads as EmbeddedLeadRow
+}
+
 async function sendEmail(
   to: string,
   subject: string,
@@ -151,7 +160,7 @@ export async function POST(request: NextRequest) {
           .eq('id', contract.opportunity_id)
           .maybeSingle()
 
-        const leadData = Array.isArray(opp?.leads) ? opp.leads[0] : (opp?.leads as any) ?? null
+        const leadData = pickEmbeddedLead(opp?.leads)
         const closerUserId = leadData?.closer_user_id ?? null
         // Fall back to lead.owner_user_id for older records where setter_user_id was not populated
         const resolvedSetterUserId = opp?.setter_user_id ?? leadData?.owner_user_id ?? null
