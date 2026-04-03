@@ -9,6 +9,7 @@ import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import SignaturePadInline from '@/components/SignaturePadInline'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
+import CreateContractButton from '@/components/contracts/CreateContractButton'
 
 interface Proposal {
   id: string
@@ -1406,88 +1407,59 @@ export default function ProposalDetailPage() {
               )}
             </div>
 
-            {/* Accept/Decline Section */}
-            {proposal.status !== 'accepted' && proposal.status !== 'declined' && (
+            {/* Create Contract / Decline */}
+            {proposal.status !== 'declined' && (
               <div className="mt-8 pt-8 border-t">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Proposal Decision</h3>
-                
-                {proposal.rep_signed_at && proposal.customer_signed_at ? (
-                  <div className="flex gap-4">
-                    <button
-                      onClick={async () => {
-                        if (!confirm('Accept this proposal? This will mark it as accepted and create a project.')) return
-                        try {
-                          const response = await fetch(`/api/proposals/${proposalId}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              status: 'accepted',
-                              accepted_at: new Date().toISOString(),
-                            }),
-                          })
-                          if (response.ok) {
-                            const data = await response.json()
-                            await loadProposal()
-                            if (data.project_id) {
-                              alert(`Proposal accepted! Project created successfully.`)
-                            } else {
-                              alert('Proposal accepted!')
-                            }
-                          } else {
-                            alert('Failed to accept proposal')
-                          }
-                        } catch (err) {
-                          console.error('Error accepting proposal:', err)
-                          alert('Failed to accept proposal')
-                        }
-                      }}
-                      className="flex-1 px-6 py-4 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 flex items-center justify-center gap-2"
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Next Step</h3>
+                <div className="flex gap-4 items-center">
+                  {proposal.opportunity_id ? (
+                    <CreateContractButton
+                      opportunityId={proposal.opportunity_id}
+                      proposalId={proposal.id}
+                      customerName={proposal.customer_name}
+                      customerEmail={proposal.customer_email}
+                      customerPhone={proposal.customer_phone}
+                      projectAddress={proposal.customer_address}
+                      projectCost={proposal.total}
+                      scopeOfWork={proposal.scope_of_work}
+                    />
+                  ) : (
+                    <Link
+                      href={`/opportunities`}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Accept Proposal
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const reason = prompt('Reason for declining (optional):')
-                        if (reason === null) return
-                        try {
-                          const response = await fetch(`/api/proposals/${proposalId}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              status: 'declined',
-                              declined_at: new Date().toISOString(),
-                              declined_reason: reason || null,
-                            }),
-                          })
-                          if (response.ok) {
-                            await loadProposal()
-                            alert('Proposal declined')
-                          } else {
-                            alert('Failed to decline proposal')
-                          }
-                        } catch (err) {
-                          console.error('Error declining proposal:', err)
+                      Create Contract
+                    </Link>
+                  )}
+                  <button
+                    onClick={async () => {
+                      const reason = prompt('Reason for declining (optional):')
+                      if (reason === null) return
+                      try {
+                        const response = await fetch(`/api/proposals/${proposalId}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            status: 'declined',
+                            declined_at: new Date().toISOString(),
+                            declined_reason: reason || null,
+                          }),
+                        })
+                        if (response.ok) {
+                          await loadProposal()
+                        } else {
                           alert('Failed to decline proposal')
                         }
-                      }}
-                      className="px-6 py-4 border-2 border-red-200 text-red-600 rounded-xl font-semibold hover:bg-red-50 flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Decline
-                    </button>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                    <p className="text-amber-800">
-                      <span className="font-medium">Signatures required:</span> Both the sales representative and customer must sign before the proposal can be accepted or declined.
-                    </p>
-                  </div>
-                )}
+                      } catch (err) {
+                        console.error('Error declining proposal:', err)
+                        alert('Failed to decline proposal')
+                      }
+                    }}
+                    className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50"
+                  >
+                    Decline Proposal
+                  </button>
+                </div>
               </div>
             )}
 
