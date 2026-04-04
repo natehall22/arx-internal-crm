@@ -10,7 +10,10 @@ interface CreateContractButtonProps {
   customerEmail: string
   customerPhone: string
   projectAddress: string
+  /** Contract / financed total (includes dealer-fee gross-up when financing program applies). */
   projectCost: number
+  /** Prefills finance company when payment method is finance (from proposal lender). */
+  defaultFinanceCompany?: string | null
   totalSquares?: number
   scopeOfWork?: string
 }
@@ -23,6 +26,7 @@ export default function CreateContractButton({
   customerPhone,
   projectAddress,
   projectCost,
+  defaultFinanceCompany,
   totalSquares,
   scopeOfWork,
 }: CreateContractButtonProps) {
@@ -50,6 +54,7 @@ export default function CreateContractButton({
         customerPhone={customerPhone}
         projectAddress={projectAddress}
         projectCost={projectCost}
+        defaultFinanceCompany={defaultFinanceCompany}
         totalSquares={totalSquares}
         scopeOfWork={scopeOfWork}
       />

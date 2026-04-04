@@ -16,7 +16,7 @@ function leadFromProject(project: any) {
 }
 
 function customerDisplayName(project: any) {
-  return project.customers?.name || leadFromProject(project)?.homeowner_name || 'N/A'
+  return project.customers?.name || leadFromProject(project)?.homeowner_name || '—'
 }
 
 function resolveDisplayStatus(project: any) {
@@ -41,120 +41,171 @@ export default async function ProjectsPage() {
 
   let projectsQuery = supabase
     .from('projects')
-    .select('*, customers(name), leads(homeowner_name), production_jobs(status, updated_at)')
+    .select('id, org_id, created_at, address_text, project_type, status, opportunity_id, owner_user_id, customers(name), leads(homeowner_name), production_jobs(status, updated_at)')
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
-  // Closers/sales reps only see projects they own
   if (['rep', 'sales_rep', 'closer'].includes(profile.role)) {
     projectsQuery = projectsQuery.eq('owner_user_id', profile.id)
   }
 
   const { data: projects } = await projectsQuery
 
+  const oppIds = Array.from(
+    new Set((projects || []).map((p) => p.opportunity_id).filter(Boolean) as string[])
+  )
+  const userIdsNeeded = new Set<string>()
+  ;(projects || []).forEach((p) => {
+    if (p.owner_user_id) userIdsNeeded.add(p.owner_user_id)
+  })
+
+  const oppOwnerByOppId = new Map<string, string | null>()
+  if (oppIds.length > 0) {
+    const { data: opps } = await supabase
+      .from('opportunities')
+      .select('id, owner_user_id')
+      .in('id', oppIds)
+    for (const o of opps || []) {
+      oppOwnerByOppId.set(o.id, o.owner_user_id)
+      if (o.owner_user_id) userIdsNeeded.add(o.owner_user_id)
+    }
+  }
+
+  const userById = new Map<string, string>()
+  if (userIdsNeeded.size > 0) {
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, full_name')
+      .in('id', Array.from(userIdsNeeded))
+    for (const u of users || []) {
+      userById.set(u.id, u.full_name || '—')
+    }
+  }
+
+  function closerLabel(project: any) {
+    const oid = project.opportunity_id as string | null
+    if (oid) {
+      const closerId = oppOwnerByOppId.get(oid)
+      if (closerId && userById.has(closerId)) return userById.get(closerId)!
+    }
+    if (project.owner_user_id && userById.has(project.owner_user_id)) {
+      return userById.get(project.owner_user_id)!
+    }
+    return '—'
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Projects</h1>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <div className="mb-5">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Projects</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Active jobs — closer is from the linked opportunity when available, otherwise project owner.
+          </p>
         </div>
 
-        {/* Mobile card list */}
-        <div className="md:hidden space-y-3">
+        <div className="md:hidden space-y-2">
           {projects && projects.length > 0 ? (
             projects.map((project: any) => {
               const displayStatus = resolveDisplayStatus(project)
               const customerName = customerDisplayName(project)
+              const closer = closerLabel(project)
               return (
                 <Link
                   key={project.id}
                   href={`/projects/${project.id}`}
-                  className="block bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-4 active:bg-gray-50"
+                  className="block bg-white rounded-lg border border-gray-200 px-3 py-3 active:bg-gray-50"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="font-semibold text-gray-900 text-base leading-snug">{customerName}</span>
-                    <span className={`shrink-0 px-2 py-0.5 text-xs font-semibold rounded-full capitalize ${statusBadgeClass(displayStatus)}`}>
+                    <span className="font-semibold text-gray-900 text-[15px] leading-snug">{customerName}</span>
+                    <span
+                      className={`shrink-0 px-2 py-0.5 text-xs font-medium rounded-full capitalize ${statusBadgeClass(displayStatus)}`}
+                    >
                       {displayStatus}
                     </span>
                   </div>
                   {project.address_text && (
-                    <p className="mt-1 text-sm text-gray-500 leading-snug">{project.address_text}</p>
+                    <p className="mt-0.5 text-sm text-gray-600 line-clamp-2">{project.address_text}</p>
                   )}
-                  {project.project_type && (
-                    <span className="mt-2 inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800 capitalize">
-                      {project.project_type}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                    <span>
+                      <span className="text-gray-400">Closer </span>
+                      <span className="font-medium text-gray-700">{closer}</span>
                     </span>
-                  )}
+                    {project.project_type && (
+                      <span className="capitalize px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{project.project_type}</span>
+                    )}
+                  </div>
                 </Link>
               )
             })
           ) : (
-            <p className="text-center text-gray-500 py-8">No projects found</p>
+            <p className="text-center text-gray-500 py-10 text-sm">No projects yet</p>
           )}
         </div>
 
-        {/* Desktop table */}
-        <div className="hidden md:block bg-white shadow rounded-lg overflow-hidden">
+        <div className="hidden md:block bg-white rounded-lg border border-gray-200 overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                   Customer
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                   Address
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Closer
+                </th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                   Type
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                   Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-100">
               {projects && projects.length > 0 ? (
                 projects.map((project: any) => {
                   const displayStatus = resolveDisplayStatus(project)
+                  const closer = closerLabel(project)
                   return (
-                    <tr key={project.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
+                    <tr key={project.id} className="hover:bg-gray-50/80">
+                      <td className="px-4 py-2.5">
+                        <Link
+                          href={`/projects/${project.id}`}
+                          className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                        >
                           {customerDisplayName(project)}
-                        </div>
+                        </Link>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900">{project.address_text || 'N/A'}</div>
+                      <td className="px-4 py-2.5 max-w-[240px]">
+                        <span className="text-sm text-gray-700 line-clamp-2">{project.address_text || '—'}</span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className="text-sm text-gray-900">{closer}</span>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 capitalize">
                           {project.project_type || '—'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${statusBadgeClass(displayStatus)}`}>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span
+                          className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${statusBadgeClass(displayStatus)}`}
+                        >
                           {displayStatus}
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <Link
-                          href={`/projects/${project.id}`}
-                          className="text-indigo-600 hover:text-indigo-900"
-                        >
-                          View
-                        </Link>
                       </td>
                     </tr>
                   )
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
-                    No projects found
+                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-500">
+                    No projects yet
                   </td>
                 </tr>
               )}

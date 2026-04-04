@@ -13,6 +13,8 @@ interface ContractModalProps {
   customerPhone: string
   projectAddress: string
   projectCost: number
+  /** When set, pre-fills the finance company field for Installation Agreement. */
+  defaultFinanceCompany?: string | null
   totalSquares?: number
   scopeOfWork?: string
 }
@@ -52,6 +54,7 @@ export default function ContractModal({
   customerPhone,
   projectAddress,
   projectCost,
+  defaultFinanceCompany,
   totalSquares,
   scopeOfWork,
 }: ContractModalProps) {
@@ -95,12 +98,13 @@ export default function ContractModal({
         projectAddress: projectAddress || prev.projectAddress,
         projectCost: projectCost || prev.projectCost,
         totalSquares: totalSquares || prev.totalSquares,
+        financeCompany: defaultFinanceCompany?.trim() || prev.financeCompany || '',
       }))
       setStep(1)
       setError(null)
       setSuccess(false)
     }
-  }, [isOpen, customerName, customerEmail, customerPhone, projectAddress, projectCost, totalSquares])
+  }, [isOpen, customerName, customerEmail, customerPhone, projectAddress, projectCost, totalSquares, defaultFinanceCompany])
 
   const handleInputChange = (field: keyof ContractFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -20,6 +20,7 @@ import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
 import OperationsSnapshotCard from '@/components/ops/OperationsSnapshotCard'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
+import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -734,7 +735,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
   const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
   const canViewFinancials = userRole === 'admin' || userRole === 'owner' || userRole === 'operations'
-  const COMMISSION_RATE = 0.18
+  const payrollSnapshot = useMemo(() => buildCommissionPayrollSnapshot(job), [job])
   const saleAmount = job.sale_amount || 0
   const laborCost = job.labor_cost || 0
   const materialCost = effectiveMaterialCost || 0
@@ -745,7 +746,10 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const saleAmountCents = toCents(saleAmount)
   const laborCostCents = toCents(laborCost)
   const materialCostCents = toCents(materialCost)
-  const commissionCents = Math.round(saleAmountCents * COMMISSION_RATE)
+  const commissionCents =
+    payrollSnapshot.poolCap != null
+      ? Math.round(payrollSnapshot.poolCap * 100)
+      : Math.round(saleAmountCents * SALES_COMMISSION_POOL_RATE)
   const profitCents = saleAmountCents - laborCostCents - materialCostCents - commissionCents
   const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
 
@@ -1328,8 +1332,44 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                       {job.sale_amount !== null ? formatCents(saleAmountCents) : '-'}
                     </span>
                   </div>
+                  {payrollSnapshot.source !== 'unavailable' && (
+                    <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 space-y-1.5 text-xs sm:text-sm">
+                      <p className="font-medium text-slate-800">Payroll — commission pool (policy)</p>
+                      {payrollSnapshot.preTaxSubtotal != null && (
+                        <div className="flex justify-between gap-2 text-slate-700">
+                          <span>Pre-tax subtotal</span>
+                          <span className="font-medium">{formatCents(Math.round(payrollSnapshot.preTaxSubtotal * 100))}</span>
+                        </div>
+                      )}
+                      {payrollSnapshot.dealerFeeAmount > 0 && (
+                        <div className="flex justify-between gap-2 text-slate-700">
+                          <span>Dealer fee (lender)</span>
+                          <span className="font-medium">−{formatCents(Math.round(payrollSnapshot.dealerFeeAmount * 100))}</span>
+                        </div>
+                      )}
+                      {payrollSnapshot.compBase != null && (
+                        <div className="flex justify-between gap-2 text-slate-800 pt-0.5 border-t border-slate-200">
+                          <span>Comp base (pre-tax − dealer fee)</span>
+                          <span className="font-medium">{formatCents(Math.round(payrollSnapshot.compBase * 100))}</span>
+                        </div>
+                      )}
+                      {payrollSnapshot.poolCap != null && (
+                        <div className="flex justify-between gap-2 text-slate-900 font-medium">
+                          <span>Max rep comp + incentives ({Math.round(payrollSnapshot.poolRate * 100)}%)</span>
+                          <span>{formatCents(Math.round(payrollSnapshot.poolCap * 100))}</span>
+                        </div>
+                      )}
+                      {payrollSnapshot.fallbackNote && (
+                        <p className="text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1.5 mt-1">{payrollSnapshot.fallbackNote}</p>
+                      )}
+                    </div>
+                  )}
                   <div className="flex justify-between">
-                    <span className="text-gray-900">Sales Commission (18%)</span>
+                    <span className="text-gray-900">
+                      {payrollSnapshot.poolCap != null
+                        ? 'Sales comp (pool cap in profit est.)'
+                        : `Sales commission (${Math.round(SALES_COMMISSION_POOL_RATE * 100)}% of sale est.)`}
+                    </span>
                     <span className="font-medium text-gray-900">
                       {job.sale_amount !== null ? formatCents(commissionCents) : '-'}
                     </span>

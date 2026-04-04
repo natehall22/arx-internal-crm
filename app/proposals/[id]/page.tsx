@@ -31,6 +31,9 @@ interface Proposal {
   financing_term_months: number
   financing_rate: number
   monthly_payment: number
+  financing_program_id?: string | null
+  financing_lender_name?: string | null
+  financed_contract_total?: number | null
   scope_of_work: string
   warranty_info: string
   accent_color: string
@@ -1420,7 +1423,12 @@ export default function ProposalDetailPage() {
                       customerEmail={proposal.customer_email}
                       customerPhone={proposal.customer_phone}
                       projectAddress={proposal.customer_address}
-                      projectCost={proposal.total}
+                      projectCost={
+                        proposal.financed_contract_total != null && proposal.financed_contract_total > 0
+                          ? proposal.financed_contract_total
+                          : proposal.total
+                      }
+                      defaultFinanceCompany={proposal.financing_lender_name}
                       scopeOfWork={proposal.scope_of_work}
                     />
                   ) : (

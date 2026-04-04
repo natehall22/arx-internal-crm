@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 
 interface Commission {
   id: string
   sale_amount: number
+  commissionable_amount?: number | null
   commission_amount: number
   bonus_amount: number
   total_amount: number
@@ -85,6 +87,10 @@ export default function CommissionWidget() {
   // Calculator state
   const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
   const [calcJobsClosed, setCalcJobsClosed] = useState(4)
+  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState(0)
+
+  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePrice, avgDealerFeePercent)
+  const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosed
 
   useEffect(() => {
     setMounted(true)
@@ -236,7 +242,7 @@ export default function CommissionWidget() {
     // Get recent commissions
     const { data: recentCommissions } = await supabase
       .from('commissions')
-      .select('*, projects(address_text), opportunities(address_text)')
+      .select('*, commissionable_amount, projects(address_text), opportunities(address_text)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(5)
@@ -246,7 +252,7 @@ export default function CommissionWidget() {
     // Calculate summaries
     const { data: allCommissions } = await supabase
       .from('commissions')
-      .select('total_amount, status, commission_period')
+      .select('total_amount, commissionable_amount, status, commission_period')
       .eq('user_id', user.id)
       .gte('commission_period', yearStart)
 
@@ -702,7 +708,7 @@ export default function CommissionWidget() {
               <div className="space-y-4 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Average Sale Price per Job
+                    Avg financed total per job
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
@@ -728,6 +734,23 @@ export default function CommissionWidget() {
                       </button>
                     ))}
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Avg dealer fee % (of financed total)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.25}
+                    value={avgDealerFeePercent || ''}
+                    onChange={(e) => setAvgDealerFeePercent(Number(e.target.value) || 0)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    0% = cash or no fee. Estimator uses net commissionable volume for tiers.
+                  </p>
                 </div>
                 
                 <div>
@@ -772,7 +795,7 @@ export default function CommissionWidget() {
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       <tr className={(() => {
-                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        const monthlyVolume = monthlyCommissionableVolume
                         const firstTier = compPlanDetails.volume_bonuses[0]
                         return monthlyVolume < (firstTier?.min_volume || 0) ? 'bg-indigo-50' : ''
                       })()}>
@@ -784,7 +807,7 @@ export default function CommissionWidget() {
                         </td>
                       </tr>
                       {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        const monthlyVolume = monthlyCommissionableVolume
                         const isActive = monthlyVolume >= tier.min_volume && 
                           (tier.max_volume === null || monthlyVolume <= tier.max_volume)
                         return (
@@ -811,7 +834,7 @@ export default function CommissionWidget() {
                 <p className="text-4xl font-bold mb-4">
                   ${(() => {
                     if (!compPlanDetails) return 0
-                    const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                    const monthlyVolume = monthlyCommissionableVolume
                     let rate = compPlanDetails.base_percentage || 0
                     let flatBonus = 0
                     
@@ -846,7 +869,7 @@ export default function CommissionWidget() {
                         if (compPlanDetails.plan_type === 'flat_rate') {
                           return `$${compPlanDetails.flat_rate?.toLocaleString() || 0}/job`
                         }
-                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        const monthlyVolume = monthlyCommissionableVolume
                         let rate = compPlanDetails.base_percentage || 0
                         
                         if (compPlanDetails.volume_bonuses) {
@@ -867,7 +890,7 @@ export default function CommissionWidget() {
                     <p className="text-xl font-bold">
                       ${(() => {
                         if (!compPlanDetails || calcJobsClosed === 0) return 0
-                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        const monthlyVolume = monthlyCommissionableVolume
                         let rate = compPlanDetails.base_percentage || 0
                         
                         if (compPlanDetails.plan_type === 'flat_rate') {
@@ -884,7 +907,7 @@ export default function CommissionWidget() {
                           }
                         }
                         
-                        return (calcAvgSalePrice * rate / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                        return (commissionablePerJob * rate / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })
                       })()}
                     </p>
                   </div>
@@ -893,7 +916,7 @@ export default function CommissionWidget() {
                     <p className="text-xl font-bold">
                       ${(() => {
                         if (!compPlanDetails) return 0
-                        const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                        const monthlyVolume = monthlyCommissionableVolume
                         let rate = compPlanDetails.base_percentage || 0
                         let flatBonus = 0
                         
@@ -919,8 +942,8 @@ export default function CommissionWidget() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-green-100 text-xs">Monthly Volume</p>
-                    <p className="text-xl font-bold">${(calcAvgSalePrice * calcJobsClosed).toLocaleString()}</p>
+                    <p className="text-green-100 text-xs">Net commissionable volume</p>
+                    <p className="text-xl font-bold">${monthlyCommissionableVolume.toLocaleString()}</p>
                   </div>
                 </div>
               </div>

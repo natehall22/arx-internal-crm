@@ -1,9 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { computeFinancedContractTotal } from '@/lib/financing'
 
 export const dynamic = 'force-dynamic'
 
 const roundMoney = (value: number) => Math.round((Number(value) || 0) * 100) / 100
+
+async function mergeFinancingIntoProposal(
+  adminClient: SupabaseClient,
+  orgId: string,
+  proposal: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const baseTotal = roundMoney(Number(proposal.total) || 0)
+  const financingAvailable = Boolean(proposal.financing_available)
+  const programId = (proposal.financing_program_id as string | null | undefined) || null
+
+  if (!financingAvailable) {
+    return {
+      financing_program_id: null,
+      financing_lender_name: null,
+      dealer_fee_percent: null,
+      dealer_fee_amount: 0,
+      financed_contract_total: baseTotal,
+      monthly_payment: null,
+    }
+  }
+
+  let financing_program_id: string | null = null
+  let financing_lender_name: string | null = null
+  let dealer_fee_percent: number | null = null
+  let dealer_fee_amount = 0
+  let financed_contract_total = baseTotal
+  let rate = Number(proposal.financing_rate ?? 0)
+  let months = Number(proposal.financing_term_months ?? 60)
+
+  if (programId) {
+    const { data: program } = await adminClient
+      .from('financing_programs')
+      .select('*')
+      .eq('id', programId)
+      .eq('org_id', orgId)
+      .eq('active', true)
+      .maybeSingle()
+
+    if (program) {
+      const comp = computeFinancedContractTotal(baseTotal, program.dealer_fee_percent)
+      financing_program_id = program.id
+      financing_lender_name = program.lender_name
+      dealer_fee_percent = Number(program.dealer_fee_percent)
+      dealer_fee_amount = comp.dealerFeeAmount
+      financed_contract_total = comp.financedContractTotal
+      rate = Number(program.financing_rate)
+      months = Number(program.term_months) || 60
+    } else {
+      const comp = computeFinancedContractTotal(baseTotal, null)
+      dealer_fee_amount = comp.dealerFeeAmount
+      financed_contract_total = comp.financedContractTotal
+    }
+  } else {
+    const comp = computeFinancedContractTotal(baseTotal, null)
+    dealer_fee_amount = comp.dealerFeeAmount
+    financed_contract_total = comp.financedContractTotal
+  }
+
+  const principal = financed_contract_total
+  const monthlyRate = rate / 100 / 12
+  let monthly_payment: number | null = null
+  if (months > 0) {
+    if (monthlyRate === 0) monthly_payment = roundMoney(principal / months)
+    else {
+      monthly_payment = roundMoney(
+        (principal * (monthlyRate * Math.pow(1 + monthlyRate, months))) /
+          (Math.pow(1 + monthlyRate, months) - 1)
+      )
+    }
+  }
+
+  return {
+    financing_program_id,
+    financing_lender_name,
+    dealer_fee_percent,
+    dealer_fee_amount,
+    financed_contract_total,
+    financing_rate: rate,
+    financing_term_months: months,
+    monthly_payment,
+  }
+}
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -282,11 +365,20 @@ export async function GET(request: NextRequest) {
       pricebookItems = defaultItems
     }
 
+    const { data: financingPrograms } = await adminClient
+      .from('financing_programs')
+      .select('id, org_id, lender_name, financing_rate, term_months, sort_order, active, created_at, updated_at')
+      .eq('org_id', profile.org_id)
+      .eq('active', true)
+      .order('sort_order')
+      .order('lender_name')
+
     return NextResponse.json({
       pricebookItems,
       adders: visibleItems.filter((i: any) => i.is_adder),
       templates: templates || [],
       roofingTypes: roofingTypes || [],
+      financingPrograms: financingPrograms || [],
       opportunity,
       measurement,
       existingProposal,
@@ -351,7 +443,7 @@ export async function POST(request: NextRequest) {
     const proposalNumber = `P-${String((count || 0) + 1).padStart(5, '0')}`
 
     // Clean up proposal data - ensure required fields are not empty
-    const cleanProposal = {
+    const cleanProposal: Record<string, unknown> = {
       org_id: profile.org_id,
       created_by: user.id,
       proposal_number: proposalNumber,
@@ -369,6 +461,7 @@ export async function POST(request: NextRequest) {
       tax_amount: roundMoney(proposal.tax_amount || 0),
       total: roundMoney(proposal.total || 0),
       financing_available: proposal.financing_available || false,
+      financing_program_id: proposal.financing_program_id || null,
       financing_term_months: proposal.financing_term_months || null,
       financing_rate: proposal.financing_rate || null,
       monthly_payment: proposal.monthly_payment ? roundMoney(proposal.monthly_payment) : null,
@@ -377,6 +470,12 @@ export async function POST(request: NextRequest) {
       warranty_info: proposal.warranty_info || null,
       accent_color: proposal.accent_color || '#4f46e5',
     }
+
+    const financingMerged = await mergeFinancingIntoProposal(adminClient, profile.org_id, {
+      ...cleanProposal,
+      financing_program_id: proposal.financing_program_id,
+    })
+    Object.assign(cleanProposal, financingMerged)
 
     console.log('Creating proposal with data:', JSON.stringify(cleanProposal, null, 2))
 
@@ -500,7 +599,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Customer address is required' }, { status: 400 })
     }
 
-    const cleanProposal = {
+    const cleanProposal: Record<string, unknown> = {
       customer_name: String(proposal.customer_name).trim(),
       customer_email: proposal.customer_email ? String(proposal.customer_email).trim() : null,
       customer_phone: proposal.customer_phone ? String(proposal.customer_phone).trim() : null,
@@ -515,6 +614,7 @@ export async function PUT(request: NextRequest) {
       tax_amount: roundMoney(Number(proposal.tax_amount) || 0),
       total: roundMoney(Number(proposal.total) || 0),
       financing_available: Boolean(proposal.financing_available),
+      financing_program_id: proposal.financing_program_id ? String(proposal.financing_program_id) : null,
       financing_term_months: proposal.financing_term_months != null ? Number(proposal.financing_term_months) : null,
       financing_rate: proposal.financing_rate != null ? Number(proposal.financing_rate) : null,
       monthly_payment: proposal.monthly_payment != null ? roundMoney(Number(proposal.monthly_payment)) : null,
@@ -524,6 +624,12 @@ export async function PUT(request: NextRequest) {
       accent_color: proposal.accent_color ? String(proposal.accent_color) : '#4f46e5',
       updated_at: new Date().toISOString(),
     }
+
+    const financingMerged = await mergeFinancingIntoProposal(adminClient, profile.org_id, {
+      ...cleanProposal,
+      financing_program_id: proposal.financing_program_id,
+    })
+    Object.assign(cleanProposal, financingMerged)
 
     const { data: updated, error: updateError } = await adminClient
       .from('proposals')

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
+import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 
 function getAdminClient() {
@@ -447,6 +448,35 @@ export async function POST(request: NextRequest) {
 
           // Auto-create production job when contract is signed
           try {
+            let proposalFinancing: {
+              financing_program_id?: string | null
+              dealer_fee_percent?: number | null
+              dealer_fee_amount?: number | null
+              commission_pre_tax_subtotal?: number | null
+              commission_comp_base?: number | null
+            } = {}
+            if (contract.proposal_id) {
+              const { data: propRow } = await supabase
+                .from('proposals')
+                .select('financing_program_id, dealer_fee_percent, dealer_fee_amount, subtotal')
+                .eq('id', contract.proposal_id)
+                .maybeSingle()
+              if (propRow) {
+                const preTax = Math.round((Number(propRow.subtotal) || 0) * 100) / 100
+                const compBase = commissionCompBaseFromPreTaxAndDealerFee(
+                  Number(propRow.subtotal) || 0,
+                  propRow.dealer_fee_amount
+                )
+                proposalFinancing = {
+                  financing_program_id: propRow.financing_program_id,
+                  dealer_fee_percent: propRow.dealer_fee_percent,
+                  dealer_fee_amount: propRow.dealer_fee_amount,
+                  commission_pre_tax_subtotal: preTax,
+                  commission_comp_base: compBase,
+                }
+              }
+            }
+
             // Check if production job already exists for this project
             const { data: existingJob } = await supabase
               .from('production_jobs')
@@ -477,6 +507,7 @@ export async function POST(request: NextRequest) {
                   created_by: contract.created_by,
                   internal_notes: contract.notes || null,
                   special_instructions: contract.exclusions || null,
+                  ...proposalFinancing,
                 })
                 .select('id, job_number')
                 .single()
@@ -578,6 +609,35 @@ export async function POST(request: NextRequest) {
         
         // Even if project exists, check if we need to create a job
         try {
+          let proposalFinancingExisting: {
+            financing_program_id?: string | null
+            dealer_fee_percent?: number | null
+            dealer_fee_amount?: number | null
+            commission_pre_tax_subtotal?: number | null
+            commission_comp_base?: number | null
+          } = {}
+          if (contract.proposal_id) {
+            const { data: propRow2 } = await supabase
+              .from('proposals')
+              .select('financing_program_id, dealer_fee_percent, dealer_fee_amount, subtotal')
+              .eq('id', contract.proposal_id)
+              .maybeSingle()
+            if (propRow2) {
+              const preTax = Math.round((Number(propRow2.subtotal) || 0) * 100) / 100
+              const compBase = commissionCompBaseFromPreTaxAndDealerFee(
+                Number(propRow2.subtotal) || 0,
+                propRow2.dealer_fee_amount
+              )
+              proposalFinancingExisting = {
+                financing_program_id: propRow2.financing_program_id,
+                dealer_fee_percent: propRow2.dealer_fee_percent,
+                dealer_fee_amount: propRow2.dealer_fee_amount,
+                commission_pre_tax_subtotal: preTax,
+                commission_comp_base: compBase,
+              }
+            }
+          }
+
           const { data: existingJob } = await supabase
             .from('production_jobs')
             .select('id, job_number')
@@ -613,6 +673,7 @@ export async function POST(request: NextRequest) {
                 created_by: contract.created_by,
                 internal_notes: contract.notes || null,
                 special_instructions: contract.exclusions || null,
+                ...proposalFinancingExisting,
               })
               .select('id, job_number')
               .single()

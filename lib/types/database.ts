@@ -582,12 +582,15 @@ export interface Commission {
   user_id: string
   project_id: string | null
   opportunity_id: string | null
+  /** When set, ties this row to a production job (payroll / chargebacks). */
+  production_job_id?: string | null
   comp_plan_id: string | null
   sale_amount: number
   commission_rate: number
   commission_amount: number
   bonus_amount: number
   total_amount: number
+  commissionable_amount?: number | null
   status: CommissionStatus
   approved_by: string | null
   approved_at: string | null

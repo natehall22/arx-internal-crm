@@ -7,6 +7,7 @@ import type { CloseScheduleConfirm } from '@/components/appointments/CloseSchedu
 import CommissionWidget from '@/components/CommissionWidget'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
+import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -150,6 +151,13 @@ export default function DashboardClient({
   const [calcUnits, setCalcUnits] = useState(25)
   const [calcTeamSales, setCalcTeamSales] = useState(20)
   const [calcTeamAvgPrice, setCalcTeamAvgPrice] = useState(13500)
+  /** Avg dealer fee % of financed total — 0 for cash / no fee; drives net commissionable volume in calculator. */
+  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState(0)
+
+  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePrice, avgDealerFeePercent)
+  const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosed
+  const teamCommissionablePerJob = netCommissionableFromFinancedTotal(calcTeamAvgPrice, avgDealerFeePercent)
+  const teamMonthlyCommissionableVolume = teamCommissionablePerJob * calcTeamSales
 
   useEffect(() => {
     setMounted(true)
@@ -1352,9 +1360,9 @@ export default function DashboardClient({
             )}
 
             {/* Commission Widget - for sales reps and setters */}
-            {['sales_rep', 'canvasser', 'rep', 'admin', 'manager'].includes(profile?.role) && (
-              <CommissionWidget />
-            )}
+            {['sales_rep', 'canvasser', 'rep', 'admin', 'manager', 'setter', 'operations', 'sales_manager', 'regional_manager'].includes(
+              profile?.role || ''
+            ) && <CommissionWidget />}
 
             {/* Recent Activity */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
@@ -1638,7 +1646,7 @@ export default function DashboardClient({
                         </>
                       ) : (
                         <>
-                          <li>Your commission is based on total sale amount</li>
+                          <li>Commission uses net sale after dealer fees (financed jobs)</li>
                           <li>Volume bonuses reward consistent performance</li>
                           <li>Focus on quality to maximize close rate</li>
                         </>
@@ -1778,7 +1786,9 @@ export default function DashboardClient({
                           <h5 className="text-sm font-semibold text-gray-800 border-b pb-1">Your Personal Sales</h5>
                         )}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Avg financed total per job
+                          </label>
                           <input
                             type="number"
                             value={calcAvgSalePrice}
@@ -1796,6 +1806,23 @@ export default function DashboardClient({
                               </button>
                             ))}
                           </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Avg dealer fee % (of financed total)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={50}
+                            step={0.25}
+                            value={avgDealerFeePercent || ''}
+                            onChange={(e) => setAvgDealerFeePercent(Number(e.target.value) || 0)}
+                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            0% = cash or no lender fee. Volume tiers use net commissionable dollars.
+                          </p>
                         </div>
                         
                         <div>
@@ -1826,7 +1853,7 @@ export default function DashboardClient({
                       <>
                         <h5 className="text-sm font-semibold text-gray-800 border-b pb-1 mt-4">Team Sales (Override)</h5>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Team Avg Sale Price</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Team avg financed total / job</label>
                           <input
                             type="number"
                             value={calcTeamAvgPrice}
@@ -1907,7 +1934,7 @@ export default function DashboardClient({
                     
                     // Calculate personal sales earnings (if applicable)
                     if (!compPlanDetails.is_manager_plan || compPlanDetails.personal_sales_enabled) {
-                      const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                      const monthlyVolume = monthlyCommissionableVolume
                       let baseRate = compPlanDetails.base_percentage || 0
                       let appliedBonuses: string[] = []
                       
@@ -1934,15 +1961,15 @@ export default function DashboardClient({
                         displayRows.push({ label: '— Your Sales —', value: '' })
                       }
                       displayRows.push({ label: 'Your Sales/Month', value: `${calcJobsClosed}` })
-                      displayRows.push({ label: 'Avg Sale Price', value: `$${calcAvgSalePrice.toLocaleString()}` })
-                      displayRows.push({ label: 'Your Volume', value: `$${monthlyVolume.toLocaleString()}` })
+                      displayRows.push({ label: 'Avg financed / job', value: `$${calcAvgSalePrice.toLocaleString()}` })
+                      displayRows.push({ label: 'Net commissionable volume', value: `$${monthlyVolume.toLocaleString()}` })
                       displayRows.push({ label: 'Commission Rate', value: `${baseRate}%${appliedBonuses.length > 0 ? ` (${appliedBonuses.join(' ')})` : ''}` })
                       displayRows.push({ label: 'Personal Earnings', value: `$${Math.round(personalEarnings).toLocaleString()}` })
                     }
                     
                     // Calculate team override earnings (for managers)
                     if (compPlanDetails.is_manager_plan && compPlanDetails.team_override_enabled && compPlanDetails.team_overrides?.length > 0) {
-                      const teamVolume = calcTeamAvgPrice * calcTeamSales
+                      const teamVolume = teamMonthlyCommissionableVolume
                       
                       // Find applicable override tier
                       let overrideRate = 0
@@ -1966,8 +1993,8 @@ export default function DashboardClient({
                       
                       displayRows.push({ label: '— Team Override —', value: '' })
                       displayRows.push({ label: 'Team Sales/Month', value: `${calcTeamSales}` })
-                      displayRows.push({ label: 'Team Avg Price', value: `$${calcTeamAvgPrice.toLocaleString()}` })
-                      displayRows.push({ label: 'Team Volume', value: `$${teamVolume.toLocaleString()}` })
+                      displayRows.push({ label: 'Team avg financed / job', value: `$${calcTeamAvgPrice.toLocaleString()}` })
+                      displayRows.push({ label: 'Team net volume', value: `$${teamVolume.toLocaleString()}` })
                       displayRows.push({ label: 'Override Rate', value: overrideType === 'percentage' ? `${overrideRate}%` : `$${overrideRate}/sale` })
                       displayRows.push({ label: 'Override Earnings', value: `$${Math.round(teamOverrideEarnings).toLocaleString()}` })
                     }
@@ -1976,7 +2003,7 @@ export default function DashboardClient({
                     
                     // For non-managers, show simpler display
                     if (!compPlanDetails.is_manager_plan) {
-                      const monthlyVolume = calcAvgSalePrice * calcJobsClosed
+                      const monthlyVolume = monthlyCommissionableVolume
                       let baseRate = compPlanDetails.base_percentage || 0
                       let appliedBonuses: string[] = []
                       
@@ -1993,8 +2020,8 @@ export default function DashboardClient({
                       
                       displayRows = [
                         { label: 'Sales/Month', value: `${calcJobsClosed}` },
-                        { label: 'Avg Sale Price', value: `$${calcAvgSalePrice.toLocaleString()}` },
-                        { label: 'Monthly Volume', value: `$${monthlyVolume.toLocaleString()}` },
+                        { label: 'Avg financed / job', value: `$${calcAvgSalePrice.toLocaleString()}` },
+                        { label: 'Net commissionable volume', value: `$${monthlyVolume.toLocaleString()}` },
                         { label: 'Base Rate', value: `${compPlanDetails.base_percentage || 0}%` },
                       ]
                       if (appliedBonuses.length > 0) {
@@ -2047,7 +2074,7 @@ export default function DashboardClient({
                       
                       const isActive = isSalesCount 
                         ? calcJobsClosed >= tier.min_volume && (!effectiveMax || calcJobsClosed <= effectiveMax)
-                        : (calcAvgSalePrice * calcJobsClosed) >= tier.min_volume && (!tier.max_volume || (calcAvgSalePrice * calcJobsClosed) <= tier.max_volume)
+                        : monthlyCommissionableVolume >= tier.min_volume && (!tier.max_volume || monthlyCommissionableVolume <= tier.max_volume)
                       
                       return (
                         <div key={idx} className={`flex items-center justify-between p-2 sm:p-3 rounded-lg border ${isActive ? 'bg-green-50 border-green-200' : 'bg-white'}`}>

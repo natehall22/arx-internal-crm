@@ -73,10 +73,18 @@ interface ProposalForm {
   discount_percent: number
   tax_rate: number
   financing_available: boolean
+  financing_program_id: string | null
   financing_term_months: number
   financing_rate: number
   accent_color: string
   roofing_type_id: string | null
+}
+
+interface FinancingProgramOption {
+  id: string
+  lender_name: string
+  financing_rate: number
+  term_months: number
 }
 
 const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
@@ -95,6 +103,7 @@ const defaultForm: ProposalForm = {
   discount_percent: 0,
   tax_rate: 8.25,
   financing_available: false,
+  financing_program_id: null,
   financing_term_months: 60,
   financing_rate: 9.99,
   accent_color: '#4f46e5',
@@ -152,6 +161,11 @@ export default function ProposalBuilderPage() {
   const [resolvedOpportunityId, setResolvedOpportunityId] = useState<string | null>(null)
   /** When editing, preserve sent/viewed so Save does not downgrade status */
   const [initialProposalStatus, setInitialProposalStatus] = useState<string | null>(null)
+  const [financingProgramsList, setFinancingProgramsList] = useState<FinancingProgramOption[]>([])
+  const [financingEstimate, setFinancingEstimate] = useState<{
+    monthly_payment: number
+    financed_contract_total: number
+  } | null>(null)
 
   const effectiveOpportunityId = opportunityId || resolvedOpportunityId
 
@@ -185,6 +199,7 @@ export default function ProposalBuilderPage() {
       setAdders(data.adders || [])
       setTemplates(data.templates || [])
       setRoofingTypes(data.roofingTypes || [])
+      setFinancingProgramsList(data.financingPrograms || [])
       
       // Set default roofing type (but don't auto-populate line items - user should select in step 3)
       if (data.roofingTypes?.length) {
@@ -288,6 +303,7 @@ export default function ProposalBuilderPage() {
           discount_percent: Number(p.discount_percent) || 0,
           tax_rate: Number(p.tax_rate) || 8.25,
           financing_available: Boolean(p.financing_available),
+          financing_program_id: p.financing_program_id ? String(p.financing_program_id) : null,
           financing_term_months: Number(p.financing_term_months) || 60,
           financing_rate: Number(p.financing_rate) || 9.99,
           accent_color: String(p.accent_color || '#4f46e5'),
@@ -702,6 +718,7 @@ export default function ProposalBuilderPage() {
         tax_amount: totals.taxAmount,
         total: totals.total,
         financing_available: form.financing_available,
+        financing_program_id: form.financing_program_id,
         financing_term_months: form.financing_term_months,
         financing_rate: form.financing_rate,
         monthly_payment: totals.monthlyPayment,
@@ -760,7 +777,57 @@ export default function ProposalBuilderPage() {
   }
 
   // Calculate totals with fallback for safety
-  const totals = calculateTotals() || { subtotal: 0, discountAmount: 0, afterDiscount: 0, taxAmount: 0, total: 0, monthlyPayment: 0 }
+  const totals = calculateTotals() || {
+    subtotal: 0,
+    baseSubtotal: 0,
+    percentageTotal: 0,
+    discountAmount: 0,
+    afterDiscount: 0,
+    taxAmount: 0,
+    total: 0,
+    monthlyPayment: 0,
+  }
+
+  const displayMonthlyPayment =
+    form.financing_available && form.financing_program_id && financingEstimate
+      ? financingEstimate.monthly_payment
+      : totals.monthlyPayment
+
+  useEffect(() => {
+    let cancelled = false
+    if (!form.financing_available || !form.financing_program_id) {
+      setFinancingEstimate(null)
+      return
+    }
+    const t = calculateTotals()
+    const total = t.total
+    fetch(
+      `/api/financing-programs/estimate?program_id=${encodeURIComponent(form.financing_program_id)}&total=${encodeURIComponent(String(total))}`
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return
+        setFinancingEstimate({
+          monthly_payment: data.monthly_payment,
+          financed_contract_total: data.financed_contract_total,
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setFinancingEstimate(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    form.financing_available,
+    form.financing_program_id,
+    form.discount_percent,
+    form.discount_amount,
+    form.tax_rate,
+    form.financing_rate,
+    form.financing_term_months,
+    lineItems,
+  ])
 
   if (loading) {
     return (
@@ -1691,7 +1758,7 @@ export default function ProposalBuilderPage() {
                     </p>
                     {form.financing_available && (
                       <p className="text-gray-500 mt-1">
-                        or ${totals.monthlyPayment.toFixed(2)}/mo for {form.financing_term_months} months
+                        or ${displayMonthlyPayment.toFixed(2)}/mo for {form.financing_term_months} months
                       </p>
                     )}
                   </div>
@@ -1741,7 +1808,7 @@ export default function ProposalBuilderPage() {
                   <div className="mt-6 p-6 bg-indigo-50 rounded-xl border border-indigo-100">
                     <h3 className="text-lg font-semibold text-indigo-900 mb-2">Financing Available</h3>
                     <p className="text-indigo-700">
-                      As low as <span className="font-bold text-2xl">${totals.monthlyPayment.toFixed(2)}</span>/month
+                      As low as <span className="font-bold text-2xl">${displayMonthlyPayment.toFixed(2)}</span>/month
                     </p>
                     <p className="text-sm text-indigo-600 mt-1">
                       {form.financing_term_months} months at {form.financing_rate}% APR
@@ -1854,7 +1921,13 @@ export default function ProposalBuilderPage() {
                     <input
                       type="checkbox"
                       checked={form.financing_available}
-                      onChange={(e) => setForm(prev => ({ ...prev, financing_available: e.target.checked }))}
+                      onChange={(e) =>
+                        setForm(prev => ({
+                          ...prev,
+                          financing_available: e.target.checked,
+                          ...(e.target.checked ? {} : { financing_program_id: null }),
+                        }))
+                      }
                       className="w-5 h-5 rounded border-gray-300 text-indigo-600"
                     />
                     <span className="font-medium text-gray-900">Offer Financing Option</span>
@@ -1863,6 +1936,37 @@ export default function ProposalBuilderPage() {
 
                 {form.financing_available && (
                   <>
+                    {financingProgramsList.length > 0 && (
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Financing program</label>
+                        <select
+                          value={form.financing_program_id || ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            if (!v) {
+                              setForm(prev => ({ ...prev, financing_program_id: null }))
+                              return
+                            }
+                            const prog = financingProgramsList.find(x => x.id === v)
+                            if (!prog) return
+                            setForm(prev => ({
+                              ...prev,
+                              financing_program_id: prog.id,
+                              financing_rate: prog.financing_rate,
+                              financing_term_months: prog.term_months,
+                            }))
+                          }}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                        >
+                          <option value="">Custom (manual APR & term)</option>
+                          {financingProgramsList.map((prog) => (
+                            <option key={prog.id} value={prog.id}>
+                              {prog.lender_name} — {prog.financing_rate}% APR, {prog.term_months} mo
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Term (months)</label>
                       <select

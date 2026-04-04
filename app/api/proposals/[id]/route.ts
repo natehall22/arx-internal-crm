@@ -69,6 +69,19 @@ function normalizeText(value?: string | null) {
   return (value || '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+const PRIVILEGED_FINANCING_ROLES = ['admin', 'operations', 'owner']
+
+function stripFinancingSensitiveFields<T extends Record<string, unknown>>(
+  proposal: T,
+  role: string | undefined
+): T {
+  if (PRIVILEGED_FINANCING_ROLES.includes(role || '')) return proposal
+  const next = { ...proposal }
+  delete next.dealer_fee_percent
+  delete next.dealer_fee_amount
+  return next as T
+}
+
 // GET - Get a single proposal with all details
 export async function GET(
   request: NextRequest,
@@ -111,6 +124,11 @@ export async function GET(
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
 
+    const proposalForClient = stripFinancingSensitiveFields(
+      proposal as Record<string, unknown>,
+      profile.role
+    )
+
     // Get company info
     const { data: company } = await adminClient
       .from('orgs')
@@ -140,10 +158,10 @@ export async function GET(
     }
 
     return NextResponse.json({
-      proposal,
+      proposal: proposalForClient,
       lineItems: lineItems || [],
       company,
-      rep: proposal.users,
+      rep: proposalForClient.users,
       measurement,
       role: profile.role,
       current_user_id: user.id,
@@ -178,7 +196,7 @@ export async function PATCH(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role')
       .eq('id', user.id)
       .single()
 
@@ -362,7 +380,13 @@ export async function PATCH(
 
     }
 
-    return NextResponse.json({ proposal, project_id: projectId })
+    return NextResponse.json({
+      proposal: stripFinancingSensitiveFields(
+        proposal as Record<string, unknown>,
+        profile.role
+      ),
+      project_id: projectId,
+    })
   } catch (error) {
     console.error('Proposal update API error:', error)
     return NextResponse.json({ 
