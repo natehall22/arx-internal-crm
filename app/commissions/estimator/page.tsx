@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { isManagerSpoEligibleRole } from '@/lib/manager-commission-roles'
 
 interface CompPlan {
   id: string
@@ -34,6 +35,8 @@ interface Adder {
   is_commissionable: boolean
   commission_percent: number | null  // What % of adder is commissionable (0-100)
   commission_cap: number | null      // Max commissionable amount per instance
+  manager_spo_enabled?: boolean
+  manager_spo_percent?: number | null
   unit: string
 }
 
@@ -64,6 +67,7 @@ export default function CommissionEstimatorPage() {
     commissionableAmount: 0,
     nonCommissionableAdders: 0,
     commissionableAdders: 0,
+    managerSpoFromAdders: 0,
   })
 
   useEffect(() => {
@@ -72,7 +76,7 @@ export default function CommissionEstimatorPage() {
 
   useEffect(() => {
     calculateEstimate()
-  }, [personalSales, teamSales, numTeamDeals, compPlan, selectedAdders, adders])
+  }, [personalSales, teamSales, numTeamDeals, compPlan, selectedAdders, adders, currentUser])
 
   const loadData = async () => {
     const supabase = createClientBrowser()
@@ -94,8 +98,7 @@ export default function CommissionEstimatorPage() {
     }
 
     setCurrentUser(profile)
-    const managerRoles = ['sales_manager', 'regional_manager', 'manager', 'admin']
-    setIsManager(managerRoles.includes(profile.role))
+    setIsManager(isManagerSpoEligibleRole(profile.role))
 
     // Get user's comp plan
     const { data: userCompPlan } = await supabase
@@ -125,7 +128,7 @@ export default function CommissionEstimatorPage() {
     }
 
     // If manager, get team members
-    if (managerRoles.includes(profile.role)) {
+    if (isManagerSpoEligibleRole(profile.role)) {
       const { data: team } = await supabase
         .from('users')
         .select('id, full_name, role')
@@ -139,7 +142,9 @@ export default function CommissionEstimatorPage() {
     // Load adders for commission calculation
     const { data: adderData } = await supabase
       .from('pricebook_items')
-      .select('id, name, unit_price, price_type, is_commissionable, commission_percent, commission_cap, unit')
+      .select(
+        'id, name, unit_price, price_type, is_commissionable, commission_percent, commission_cap, manager_spo_enabled, manager_spo_percent, unit'
+      )
       .eq('org_id', profile.org_id)
       .eq('is_adder', true)
       .eq('active', true)
@@ -160,6 +165,10 @@ export default function CommissionEstimatorPage() {
     // Calculate adder totals
     let commissionableAdders = 0
     let nonCommissionableAdders = 0
+    let managerSpoFromAdders = 0
+
+    const profileForSpo = currentUser as { role?: string } | null
+    const showManagerSpo = isManagerSpoEligibleRole(profileForSpo?.role)
 
     adders.forEach(adder => {
       const qty = selectedAdders[adder.id] || 0
@@ -196,6 +205,20 @@ export default function CommissionEstimatorPage() {
           }
         } else {
           nonCommissionableAdders += adderAmount
+        }
+
+        if (
+          showManagerSpo &&
+          adder.manager_spo_enabled &&
+          adder.manager_spo_percent != null &&
+          adder.manager_spo_percent > 0
+        ) {
+          const pct = adder.manager_spo_percent / 100
+          if (adder.price_type === 'percentage') {
+            managerSpoFromAdders += baseSales * (adder.unit_price / 100) * qty * pct
+          } else {
+            managerSpoFromAdders += adder.unit_price * qty * pct
+          }
         }
       }
     })
@@ -263,7 +286,7 @@ export default function CommissionEstimatorPage() {
       }
     }
 
-    const totalEstimate = personalCommission + personalVolumeBonus + teamOverride
+    const totalEstimate = personalCommission + personalVolumeBonus + teamOverride + managerSpoFromAdders
 
     setEstimate({
       personalCommission,
@@ -276,6 +299,7 @@ export default function CommissionEstimatorPage() {
       commissionableAmount,
       nonCommissionableAdders,
       commissionableAdders,
+      managerSpoFromAdders,
     })
   }
 
@@ -541,6 +565,14 @@ export default function CommissionEstimatorPage() {
                       <span className="text-indigo-200">Team Override</span>
                       <span className="font-medium text-purple-200">
                         ${estimate.teamOverride.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+                  {estimate.managerSpoFromAdders > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-indigo-200">Manager SPO (adders)</span>
+                      <span className="font-medium text-cyan-200">
+                        +${estimate.managerSpoFromAdders.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   )}

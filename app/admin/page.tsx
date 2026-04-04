@@ -72,8 +72,8 @@ export default async function AdminPage() {
     redirect('/dashboard')
   }
 
-  // Only admin, regional_manager, operations, and legacy 'manager' can access admin
-  const adminRoles = ['admin', 'regional_manager', 'manager', 'operations']
+  // Only admin, owner, regional_manager, operations, and legacy 'manager' can access admin
+  const adminRoles = ['admin', 'owner', 'regional_manager', 'manager', 'operations']
   if (!adminRoles.includes(profile.role)) {
     console.log('Admin page: Access denied, role is:', profile.role)
     redirect('/dashboard')
@@ -81,6 +81,7 @@ export default async function AdminPage() {
 
   // Check if user can access cost/pricing data (admin and operations only)
   const canAccessCostData = ['admin', 'operations'].includes(profile.role)
+  const canAccessPayroll = ['admin', 'owner', 'operations'].includes(profile.role)
 
   const adminSections = [
     {
@@ -208,6 +209,17 @@ export default async function AdminPage() {
       ),
     },
     {
+      title: 'Payroll & commission export',
+      description: 'CSV by pay period: comp plans, volume bonuses, 18% pool cap per job—QuickBooks-ready',
+      href: '/admin/payroll',
+      requiresPayrollAccess: true,
+      icon: (
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+      ),
+    },
+    {
       title: 'Proposal Integrations',
       description: 'Connect EagleView, Roofr, Solo, Aurora, and more',
       href: '/admin/integrations',
@@ -271,8 +283,10 @@ export default async function AdminPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {adminSections
             .filter((section) => {
-              // Filter out cost-related sections for non-admin/ops users
               if (section.requiresCostAccess && !canAccessCostData) {
+                return false
+              }
+              if ((section as { requiresPayrollAccess?: boolean }).requiresPayrollAccess && !canAccessPayroll) {
                 return false
               }
               return true

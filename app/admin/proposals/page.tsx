@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { getManagerSpoRoleSummary } from '@/lib/manager-commission-roles'
 
 interface PricebookItem {
   id: string
@@ -18,6 +19,8 @@ interface PricebookItem {
   is_commissionable: boolean
   commission_percent: number | null  // What % of the adder is commissionable (0-100)
   commission_cap: number | null      // Max commissionable amount per instance
+  manager_spo_enabled?: boolean
+  manager_spo_percent?: number | null
   active: boolean
 }
 
@@ -91,6 +94,8 @@ export default function AdminProposalsPage() {
     is_commissionable: true,  // Default to yes - flows through regular commission
     commission_percent: '',   // Empty = flows through regular commission from comp plans
     commission_cap: '',       // No cap by default
+    manager_spo_enabled: false,
+    manager_spo_percent: '',
     // Customer visibility
     show_to_customer: false,  // Default: adders hidden from customer proposal
   })
@@ -199,6 +204,14 @@ export default function AdminProposalsPage() {
       alert('Please enter a name for the adder')
       return
     }
+
+    if (adderForm.manager_spo_enabled) {
+      const m = parseFloat(adderForm.manager_spo_percent)
+      if (!Number.isFinite(m) || m <= 0 || m > 100) {
+        alert('Enter a Manager SPO % between 0 and 100 when Manager SPO is enabled.')
+        return
+      }
+    }
     
     if (finalUnitPrice <= 0) {
       alert('Please enter a price directly, or set material/labor costs')
@@ -242,6 +255,8 @@ export default function AdminProposalsPage() {
           is_commissionable: true,
           commission_percent: '',
           commission_cap: '',
+          manager_spo_enabled: false,
+          manager_spo_percent: '',
           show_to_customer: false,
         })
         await loadData()
@@ -332,6 +347,8 @@ export default function AdminProposalsPage() {
       is_commissionable: adder.is_commissionable ?? true,
       commission_percent: adder.commission_percent?.toString() || '',
       commission_cap: adder.commission_cap?.toString() || '',
+      manager_spo_enabled: adder.manager_spo_enabled ?? false,
+      manager_spo_percent: adder.manager_spo_percent != null ? String(adder.manager_spo_percent) : '',
       show_to_customer: (adder as any).show_to_customer ?? false,
     })
     setShowAddAdder(true)
@@ -510,6 +527,8 @@ export default function AdminProposalsPage() {
                     is_commissionable: true,
                     commission_percent: '',
                     commission_cap: '',
+                    manager_spo_enabled: false,
+                    manager_spo_percent: '',
                     show_to_customer: false,
                   })
                   setShowAddAdder(true)
@@ -546,6 +565,8 @@ export default function AdminProposalsPage() {
                         is_commissionable: true,
                         commission_percent: '',
                         commission_cap: '',
+                        manager_spo_enabled: false,
+                        manager_spo_percent: '',
                         show_to_customer: false,
                       })
                       setShowAddAdder(true)
@@ -608,6 +629,11 @@ export default function AdminProposalsPage() {
                         ) : (
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
                             Non-commissionable
+                          </span>
+                        )}
+                        {item.manager_spo_enabled && (
+                          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-xs rounded-full">
+                            Manager SPO
                           </span>
                         )}
                       </div>
@@ -1013,7 +1039,9 @@ export default function AdminProposalsPage() {
                           ...prev, 
                           is_commissionable: false,
                           commission_percent: '',
-                          commission_cap: ''
+                          commission_cap: '',
+                          manager_spo_enabled: false,
+                          manager_spo_percent: '',
                         }))}
                         className="w-4 h-4 mt-0.5 text-gray-600 border-gray-300"
                       />
@@ -1025,6 +1053,58 @@ export default function AdminProposalsPage() {
                       </div>
                     </label>
                   </div>
+
+                  {adderForm.is_commissionable && (
+                    <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={adderForm.manager_spo_enabled}
+                          onChange={(e) =>
+                            setAdderForm((prev) => ({
+                              ...prev,
+                              manager_spo_enabled: e.target.checked,
+                              manager_spo_percent: e.target.checked ? prev.manager_spo_percent : '',
+                            }))
+                          }
+                          className="w-5 h-5 mt-0.5 rounded border-gray-300 text-indigo-600"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-900">Manager SPO</span>
+                          <p className="text-xs text-gray-600 mt-0.5">
+                            When enabled, eligible management roles earn a separate % of this adder&apos;s selling
+                            price (sales performance override). Roles: {getManagerSpoRoleSummary()}.
+                          </p>
+                        </div>
+                      </label>
+                      {adderForm.manager_spo_enabled && (
+                        <div className="ml-8">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Manager SPO %
+                          </label>
+                          <div className="relative w-32">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.1"
+                              value={adderForm.manager_spo_percent}
+                              onChange={(e) =>
+                                setAdderForm((prev) => ({ ...prev, manager_spo_percent: e.target.value }))
+                              }
+                              className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm"
+                              placeholder="0"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            % of this adder line&apos;s selling price for eligible managers (independent of rep
+                            commission settings above).
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Custom Commission Settings - shown when custom is selected */}
                   {adderForm.is_commissionable && (adderForm.commission_percent || adderForm.commission_cap) && (

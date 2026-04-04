@@ -209,6 +209,12 @@ export async function POST(request: NextRequest) {
         insertData.commission_cap = commissionCap
       }
 
+      const managerSpoOn = !!(data.is_commissionable && data.manager_spo_enabled)
+      insertData.manager_spo_enabled = managerSpoOn
+      insertData.manager_spo_percent = managerSpoOn && data.manager_spo_percent != null && data.manager_spo_percent !== ''
+        ? parseFloat(data.manager_spo_percent)
+        : null
+
       const { data: newAdder, error: adderError } = await adminClient
         .from('pricebook_items')
         .insert(insertData)
@@ -392,6 +398,12 @@ export async function PATCH(request: NextRequest) {
       if (data.profit_margin_percent) {
         updateData.profit_margin_percent = parseFloat(data.profit_margin_percent)
       }
+
+      const managerSpoOn = !!(data.is_commissionable && data.manager_spo_enabled)
+      updateData.manager_spo_enabled = managerSpoOn
+      updateData.manager_spo_percent = managerSpoOn && data.manager_spo_percent != null && data.manager_spo_percent !== ''
+        ? parseFloat(data.manager_spo_percent)
+        : null
 
       const { data: updatedAdder, error: updateError } = await adminClient
         .from('pricebook_items')
