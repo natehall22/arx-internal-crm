@@ -456,13 +456,19 @@ export async function POST(request: NextRequest) {
         newStatus = 'in_progress'
       }
       
+      // owner = assigned closer on the appointment; fall back to current user only if unknown
+      const closerForOpp = appointment?.closer_user_id || user.id
+      // setter = canvasser who set the appointment; fall back to lead owner
+      const setterForOpp = appointment?.canvasser_user_id || lead?.owner_user_id || null
+
       const { data: newOpportunity, error: oppError } = await supabase
         .from('opportunities')
         .insert({
           org_id: profile.org_id,
           lead_id: leadId,
           customer_id: lead?.customer_id || null,
-          owner_user_id: user.id,
+          owner_user_id: closerForOpp,
+          setter_user_id: setterForOpp,
           status: newStatus,
           source: lead?.source || 'inspection',
           project_type: 'roofing',
