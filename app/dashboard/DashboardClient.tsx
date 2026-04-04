@@ -48,11 +48,16 @@ interface TeamMemberStat {
   doorsKnocked: number
   contacts: number
   inspectionsSet: number
+  inspectionsRan?: number
   /** Inspection outcomes flagged "counts as sit" in admin; attributed like sales */
   sits: number
   sales: number
   closeRate: string
   efficiency: string
+}
+
+function isSetterLikeRole(role?: string | null) {
+  return role === 'canvasser' || role === 'setter'
 }
 
 type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all'
@@ -71,6 +76,7 @@ interface DashboardClientProps {
     doorsKnockedThisWeek: number
     contactsThisWeek: number
     inspectionsSetThisWeek: number
+    inspectionsRanThisWeek: number
     sitsThisWeek: number
     salesThisWeek: number
   }
@@ -85,6 +91,9 @@ interface DashboardClientProps {
   recentActivities: any[]
   settings: any
   teamMemberStats?: TeamMemberStat[]
+  setterTeamStats?: TeamMemberStat[]
+  closerTeamStats?: TeamMemberStat[]
+  canViewTeamLeaderboard?: boolean
 }
 
 export default function DashboardClient({
@@ -96,6 +105,9 @@ export default function DashboardClient({
   recentActivities,
   settings,
   teamMemberStats = [],
+  setterTeamStats = [],
+  closerTeamStats = [],
+  canViewTeamLeaderboard = false,
 }: DashboardClientProps) {
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
@@ -104,7 +116,15 @@ export default function DashboardClient({
   const [customReports, setCustomReports] = useState<any[]>([])
   const [reportData, setReportData] = useState<Record<string, any[]>>({})
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('week')
-  const [filteredTeamStats, setFilteredTeamStats] = useState<TeamMemberStat[]>(teamMemberStats)
+  const [filteredSetterStats, setFilteredSetterStats] = useState<TeamMemberStat[]>(setterTeamStats)
+  const [filteredCloserStats, setFilteredCloserStats] = useState<TeamMemberStat[]>(closerTeamStats)
+  const [teamMemberCount, setTeamMemberCount] = useState(
+    setterTeamStats.length + closerTeamStats.length
+  )
+  const [distinctDealCounts, setDistinctDealCounts] = useState<{
+    sitOpportunitiesInPeriod: number
+    saleOpportunitiesInPeriod: number
+  } | null>(null)
   const [loadingStats, setLoadingStats] = useState(false)
   const [weeklyPay, setWeeklyPay] = useState<number>(0)
   const [hasCompPlan, setHasCompPlan] = useState<boolean | null>(null)
@@ -133,9 +153,14 @@ export default function DashboardClient({
   }, [pendingPrompts])
 
   useEffect(() => {
-    // Always fetch fresh data from API for consistency
     loadTeamStatsForTimeFrame()
   }, [timeFrame])
+
+  useEffect(() => {
+    setFilteredSetterStats(setterTeamStats)
+    setFilteredCloserStats(closerTeamStats)
+    setTeamMemberCount(setterTeamStats.length + closerTeamStats.length)
+  }, [setterTeamStats, closerTeamStats])
 
   const loadTeamStatsForTimeFrame = async () => {
     setLoadingStats(true)
@@ -143,7 +168,21 @@ export default function DashboardClient({
       const res = await fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`)
       if (res.ok) {
         const data = await res.json()
-        setFilteredTeamStats(data.teamMemberStats || [])
+        setFilteredSetterStats(data.setterStats || [])
+        setFilteredCloserStats(data.closerStats || [])
+        const n = data.teamMemberCount
+        if (typeof n === 'number') {
+          setTeamMemberCount(n)
+        } else {
+          const ss = data.setterStats || []
+          const cs = data.closerStats || []
+          setTeamMemberCount(ss.length + cs.length)
+        }
+        if (data.distinctDealCounts && typeof data.distinctDealCounts.sitOpportunitiesInPeriod === 'number') {
+          setDistinctDealCounts(data.distinctDealCounts)
+        } else {
+          setDistinctDealCounts(null)
+        }
       }
     } catch (error) {
       console.error('Failed to load team stats:', error)
@@ -151,6 +190,13 @@ export default function DashboardClient({
       setLoadingStats(false)
     }
   }
+
+  const isManager =
+    profile.role === 'admin' ||
+    profile.role === 'regional_manager' ||
+    profile.role === 'sales_manager'
+  const showSetterStack = isManager || isSetterLikeRole(profile.role)
+  const showCloserStack = isManager || !isSetterLikeRole(profile.role)
 
   const loadCompPlanDetails = async () => {
     console.log('loadCompPlanDetails: Starting via API...')
@@ -457,98 +503,168 @@ export default function DashboardClient({
           )}
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6 sm:mb-8">
-          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
-                <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.doorsKnockedThisWeek}</p>
+        {/* Quick Stats — setters vs closers */}
+        {isSetterLikeRole(profile.role) ? (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.doorsKnockedThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                </div>
               </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
             </div>
-            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Set</p>
-                <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.inspectionsSetThisWeek}</p>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Contacts</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.contactsThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                  </svg>
+                </div>
               </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
             </div>
-            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
-                <p className="text-xl sm:text-2xl font-bold text-cyan-600">{stats.sitsThisWeek}</p>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Set</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.inspectionsSetThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
               </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
             </div>
-            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
-                <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
+                  <p className="text-xl sm:text-2xl font-bold text-cyan-600">{stats.sitsThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
               </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
             </div>
-            <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Close Rate</p>
-                <p className="text-xl sm:text-2xl font-bold text-indigo-600">{stats.closeRate}%</p>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
               </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
             </div>
-            <p className="text-xs text-gray-400 mt-1 sm:mt-2">Sits → Sales</p>
           </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Efficiency</p>
-                <p className="text-xl sm:text-2xl font-bold text-purple-600">{stats.efficiency}%</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.doorsKnockedThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                </div>
               </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
             </div>
-            <p className="text-xs text-gray-400 mt-1 sm:mt-2">Appts → Sales</p>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Ran</p>
+                  <p className="text-xl sm:text-2xl font-bold text-amber-600">{stats.inspectionsRanThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
+                  <p className="text-xl sm:text-2xl font-bold text-cyan-600">{stats.sitsThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Close Rate</p>
+                  <p className="text-xl sm:text-2xl font-bold text-indigo-600">{stats.closeRate}%</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">30-day rolling</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Efficiency</p>
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{stats.efficiency}%</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2">30-day rolling</p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* This Week's Pay - Prominent Display for all users */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 text-white">
@@ -595,11 +711,11 @@ export default function DashboardClient({
           </div>
         </div>
 
-        {/* Team Leaderboard - for managers/admins */}
-        {teamMemberStats.length > 0 && (
+        {/* Team leaderboard — setter vs closer stacks */}
+        {canViewTeamLeaderboard && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 sm:mb-8 overflow-hidden">
             <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team Stats</h2>
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team performance</h2>
               <div className="flex items-center gap-2 sm:gap-3">
                 <select
                   value={timeFrame}
@@ -616,251 +732,329 @@ export default function DashboardClient({
                   <option value="year">This Year</option>
                   <option value="all">All Time</option>
                 </select>
-                <span className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">{filteredTeamStats.length} reps</span>
+                <div className="text-xs sm:text-sm text-gray-500 text-right sm:text-left">
+                  <span className="whitespace-nowrap">{teamMemberCount} reps</span>
+                  {isManager && distinctDealCounts && !loadingStats && (
+                    <span className="block sm:inline sm:ml-2 text-gray-400 text-[11px] sm:text-xs mt-0.5 sm:mt-0">
+                      Unique: {distinctDealCounts.sitOpportunitiesInPeriod} sit ·{' '}
+                      {distinctDealCounts.saleOpportunitiesInPeriod} sale (same deal can credit setter and
+                      closer; do not sum both tables)
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            
-            {/* Mobile Card View */}
-            <div className="block sm:hidden">
-              {loadingStats ? (
-                <div className="p-8 text-center">
-                  <div className="flex items-center justify-center gap-2 text-gray-500">
-                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Loading stats...
-                  </div>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-100">
-                  {filteredTeamStats.map((member, index) => (
-                    <div 
-                      key={member.id} 
-                      className={`p-3 ${index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}`}
-                    >
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="flex items-center justify-center w-8 h-8 flex-shrink-0">
-                          {index === 0 ? (
-                            <span className="text-xl">🥇</span>
-                          ) : index === 1 ? (
-                            <span className="text-xl">🥈</span>
-                          ) : index === 2 ? (
-                            <span className="text-xl">🥉</span>
-                          ) : (
-                            <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
-                          )}
-                        </div>
-                        <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm font-medium text-indigo-600">
-                            {member.name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900 truncate">{member.name}</p>
-                          <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center">
-                        <div>
-                          <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                            {member.doorsKnocked}
-                          </p>
-                          <p className="text-xs text-gray-500">Doors</p>
-                        </div>
-                        <div>
-                          <p className={`text-base font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                            {member.contacts || 0}
-                          </p>
-                          <p className="text-xs text-gray-500">Contacts</p>
-                        </div>
-                        <div>
-                          <p className={`text-base font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                            {member.inspectionsSet}
-                          </p>
-                          <p className="text-xs text-gray-500">Insp.</p>
-                        </div>
-                        <div>
-                          <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
-                            {member.sits ?? 0}
-                          </p>
-                          <p className="text-xs text-gray-500">Sits</p>
-                        </div>
-                        <div>
-                          <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                            {member.sales}
-                          </p>
-                          <p className="text-xs text-gray-500">Sales</p>
-                        </div>
-                        <div>
-                          <p className={`text-base font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
-                            {member.closeRate}%
-                          </p>
-                          <p className="text-xs text-gray-500">Close</p>
-                        </div>
-                        <div>
-                          <p className={`text-base font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                            {member.efficiency ?? '0'}%
-                          </p>
-                          <p className="text-xs text-gray-500">Effic.</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            
-            {/* Desktop Table View */}
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-center gap-1">
-                        <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                        </svg>
-                        Doors
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-center gap-1">
-                        <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-                        </svg>
-                        Contacts
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-center gap-1">
-                        <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        Inspections
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-center gap-1">
-                        <svg className="w-4 h-4 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                        Sits
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-center gap-1">
-                        <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Sales
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-center gap-1">
-                        <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                        </svg>
-                        Close %
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-center gap-1">
-                        <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                        Effic. %
-                      </span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {loadingStats ? (
-                    <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center">
-                        <div className="flex items-center justify-center gap-2 text-gray-500">
-                          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          Loading stats...
-                        </div>
-                      </td>
-                    </tr>
-                  ) : filteredTeamStats.map((member, index) => (
-                    <tr key={member.id} className={index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center w-8 h-8">
-                          {index === 0 ? (
-                            <span className="text-xl">🥇</span>
-                          ) : index === 1 ? (
-                            <span className="text-xl">🥈</span>
-                          ) : index === 2 ? (
-                            <span className="text-xl">🥉</span>
-                          ) : (
-                            <span className="text-sm font-medium text-gray-500">{index + 1}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                            <span className="text-sm font-medium text-indigo-600">
-                              {member.name.charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-900">{member.name}</p>
-                            <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                          {member.doorsKnocked}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-lg font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                          {member.contacts || 0}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-lg font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                          {member.inspectionsSet}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
-                          {member.sits ?? 0}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                          {member.sales}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-lg font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
-                          {member.closeRate}%
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-lg font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                          {member.efficiency ?? '0'}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {filteredTeamStats.length === 0 && !loadingStats && (
+
+            {loadingStats ? (
               <div className="p-8 text-center text-gray-500">
-                No team member stats available
+                <div className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Loading stats...
+                </div>
               </div>
+            ) : (
+              <>
+                {showSetterStack && filteredSetterStats.length > 0 && (
+                  <div className="border-t border-gray-100">
+                    <h3 className="px-3 sm:px-4 pt-4 pb-2 text-sm font-semibold text-gray-800">Setter stats</h3>
+                    <div className="block sm:hidden divide-y divide-gray-100">
+                      {filteredSetterStats.map((member, index) => (
+                        <div
+                          key={member.id}
+                          className={`p-3 ${index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}`}
+                        >
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="flex items-center justify-center w-8 h-8 flex-shrink-0">
+                              {index === 0 ? (
+                                <span className="text-xl">🥇</span>
+                              ) : index === 1 ? (
+                                <span className="text-xl">🥈</span>
+                              ) : index === 2 ? (
+                                <span className="text-xl">🥉</span>
+                              ) : (
+                                <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
+                              )}
+                            </div>
+                            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                              <span className="text-sm font-medium text-indigo-600">
+                                {member.name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-gray-900 truncate">{member.name}</p>
+                              <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center">
+                            <div>
+                              <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                {member.doorsKnocked}
+                              </p>
+                              <p className="text-xs text-gray-500">Doors</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                {member.contacts || 0}
+                              </p>
+                              <p className="text-xs text-gray-500">Contacts</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                {member.inspectionsSet}
+                              </p>
+                              <p className="text-xs text-gray-500">Insp. set</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                                {member.sits ?? 0}
+                              </p>
+                              <p className="text-xs text-gray-500">Sits</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                                {member.sales}
+                              </p>
+                              <p className="text-xs text-gray-500">Sales</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doors</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Contacts</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. set</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {filteredSetterStats.map((member, index) => (
+                            <tr
+                              key={member.id}
+                              className={index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}
+                            >
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-center w-8 h-8">
+                                  {index === 0 ? (
+                                    <span className="text-xl">🥇</span>
+                                  ) : index === 1 ? (
+                                    <span className="text-xl">🥈</span>
+                                  ) : index === 2 ? (
+                                    <span className="text-xl">🥉</span>
+                                  ) : (
+                                    <span className="text-sm font-medium text-gray-500">{index + 1}</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                                    <span className="text-sm font-medium text-indigo-600">
+                                      {member.name.charAt(0).toUpperCase()}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-900">{member.name}</p>
+                                    <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                  {member.doorsKnocked}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                  {member.contacts || 0}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                  {member.inspectionsSet}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                                  {member.sits ?? 0}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                                  {member.sales}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {showCloserStack && filteredCloserStats.length > 0 && (
+                  <div className="border-t border-gray-100">
+                    <h3 className="px-3 sm:px-4 pt-4 pb-2 text-sm font-semibold text-gray-800">Closer stats</h3>
+                    <div className="block sm:hidden divide-y divide-gray-100">
+                      {filteredCloserStats.map((member, index) => (
+                        <div
+                          key={member.id}
+                          className={`p-3 ${index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}`}
+                        >
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="flex items-center justify-center w-8 h-8 flex-shrink-0">
+                              {index === 0 ? (
+                                <span className="text-xl">🥇</span>
+                              ) : index === 1 ? (
+                                <span className="text-xl">🥈</span>
+                              ) : index === 2 ? (
+                                <span className="text-xl">🥉</span>
+                              ) : (
+                                <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
+                              )}
+                            </div>
+                            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                              <span className="text-sm font-medium text-indigo-600">
+                                {member.name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-gray-900 truncate">{member.name}</p>
+                              <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
+                            <div>
+                              <p className={`text-base font-bold ${(member.inspectionsRan ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                {member.inspectionsRan ?? 0}
+                              </p>
+                              <p className="text-xs text-gray-500">Ran</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                                {member.sits ?? 0}
+                              </p>
+                              <p className="text-xs text-gray-500">Sits</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                                {member.sales}
+                              </p>
+                              <p className="text-xs text-gray-500">Sales</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                                {member.closeRate}%
+                              </p>
+                              <p className="text-xs text-gray-500">Close (30d)</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                {member.efficiency ?? '0'}%
+                              </p>
+                              <p className="text-xs text-gray-500">Effic. (30d)</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. ran</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Close %
+                              <span className="block font-normal normal-case text-gray-400">(30d)</span>
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Effic. %
+                              <span className="block font-normal normal-case text-gray-400">(30d)</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {filteredCloserStats.map((member, index) => (
+                            <tr
+                              key={member.id}
+                              className={index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : index === 2 ? 'bg-orange-50/50' : ''}
+                            >
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-center w-8 h-8">
+                                  {index === 0 ? (
+                                    <span className="text-xl">🥇</span>
+                                  ) : index === 1 ? (
+                                    <span className="text-xl">🥈</span>
+                                  ) : index === 2 ? (
+                                    <span className="text-xl">🥉</span>
+                                  ) : (
+                                    <span className="text-sm font-medium text-gray-500">{index + 1}</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                                    <span className="text-sm font-medium text-indigo-600">
+                                      {member.name.charAt(0).toUpperCase()}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-900">{member.name}</p>
+                                    <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${(member.inspectionsRan ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                  {member.inspectionsRan ?? 0}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
+                                  {member.sits ?? 0}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${member.sales > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                                  {member.sales}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                                  {member.closeRate}%
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                  {member.efficiency ?? '0'}%
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {filteredSetterStats.length === 0 && filteredCloserStats.length === 0 && (
+                  <div className="p-8 text-center text-gray-500">No team member stats available</div>
+                )}
+              </>
             )}
           </div>
         )}

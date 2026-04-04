@@ -6,6 +6,7 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { distinctDealCountsForMemberScope } from '@/lib/dashboard-distinct-deals'
 
 export const dynamic = 'force-dynamic'
 
@@ -105,10 +106,6 @@ export async function GET(request: NextRequest) {
     const isRegionalManager = profile.role === 'regional_manager'
     const isSalesManager = profile.role === 'sales_manager'
 
-    if (!isAdmin && !isRegionalManager && !isSalesManager) {
-      return NextResponse.json({ teamMemberStats: [] })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('timeframe') || 'week'
     const debug = searchParams.get('debug') === '1'
@@ -127,15 +124,17 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Get team member IDs based on role
+    // Get team member IDs based on role (scope for non-admin data)
     let teamMemberIds: string[] = []
-    
+
     if (isSalesManager && profile.team_id) {
       const { data: teamMembers } = await supabase
         .from('users')
         .select('id')
         .eq('team_id', profile.team_id)
       teamMemberIds = teamMembers?.map(m => m.id) || []
+    } else if (isSalesManager && !profile.team_id) {
+      teamMemberIds = [user.id]
     } else if (isRegionalManager && profile.region_id) {
       const { data: regionTeams } = await supabase
         .from('teams')
@@ -149,6 +148,24 @@ export async function GET(request: NextRequest) {
           .in('team_id', teamIds)
         teamMemberIds = regionMembers?.map(m => m.id) || []
       }
+    } else if (!isAdmin && !isRegionalManager && !isSalesManager && profile.team_id) {
+      const { data: teamMembers } = await supabase
+        .from('users')
+        .select('id')
+        .eq('team_id', profile.team_id)
+      teamMemberIds = teamMembers?.map(m => m.id) || []
+    } else if (!isAdmin && !isRegionalManager && !isSalesManager) {
+      teamMemberIds = [user.id]
+    }
+
+    if (!isAdmin && teamMemberIds.length === 0 && !profile.team_id) {
+      return NextResponse.json({
+        teamMemberStats: [],
+        setterStats: [],
+        closerStats: [],
+        teamMemberCount: 0,
+        distinctDealCounts: { sitOpportunitiesInPeriod: 0, saleOpportunitiesInPeriod: 0 },
+      })
     }
 
     // Get all active team members
@@ -166,7 +183,7 @@ export async function GET(request: NextRequest) {
     const { data: members } = await membersQuery
 
     if (!members || members.length === 0) {
-      return NextResponse.json({ teamMemberStats: [] })
+      return NextResponse.json({ teamMemberStats: [], setterStats: [], closerStats: [] })
     }
 
     // ============================================
@@ -222,6 +239,37 @@ export async function GET(request: NextRequest) {
 
     const { data: salesOpportunities } = await salesOppsQuery
 
+    // Inspections actually run in the selected period (closer metric)
+    const { data: inspectionsRanRows } = await supabase
+      .from('opportunities')
+      .select('id, owner_user_id, inspection_outcome, inspection_outcome_at')
+      .eq('org_id', profile.org_id)
+      .not('inspection_outcome', 'is', null)
+      .not('inspection_outcome_at', 'is', null)
+      .gte('inspection_outcome_at', start.toISOString())
+      .lt('inspection_outcome_at', end.toISOString())
+
+    const now = new Date()
+    const thirtyDayStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+    const sales30dQuery = supabase
+      .from('opportunities')
+      .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
+      .eq('org_id', profile.org_id)
+      .eq('inspection_outcome', 'sale')
+      .gte('inspection_outcome_at', thirtyDayStart.toISOString())
+      .lte('inspection_outcome_at', now.toISOString())
+
+    const { data: salesOpportunities30d } = await sales30dQuery
+
+    const { data: appts30d } = await supabase
+      .from('scheduled_appointments')
+      .select('id, closer_user_id, scheduled_for')
+      .eq('org_id', profile.org_id)
+      .not('closer_user_id', 'is', null)
+      .gte('scheduled_for', thirtyDayStart.toISOString())
+      .lte('scheduled_for', now.toISOString())
+
     const { data: orgForSits } = await supabase
       .from('orgs')
       .select('settings')
@@ -255,16 +303,25 @@ export async function GET(request: NextRequest) {
         ) || []
     }
 
+    let sitOpportunities30d: typeof sitOpportunities = []
+    if (sitOutcomeIdSet.size > 0) {
+      const { data: sitRows30d } = await supabase
+        .from('opportunities')
+        .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
+        .eq('org_id', profile.org_id)
+        .not('inspection_outcome', 'is', null)
+        .not('inspection_outcome_at', 'is', null)
+        .gte('inspection_outcome_at', thirtyDayStart.toISOString())
+        .lte('inspection_outcome_at', now.toISOString())
+
+      sitOpportunities30d =
+        (sitRows30d || []).filter((o) =>
+          sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
+        ) || []
+    }
+
     // Contact dispositions - where rep actually talked to someone
     const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
-
-    // Build a set of lead_ids that already have appointments
-    // to avoid double-counting doors/contacts
-    const leadsWithAppointments = new Set(
-      (appointments || [])
-        .filter(a => a.lead_id)
-        .map(a => a.lead_id)
-    )
 
     // Calculate stats for each member
     const teamMemberStats = members.map(member => {
@@ -308,25 +365,34 @@ export async function GET(request: NextRequest) {
 
       const finalContacts = rawContacts + inspectionBonusContacts
 
-      // ---- SALES ----
-      // Setter/canvasser rows are credited from setter_user_id on sold opportunities.
-      // Other roles are credited from owner_user_id (closer).
-      const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
+      // ---- SALES (timeframe) ----
       const sales = (salesOpportunities || []).filter(o =>
         isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
       ).length
 
-      // Sits attributed to whoever set the appointment (setter_user_id only)
+      // ---- SITS (timeframe, role-aware) ----
       const sits = (sitOpportunities || []).filter((o) =>
-        o.setter_user_id === member.id
+        isSetterLikeRole(member.role)
+          ? o.setter_user_id === member.id
+          : o.owner_user_id === member.id
       ).length
 
-      // ---- CLOSE RATE & EFFICIENCY ----
-      // Close rate = sales / sits
-      const closeRate = sits > 0 ? (sales / sits * 100) : 0
-      // Efficiency = sales / appointments on this closer's calendar
-      const apptsOnCalendar = (appointments || []).filter(a => a.closer_user_id === member.id).length
-      const efficiency = apptsOnCalendar > 0 ? (sales / apptsOnCalendar * 100) : 0
+      const inspectionsRan =
+        (inspectionsRanRows || []).filter((o) => o.owner_user_id === member.id).length
+
+      // ---- 30d rolling: close rate & efficiency ----
+      const sales30d = (salesOpportunities30d || []).filter(o =>
+        isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
+      ).length
+      const sits30d = (sitOpportunities30d || []).filter((o) =>
+        isSetterLikeRole(member.role)
+          ? o.setter_user_id === member.id
+          : o.owner_user_id === member.id
+      ).length
+      const closeRate = sits30d > 0 ? (sales30d / sits30d) * 100 : 0
+      const apptsOnCalendar30d = (appts30d || []).filter((a) => a.closer_user_id === member.id).length
+      const efficiency =
+        apptsOnCalendar30d > 0 ? (sales30d / apptsOnCalendar30d) * 100 : 0
 
       const result: any = {
         id: member.id,
@@ -335,6 +401,7 @@ export async function GET(request: NextRequest) {
         doorsKnocked: finalDoors,
         contacts: finalContacts,
         inspectionsSet,
+        inspectionsRan,
         sits,
         sales,
         closeRate: closeRate.toFixed(0),
@@ -359,15 +426,39 @@ export async function GET(request: NextRequest) {
       return result
     })
 
-    // Sort by sales, then sits, then inspections, then doors
-    teamMemberStats.sort((a, b) => {
-      if (b.sales !== a.sales) return b.sales - a.sales
-      if (b.sits !== a.sits) return b.sits - a.sits
-      if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
-      return b.doorsKnocked - a.doorsKnocked
-    })
+    const setterStats = teamMemberStats
+      .filter((m) => isSetterLikeRole(m.role))
+      .sort((a, b) => {
+        if (b.inspectionsSet !== a.inspectionsSet) return b.inspectionsSet - a.inspectionsSet
+        if (b.sits !== a.sits) return b.sits - a.sits
+        if (b.sales !== a.sales) return b.sales - a.sales
+        return b.doorsKnocked - a.doorsKnocked
+      })
 
-    const response: any = { teamMemberStats }
+    const closerStats = teamMemberStats
+      .filter((m) => !isSetterLikeRole(m.role))
+      .sort((a, b) => {
+        if (b.sales !== a.sales) return b.sales - a.sales
+        if (b.sits !== a.sits) return b.sits - a.sits
+        const cr = parseFloat(b.closeRate) - parseFloat(a.closeRate)
+        if (cr !== 0) return cr
+        return parseFloat(b.efficiency) - parseFloat(a.efficiency)
+      })
+
+    const memberIdsForScope = members.map((m) => m.id)
+    const distinctDealCounts = distinctDealCountsForMemberScope(
+      memberIdsForScope,
+      sitOpportunities,
+      salesOpportunities || [],
+    )
+
+    const response: any = {
+      teamMemberStats,
+      setterStats,
+      closerStats,
+      teamMemberCount: members.length,
+      distinctDealCounts,
+    }
     
     // Include date range info in debug mode
     if (debug) {
