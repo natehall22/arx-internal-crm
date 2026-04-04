@@ -309,6 +309,22 @@ export async function POST(request: NextRequest) {
     let projectCreateError: string | null = null
     try {
       let existingProject: { id: string } | null = null
+      let oppForProject: {
+        customer_id: string | null
+        lead_id: string | null
+        owner_user_id: string | null
+        inspection_outcome: string | null
+      } | null = null
+
+      if (contract.opportunity_id) {
+        const { data: oppRow } = await supabase
+          .from('opportunities')
+          .select('customer_id, lead_id, owner_user_id, inspection_outcome')
+          .eq('id', contract.opportunity_id)
+          .maybeSingle()
+        oppForProject = oppRow
+      }
+
       if (contract.opportunity_id) {
         const { data: byOpp } = await supabase
           .from('projects')
@@ -318,36 +334,20 @@ export async function POST(request: NextRequest) {
           .maybeSingle()
         existingProject = byOpp
       }
-      if (!existingProject) {
-        const { data: opportunity } = contract.opportunity_id
-          ? await supabase
-              .from('opportunities')
-              .select('customer_id, lead_id')
-              .eq('id', contract.opportunity_id)
-              .single()
-          : { data: null }
-
-        if (opportunity?.lead_id) {
-          const { data: byLead } = await supabase
-            .from('projects')
-            .select('id')
-            .eq('org_id', contract.org_id)
-            .eq('lead_id', opportunity.lead_id)
-            .maybeSingle()
-          existingProject = byLead
-        }
+      if (!existingProject && oppForProject?.lead_id) {
+        const { data: byLead } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('org_id', contract.org_id)
+          .eq('lead_id', oppForProject.lead_id)
+          .maybeSingle()
+        existingProject = byLead
       }
 
       if (!existingProject) {
         let customerId: string | null = null
 
-        const { data: opportunity } = contract.opportunity_id
-          ? await supabase
-              .from('opportunities')
-              .select('customer_id, lead_id')
-              .eq('id', contract.opportunity_id)
-              .single()
-          : { data: null }
+        const opportunity = oppForProject
 
         customerId = opportunity?.customer_id ?? null
 
@@ -391,7 +391,7 @@ export async function POST(request: NextRequest) {
             customer_id: customerId,
             lead_id: opportunity?.lead_id || null,
             opportunity_id: contract.opportunity_id || null,
-            owner_user_id: contract.created_by,
+            owner_user_id: opportunity?.owner_user_id ?? contract.created_by,
             status: 'open',
             project_type: contract.scope_roof_replacement || contract.scope_roof_repair ? 'roofing' : 
                          contract.scope_siding ? 'siding' : 'mixed',
@@ -420,10 +420,13 @@ export async function POST(request: NextRequest) {
 
         // Only mark the deal won when a project row actually exists — avoids won opportunities with no project.
         if (projectId && contract.opportunity_id) {
-          await supabase
-            .from('opportunities')
-            .update({ status: 'won', customer_id: customerId })
-            .eq('id', contract.opportunity_id)
+          const wonUpdate: Record<string, unknown> = { status: 'won', customer_id: customerId }
+          // Dashboard sales metrics use inspection_outcome + owner_user_id; set sale if not already recorded
+          if (!opportunity?.inspection_outcome) {
+            wonUpdate.inspection_outcome = 'sale'
+            wonUpdate.inspection_outcome_at = customerSignedAt
+          }
+          await supabase.from('opportunities').update(wonUpdate).eq('id', contract.opportunity_id)
         }
 
         if (customerId && opportunity?.lead_id) {
@@ -465,7 +468,7 @@ export async function POST(request: NextRequest) {
                   customer_id: customerId,
                   job_type: jobType,
                   address_text: contract.project_address || '',
-                  salesperson_id: contract.created_by,
+                  salesperson_id: opportunity?.owner_user_id ?? contract.created_by,
                   sale_date: new Date().toISOString().split('T')[0],
                   sale_amount: contract.project_cost || null,
                   deposit_required_percent: contract.deposit_amount && contract.project_cost 

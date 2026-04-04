@@ -494,7 +494,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create status update record
+    const assignedCloserId = appointment?.closer_user_id || user.id
+
+    // Create status update record (closer = assigned rep on the appointment, not necessarily submitter)
     const { data: statusUpdate, error: statusError } = await supabase
       .from('inspection_status_updates')
       .insert({
@@ -502,7 +504,7 @@ export async function POST(request: NextRequest) {
         appointment_id: appointment_id || null,
         opportunity_id: opportunityId || null,
         lead_id: leadId,
-        closer_user_id: user.id,
+        closer_user_id: assignedCloserId,
         setter_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
         outcome,
         notes: notes || null,
@@ -520,7 +522,7 @@ export async function POST(request: NextRequest) {
         appointment_id: appointment_id || null,
         opportunity_id: opportunityId || null,
         lead_id: leadId,
-        closer_user_id: user.id,
+        closer_user_id: assignedCloserId,
         setter_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
         outcome,
         notes: notes || null,
@@ -565,6 +567,16 @@ export async function POST(request: NextRequest) {
         opportunityUpdate.status = 'in_progress' // Active opportunities being worked
       }
       // 'not_home' and 'rescheduled' keep status as 'open'
+
+      // Align attribution with the scheduled appointment (manager submitter ≠ assigned closer)
+      if (appointment?.closer_user_id) {
+        opportunityUpdate.owner_user_id = appointment.closer_user_id
+      }
+      const setterFromAppt =
+        appointment?.canvasser_user_id || lead?.owner_user_id || null
+      if (setterFromAppt) {
+        opportunityUpdate.setter_user_id = setterFromAppt
+      }
 
       console.log('=== UPDATING EXISTING OPPORTUNITY ===')
       console.log('opportunityId:', opportunityId)
