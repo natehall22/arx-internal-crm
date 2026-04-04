@@ -249,26 +249,14 @@ export async function GET(request: NextRequest) {
       .gte('inspection_outcome_at', start.toISOString())
       .lt('inspection_outcome_at', end.toISOString())
 
-    const now = new Date()
-    const thirtyDayStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-
-    const sales30dQuery = supabase
-      .from('opportunities')
-      .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
-      .eq('org_id', profile.org_id)
-      .eq('inspection_outcome', 'sale')
-      .gte('inspection_outcome_at', thirtyDayStart.toISOString())
-      .lte('inspection_outcome_at', now.toISOString())
-
-    const { data: salesOpportunities30d } = await sales30dQuery
-
-    const { data: appts30d } = await supabase
+    // Appointments on closer's calendar in the selected period (by scheduled_for) — efficiency denominator
+    const { data: apptsForEfficiency } = await supabase
       .from('scheduled_appointments')
-      .select('id, closer_user_id, scheduled_for')
+      .select('id, closer_user_id')
       .eq('org_id', profile.org_id)
       .not('closer_user_id', 'is', null)
-      .gte('scheduled_for', thirtyDayStart.toISOString())
-      .lte('scheduled_for', now.toISOString())
+      .gte('scheduled_for', start.toISOString())
+      .lt('scheduled_for', end.toISOString())
 
     const { data: orgForSits } = await supabase
       .from('orgs')
@@ -299,23 +287,6 @@ export async function GET(request: NextRequest) {
 
       sitOpportunities =
         (sitRows || []).filter((o) =>
-          sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
-        ) || []
-    }
-
-    let sitOpportunities30d: typeof sitOpportunities = []
-    if (sitOutcomeIdSet.size > 0) {
-      const { data: sitRows30d } = await supabase
-        .from('opportunities')
-        .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
-        .eq('org_id', profile.org_id)
-        .not('inspection_outcome', 'is', null)
-        .not('inspection_outcome_at', 'is', null)
-        .gte('inspection_outcome_at', thirtyDayStart.toISOString())
-        .lte('inspection_outcome_at', now.toISOString())
-
-      sitOpportunities30d =
-        (sitRows30d || []).filter((o) =>
           sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
         ) || []
     }
@@ -380,19 +351,11 @@ export async function GET(request: NextRequest) {
       const inspectionsRan =
         (inspectionsRanRows || []).filter((o) => o.owner_user_id === member.id).length
 
-      // ---- 30d rolling: close rate & efficiency ----
-      const sales30d = (salesOpportunities30d || []).filter(o =>
-        isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
-      ).length
-      const sits30d = (sitOpportunities30d || []).filter((o) =>
-        isSetterLikeRole(member.role)
-          ? o.setter_user_id === member.id
-          : o.owner_user_id === member.id
-      ).length
-      const closeRate = sits30d > 0 ? (sales30d / sits30d) * 100 : 0
-      const apptsOnCalendar30d = (appts30d || []).filter((a) => a.closer_user_id === member.id).length
-      const efficiency =
-        apptsOnCalendar30d > 0 ? (sales30d / apptsOnCalendar30d) * 100 : 0
+      // Close rate = sales / sits for the selected period
+      const closeRate = sits > 0 ? (sales / sits * 100) : null
+      // Efficiency = sales / appointments on closer's calendar in the selected period
+      const apptsOnCalendar = (apptsForEfficiency || []).filter((a) => a.closer_user_id === member.id).length
+      const efficiency = apptsOnCalendar > 0 ? (sales / apptsOnCalendar * 100) : null
 
       const result: any = {
         id: member.id,
@@ -404,8 +367,8 @@ export async function GET(request: NextRequest) {
         inspectionsRan,
         sits,
         sales,
-        closeRate: closeRate.toFixed(0),
-        efficiency: efficiency.toFixed(0),
+        closeRate: closeRate !== null ? closeRate.toFixed(0) : '—',
+        efficiency: efficiency !== null ? efficiency.toFixed(0) : '—',
       }
 
       // Include raw breakdown in debug mode
@@ -440,9 +403,12 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => {
         if (b.sales !== a.sales) return b.sales - a.sales
         if (b.sits !== a.sits) return b.sits - a.sits
-        const cr = parseFloat(b.closeRate) - parseFloat(a.closeRate)
-        if (cr !== 0) return cr
-        return parseFloat(b.efficiency) - parseFloat(a.efficiency)
+        const crA = a.closeRate === '—' ? -1 : parseFloat(a.closeRate)
+        const crB = b.closeRate === '—' ? -1 : parseFloat(b.closeRate)
+        if (crB !== crA) return crB - crA
+        const effA = a.efficiency === '—' ? -1 : parseFloat(a.efficiency)
+        const effB = b.efficiency === '—' ? -1 : parseFloat(b.efficiency)
+        return effB - effA
       })
 
     const memberIdsForScope = members.map((m) => m.id)

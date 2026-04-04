@@ -172,41 +172,14 @@ export default async function DashboardPage() {
       ) || []
   }
 
-  const now = new Date()
-  const thirtyDayStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-
-  const { data: sales30dRows } = await supabase
-    .from('opportunities')
-    .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
-    .eq('org_id', profile.org_id)
-    .eq('inspection_outcome', 'sale')
-    .gte('inspection_outcome_at', thirtyDayStart.toISOString())
-    .lte('inspection_outcome_at', now.toISOString())
-
-  let sitOpportunities30d: typeof sitOpportunities = []
-  if (sitOutcomeIdSet.size > 0) {
-    const { data: sitRows30d } = await supabase
-      .from('opportunities')
-      .select('owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
-      .eq('org_id', profile.org_id)
-      .not('inspection_outcome', 'is', null)
-      .not('inspection_outcome_at', 'is', null)
-      .gte('inspection_outcome_at', thirtyDayStart.toISOString())
-      .lte('inspection_outcome_at', now.toISOString())
-
-    sitOpportunities30d =
-      (sitRows30d || []).filter((o) =>
-        sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
-      ) || []
-  }
-
-  const { data: appointments30d } = await supabase
+  // Appointments on closer's calendar in this period (by scheduled_for) — efficiency denominator
+  const { data: apptsForEfficiency } = await supabase
     .from('scheduled_appointments')
-    .select('id, closer_user_id, scheduled_for')
+    .select('id, closer_user_id')
     .eq('org_id', profile.org_id)
     .not('closer_user_id', 'is', null)
-    .gte('scheduled_for', thirtyDayStart.toISOString())
-    .lte('scheduled_for', now.toISOString())
+    .gte('scheduled_for', weekStart.toISOString())
+    .lt('scheduled_for', weekEnd.toISOString())
 
   const { data: inspectionsRanRows } = await supabase
     .from('opportunities')
@@ -429,20 +402,13 @@ export default async function DashboardPage() {
         const inspectionsRan =
           (inspectionsRanRows || []).filter((o) => o.owner_user_id === member.id).length
 
-        const sales30d = (sales30dRows || []).filter(o =>
-          isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
-        ).length
-        const sits30d = (sitOpportunities30d || []).filter((o) =>
-          isSetterLikeRole(member.role)
-            ? o.setter_user_id === member.id
-            : o.owner_user_id === member.id
-        ).length
-        const memberCloseRate = sits30d > 0 ? (sales30d / sits30d) * 100 : 0
-        const memberApptsOnCalendar30d = (appointments30d || []).filter(
+        const memberSalesCount = memberSales.length
+        const memberCloseRate = sits > 0 ? (memberSalesCount / sits * 100) : null
+        const memberApptsOnCalendar = (apptsForEfficiency || []).filter(
           (a) => a.closer_user_id === member.id
         ).length
         const memberEfficiency =
-          memberApptsOnCalendar30d > 0 ? (sales30d / memberApptsOnCalendar30d) * 100 : 0
+          memberApptsOnCalendar > 0 ? (memberSalesCount / memberApptsOnCalendar * 100) : null
 
         teamMemberStats.push({
           id: member.id,
@@ -453,9 +419,9 @@ export default async function DashboardPage() {
           inspectionsSet,
           inspectionsRan,
           sits,
-          sales: memberSales.length,
-          closeRate: memberCloseRate.toFixed(0),
-          efficiency: memberEfficiency.toFixed(0),
+          sales: memberSalesCount,
+          closeRate: memberCloseRate !== null ? memberCloseRate.toFixed(0) : '—',
+          efficiency: memberEfficiency !== null ? memberEfficiency.toFixed(0) : '—',
         })
       }
 
@@ -473,9 +439,12 @@ export default async function DashboardPage() {
         .sort((a, b) => {
           if (b.sales !== a.sales) return b.sales - a.sales
           if (b.sits !== a.sits) return b.sits - a.sits
-          const cr = parseFloat(b.closeRate) - parseFloat(a.closeRate)
-          if (cr !== 0) return cr
-          return parseFloat(b.efficiency) - parseFloat(a.efficiency)
+          const crA = a.closeRate === '—' ? -1 : parseFloat(a.closeRate)
+          const crB = b.closeRate === '—' ? -1 : parseFloat(b.closeRate)
+          if (crB !== crA) return crB - crA
+          const effA = a.efficiency === '—' ? -1 : parseFloat(a.efficiency)
+          const effB = b.efficiency === '—' ? -1 : parseFloat(b.efficiency)
+          return effB - effA
         })
     }
   }
@@ -531,36 +500,18 @@ export default async function DashboardPage() {
     return o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || '')
   }).length
 
-  const sales30dCount = (sales30dRows || []).filter((o) =>
-    isSetterLikeRole(profile.role)
-      ? isAdmin ||
-        o.setter_user_id === profile.id ||
-        teamMemberIds.includes(o.setter_user_id || '')
-      : isAdmin ||
-        o.owner_user_id === profile.id ||
-        teamMemberIds.includes(o.owner_user_id || '')
-  ).length
+  // Close rate = sales / sits for the selected period
+  const closeRate = sitsThisWeek > 0
+    ? parseFloat((salesThisWeek / sitsThisWeek * 100).toFixed(1))
+    : null
 
-  const sits30dCount = (sitOpportunities30d || []).filter((o) => {
-    if (isAdmin) return true
-    if (isSetterLikeRole(profile.role)) {
-      return (
-        o.setter_user_id === profile.id || teamMemberIds.includes(o.setter_user_id || '')
-      )
-    }
-    return o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || '')
-  }).length
-
-  const closeRate =
-    sits30dCount > 0 ? ((sales30dCount / sits30dCount) * 100).toFixed(1) : '0'
-
-  const appointmentsOnCalendar30d = (appointments30d || []).filter((a) =>
+  // Efficiency = sales / appointments on closer's calendar in the selected period
+  const appointmentsOnCalendar = (apptsForEfficiency || []).filter((a) =>
     isAdmin || a.closer_user_id === profile.id || teamMemberIds.includes(a.closer_user_id || '')
   ).length
-  const efficiency =
-    appointmentsOnCalendar30d > 0
-      ? ((sales30dCount / appointmentsOnCalendar30d) * 100).toFixed(1)
-      : '0'
+  const efficiency = appointmentsOnCalendar > 0
+    ? parseFloat((salesThisWeek / appointmentsOnCalendar * 100).toFixed(1))
+    : null
 
   const inspectionsRanThisWeek = (inspectionsRanRows || []).filter((o) =>
     isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || '')
@@ -583,8 +534,8 @@ export default async function DashboardPage() {
     totalProjects: projects?.length || 0,
     activeProjects: projects?.filter(p => ['open', 'in_progress'].includes(p.status)).length || 0,
     // Weekly stats
-    closeRate: parseFloat(closeRate),
-    efficiency: parseFloat(efficiency),
+    closeRate,
+    efficiency,
     doorsKnockedThisWeek: doorsKnocked,
     contactsThisWeek: contacts,
     inspectionsSetThisWeek: inspectionsSet,

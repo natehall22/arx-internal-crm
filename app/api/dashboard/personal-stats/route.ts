@@ -71,13 +71,22 @@ export async function GET(request: NextRequest) {
     }
     const { data: leads } = await leadsQuery
 
-    // ---- APPOINTMENTS (inspections set) ----
+    // ---- APPOINTMENTS (inspections set, by created_at) ----
     const { data: appointments } = await supabase
       .from('scheduled_appointments')
       .select('id, canvasser_user_id, closer_user_id, lead_id')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
+
+    // ---- APPOINTMENTS ON CLOSER'S CALENDAR in period (by scheduled_for) — efficiency denominator ----
+    const { data: apptsForEfficiency } = await supabase
+      .from('scheduled_appointments')
+      .select('id, closer_user_id')
+      .eq('org_id', profile.org_id)
+      .not('closer_user_id', 'is', null)
+      .gte('scheduled_for', start.toISOString())
+      .lt('scheduled_for', end.toISOString())
 
     // ---- SALES (in period) ----
     const { data: salesRows } = await supabase
@@ -126,42 +135,6 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // ---- 30-DAY ROLLING (close rate & efficiency) ----
-    const now = new Date()
-    const thirtyDayStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-
-    const { data: sales30d } = await supabase
-      .from('opportunities')
-      .select('id, owner_user_id, setter_user_id')
-      .eq('org_id', profile.org_id)
-      .eq('inspection_outcome', 'sale')
-      .gte('inspection_outcome_at', thirtyDayStart.toISOString())
-      .lte('inspection_outcome_at', now.toISOString())
-
-    let sits30dRows: typeof sitRows = []
-    if (sitOutcomeIdSet.size > 0) {
-      const { data: raw30 } = await supabase
-        .from('opportunities')
-        .select('owner_user_id, setter_user_id, inspection_outcome')
-        .eq('org_id', profile.org_id)
-        .not('inspection_outcome', 'is', null)
-        .not('inspection_outcome_at', 'is', null)
-        .gte('inspection_outcome_at', thirtyDayStart.toISOString())
-        .lte('inspection_outcome_at', now.toISOString())
-
-      sits30dRows = (raw30 || []).filter(o =>
-        sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
-      )
-    }
-
-    const { data: appts30d } = await supabase
-      .from('scheduled_appointments')
-      .select('id, closer_user_id')
-      .eq('org_id', profile.org_id)
-      .not('closer_user_id', 'is', null)
-      .gte('scheduled_for', thirtyDayStart.toISOString())
-      .lte('scheduled_for', now.toISOString())
-
     // ---- COMPUTE ----
     const contactDisps = ['go_back', 'hot_lead', 'not_interested', 'renter']
 
@@ -200,21 +173,11 @@ export async function GET(request: NextRequest) {
       inScope(o.owner_user_id)
     ).length
 
-    // 30-day rolling
-    const sales30dCount = (sales30d || []).filter(o =>
-      isSetter ? inScope(o.setter_user_id) : inScope(o.owner_user_id)
-    ).length
-
-    const sits30dCount = sits30dRows.filter(o =>
-      isSetter ? inScope(o.setter_user_id) : inScope(o.owner_user_id)
-    ).length
-
-    const appts30dCount = (appts30d || []).filter(a =>
-      inScope(a.closer_user_id)
-    ).length
-
-    const closeRate = sits30dCount > 0 ? (sales30dCount / sits30dCount * 100) : 0
-    const efficiency = appts30dCount > 0 ? (sales30dCount / appts30dCount * 100) : 0
+    // Close rate = sales / sits for the selected period
+    const closeRate = sits > 0 ? parseFloat((sales / sits * 100).toFixed(1)) : null
+    // Efficiency = sales / appointments on closer's calendar in the selected period
+    const apptCount = (apptsForEfficiency || []).filter(a => inScope(a.closer_user_id)).length
+    const efficiency = apptCount > 0 ? parseFloat((sales / apptCount * 100).toFixed(1)) : null
 
     return NextResponse.json({
       doorsKnocked,
@@ -223,8 +186,8 @@ export async function GET(request: NextRequest) {
       inspectionsRan,
       sits,
       sales,
-      closeRate: parseFloat(closeRate.toFixed(1)),
-      efficiency: parseFloat(efficiency.toFixed(1)),
+      closeRate,
+      efficiency,
     })
   } catch (error) {
     console.error('Personal stats error:', error)

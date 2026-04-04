@@ -71,8 +71,8 @@ interface DashboardClientProps {
     openOpportunities: number
     totalProjects: number
     activeProjects: number
-    closeRate: number
-    efficiency: number
+    closeRate: number | null
+    efficiency: number | null
     doorsKnockedThisWeek: number
     contactsThisWeek: number
     inspectionsSetThisWeek: number
@@ -698,7 +698,9 @@ export default function DashboardClient({
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Close Rate</p>
-                  <p className="text-xl sm:text-2xl font-bold text-indigo-600">{personalStats.closeRate}%</p>
+                  <p className="text-xl sm:text-2xl font-bold text-indigo-600">
+                  {personalStats.closeRate != null ? `${personalStats.closeRate}%` : '—'}
+                </p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -712,7 +714,9 @@ export default function DashboardClient({
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Efficiency</p>
-                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{personalStats.efficiency}%</p>
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">
+                  {personalStats.efficiency != null ? `${personalStats.efficiency}%` : '—'}
+                </p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1008,13 +1012,13 @@ export default function DashboardClient({
                               <p className="text-xs text-gray-500">Sales</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
                                 {member.closeRate}%
                               </p>
                               <p className="text-xs text-gray-500">Close (30d)</p>
                             </div>
                             <div>
-                              <p className={`text-base font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                              <p className={`text-base font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
                                 {member.efficiency ?? '0'}%
                               </p>
                               <p className="text-xs text-gray-500">Effic. (30d)</p>
@@ -1102,12 +1106,12 @@ export default function DashboardClient({
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
                                   {member.closeRate}%
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                <span className={`text-lg font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
                                   {member.efficiency ?? '0'}%
                                 </span>
                               </td>
