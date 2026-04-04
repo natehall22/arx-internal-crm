@@ -932,7 +932,19 @@ export default function DashboardClient({
                               <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
+                          <div className="grid grid-cols-3 sm:grid-cols-7 gap-2 text-center">
+                            <div>
+                              <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                {member.doorsKnocked}
+                              </p>
+                              <p className="text-xs text-gray-500">Doors</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${(member.contacts ?? 0) > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                {member.contacts ?? 0}
+                              </p>
+                              <p className="text-xs text-gray-500">Contacts</p>
+                            </div>
                             <div>
                               <p className={`text-base font-bold ${(member.inspectionsRan ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
                                 {member.inspectionsRan ?? 0}
@@ -973,6 +985,8 @@ export default function DashboardClient({
                           <tr>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doors</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Contacts</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. ran</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
@@ -1017,6 +1031,16 @@ export default function DashboardClient({
                                     <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
                                   </div>
                                 </div>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                  {member.doorsKnocked}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${(member.contacts ?? 0) > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                                  {member.contacts ?? 0}
+                                </span>
                               </td>
                               <td className="px-4 py-3 text-center">
                                 <span className={`text-lg font-bold ${(member.inspectionsRan ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
