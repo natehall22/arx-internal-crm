@@ -126,6 +126,17 @@ export default function DashboardClient({
     saleOpportunitiesInPeriod: number
   } | null>(null)
   const [loadingStats, setLoadingStats] = useState(false)
+  const [personalStats, setPersonalStats] = useState({
+    doorsKnocked: stats.doorsKnockedThisWeek,
+    contacts: stats.contactsThisWeek,
+    inspectionsSet: stats.inspectionsSetThisWeek,
+    inspectionsRan: stats.inspectionsRanThisWeek,
+    sits: stats.sitsThisWeek,
+    sales: stats.salesThisWeek,
+    closeRate: stats.closeRate,
+    efficiency: stats.efficiency,
+  })
+  const [loadingPersonalStats, setLoadingPersonalStats] = useState(false)
   const [weeklyPay, setWeeklyPay] = useState<number>(0)
   const [hasCompPlan, setHasCompPlan] = useState<boolean | null>(null)
   const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
@@ -164,10 +175,14 @@ export default function DashboardClient({
 
   const loadTeamStatsForTimeFrame = async () => {
     setLoadingStats(true)
+    setLoadingPersonalStats(true)
     try {
-      const res = await fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`)
-      if (res.ok) {
-        const data = await res.json()
+      const [teamRes, personalRes] = await Promise.all([
+        fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`),
+        fetch(`/api/dashboard/personal-stats?timeframe=${timeFrame}`),
+      ])
+      if (teamRes.ok) {
+        const data = await teamRes.json()
         setFilteredSetterStats(data.setterStats || [])
         setFilteredCloserStats(data.closerStats || [])
         const n = data.teamMemberCount
@@ -184,11 +199,28 @@ export default function DashboardClient({
           setDistinctDealCounts(null)
         }
       }
+      if (personalRes.ok) {
+        const pData = await personalRes.json()
+        setPersonalStats(pData)
+      }
     } catch (error) {
-      console.error('Failed to load team stats:', error)
+      console.error('Failed to load stats:', error)
     } finally {
       setLoadingStats(false)
+      setLoadingPersonalStats(false)
     }
+  }
+
+  const timeFrameLabel: Record<TimeFrame, string> = {
+    today: 'today',
+    yesterday: 'yesterday',
+    week: 'this week',
+    last_week: 'last week',
+    month: 'this month',
+    last_month: 'last month',
+    quarter: 'this quarter',
+    year: 'this year',
+    all: 'all time',
   }
 
   const isManager =
@@ -486,31 +518,58 @@ export default function DashboardClient({
               Welcome back, {profile.full_name?.split(' ')[0] || 'there'}!
             </h1>
             <p className="text-gray-500 text-sm sm:text-base mt-1">
-              Here's your performance overview for this week
+              Here's your performance overview for {timeFrameLabel[timeFrame]}
             </p>
           </div>
-          {(profile.role === 'admin' || profile.role === 'regional_manager') && (
-            <Link
-              href="/admin/dashboard-settings"
-              className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1 self-start sm:self-auto"
+          <div className="flex items-center gap-3 self-start sm:self-auto">
+            <select
+              value={timeFrame}
+              onChange={(e) => setTimeFrame(e.target.value as TimeFrame)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Customize Dashboard
-            </Link>
-          )}
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="week">This Week</option>
+              <option value="last_week">Last Week</option>
+              <option value="month">This Month</option>
+              <option value="last_month">Last Month</option>
+              <option value="quarter">This Quarter</option>
+              <option value="year">This Year</option>
+              <option value="all">All Time</option>
+            </select>
+            {(profile.role === 'admin' || profile.role === 'regional_manager') && (
+              <Link
+                href="/admin/dashboard-settings"
+                className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Customize Dashboard
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* Quick Stats — setters vs closers */}
-        {isSetterLikeRole(profile.role) ? (
+        {loadingPersonalStats ? (
+          <div className={`grid ${isSetterLikeRole(profile.role) ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'} gap-3 sm:gap-4 mb-6 sm:mb-8`}>
+            {Array.from({ length: isSetterLikeRole(profile.role) ? 5 : 6 }).map((_, i) => (
+              <div key={i} className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100 animate-pulse">
+                <div className="h-4 bg-gray-200 rounded w-3/4 mb-3" />
+                <div className="h-8 bg-gray-200 rounded w-1/2 mb-2" />
+                <div className="h-3 bg-gray-100 rounded w-1/3" />
+              </div>
+            ))}
+          </div>
+        ) : isSetterLikeRole(profile.role) ? (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.doorsKnockedThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.doorsKnocked}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -518,13 +577,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Contacts</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.contactsThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.contacts}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -532,13 +591,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Set</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.inspectionsSetThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.inspectionsSet}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -546,13 +605,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
-                  <p className="text-xl sm:text-2xl font-bold text-cyan-600">{stats.sitsThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-cyan-600">{personalStats.sits}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -560,13 +619,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
-                  <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{personalStats.sales}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -574,7 +633,7 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
           </div>
         ) : (
@@ -583,7 +642,7 @@ export default function DashboardClient({
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Doors Knocked</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.doorsKnockedThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.doorsKnocked}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -591,13 +650,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Ran</p>
-                  <p className="text-xl sm:text-2xl font-bold text-amber-600">{stats.inspectionsRanThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-amber-600">{personalStats.inspectionsRan}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -605,13 +664,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Sits</p>
-                  <p className="text-xl sm:text-2xl font-bold text-cyan-600">{stats.sitsThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-cyan-600">{personalStats.sits}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -619,13 +678,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Sales</p>
-                  <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.salesThisWeek}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{personalStats.sales}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -633,13 +692,13 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">This week</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Close Rate</p>
-                  <p className="text-xl sm:text-2xl font-bold text-indigo-600">{stats.closeRate}%</p>
+                  <p className="text-xl sm:text-2xl font-bold text-indigo-600">{personalStats.closeRate}%</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -653,7 +712,7 @@ export default function DashboardClient({
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Efficiency</p>
-                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{stats.efficiency}%</p>
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{personalStats.efficiency}%</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -717,21 +776,6 @@ export default function DashboardClient({
             <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team performance</h2>
               <div className="flex items-center gap-2 sm:gap-3">
-                <select
-                  value={timeFrame}
-                  onChange={(e) => setTimeFrame(e.target.value as TimeFrame)}
-                  className="text-sm border border-gray-300 rounded-lg px-2 sm:px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 flex-1 sm:flex-none"
-                >
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="week">This Week</option>
-                  <option value="last_week">Last Week</option>
-                  <option value="month">This Month</option>
-                  <option value="last_month">Last Month</option>
-                  <option value="quarter">This Quarter</option>
-                  <option value="year">This Year</option>
-                  <option value="all">All Time</option>
-                </select>
                 <div className="text-xs sm:text-sm text-gray-500 text-right sm:text-left">
                   <span className="whitespace-nowrap">{teamMemberCount} reps</span>
                   {isManager && distinctDealCounts && !loadingStats && (
