@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { User } from '@/lib/types/database'
+import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 
 export type AuthContext = {
   authUser: {
@@ -12,56 +13,7 @@ export type AuthContext = {
 }
 
 function getSessionFromCookies() {
-  const cookieStore = cookies()
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  
-  // Get project ref for cookie name
-  const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
-  const cookieName = `sb-${projectRef}-auth-token`
-
-  // Try to get the auth cookie (might be single or chunked)
-  let sessionData: any = null
-  
-  const allCookies = cookieStore.getAll()
-  const singleCookie = allCookies.find(c => c.name === cookieName)
-  
-  if (singleCookie?.value) {
-    try {
-      sessionData = JSON.parse(decodeURIComponent(singleCookie.value))
-    } catch {
-      try {
-        sessionData = JSON.parse(singleCookie.value)
-      } catch {
-        // Failed to parse
-      }
-    }
-  }
-
-  // Try chunked cookies if single didn't work
-  if (!sessionData) {
-    const chunks: string[] = []
-    let i = 0
-    while (true) {
-      const chunk = allCookies.find(c => c.name === `${cookieName}.${i}`)
-      if (!chunk?.value) break
-      chunks.push(chunk.value)
-      i++
-    }
-    if (chunks.length > 0) {
-      const joined = chunks.join('')
-      try {
-        sessionData = JSON.parse(decodeURIComponent(joined))
-      } catch {
-        try {
-          sessionData = JSON.parse(joined)
-        } catch {
-          // Failed to parse
-        }
-      }
-    }
-  }
-
-  return sessionData
+  return getSupabaseSessionFromCookieStore(cookies())
 }
 
 async function getAuthContext(options?: { throwOnError?: boolean }): Promise<AuthContext | null> {

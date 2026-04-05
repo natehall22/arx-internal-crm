@@ -1,4 +1,4 @@
--- Manager SPO (sales performance override) on adders: optional toggle + % for eligible management roles.
+/* Manager SPO on adders: optional toggle + percent for eligible management roles. */
 
 ALTER TABLE pricebook_items
   ADD COLUMN IF NOT EXISTS manager_spo_enabled BOOLEAN NOT NULL DEFAULT false,

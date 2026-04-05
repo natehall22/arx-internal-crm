@@ -39,17 +39,38 @@ export default async function ProjectsPage() {
   const { profile } = await requireAuth()
   const supabase = createClient()
 
+  const salesRoleRestricted = ['rep', 'sales_rep', 'closer'].includes(profile.role)
+
+  let oppIdsOwnedByMe: string[] = []
+  if (salesRoleRestricted) {
+    const { data: myOpps } = await supabase
+      .from('opportunities')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('owner_user_id', profile.id)
+    oppIdsOwnedByMe = (myOpps || []).map((o) => o.id).filter(Boolean)
+  }
+
   let projectsQuery = supabase
     .from('projects')
     .select('id, org_id, created_at, address_text, project_type, status, opportunity_id, owner_user_id, customers(name), leads(homeowner_name), production_jobs(status, updated_at)')
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
-  if (['rep', 'sales_rep', 'closer'].includes(profile.role)) {
-    projectsQuery = projectsQuery.eq('owner_user_id', profile.id)
+  if (salesRoleRestricted) {
+    if (oppIdsOwnedByMe.length > 0) {
+      projectsQuery = projectsQuery.or(
+        `owner_user_id.eq.${profile.id},opportunity_id.in.(${oppIdsOwnedByMe.join(',')})`
+      )
+    } else {
+      projectsQuery = projectsQuery.eq('owner_user_id', profile.id)
+    }
   }
 
-  const { data: projects } = await projectsQuery
+  const { data: projects, error: projectsError } = await projectsQuery
+  if (projectsError) {
+    console.error('[Projects] query failed:', projectsError.message, projectsError)
+  }
 
   const oppIds = Array.from(
     new Set((projects || []).map((p) => p.opportunity_id).filter(Boolean) as string[])
