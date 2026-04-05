@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { requireAuth } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -27,7 +27,7 @@ export default async function ProjectDetailPage({
 }) {
   const { profile } = await requireAuth()
   const showOpsJobLinks = canAccessJobBoard(profile.role)
-  const supabase = createClient()
+  const supabase = createServiceClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
   let projectQuery = supabase
@@ -226,7 +226,7 @@ export default async function ProjectDetailPage({
   const updateStatus = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
-    const supabase = createClient()
+    const supabase = createServiceClient()
 
     const newStatus = String(formData.get('status') ?? '')
     if (!newStatus) return
@@ -256,7 +256,7 @@ export default async function ProjectDetailPage({
   const updateAddress = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
-    const supabase = createClient()
+    const supabase = createServiceClient()
 
     if (!['admin', 'operations', 'regional_manager'].includes(profile.role)) {
       return

@@ -1,5 +1,5 @@
 import { requireAuth } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 
@@ -37,7 +37,7 @@ function statusBadgeClass(status: string) {
 
 export default async function ProjectsPage() {
   const { profile } = await requireAuth()
-  const supabase = createClient()
+  const supabase = createServiceClient()
 
   const salesRoleRestricted = ['rep', 'sales_rep', 'closer'].includes(profile.role)
 
