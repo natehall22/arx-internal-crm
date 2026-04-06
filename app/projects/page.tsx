@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
@@ -124,6 +126,9 @@ export default async function ProjectsPage() {
           <p className="mt-1 text-sm text-gray-500">
             Active jobs — closer is from the linked opportunity when available, otherwise project owner.
           </p>
+          {projectsError && (
+            <p className="mt-2 text-sm text-red-600 font-medium">Query error: {projectsError.message}</p>
+          )}
         </div>
 
         <div className="md:hidden space-y-2">
