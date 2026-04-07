@@ -32,9 +32,25 @@ export function buildOrderFormContractSaleDescription(contract: {
   return parts.length ? parts.join(' — ') : 'Order form contract signed'
 }
 
+/** Roles that receive the post-sale announcement (sales org + management; excludes operations). */
+const SALE_NOTIFICATION_ROLES = [
+  'admin',
+  'owner',
+  'regional_manager',
+  'regional_setter_manager',
+  'sales_manager',
+  'setter_manager',
+  'manager', // legacy management role
+  'rep',
+  'sales_rep',
+  'closer',
+  'setter',
+  'canvasser',
+] as const
+
 /**
- * Email all active sales org members and admins when a sale is recorded (contract signed is the primary trigger).
- * No-op when SMTP is not configured.
+ * Email active users in the sales org (reps, setters, canvassers, closers), management, and admin/owner
+ * when a sale is recorded. Does not send to operations. No-op when SMTP is not configured.
  */
 export async function notifyOrgAdminsOfSale(
   supabase: SupabaseClient,
@@ -46,6 +62,8 @@ export async function notifyOrgAdminsOfSale(
     totalAmount: number | null
     setterName?: string | null
     closerName?: string | null
+    /** Preferred deep link (e.g. /projects/{id}); falls back to recordUrl */
+    projectUrl?: string | null
     recordUrl?: string
   }
 ): Promise<void> {
@@ -55,17 +73,7 @@ export async function notifyOrgAdminsOfSale(
     .from('users')
     .select('email')
     .eq('org_id', params.orgId)
-    .in('role', [
-      'admin',
-      'owner',
-      'regional_manager',
-      'sales_manager',
-      'setter_manager',
-      'regional_setter_manager',
-      'rep',
-      'sales_rep',
-      'closer',
-    ])
+    .in('role', [...SALE_NOTIFICATION_ROLES])
     .eq('active', true)
 
   if (error) {
@@ -90,27 +98,28 @@ export async function notifyOrgAdminsOfSale(
       : '—'
 
   const transporter = getMailTransport()
-  const subject = `New sale: ${params.customerName} — ${totalStr}`
+  const subject = `🚀 SALE! 🚀 ${params.customerName}`
 
   const setterRow = params.setterName
-    ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Set by</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.setterName)}</td></tr>`
+    ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Setter</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.setterName)}</td></tr>`
     : ''
-  const closerRow = params.closerName
-    ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Sold by</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.closerName)}</td></tr>`
+  const salesRepRow = params.closerName
+    ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Sales rep</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.closerName)}</td></tr>`
     : ''
+
+  const linkLabel = params.projectUrl ? 'Open project' : 'Open in ARX CRM'
+  const linkHref = params.projectUrl ?? params.recordUrl
 
   const html = `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #111827;">New sale recorded</h2>
-        <p style="color: #374151;">A sale was recorded in ARX CRM.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
           <tr><td style="padding: 8px 0; color: #6B7280; width: 180px;">Customer</td><td style="padding: 8px 0; color: #111827; font-weight: 600;">${escapeHtml(params.customerName)}</td></tr>
-          <tr><td style="padding: 8px 0; color: #6B7280;">Total</td><td style="padding: 8px 0; color: #111827; font-weight: 600; font-size: 16px;">${escapeHtml(totalStr)}</td></tr>
+          ${salesRepRow}
           ${setterRow}
-          ${closerRow}
-          <tr><td style="padding: 8px 0; color: #6B7280;">What was sold</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.soldDescription)}</td></tr>
+          <tr><td style="padding: 8px 0; color: #6B7280; vertical-align: top;">What was sold</td><td style="padding: 8px 0; color: #111827;">${escapeHtml(params.soldDescription)}</td></tr>
+          <tr><td style="padding: 8px 0; color: #6B7280;">Dollar amount</td><td style="padding: 8px 0; color: #111827; font-weight: 600; font-size: 16px;">${escapeHtml(totalStr)}</td></tr>
         </table>
-        ${params.recordUrl ? `<p style="margin-top: 16px;"><a href="${escapeHtml(params.recordUrl)}" style="color: #4f46e5;">Open in ARX CRM</a></p>` : ''}
+        ${linkHref ? `<p style="margin-top: 16px;"><a href="${escapeHtml(linkHref)}" style="color: #4f46e5;">${escapeHtml(linkLabel)}</a></p>` : ''}
         <p style="color: #6B7280; font-size: 12px; margin-top: 16px;">This is an automated message to the sales org.</p>
       </div>
     `

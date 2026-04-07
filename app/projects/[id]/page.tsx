@@ -30,15 +30,32 @@ export default async function ProjectDetailPage({
   const supabase = createServiceClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
+  const salesRoleRestricted = ['rep', 'sales_rep', 'closer'].includes(profile.role)
+  let oppIdsOwnedByMe: string[] = []
+  if (salesRoleRestricted) {
+    const { data: myOpps } = await supabase
+      .from('opportunities')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('owner_user_id', profile.id)
+    oppIdsOwnedByMe = (myOpps || []).map((o) => o.id).filter(Boolean)
+  }
+
   let projectQuery = supabase
     .from('projects')
     .select('*, customers(*), leads(*)')
     .eq('id', params.id)
     .eq('org_id', profile.org_id)
 
-  // Closers/sales reps only see projects they own
-  if (['rep', 'sales_rep', 'closer'].includes(profile.role)) {
-    projectQuery = projectQuery.eq('owner_user_id', profile.id)
+  // Match /projects list: reps/closers see rows they own or where they own the linked opportunity
+  if (salesRoleRestricted) {
+    if (oppIdsOwnedByMe.length > 0) {
+      projectQuery = projectQuery.or(
+        `owner_user_id.eq.${profile.id},opportunity_id.in.(${oppIdsOwnedByMe.join(',')})`
+      )
+    } else {
+      projectQuery = projectQuery.eq('owner_user_id', profile.id)
+    }
   }
 
   const { data: project } = await projectQuery.single()

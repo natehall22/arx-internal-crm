@@ -151,18 +151,32 @@ export async function POST(request: NextRequest) {
         ? `${appUrl}/opportunities/${contract.opportunity_id}`
         : undefined
 
-      // Fetch setter and closer names from the linked opportunity
+      let projectUrl: string | undefined
+      if (contract.opportunity_id) {
+        const { data: projectRow } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('org_id', contract.org_id)
+          .eq('opportunity_id', contract.opportunity_id)
+          .maybeSingle()
+        if (projectRow?.id) {
+          projectUrl = `${appUrl}/projects/${projectRow.id}`
+        }
+      }
+
+      // Fetch setter and sales rep names from the linked opportunity
       let setterName: string | null = null
       let closerName: string | null = null
       if (contract.opportunity_id) {
         const { data: opp } = await supabase
           .from('opportunities')
-          .select('setter_user_id, leads(owner_user_id, closer_user_id)')
+          .select('setter_user_id, owner_user_id, leads(owner_user_id, closer_user_id)')
           .eq('id', contract.opportunity_id)
           .maybeSingle()
 
         const leadData = pickEmbeddedLead(opp?.leads)
-        const closerUserId = leadData?.closer_user_id ?? null
+        // Sales rep: lead closer, else opportunity owner (closer-of-record)
+        const closerUserId = leadData?.closer_user_id ?? opp?.owner_user_id ?? null
         // Fall back to lead.owner_user_id for older records where setter_user_id was not populated
         const resolvedSetterUserId = opp?.setter_user_id ?? leadData?.owner_user_id ?? null
 
@@ -185,6 +199,7 @@ export async function POST(request: NextRequest) {
         totalAmount,
         setterName,
         closerName,
+        projectUrl,
         recordUrl,
       })
     } catch (adminSaleErr) {
