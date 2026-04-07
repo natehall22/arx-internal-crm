@@ -1034,29 +1034,43 @@ export default function CompPlansPage() {
                   </div>
                 )}
 
-                {/* Manager Plan Toggle */}
-                <div className="border-t pt-4">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={planForm.is_manager_plan}
-                      onChange={(e) => {
-                        const isManager = e.target.checked
-                        setPlanForm(prev => ({ 
-                          ...prev, 
-                          is_manager_plan: isManager,
-                          applicable_roles: isManager 
-                            ? ['sales_manager', 'regional_manager', 'manager'] 
-                            : ['sales_rep']
-                        }))
-                      }}
-                      className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                    />
-                    <div>
-                      <span className="text-sm font-medium text-gray-900">Manager Compensation Plan</span>
-                      <p className="text-xs text-gray-500">Enable personal sales commissions and team overrides</p>
-                    </div>
-                  </label>
+                {/* Applies To Roles */}
+                <div className="border-t pt-4 space-y-2">
+                  <p className="text-sm font-medium text-gray-900">Applies to</p>
+                  <div className="flex flex-wrap gap-4">
+                    {[
+                      { role: 'sales_rep', label: 'Sales Rep' },
+                      { role: 'canvasser', label: 'Canvasser' },
+                      { role: 'sales_manager', label: 'Sales Manager' },
+                      { role: 'setter_manager', label: 'Setter Manager' },
+                      { role: 'regional_manager', label: 'Regional Manager' },
+                    ].map(({ role, label }) => (
+                      <label key={role} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={planForm.applicable_roles.includes(role)}
+                          onChange={(e) => {
+                            const checked = e.target.checked
+                            const managerRoles = ['sales_manager', 'setter_manager', 'regional_manager']
+                            setPlanForm(prev => {
+                              const next = checked
+                                ? [...prev.applicable_roles, role]
+                                : prev.applicable_roles.filter(r => r !== role)
+                              const isManager = next.some(r => managerRoles.includes(r))
+                              return { ...prev, applicable_roles: next, is_manager_plan: isManager }
+                            })
+                          }}
+                          className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-700">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Manager Plan Toggle (auto-set by role selection, kept for manager-specific options) */}
+                <div className="hidden">
+                  <input type="checkbox" checked={planForm.is_manager_plan} readOnly />
                 </div>
 
                 {/* Manager-specific options */}
