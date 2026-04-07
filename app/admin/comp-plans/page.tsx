@@ -114,7 +114,7 @@ export default function CompPlansPage() {
     personal_sales_enabled: true,
     team_override_enabled: false,
     team_overrides: [] as OverrideTier[],
-    applicable_roles: ['sales_rep', 'canvasser'],
+    applicable_roles: ['sales_rep'],
     is_active: true,
     is_default: false,
     readme: '',
@@ -307,7 +307,7 @@ export default function CompPlansPage() {
       personal_sales_enabled: true,
       team_override_enabled: false,
       team_overrides: [],
-      applicable_roles: ['sales_rep', 'canvasser'],
+      applicable_roles: ['sales_rep'],
       is_active: true,
       is_default: false,
       readme: '',
@@ -334,7 +334,7 @@ export default function CompPlansPage() {
       personal_sales_enabled: plan.personal_sales_enabled ?? true,
       team_override_enabled: plan.team_override_enabled || false,
       team_overrides: plan.team_overrides || [],
-      applicable_roles: plan.applicable_roles || ['sales_rep', 'canvasser'],
+      applicable_roles: plan.applicable_roles || ['sales_rep'],
       is_active: plan.is_active,
       is_default: plan.is_default,
       readme: (plan as any).readme || '',
@@ -1047,7 +1047,7 @@ export default function CompPlansPage() {
                           is_manager_plan: isManager,
                           applicable_roles: isManager 
                             ? ['sales_manager', 'regional_manager', 'manager'] 
-                            : ['sales_rep', 'canvasser']
+                            : ['sales_rep']
                         }))
                       }}
                       className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
