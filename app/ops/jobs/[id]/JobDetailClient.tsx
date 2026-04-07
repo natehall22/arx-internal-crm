@@ -10,7 +10,6 @@ import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import AINextActionBanner from '@/components/jobs/AINextActionBanner'
-import AIProfitRiskCard from '@/components/jobs/AIProfitRiskCard'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
@@ -734,7 +733,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
   const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
-  const canViewFinancials = userRole === 'admin' || userRole === 'owner' || userRole === 'operations'
+  const canViewFinancials = userRole === 'admin' || userRole === 'owner'
   const payrollSnapshot = useMemo(() => buildCommissionPayrollSnapshot(job), [job])
   const saleAmount = job.sale_amount || 0
   const laborCost = job.labor_cost || 0
@@ -1324,93 +1323,47 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
             <div className={mobileTab !== 'costs' ? 'hidden lg:block' : undefined}>
             {canViewFinancials && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Financials</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
+                <p className="text-xs text-gray-500 mb-4">Sale minus est. comp, labor, and materials — admin &amp; owner only.</p>
                 <div className="space-y-3 text-sm sm:text-base">
-                  <div className="flex justify-between">
-                    <span className="text-gray-900">Sale Amount</span>
-                    <span className="font-medium text-gray-900">
-                      {job.sale_amount !== null ? formatCents(saleAmountCents) : '-'}
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-700">Sale</span>
+                    <span className="font-medium text-gray-900 tabular-nums">
+                      {job.sale_amount !== null ? formatCents(saleAmountCents) : '—'}
                     </span>
                   </div>
-                  {payrollSnapshot.source !== 'unavailable' && (
-                    <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 space-y-1.5 text-xs sm:text-sm">
-                      <p className="font-medium text-slate-800">Payroll — commission pool (policy)</p>
-                      {payrollSnapshot.preTaxSubtotal != null && (
-                        <div className="flex justify-between gap-2 text-slate-700">
-                          <span>Pre-tax subtotal</span>
-                          <span className="font-medium">{formatCents(Math.round(payrollSnapshot.preTaxSubtotal * 100))}</span>
-                        </div>
-                      )}
-                      {payrollSnapshot.dealerFeeAmount > 0 && (
-                        <div className="flex justify-between gap-2 text-slate-700">
-                          <span>Dealer fee (lender)</span>
-                          <span className="font-medium">−{formatCents(Math.round(payrollSnapshot.dealerFeeAmount * 100))}</span>
-                        </div>
-                      )}
-                      {payrollSnapshot.compBase != null && (
-                        <div className="flex justify-between gap-2 text-slate-800 pt-0.5 border-t border-slate-200">
-                          <span>Comp base (pre-tax − dealer fee)</span>
-                          <span className="font-medium">{formatCents(Math.round(payrollSnapshot.compBase * 100))}</span>
-                        </div>
-                      )}
-                      {payrollSnapshot.poolCap != null && (
-                        <div className="flex justify-between gap-2 text-slate-900 font-medium">
-                          <span>Max rep comp + incentives ({Math.round(payrollSnapshot.poolRate * 100)}%)</span>
-                          <span>{formatCents(Math.round(payrollSnapshot.poolCap * 100))}</span>
-                        </div>
-                      )}
-                      {payrollSnapshot.fallbackNote && (
-                        <p className="text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1.5 mt-1">{payrollSnapshot.fallbackNote}</p>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-gray-900">
-                      {payrollSnapshot.poolCap != null
-                        ? 'Sales comp (pool cap in profit est.)'
-                        : `Sales commission (${Math.round(SALES_COMMISSION_POOL_RATE * 100)}% of sale est.)`}
-                    </span>
-                    <span className="font-medium text-gray-900">
-                      {job.sale_amount !== null ? formatCents(commissionCents) : '-'}
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-700">Est. sales comp</span>
+                    <span className="font-medium text-gray-900 tabular-nums">
+                      {job.sale_amount !== null ? formatCents(commissionCents) : '—'}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-900">Labor Cost</span>
-                    <span className="font-medium text-gray-900">
-                      {job.labor_cost !== null ? formatCents(laborCostCents) : '-'}
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-700">Labor</span>
+                    <span className="font-medium text-gray-900 tabular-nums">
+                      {job.labor_cost !== null ? formatCents(laborCostCents) : '—'}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-900">Material Cost</span>
-                    <span className="font-medium text-gray-900">
-                      {effectiveMaterialCost !== null ? formatCents(materialCostCents) : '-'}
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-700">Materials</span>
+                    <span className="font-medium text-gray-900 tabular-nums">
+                      {effectiveMaterialCost !== null ? formatCents(materialCostCents) : '—'}
                     </span>
                   </div>
-                  <div className="border-t pt-3 flex justify-between">
-                    <span className="text-gray-900">Profit</span>
-                    <span className={`font-bold ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
-                      {job.sale_amount !== null ? formatCents(profitCents) : '-'}
+                  <div className="border-t border-gray-200 pt-3 flex justify-between gap-4">
+                    <span className="text-gray-900 font-medium">Est. profit</span>
+                    <span className={`font-semibold tabular-nums ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
+                      {job.sale_amount !== null ? formatCents(profitCents) : '—'}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-900">Profit %</span>
-                    <span className="font-bold text-gray-900">
-                      {job.sale_amount !== null ? `${profitPercent}%` : '-'}
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-700">Margin</span>
+                    <span className="font-semibold text-gray-900 tabular-nums">
+                      {job.sale_amount !== null ? `${profitPercent}%` : '—'}
                     </span>
                   </div>
                 </div>
               </div>
-            )}
-            {canViewFinancials && (
-              <AIProfitRiskCard
-                job={{
-                  sale_amount: job.sale_amount ?? 0,
-                  labor_cost: job.labor_cost,
-                  material_cost: effectiveMaterialCost,
-                  job_type: job.job_type,
-                  scope_of_work: job.project?.scope_of_work || '',
-                }}
-              />
             )}
 
             <div id="payments-section" className="scroll-mt-20">

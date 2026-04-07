@@ -8,6 +8,7 @@ import CommissionWidget from '@/components/CommissionWidget'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -55,10 +56,6 @@ interface TeamMemberStat {
   sales: number
   closeRate: string
   efficiency: string
-}
-
-function isSetterLikeRole(role?: string | null) {
-  return role === 'canvasser' || role === 'setter'
 }
 
 type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all'
@@ -1372,9 +1369,19 @@ export default function DashboardClient({
             )}
 
             {/* Commission Widget - for sales reps and setters */}
-            {['sales_rep', 'canvasser', 'rep', 'admin', 'manager', 'setter', 'operations', 'sales_manager', 'regional_manager'].includes(
-              profile?.role || ''
-            ) && <CommissionWidget />}
+            {[
+              'sales_rep',
+              'canvasser',
+              'rep',
+              'admin',
+              'manager',
+              'setter',
+              'setter_manager',
+              'regional_setter_manager',
+              'operations',
+              'sales_manager',
+              'regional_manager',
+            ].includes(profile?.role || '') && <CommissionWidget />}
 
             {/* Recent Activity */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">

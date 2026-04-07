@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 interface Commission {
   id: string
@@ -631,7 +632,7 @@ export default function CommissionWidget() {
                       {compPlanDetails.plan_type === 'hourly' ? 'Hourly Employee Tips' :
                        compPlanDetails.plan_type === 'unit_based' ? 'Per-Unit Pay Tips' :
                        compPlanDetails.plan_type === 'hybrid' ? 'Hybrid Plan Tips' :
-                       userRole === 'canvasser' || userRole === 'setter' ? 'Setter Tips' : 
+                       isSetterLikeRole(userRole) ? 'Setter Tips' : 
                        userRole === 'manager' || userRole === 'sales_manager' ? 'Manager Tips' : 'Closer Tips'}
                     </h4>
                     <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
@@ -653,7 +654,7 @@ export default function CommissionWidget() {
                           <li>Track both hours and production for accurate pay</li>
                           <li>Each component is calculated and paid separately</li>
                         </>
-                      ) : (userRole === 'canvasser' || userRole === 'setter') ? (
+                      ) : isSetterLikeRole(userRole) ? (
                         <>
                           <li>Your commission is based on jobs that close from your sets</li>
                           <li>Higher monthly volume unlocks better commission tiers</li>
@@ -698,7 +699,7 @@ export default function CommissionWidget() {
                 </button>
               </div>
               <p className="text-gray-500 text-sm mt-1">
-                {userRole === 'canvasser' || userRole === 'setter' ? 'Setter' : 
+                {isSetterLikeRole(userRole) ? 'Setter' : 
                  userRole === 'manager' || userRole === 'sales_manager' ? 'Manager' : 'Closer'} Commission Calculator
               </p>
             </div>
@@ -755,7 +756,7 @@ export default function CommissionWidget() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Monthly Jobs Closed {(userRole === 'canvasser' || userRole === 'setter') && '(from personal sets)'}
+                    Monthly Jobs Closed {isSetterLikeRole(userRole) && '(from personal sets)'}
                   </label>
                   <input
                     type="number"

@@ -7,14 +7,11 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export const dynamic = 'force-dynamic'
 
 const TIMEZONE = 'America/New_York'
-
-function isSetterLikeRole(role?: string | null) {
-  return role === 'canvasser' || role === 'setter'
-}
 
 export async function GET(request: NextRequest) {
   try {

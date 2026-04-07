@@ -7,6 +7,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { distinctDealCountsForMemberScope } from '@/lib/dashboard-distinct-deals'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,10 +72,6 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
-}
-
-function isSetterLikeRole(role?: string | null) {
-  return role === 'canvasser' || role === 'setter'
 }
 
 export async function GET(request: NextRequest) {

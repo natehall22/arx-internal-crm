@@ -294,6 +294,8 @@ export async function PATCH(
           }
           
           // Mark opportunity as won and ensure approval is counted as a sale event.
+          // Dashboard/reports key off inspection_outcome + timestamps — not proposals.rep_signed_at / customer_signed_at.
+          // Binding signature and primary sale attribution for order-flow deals remain on contract signing (order_form_contracts).
           await adminClient
             .from('opportunities')
             .update({

@@ -14,6 +14,7 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -85,8 +86,6 @@ export default async function DashboardPage() {
     widgets: ['stats', 'progress', 'appointments', 'activity'],
     goals: { doors_knocked: 100, inspections: 20, sales: 5 },
   }
-  const isSetterLikeRole = (role?: string | null) => role === 'canvasser' || role === 'setter'
-
   let teamMemberIds: string[] = [profile.id]
   if (isSalesManager && profile.team_id) {
     const { data: teamMembers } = await supabase
