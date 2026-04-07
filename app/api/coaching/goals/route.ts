@@ -38,7 +38,9 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    const plan = userCompPlan?.comp_plans as any
+    const plan = Array.isArray(userCompPlan?.comp_plans)
+      ? (userCompPlan!.comp_plans as any[])[0]
+      : userCompPlan?.comp_plans as any
     let commissionRate: number | null = null
     if (plan?.plan_type === 'percentage' || plan?.base_percentage) {
       commissionRate = userCompPlan?.override_percentage ?? plan?.base_percentage ?? null
