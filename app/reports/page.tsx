@@ -39,7 +39,7 @@ export default function ReportsPage() {
   const [users, setUsers] = useState<UserMetrics[]>([])
   const [closeRateHistory, setCloseRateHistory] = useState<{ date: string; rate: number; inspections: number; sales: number }[]>([])
   const [customReports, setCustomReports] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'overview' | 'custom'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'custom' | 'forecast'>('overview')
 
   useEffect(() => {
     loadCurrentUser()
@@ -479,9 +479,30 @@ export default function ReportsPage() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('forecast')}
+            className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
+              activeTab === 'forecast'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Forecast
+          </button>
+          <Link
+            href="/reports/coaching"
+            className="px-4 py-3 font-medium text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+            Team Coaching
+          </Link>
         </div>
 
-        {activeTab === 'custom' ? (
+        {activeTab === 'forecast' ? (
+          <ForecastTab currentUser={currentUser} />
+        ) : activeTab === 'custom' ? (
           /* Custom Reports Tab */
           <div>
             {customReports.length === 0 ? (
@@ -1163,3 +1184,226 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
     </>
   )
 }
+
+// ─── Forecast Tab ─────────────────────────────────────────────────────────────
+type ForecastPeriod = 'month' | 'quarter' | 'year'
+
+type ForecastData = {
+  period: string
+  periodLabel: string
+  periodGoal: number | null
+  totalForecast: number
+  totalLocked: number
+  retailTotal: number
+  insuranceTotal: number
+  retailPipeline: { stage: string; count: number; expectedRevenue: number; probability: number; locked?: boolean }[]
+  insurancePipeline: { stage: string; stageKey: string; count: number; expectedRevenue: number; lockedRevenue: number; probability: number }[]
+  avgDealValue: number
+  avgDealBasis: string
+}
+
+function ForecastTab({ currentUser }: { currentUser: any }) {
+  const [period, setPeriod] = useState<ForecastPeriod>('quarter')
+  const [data, setData] = useState<ForecastData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [editingGoal, setEditingGoal] = useState(false)
+  const [goalInput, setGoalInput] = useState('')
+  const [savingGoal, setSavingGoal] = useState(false)
+
+  const isAdmin = ['admin', 'sales_manager', 'regional_manager'].includes(currentUser?.role || '')
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/api/reports/forecast?period=${period}`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [period])
+
+  async function saveGoal() {
+    if (!goalInput) return
+    setSavingGoal(true)
+    try {
+      const res = await fetch('/api/reports/forecast', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period, goal: Number(goalInput) }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        console.error('Forecast goal save failed:', payload?.error || res.status)
+        return
+      }
+      setEditingGoal(false)
+      setData(d => d ? { ...d, periodGoal: Number(goalInput) } : d)
+    } finally {
+      setSavingGoal(false)
+    }
+  }
+
+  const goal = data?.periodGoal || null
+  const forecast = data?.totalForecast || 0
+  const pct = goal && goal > 0 ? Math.min(Math.round((forecast / goal) * 100), 100) : null
+  const gap = goal ? goal - forecast : null
+
+  return (
+    <div>
+      {/* Period + Goal header */}
+      <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6 mb-4">
+        <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {loading ? '…' : data?.periodLabel} Forecast
+              </h2>
+              <select
+                value={period}
+                onChange={e => setPeriod(e.target.value as ForecastPeriod)}
+                className="px-2 py-1 border border-gray-300 rounded-lg text-sm bg-white"
+              >
+                <option value="month">This month</option>
+                <option value="quarter">This quarter</option>
+                <option value="year">This year</option>
+              </select>
+            </div>
+            {data?.avgDealBasis && (
+              <p className="text-xs text-gray-400">
+                Avg deal: ${data.avgDealValue.toLocaleString()} · {data.avgDealBasis}
+              </p>
+            )}
+          </div>
+
+          {/* Goal */}
+          <div className="flex items-center gap-2">
+            {editingGoal ? (
+              <>
+                <span className="text-sm text-gray-500">Goal $</span>
+                <input
+                  type="number"
+                  value={goalInput}
+                  onChange={e => setGoalInput(e.target.value)}
+                  className="w-32 px-2 py-1 border border-gray-300 rounded-lg text-sm"
+                  placeholder="e.g. 400000"
+                  autoFocus
+                />
+                <button onClick={saveGoal} disabled={savingGoal} className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm font-medium">
+                  {savingGoal ? '…' : 'Save'}
+                </button>
+                <button onClick={() => setEditingGoal(false)} className="px-2 py-1 text-sm text-gray-500">Cancel</button>
+              </>
+            ) : (
+              <>
+                <span className="text-sm text-gray-600">
+                  Goal: {goal ? `$${goal.toLocaleString()}` : <span className="text-gray-400">Not set</span>}
+                </span>
+                {isAdmin && (
+                  <button
+                    onClick={() => { setGoalInput(goal ? String(goal) : ''); setEditingGoal(true) }}
+                    className="text-xs text-indigo-600 hover:text-indigo-800"
+                  >
+                    {goal ? 'Edit' : '+ Set goal'}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Big number + progress */}
+        {loading ? (
+          <div className="h-20 animate-pulse bg-gray-100 rounded-lg" />
+        ) : (
+          <>
+            <div className="flex flex-wrap items-end gap-6 mb-4">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Total forecast</p>
+                <p className="text-3xl font-bold text-gray-900">${forecast.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Locked (confirmed)</p>
+                <p className="text-xl font-semibold text-green-600">${(data?.totalLocked || 0).toLocaleString()}</p>
+              </div>
+              {gap !== null && gap > 0 && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Gap to goal</p>
+                  <p className="text-xl font-semibold text-red-500">${gap.toLocaleString()}</p>
+                </div>
+              )}
+            </div>
+
+            {pct !== null && (
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>{pct}% of goal</span>
+                  <span>${forecast.toLocaleString()} of ${goal!.toLocaleString()}</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-3">
+                  <div
+                    className={`h-3 rounded-full transition-all ${pct >= 90 ? 'bg-green-500' : pct >= 60 ? 'bg-indigo-500' : 'bg-amber-400'}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Two-column pipeline breakdown */}
+      {!loading && data && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Retail */}
+          <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900 text-sm">Retail Pipeline</h3>
+              <span className="text-sm font-bold text-indigo-600">${data.retailTotal.toLocaleString()}</span>
+            </div>
+            <div className="space-y-2">
+              {data.retailPipeline.map((row) => (
+                <div key={row.stage} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {row.locked && <span className="text-green-500 text-xs font-bold">✓</span>}
+                    <span className="text-sm text-gray-700 truncate">{row.stage}</span>
+                    <span className="text-xs text-gray-400 shrink-0">({row.count})</span>
+                  </div>
+                  <div className="text-right shrink-0 ml-3">
+                    <p className="text-sm font-semibold text-gray-900">${Math.round(row.expectedRevenue).toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">{row.probability}%</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Insurance */}
+          <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900 text-sm">Insurance Pipeline</h3>
+              <span className="text-sm font-bold text-amber-600">${data.insuranceTotal.toLocaleString()}</span>
+            </div>
+            {data.insurancePipeline.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">No active insurance jobs.<br />Mark jobs as Insurance on the Ops board.</p>
+            ) : (
+              <div className="space-y-2">
+                {data.insurancePipeline.map((row) => (
+                  <div key={row.stageKey} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {row.lockedRevenue > 0 && <span className="text-green-500 text-xs font-bold">✓</span>}
+                      <span className="text-sm text-gray-700 truncate">{row.stage}</span>
+                      <span className="text-xs text-gray-400 shrink-0">({row.count})</span>
+                    </div>
+                    <div className="text-right shrink-0 ml-3">
+                      <p className="text-sm font-semibold text-gray-900">${Math.round(row.expectedRevenue).toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">{row.probability}%</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+// ─────────────────────────────────────────────────────────────────────────────

@@ -53,6 +53,14 @@ interface Job {
   internal_notes: string | null
   labor_cost: number | null
   material_cost: number | null
+  // Insurance
+  job_source?: 'retail' | 'insurance'
+  insurance_stage?: string | null
+  acv_amount?: number | null
+  depreciation_amount?: number | null
+  supplement_amount?: number | null
+  claim_number?: string | null
+  insurance_company?: string | null
   final_front: boolean
   final_back: boolean
   final_left: boolean
@@ -285,6 +293,149 @@ interface OrgUser {
   id: string
   full_name: string
 }
+
+// ─── Insurance Card ────────────────────────────────────────────────────────────
+const INSURANCE_STAGES: { value: string; label: string; probability: number }[] = [
+  { value: 'contingency_signed',    label: 'Contingency signed',       probability: 35 },
+  { value: 'claim_filed',           label: 'Claim filed',              probability: 50 },
+  { value: 'claim_approved',        label: 'Claim approved',           probability: 88 },
+  { value: 'acv_received',          label: 'ACV received',             probability: 95 },
+  { value: 'job_complete',          label: 'Job complete',             probability: 95 },
+  { value: 'depreciation_filed',    label: 'Depreciation filed',       probability: 82 },
+  { value: 'depreciation_received', label: 'Depreciation received',    probability: 100 },
+  { value: 'supplements_filed',     label: 'Supplements filed',        probability: 55 },
+  { value: 'fully_collected',       label: 'Fully collected',          probability: 100 },
+]
+
+function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial<Job>) => void }) {
+  const isInsurance = job.job_source === 'insurance'
+  const [open, setOpen] = useState(isInsurance)
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base sm:text-lg font-semibold text-gray-900">Job Source</h2>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { onUpdate({ job_source: 'retail', insurance_stage: null }); setOpen(false) }}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              !isInsurance
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Retail
+          </button>
+          <button
+            onClick={() => { onUpdate({ job_source: 'insurance' }); setOpen(true) }}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              isInsurance
+                ? 'bg-amber-500 text-white border-amber-500'
+                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Insurance
+          </button>
+        </div>
+      </div>
+
+      {isInsurance && (
+        <div className="space-y-4">
+          {/* Stage */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Claim stage</label>
+            <select
+              value={job.insurance_stage || ''}
+              onChange={e => onUpdate({ insurance_stage: e.target.value || null })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              <option value="">Select stage…</option>
+              {INSURANCE_STAGES.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            {job.insurance_stage && (
+              <p className="text-xs text-gray-400 mt-1">
+                Forecast probability: {INSURANCE_STAGES.find(s => s.value === job.insurance_stage)?.probability ?? 0}%
+              </p>
+            )}
+          </div>
+
+          {/* Claim info */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Claim number</label>
+              <input
+                type="text"
+                defaultValue={job.claim_number || ''}
+                onBlur={e => e.target.value !== (job.claim_number || '') && onUpdate({ claim_number: e.target.value || null })}
+                placeholder="e.g. CLM-2026-001"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Insurance company</label>
+              <input
+                type="text"
+                defaultValue={job.insurance_company || ''}
+                onBlur={e => e.target.value !== (job.insurance_company || '') && onUpdate({ insurance_company: e.target.value || null })}
+                placeholder="e.g. State Farm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Payment amounts */}
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Payment amounts</p>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">ACV ($)</label>
+                <input
+                  type="number"
+                  defaultValue={job.acv_amount ?? ''}
+                  onBlur={e => onUpdate({ acv_amount: e.target.value ? Number(e.target.value) : null })}
+                  placeholder="0"
+                  className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Depreciation ($)</label>
+                <input
+                  type="number"
+                  defaultValue={job.depreciation_amount ?? ''}
+                  onBlur={e => onUpdate({ depreciation_amount: e.target.value ? Number(e.target.value) : null })}
+                  placeholder="0"
+                  className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Supplements ($)</label>
+                <input
+                  type="number"
+                  defaultValue={job.supplement_amount ?? ''}
+                  onBlur={e => onUpdate({ supplement_amount: e.target.value ? Number(e.target.value) : null })}
+                  placeholder="0"
+                  className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+            </div>
+            {(job.acv_amount || job.depreciation_amount || job.supplement_amount) && (
+              <p className="text-xs text-gray-500 mt-2">
+                Total expected: ${(
+                  (job.acv_amount || 0) +
+                  (job.depreciation_amount || 0) +
+                  (job.supplement_amount || 0)
+                ).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+// ──────────────────────────────────────────────────────────────────────────────
 
 export default function JobDetailClient({ initialJob, crews, subs, userRole, canViewJobBilling }: JobDetailClientProps) {
   const router = useRouter()
@@ -1286,6 +1437,15 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 </div>
               )}
             </div>
+
+            <InsuranceCard job={job} onUpdate={(fields) => {
+              setJob(j => ({ ...j, ...fields }))
+              fetch(`/api/ops/jobs/${job.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fields),
+              })
+            }} />
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Customer</h2>

@@ -31,6 +31,19 @@ export type ProjectStatus = 'open' | 'in_progress' | 'on_hold' | 'complete' | 'c
 
 export type ProjectType = 'roofing' | 'siding' | 'windows' | 'mixed'
 
+export type JobSource = 'retail' | 'insurance'
+
+export type InsuranceStage =
+  | 'contingency_signed'
+  | 'claim_filed'
+  | 'claim_approved'
+  | 'acv_received'
+  | 'job_complete'
+  | 'depreciation_filed'
+  | 'depreciation_received'
+  | 'supplements_filed'
+  | 'fully_collected'
+
 export type OpportunityStatus = 'open' | 'in_progress' | 'won' | 'lost'
 
 export type ActivityType = 'note' | 'call' | 'text' | 'email' | 'visit' | 'status_change'
@@ -944,6 +957,14 @@ export interface ProductionJob {
   // Financials
   labor_cost: number | null
   material_cost: number | null
+  // Insurance
+  job_source: JobSource
+  insurance_stage: InsuranceStage | null
+  acv_amount: number | null
+  depreciation_amount: number | null
+  supplement_amount: number | null
+  claim_number: string | null
+  insurance_company: string | null
   // Meta
   priority: 'normal' | 'high' | 'urgent'
   internal_notes: string | null

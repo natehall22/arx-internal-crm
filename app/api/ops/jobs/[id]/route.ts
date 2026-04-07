@@ -74,6 +74,10 @@ export async function PATCH(
       'labor_cost', 'internal_notes',
       'deposit_required_percent', 'finance_submitted_at',
       'allow_close_with_balance', 'close_balance_reason',
+      // Insurance / job source (migration 099)
+      'job_source', 'insurance_stage',
+      'acv_amount', 'depreciation_amount', 'supplement_amount',
+      'claim_number', 'insurance_company',
     ])
     const updateData: Record<string, unknown> = {}
     for (const key of Object.keys(body)) {

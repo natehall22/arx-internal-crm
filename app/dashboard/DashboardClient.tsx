@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
@@ -91,6 +91,156 @@ interface DashboardClientProps {
   closerTeamStats?: TeamMemberStat[]
   canViewTeamLeaderboard?: boolean
 }
+
+// ─── My Goals Widget ──────────────────────────────────────────────────────────
+function MyGoalsWidget({ currentUserId }: { currentUserId?: string }) {
+  const [open, setOpen] = useState(false)
+  const [goals, setGoals] = useState<any>(null)
+  const [commissionRate, setCommissionRate] = useState<number | null>(null)
+  const [liveCloseStick, setLiveCloseStick] = useState<{ close: number; stick: number } | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!currentUserId) return
+    const res = await fetch(`/api/coaching/goals?userId=${currentUserId}`)
+    const data = await res.json()
+    const g = data.goals || null
+    setGoals(g)
+    setCommissionRate(data.commissionRate ?? null)
+
+    if (g && (g.close_rate_override == null || g.stick_rate_override == null)) {
+      const tr = await fetch(`/api/coaching/trend?lookback=3mo&userId=${currentUserId}`)
+      if (tr.ok) {
+        const td = await tr.json()
+        const m = td.members?.[0]
+        const ts = m?.totals?.sets ?? 0
+        const ti = m?.totals?.sits ?? 0
+        const tsa = m?.totals?.sales ?? 0
+        const stick = ts > 0 ? Math.round((ti / ts) * 100) : 0
+        const close = ti > 0 ? Math.round((tsa / ti) * 100) : 0
+        setLiveCloseStick({ close, stick })
+      } else {
+        setLiveCloseStick(null)
+      }
+    } else {
+      setLiveCloseStick(null)
+    }
+
+    setLoaded(true)
+  }, [currentUserId])
+
+  useEffect(() => { if (open && !loaded) load() }, [open, loaded, load])
+
+  if (!currentUserId) return null
+
+  const g = goals
+  const annualGoal = g?.annual_income_goal
+  const avgDeal = g?.avg_deal_value
+  const closeRate = g?.close_rate_override ?? liveCloseStick?.close
+  const stickRate = g?.stick_rate_override ?? liveCloseStick?.stick
+  const daysPerWeek = g?.working_days_per_week ?? 5
+  const weeksPerYear = g?.working_weeks_per_year ?? 50
+
+  let targets: { setsPerDay: number; sitsPerWeek: number; salesPerMonth: number } | null = null
+  if (
+    annualGoal &&
+    avgDeal &&
+    commissionRate != null &&
+    commissionRate > 0 &&
+    closeRate != null &&
+    stickRate != null
+  ) {
+    const commPerSale = avgDeal * (commissionRate / 100)
+    if (commPerSale > 0) {
+      const salesPerYear = annualGoal / commPerSale
+      const salesPerMonth = salesPerYear / 12
+      const sitsPerMonth = closeRate > 0 ? salesPerMonth / (closeRate / 100) : null
+      const sitsPerWeek = sitsPerMonth ? sitsPerMonth / 4.33 : null
+      const setsPerWeek = sitsPerWeek && stickRate > 0 ? sitsPerWeek / (stickRate / 100) : null
+      const setsPerDay = setsPerWeek ? setsPerWeek / daysPerWeek : null
+      if (setsPerDay !== null && sitsPerWeek !== null) {
+        targets = {
+          setsPerDay: parseFloat(setsPerDay.toFixed(1)),
+          sitsPerWeek: parseFloat(sitsPerWeek.toFixed(1)),
+          salesPerMonth: Math.ceil(salesPerMonth),
+        }
+      }
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50/50"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-900">My Goals</span>
+          {annualGoal && (
+            <span className="text-xs text-gray-500">
+              ${Number(annualGoal).toLocaleString()}/yr
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {targets && (
+            <span className="text-xs text-gray-500 hidden sm:block">
+              {targets.setsPerDay} sets/day · {targets.sitsPerWeek} sits/wk · {targets.salesPerMonth} sales/mo
+            </span>
+          )}
+          <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-gray-100 px-4 py-4">
+          {!loaded ? (
+            <div className="h-12 animate-pulse bg-gray-100 rounded" />
+          ) : !goals ? (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">No goals set yet.</p>
+              <Link
+                href="/reports/coaching"
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+              >
+                Set goals →
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap gap-6">
+                {targets ? (
+                  <>
+                    <div>
+                      <p className="text-xs text-gray-400">Sets/day needed</p>
+                      <p className="text-xl font-bold text-orange-500">{targets.setsPerDay}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Sits/week needed</p>
+                      <p className="text-xl font-bold text-cyan-600">{targets.sitsPerWeek}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Sales/month needed</p>
+                      <p className="text-xl font-bold text-green-600">{targets.salesPerMonth}</p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400">Complete goal inputs to see daily targets.</p>
+                )}
+              </div>
+              <Link
+                href="/reports/coaching"
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium shrink-0"
+              >
+                Edit goals →
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function DashboardClient({
   profile,
@@ -775,6 +925,9 @@ export default function DashboardClient({
             )}
           </div>
         </div>
+
+        {/* My Goals widget */}
+        <MyGoalsWidget currentUserId={profile?.id} />
 
         {/* Team leaderboard — setter vs closer stacks */}
         {canViewTeamLeaderboard && (
