@@ -50,6 +50,13 @@ export async function GET(request: NextRequest) {
           .in('team_id', teamIds)
         scopeIds = rm?.map(m => m.id) || [profile.id]
       }
+    } else if (!isAdmin && !isRegionalManager && !isSalesManager && profile.team_id) {
+      // Match team-stats: teammates share the same dashboard scope (incl. inspections set by closers on the team).
+      const { data: tm } = await supabase
+        .from('users')
+        .select('id')
+        .eq('team_id', profile.team_id)
+      scopeIds = tm?.map(m => m.id) || [profile.id]
     }
 
     const inScope = (id: string | null | undefined) =>

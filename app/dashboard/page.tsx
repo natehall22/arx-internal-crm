@@ -106,6 +106,13 @@ export default async function DashboardPage() {
     teamMemberIds = regionMembers?.map(m => m.id) || [profile.id]
   } else if (isAdmin) {
     teamMemberIds = []
+  } else if (!isRegionalManager && !isSalesManager && profile.team_id) {
+    // Match team-stats / personal-stats: team members see team rollups (incl. closer-set inspections).
+    const { data: teamMembers } = await supabase
+      .from('users')
+      .select('id')
+      .eq('team_id', profile.team_id)
+    teamMemberIds = teamMembers?.map(m => m.id) || [profile.id]
   }
 
   // Calculate week start date using shared utility
