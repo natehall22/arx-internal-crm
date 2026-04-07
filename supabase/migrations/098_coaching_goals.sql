@@ -9,8 +9,9 @@ CREATE TABLE IF NOT EXISTS coaching_goals (
   avg_deal_value DECIMAL(12,2),
   working_days_per_week INTEGER DEFAULT 5,
   working_weeks_per_year INTEGER DEFAULT 50,
-  close_rate_override DECIMAL(5,2),   -- null = use live data
-  stick_rate_override DECIMAL(5,2),   -- null = use live data
+  close_rate_override DECIMAL(5,2),       -- null = use live data
+  stick_rate_override DECIMAL(5,2),       -- null = use live data
+  commission_rate_override DECIMAL(5,2),  -- null = use comp plan rate
   updated_by UUID REFERENCES users(id), -- null = self; set when manager edits
   updated_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(user_id)

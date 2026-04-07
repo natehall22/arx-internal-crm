@@ -75,6 +75,7 @@ export async function PUT(request: NextRequest) {
       working_weeks_per_year: goalFields.working_weeks_per_year ?? 50,
       close_rate_override: goalFields.close_rate_override ?? null,
       stick_rate_override: goalFields.stick_rate_override ?? null,
+      commission_rate_override: goalFields.commission_rate_override ?? null,
       updated_by: targetUserId !== profile.id ? profile.id : null,
       updated_at: new Date().toISOString(),
     }

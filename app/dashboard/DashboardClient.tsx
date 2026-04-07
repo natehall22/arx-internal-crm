@@ -141,16 +141,18 @@ function MyGoalsWidget({ currentUserId }: { currentUserId?: string }) {
   const daysPerWeek = g?.working_days_per_week ?? 5
   const weeksPerYear = g?.working_weeks_per_year ?? 50
 
+  const effectiveCommRate = commissionRate ?? (g?.commission_rate_override ?? null)
+
   let targets: { setsPerDay: number; sitsPerWeek: number; salesPerMonth: number } | null = null
   if (
     annualGoal &&
     avgDeal &&
-    commissionRate != null &&
-    commissionRate > 0 &&
+    effectiveCommRate != null &&
+    effectiveCommRate > 0 &&
     closeRate != null &&
     stickRate != null
   ) {
-    const commPerSale = avgDeal * (commissionRate / 100)
+    const commPerSale = avgDeal * (effectiveCommRate / 100)
     if (commPerSale > 0) {
       const salesPerYear = annualGoal / commPerSale
       const salesPerMonth = salesPerYear / 12

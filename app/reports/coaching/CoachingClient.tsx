@@ -32,6 +32,7 @@ type CoachingGoals = {
   working_weeks_per_year: number
   close_rate_override: number | null
   stick_rate_override: number | null
+  commission_rate_override: number | null
 }
 
 const LOOKBACK_OPTIONS: { value: Lookback; label: string }[] = [
@@ -58,11 +59,13 @@ function calcTargets(goals: CoachingGoals, commissionRate: number | null, liveCl
     working_weeks_per_year,
     close_rate_override,
     stick_rate_override,
+    commission_rate_override,
   } = goals
 
   if (!annual_income_goal || annual_income_goal <= 0) return null
 
-  const effectiveCommission = commissionRate ?? 0
+  // Use comp plan rate first, then manual override, then 0
+  const effectiveCommission = commissionRate ?? commission_rate_override ?? 0
   const effectiveClose = (close_rate_override ?? liveClose) / 100
   const effectiveStick = (stick_rate_override ?? liveStick) / 100
 
@@ -133,6 +136,7 @@ export default function CoachingClient({
     working_weeks_per_year: 50,
     close_rate_override: null,
     stick_rate_override: null,
+    commission_rate_override: null,
   })
   const [commissionRate, setCommissionRate] = useState<number | null>(null)
   const [savingGoals, setSavingGoals] = useState(false)
@@ -167,6 +171,7 @@ export default function CoachingClient({
           working_weeks_per_year: data.goals.working_weeks_per_year ?? 50,
           close_rate_override: data.goals.close_rate_override,
           stick_rate_override: data.goals.stick_rate_override,
+          commission_rate_override: data.goals.commission_rate_override ?? null,
         })
       }
       if (data.commissionRate !== undefined) setCommissionRate(data.commissionRate)
@@ -352,13 +357,28 @@ export default function CoachingClient({
                         placeholder="e.g. 18500"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
-                      {commissionRate && goals.avg_deal_value && (
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">
+                        Commission rate %
+                        {commissionRate && (
+                          <span className="text-indigo-500 ml-1">(comp plan: {commissionRate}%)</span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        min={0} max={100}
+                        value={commissionRate ?? goals.commission_rate_override ?? ''}
+                        readOnly={!!commissionRate}
+                        onChange={e => !commissionRate && setGoals(g => ({ ...g, commission_rate_override: e.target.value ? Number(e.target.value) : null }))}
+                        placeholder="e.g. 8"
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm ${commissionRate ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`}
+                      />
+                      {(commissionRate || goals.commission_rate_override) && goals.avg_deal_value && (
                         <p className="text-xs text-gray-400 mt-1">
-                          At {commissionRate}% → ~${Math.round(goals.avg_deal_value * commissionRate / 100).toLocaleString()}/sale
+                          ~${Math.round(goals.avg_deal_value * (commissionRate ?? goals.commission_rate_override ?? 0) / 100).toLocaleString()}/sale
                         </p>
-                      )}
-                      {commissionRate && (
-                        <p className="text-xs text-indigo-500 mt-0.5">Comp plan rate: {commissionRate}%</p>
                       )}
                     </div>
 
