@@ -236,16 +236,6 @@ export async function GET(request: NextRequest) {
 
     const { data: salesOpportunities } = await salesOppsQuery
 
-    // Inspections actually run in the selected period (closer metric)
-    const { data: inspectionsRanRows } = await supabase
-      .from('opportunities')
-      .select('id, owner_user_id, inspection_outcome, inspection_outcome_at')
-      .eq('org_id', profile.org_id)
-      .not('inspection_outcome', 'is', null)
-      .not('inspection_outcome_at', 'is', null)
-      .gte('inspection_outcome_at', start.toISOString())
-      .lt('inspection_outcome_at', end.toISOString())
-
     // Appointments on closer's calendar in the selected period (by scheduled_for) — efficiency denominator
     const { data: apptsForEfficiency } = await supabase
       .from('scheduled_appointments')
@@ -345,9 +335,6 @@ export async function GET(request: NextRequest) {
           : o.owner_user_id === member.id
       ).length
 
-      const inspectionsRan =
-        (inspectionsRanRows || []).filter((o) => o.owner_user_id === member.id).length
-
       // Close rate = sales / sits for the selected period
       const closeRate = sits > 0 ? (sales / sits * 100) : null
       // Efficiency = sales / appointments on closer's calendar in the selected period
@@ -361,7 +348,6 @@ export async function GET(request: NextRequest) {
         doorsKnocked: finalDoors,
         contacts: finalContacts,
         inspectionsSet,
-        inspectionsRan,
         sits,
         sales,
         closeRate: closeRate !== null ? closeRate.toFixed(0) : '—',

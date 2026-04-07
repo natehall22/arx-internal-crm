@@ -101,16 +101,6 @@ export async function GET(request: NextRequest) {
       .gte('inspection_outcome_at', start.toISOString())
       .lt('inspection_outcome_at', end.toISOString())
 
-    // ---- INSPECTIONS RAN (closer metric, in period) ----
-    const { data: inspectionsRanRows } = await supabase
-      .from('opportunities')
-      .select('id, owner_user_id')
-      .eq('org_id', profile.org_id)
-      .not('inspection_outcome', 'is', null)
-      .not('inspection_outcome_at', 'is', null)
-      .gte('inspection_outcome_at', start.toISOString())
-      .lt('inspection_outcome_at', end.toISOString())
-
     // ---- SIT OUTCOMES CONFIG ----
     const { data: orgRow } = await supabase
       .from('orgs')
@@ -173,10 +163,6 @@ export async function GET(request: NextRequest) {
       isSetter ? inScope(o.setter_user_id) : inScope(o.owner_user_id)
     ).length
 
-    const inspectionsRan = (inspectionsRanRows || []).filter(o =>
-      inScope(o.owner_user_id)
-    ).length
-
     // Close rate = sales / sits for the selected period
     const closeRate = sits > 0 ? parseFloat((sales / sits * 100).toFixed(1)) : null
     // Efficiency = sales / appointments on closer's calendar in the selected period
@@ -187,7 +173,6 @@ export async function GET(request: NextRequest) {
       doorsKnocked,
       contacts,
       inspectionsSet,
-      inspectionsRan,
       sits,
       sales,
       closeRate,

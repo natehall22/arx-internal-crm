@@ -50,7 +50,6 @@ interface TeamMemberStat {
   doorsKnocked: number
   contacts: number
   inspectionsSet: number
-  inspectionsRan?: number
   /** Inspection outcomes flagged "counts as sit" in admin; attributed like sales */
   sits: number
   sales: number
@@ -74,7 +73,6 @@ interface DashboardClientProps {
     doorsKnockedThisWeek: number
     contactsThisWeek: number
     inspectionsSetThisWeek: number
-    inspectionsRanThisWeek: number
     sitsThisWeek: number
     salesThisWeek: number
   }
@@ -128,7 +126,6 @@ export default function DashboardClient({
     doorsKnocked: stats.doorsKnockedThisWeek,
     contacts: stats.contactsThisWeek,
     inspectionsSet: stats.inspectionsSetThisWeek,
-    inspectionsRan: stats.inspectionsRanThisWeek,
     sits: stats.sitsThisWeek,
     sales: stats.salesThisWeek,
     closeRate: stats.closeRate,
@@ -660,12 +657,12 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Ran</p>
-                  <p className="text-xl sm:text-2xl font-bold text-amber-600">{personalStats.inspectionsRan}</p>
+                  <p className="text-xs sm:text-sm text-gray-500 truncate">Inspections Set</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{personalStats.inspectionsSet}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
                   <svg className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                 </div>
               </div>
@@ -985,7 +982,7 @@ export default function DashboardClient({
                               <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
                             </div>
                           </div>
-                          <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center">
+                          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center">
                             <div>
                               <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                                 {member.doorsKnocked}
@@ -1003,12 +1000,6 @@ export default function DashboardClient({
                                 {member.inspectionsSet ?? 0}
                               </p>
                               <p className="text-xs text-gray-500">Set</p>
-                            </div>
-                            <div>
-                              <p className={`text-base font-bold ${(member.inspectionsRan ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                                {member.inspectionsRan ?? 0}
-                              </p>
-                              <p className="text-xs text-gray-500">Ran</p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
@@ -1047,7 +1038,6 @@ export default function DashboardClient({
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doors</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Contacts</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. set</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. ran</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1105,11 +1095,6 @@ export default function DashboardClient({
                               <td className="px-4 py-3 text-center">
                                 <span className={`text-lg font-bold ${(member.inspectionsSet ?? 0) > 0 ? 'text-orange-500' : 'text-gray-400'}`}>
                                   {member.inspectionsSet ?? 0}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <span className={`text-lg font-bold ${(member.inspectionsRan ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                                  {member.inspectionsRan ?? 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">

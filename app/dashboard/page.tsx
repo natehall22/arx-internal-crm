@@ -187,15 +187,6 @@ export default async function DashboardPage() {
     .gte('scheduled_for', weekStart.toISOString())
     .lt('scheduled_for', weekEnd.toISOString())
 
-  const { data: inspectionsRanRows } = await supabase
-    .from('opportunities')
-    .select('id, owner_user_id, inspection_outcome, inspection_outcome_at')
-    .eq('org_id', profile.org_id)
-    .not('inspection_outcome', 'is', null)
-    .not('inspection_outcome_at', 'is', null)
-    .gte('inspection_outcome_at', weekStart.toISOString())
-    .lt('inspection_outcome_at', weekEnd.toISOString())
-
   // Fetch scheduled_appointments created this week for accurate inspection attribution
   // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
   const { data: allAppointments } = await supabase
@@ -405,9 +396,6 @@ export default async function DashboardPage() {
             : o.owner_user_id === member.id
         ).length
 
-        const inspectionsRan =
-          (inspectionsRanRows || []).filter((o) => o.owner_user_id === member.id).length
-
         const memberSalesCount = memberSales.length
         const memberCloseRate = sits > 0 ? (memberSalesCount / sits * 100) : null
         const memberApptsOnCalendar = (apptsForEfficiency || []).filter(
@@ -423,7 +411,6 @@ export default async function DashboardPage() {
           doorsKnocked: finalDoors,
           contacts: finalContacts,
           inspectionsSet,
-          inspectionsRan,
           sits,
           sales: memberSalesCount,
           closeRate: memberCloseRate !== null ? memberCloseRate.toFixed(0) : '—',
@@ -519,10 +506,6 @@ export default async function DashboardPage() {
     ? parseFloat((salesThisWeek / appointmentsOnCalendar * 100).toFixed(1))
     : null
 
-  const inspectionsRanThisWeek = (inspectionsRanRows || []).filter((o) =>
-    isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || '')
-  ).length
-
   const goals = settings.goals || { doors_knocked: 100, inspections: 20, sales: 5 }
   const progress = {
     doors_knocked: { current: doorsKnocked, goal: goals.doors_knocked },
@@ -545,7 +528,6 @@ export default async function DashboardPage() {
     doorsKnockedThisWeek: doorsKnocked,
     contactsThisWeek: contacts,
     inspectionsSetThisWeek: inspectionsSet,
-    inspectionsRanThisWeek,
     sitsThisWeek,
     salesThisWeek,
   }
