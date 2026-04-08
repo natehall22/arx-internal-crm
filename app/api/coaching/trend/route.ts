@@ -136,12 +136,52 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ members: [] })
     }
 
-    // Fetch member details
-    const { data: members } = await supabase
+    // Fetch member details (team_id → region for admin drill-down)
+    const { data: memberDetails } = await supabase
       .from('users')
-      .select('id, full_name, role')
+      .select('id, full_name, role, team_id')
       .in('id', memberIds)
       .eq('org_id', profile.org_id)
+
+    const teamIds = Array.from(
+      new Set((memberDetails || []).map(m => m.team_id).filter(Boolean) as string[])
+    )
+    const teamToRegion: Record<string, string | null> = {}
+    const regionNames: Record<string, string> = {}
+    if (teamIds.length > 0) {
+      const { data: teamRows } = await supabase
+        .from('teams')
+        .select('id, region_id')
+        .in('id', teamIds)
+        .eq('org_id', profile.org_id)
+      const regionIds = Array.from(
+        new Set((teamRows || []).map(t => t.region_id).filter(Boolean) as string[])
+      )
+      for (const t of teamRows || []) {
+        teamToRegion[t.id] = t.region_id
+      }
+      if (regionIds.length > 0) {
+        const { data: regionRows } = await supabase
+          .from('regions')
+          .select('id, name')
+          .in('id', regionIds)
+          .eq('org_id', profile.org_id)
+        for (const r of regionRows || []) {
+          regionNames[r.id] = r.name
+        }
+      }
+    }
+
+    let viewerRegion: { id: string; name: string } | null = null
+    if (profile.role === 'regional_manager' && profile.region_id) {
+      const { data: vr } = await supabase
+        .from('regions')
+        .select('id, name')
+        .eq('id', profile.region_id)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+      if (vr) viewerRegion = { id: vr.id, name: vr.name }
+    }
 
     // Get sit outcome config
     const { data: orgData } = await supabase
@@ -190,7 +230,7 @@ export async function GET(request: NextRequest) {
     )
     const allSales = saleRes.data || []
 
-    const result = (members || []).map(member => {
+    const result = (memberDetails || []).map(member => {
       const bucketed = buckets.map(bucket => {
         const inBucket = (dateStr: string) => {
           const d = new Date(dateStr)
@@ -225,6 +265,9 @@ export async function GET(request: NextRequest) {
         : last.sits < priorAvg ? 'down'
         : 'flat'
 
+      const tid = member.team_id
+      const rid = tid ? teamToRegion[tid] ?? null : null
+
       return {
         id: member.id,
         name: member.full_name || 'Unknown',
@@ -236,10 +279,18 @@ export async function GET(request: NextRequest) {
           sits: bucketed.reduce((s, b) => s + b.sits, 0),
           sales: bucketed.reduce((s, b) => s + b.sales, 0),
         },
+        team_id: tid ?? null,
+        region_id: rid,
+        region_name: rid ? regionNames[rid] ?? null : null,
       }
     })
 
-    return NextResponse.json({ members: result, lookback, bucketCount: buckets.length })
+    return NextResponse.json({
+      members: result,
+      lookback,
+      bucketCount: buckets.length,
+      viewerRegion,
+    })
   } catch (error) {
     console.error('[coaching/trend]', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

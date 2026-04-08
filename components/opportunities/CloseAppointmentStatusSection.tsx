@@ -52,6 +52,12 @@ export default function CloseAppointmentStatusSection({
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 mb-6">
         <h2 className="text-xl font-bold text-gray-900 mb-2">Close Appointment Status</h2>
         <p className="text-sm text-gray-600">No close appointment scheduled yet.</p>
+        <p className="text-sm text-gray-600 mt-2">
+          <Link href="/calendar" className="text-indigo-600 font-medium hover:text-indigo-800">
+            Open calendar
+          </Link>{' '}
+          to put a follow-up close on the schedule.
+        </p>
       </div>
     )
   }

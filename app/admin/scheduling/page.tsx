@@ -603,8 +603,8 @@ export default function SchedulingPage() {
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Minutes after the slot end counted toward inspection feedback prompt timing (together with
-                    the org-wide feedback delay). If no matching type row exists, the org default gap between
+                    Minutes after the slot end for scheduling spacing. Inspection feedback prompts at appointment
+                    start, not after this buffer. If no matching type row exists, the org default gap between
                     appointments is used instead.
                   </p>
                 </div>

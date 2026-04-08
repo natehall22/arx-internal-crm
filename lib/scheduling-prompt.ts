@@ -15,17 +15,22 @@ export function calendarDateYmdInTimezone(tz: string, date: Date = new Date()): 
   return `${y}-${m}-${d}`
 }
 
-/** Matches DB trigger: end of slot + row buffer + org feedback buffer (absolute instant, stored as ISO UTC). */
+/**
+ * When the closer feedback popup becomes due: **appointment start** (`scheduled_for`), as an absolute instant (ISO UTC).
+ * Same wall-clock moment the slot was booked for in the calendar — compare with `new Date().toISOString()` on the server.
+ *
+ * Extra args are kept for call-site compatibility; they are **not** added to the prompt time anymore.
+ */
 export function computeInspectionFeedbackPromptAt(
   scheduledForIso: string,
-  durationMinutes: number,
-  bufferAfterMinutes: number,
-  orgFeedbackBufferMinutes: number
+  _durationMinutes?: number,
+  _bufferAfterMinutes?: number,
+  _orgFeedbackBufferMinutes?: number
 ): string {
-  const total =
-    (durationMinutes || 60) +
-    (bufferAfterMinutes || 0) +
-    (orgFeedbackBufferMinutes || 0)
-  return new Date(new Date(scheduledForIso).getTime() + total * 60 * 1000).toISOString()
+  const t = new Date(scheduledForIso)
+  if (Number.isNaN(t.getTime())) {
+    return new Date().toISOString()
+  }
+  return t.toISOString()
 }
 

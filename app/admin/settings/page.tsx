@@ -31,7 +31,7 @@ interface AppointmentType {
   id: string
   name: string
   duration_minutes: number
-  /** Extra minutes after slot end toward feedback prompt timing (added to org-wide feedback buffer). */
+  /** Extra minutes after slot end for scheduling gaps (not used for feedback prompt time). */
   buffer_after_minutes?: number
   color: string
   active: boolean
@@ -1166,13 +1166,13 @@ export default function AdminSettingsPage() {
               <div className="mb-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
                 <h2 className="text-lg font-semibold text-gray-900 mb-2">Scheduling defaults</h2>
                 <p className="text-sm text-gray-600 mb-4">
-                  Feedback prompts appear after each appointment&apos;s scheduled end time, plus the buffers below.
-                  Per-type &quot;buffer after&quot; is set on each appointment type. Round-robin uses the default gap when a closer has no queue buffer.
+                  Inspection feedback prompts appear at each appointment&apos;s scheduled start time (same instant shown on the calendar).
+                  Per-type &quot;buffer after&quot; still affects scheduling gaps where applicable. Round-robin uses the default gap when a closer has no queue buffer.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Extra minutes before feedback prompt (org-wide)
+                      Extra minutes before feedback prompt (org-wide, legacy)
                     </label>
                     <input
                       type="number"
@@ -1186,6 +1186,9 @@ export default function AdminSettingsPage() {
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Not used for when the prompt appears; kept for compatibility.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1377,7 +1380,7 @@ export default function AdminSettingsPage() {
                 <h4 className="font-medium text-blue-900 mb-2">How Appointment Durations Work</h4>
                 <ul className="text-sm text-blue-700 space-y-1">
                   <li>• When scheduling an appointment, the duration will default to the type&apos;s setting</li>
-                  <li>• Buffer after (per type) plus org-wide feedback buffer set when the closer feedback prompt becomes due</li>
+                  <li>• Buffer after (per type) affects spacing after the slot; closer feedback prompts at appointment start</li>
                   <li>• Default gap between appointments applies when round-robin checks availability if the closer has no queue buffer</li>
                   <li>• Calendar events will be created with the specified duration</li>
                 </ul>
@@ -1452,7 +1455,7 @@ export default function AdminSettingsPage() {
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
                         />
                         <p className="text-xs text-gray-500 mt-1">
-                          Added after slot end toward when the closer feedback form is due (plus org-wide buffer).
+                          Extra time after the scheduled slot end for spacing and conflict checks; feedback prompts at start time.
                         </p>
                       </div>
                       <div>

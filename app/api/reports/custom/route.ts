@@ -3,6 +3,16 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
+/** Must match report builder + Reports UI; used when POST body includes dateRange override */
+const VALID_CUSTOM_REPORT_DATE_RANGES = new Set([
+  'week',
+  '7d',
+  '30d',
+  '90d',
+  'ytd',
+  'all',
+])
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -221,7 +231,9 @@ export async function POST(request: NextRequest) {
     
     const includeAdminsInReports = org?.settings?.reports?.include_admins_in_reports !== false // Default true
 
-    const { report_id } = await request.json()
+    const body = await request.json()
+    const report_id = body.report_id as string | undefined
+    const dateRangeOverride = body.dateRange as string | undefined
 
     // Get the report
     const { data: report, error: reportError } = await supabase
@@ -258,7 +270,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const dateFilter = getDateFilter(report.config?.dateRange || '30d')
+    const effectiveDateRange =
+      typeof dateRangeOverride === 'string' &&
+      VALID_CUSTOM_REPORT_DATE_RANGES.has(dateRangeOverride)
+        ? dateRangeOverride
+        : report.config?.dateRange || '30d'
+
+    const dateFilter = getDateFilter(effectiveDateRange)
     const dataSource = report.data_source
     const groupBy = report.config?.groupBy
     const aggregation = report.config?.aggregation || 'count'
@@ -482,10 +500,11 @@ export async function POST(request: NextRequest) {
       }]
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       report,
       data,
       dataSource,
+      dateRange: effectiveDateRange,
       generated_at: new Date().toISOString(),
     })
 

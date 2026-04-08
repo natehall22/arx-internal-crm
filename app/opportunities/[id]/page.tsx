@@ -264,7 +264,19 @@ export default async function OpportunityDetailPage({
     lost: 'bg-red-400',
   }
 
-  type NextStep = { icon: string; title: string; body: string; bg: string; titleColor: string; link?: string; linkLabel?: string }
+  type NextStep = {
+    icon: string
+    title: string
+    body: string
+    bg: string
+    titleColor: string
+    link?: string
+    linkLabel?: string
+    secondaryLink?: string
+    secondaryLabel?: string
+    /** Render Mark as Lost in the banner (same server action as footer) */
+    showMarkLost?: boolean
+  }
   let nextStep: NextStep | null = null
 
   const proposalBuilderUrl = `/proposals/builder?opportunity_id=${params.id}&customer_name=${encodeURIComponent(leadRow?.homeowner_name || '')}&customer_address=${encodeURIComponent(opportunity.address_text || '')}`
@@ -291,10 +303,34 @@ export default async function OpportunityDetailPage({
     nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: inspectionFeedbackUrl, linkLabel: 'Submit Inspection' }
   } else if (['not_home', 'rescheduled'].includes(opportunity.inspection_outcome)) {
     // Inspection couldn't happen — needs reschedule
-    nextStep = { icon: '📞', title: 'Reschedule the Inspection', body: 'The customer was not home or requested a new time. Follow up to get it back on the calendar.', bg: 'bg-yellow-50 border-yellow-200', titleColor: 'text-yellow-800' }
+    const rescheduleHref = inspectionAppointment?.id
+      ? `/schedule?reschedule=${inspectionAppointment.id}`
+      : '/calendar'
+    nextStep = {
+      icon: '📞',
+      title: 'Reschedule the Inspection',
+      body: 'The customer was not home or requested a new time. Reschedule the appointment or use the calendar to get it back on the board.',
+      bg: 'bg-yellow-50 border-yellow-200',
+      titleColor: 'text-yellow-800',
+      link: rescheduleHref,
+      linkLabel: inspectionAppointment?.id ? 'Reschedule inspection' : 'Open calendar',
+      secondaryLink: '/calendar',
+      secondaryLabel: 'Team calendar',
+    }
   } else if (['said_no', 'insurance_follow_up', 'failed_credit'].includes(opportunity.inspection_outcome)) {
-    // Stalled — follow up needed, nothing actionable on-page
-    nextStep = { icon: '💬', title: 'Follow Up With the Customer', body: 'The deal is stalled. Follow up to move it forward or mark it lost if they are not moving ahead.', bg: 'bg-red-50 border-red-200', titleColor: 'text-red-800' }
+    // Stalled — offer follow-up close, calendar, and mark lost in-banner
+    nextStep = {
+      icon: '💬',
+      title: 'Follow Up With the Customer',
+      body: 'The deal is stalled. Schedule a follow-up close, use the calendar to book time, or mark the opportunity lost if they are not moving ahead.',
+      bg: 'bg-red-50 border-red-200',
+      titleColor: 'text-red-800',
+      link: '#close-section',
+      linkLabel: 'Schedule follow-up (close)',
+      secondaryLink: '/calendar',
+      secondaryLabel: 'Open calendar',
+      showMarkLost: true,
+    }
   } else {
     // Inspection ran — determine where we are in the proposal → close → contract flow
     if (!proposals || proposals.length === 0) {
@@ -408,9 +444,9 @@ export default async function OpportunityDetailPage({
                 <form action={markOpportunityLost}>
                   <button
                     type="submit"
-                    className="text-sm text-gray-400 hover:text-red-600 transition-colors"
+                    className="text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:border-red-200 hover:text-red-700 hover:bg-red-50/50 transition-colors"
                   >
-                    Mark as Lost
+                    Mark as lost
                   </button>
                 </form>
               </div>
@@ -425,14 +461,34 @@ export default async function OpportunityDetailPage({
             <div className="flex-1 min-w-0">
               <p className={`font-semibold text-sm sm:text-base ${nextStep.titleColor}`}>{nextStep.title}</p>
               <p className="text-sm text-gray-600 mt-0.5">{nextStep.body}</p>
-              {nextStep.link && (
-                <Link
-                  href={nextStep.link}
-                  className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sm font-semibold rounded-lg shadow-sm hover:bg-gray-50 text-gray-800"
-                >
-                  {nextStep.linkLabel || 'Take Action'} →
-                </Link>
-              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {nextStep.link && (
+                  <Link
+                    href={nextStep.link}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-sm font-semibold rounded-lg shadow-sm hover:bg-gray-50 text-gray-900"
+                  >
+                    {nextStep.linkLabel || 'Take action'} →
+                  </Link>
+                )}
+                {nextStep.secondaryLink && (
+                  <Link
+                    href={nextStep.secondaryLink}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/80 border border-gray-200 text-sm font-medium rounded-lg hover:bg-white text-gray-800"
+                  >
+                    {nextStep.secondaryLabel || 'More'} →
+                  </Link>
+                )}
+                {nextStep.showMarkLost && opportunity.status !== 'lost' && opportunity.status !== 'won' && (
+                  <form action={markOpportunityLost} className="inline">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center px-3 py-2 text-sm font-semibold rounded-lg border border-red-300 text-red-800 bg-white hover:bg-red-50 shadow-sm"
+                    >
+                      Mark as lost
+                    </button>
+                  </form>
+                )}
+              </div>
             </div>
           </div>
         )}

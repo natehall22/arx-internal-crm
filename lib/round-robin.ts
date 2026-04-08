@@ -455,24 +455,8 @@ async function createAppointment(
     .update({ last_assigned_at: new Date().toISOString() })
     .eq('id', closer.id)
 
-  // Pending feedback prompt: after slot end + buffer_after + org inspection feedback buffer (same as other code paths)
-  let orgFeedbackBuffer = 0
-  try {
-    const { data: orgRow } = await supabase
-      .from('orgs')
-      .select('inspection_feedback_buffer_minutes')
-      .eq('id', orgId || closer.org_id)
-      .maybeSingle()
-    orgFeedbackBuffer = orgRow?.inspection_feedback_buffer_minutes ?? 0
-  } catch {
-    orgFeedbackBuffer = 0
-  }
-  const promptAtIso = computeInspectionFeedbackPromptAt(
-    scheduledFor.toISOString(),
-    durationMinutes,
-    rowBufferAfter,
-    orgFeedbackBuffer
-  )
+  // Pending feedback prompt at appointment start (DB trigger also inserts; this is a backup if trigger misses)
+  const promptAtIso = computeInspectionFeedbackPromptAt(scheduledFor.toISOString())
   try {
     await supabase
       .from('pending_status_prompts')

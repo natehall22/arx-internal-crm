@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
@@ -23,6 +23,16 @@ type TeamMetrics = Team & ReportMetrics & { members: UserMetrics[] }
 type RegionMetrics = Region & ReportMetrics & { teams: TeamMetrics[] }
 
 type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all'
+
+/** Same ids as report builder — drives GET date filter via POST override */
+const CUSTOM_REPORT_DATE_RANGES: { id: string; label: string }[] = [
+  { id: 'week', label: 'This week' },
+  { id: '7d', label: 'Last 7 days' },
+  { id: '30d', label: 'Last 30 days' },
+  { id: '90d', label: 'Last 90 days' },
+  { id: 'ytd', label: 'Year to date' },
+  { id: 'all', label: 'All time' },
+]
 
 export default function ReportsPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
@@ -801,18 +811,19 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
   const [dataSource, setDataSource] = useState<string>('')
   const [deleting, setDeleting] = useState(false)
   const [drillDownItem, setDrillDownItem] = useState<any>(null)
+  const [dateRange, setDateRange] = useState(() => report.config?.dateRange || '30d')
 
   useEffect(() => {
-    executeReport()
-  }, [report.id])
+    setDateRange(report.config?.dateRange || '30d')
+  }, [report.id, report.config?.dateRange])
 
-  const executeReport = async () => {
+  const executeReport = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch('/api/reports/custom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ report_id: report.id }),
+        body: JSON.stringify({ report_id: report.id, dateRange }),
       })
       if (res.ok) {
         const result = await res.json()
@@ -824,7 +835,11 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
     } finally {
       setLoading(false)
     }
-  }
+  }, [report.id, dateRange])
+
+  useEffect(() => {
+    executeReport()
+  }, [executeReport])
 
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this report?')) return
@@ -993,10 +1008,21 @@ function CustomReportCard({ report, onRefresh }: { report: any; onRefresh: () =>
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-2 text-xs text-gray-500">
             <span className="capitalize">{report.data_source}</span>
-            <span>•</span>
-            <span>{report.config?.dateRange || '30d'}</span>
+            <span className="hidden sm:inline">•</span>
+            <label className="flex items-center gap-2">
+              <span className="text-gray-400 shrink-0">Period</span>
+              <select
+                value={dateRange}
+                onChange={e => setDateRange(e.target.value)}
+                className="px-2.5 py-1 border border-gray-300 rounded-lg bg-white text-gray-800 text-xs font-medium min-w-[10rem]"
+              >
+                {CUSTOM_REPORT_DATE_RANGES.map(opt => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))}
+              </select>
+            </label>
             {report.is_public && (
               <>
                 <span>•</span>

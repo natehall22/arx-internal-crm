@@ -362,7 +362,7 @@ export async function POST(request: NextRequest) {
       .update({ completed: true })
       .eq('appointment_id', original_appointment_id)
 
-    // Queue inspection feedback after slot end + buffers (aligns with round-robin + status route)
+    // Queue inspection feedback at appointment start (aligns with round-robin + status route)
     const { data: orgForPrompt } = await supabase
       .from('orgs')
       .select('inspection_feedback_buffer_minutes')
