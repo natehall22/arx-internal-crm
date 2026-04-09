@@ -19,6 +19,15 @@ function extensionFromFilename(filename: string): string {
   return ext.length > 0 && ext.length <= 16 ? ext : ''
 }
 
+/** Server/client: normalize an original filename for storage keys (same rules as multipart names). */
+export function safeUploadFilename(filename: string, fallbackBase: string): string {
+  let safe =
+    sanitizeFilenameForUpload(filename) ||
+    `${fallbackBase.replace(/[^A-Za-z0-9_-]/g, '_')}.${extensionFromFilename(filename) || 'bin'}`
+  if (safe.length > 200) safe = safe.slice(0, 200)
+  return safe
+}
+
 /**
  * ASCII-safe multipart filename for uploads. Use with
  * `formData.append('file', fileOrBlob, multipartFilenameForUpload(...))` — especially on iOS
@@ -26,11 +35,7 @@ function extensionFromFilename(filename: string): string {
  * `new File([...], name)` + FormData.
  */
 export function multipartFilenameForUpload(file: File, fallbackBase: string): string {
-  let safe =
-    sanitizeFilenameForUpload(file.name) ||
-    `${fallbackBase.replace(/[^A-Za-z0-9_-]/g, '_')}.${extensionFromFilename(file.name) || 'bin'}`
-  if (safe.length > 200) safe = safe.slice(0, 200)
-  return safe
+  return safeUploadFilename(file.name, fallbackBase)
 }
 
 /**

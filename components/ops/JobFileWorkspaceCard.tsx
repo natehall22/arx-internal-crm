@@ -101,6 +101,15 @@ async function parseUploadResponseJson(response: Response): Promise<Record<strin
   }
 }
 
+async function fetchOpsJson(url: string, init?: RequestInit): Promise<Record<string, unknown>> {
+  const response = await fetch(url, { ...init, credentials: 'include' })
+  const data = await parseUploadResponseJson(response)
+  if (!response.ok) {
+    throw new Error(String(data.error || 'Request failed'))
+  }
+  return data
+}
+
 export default function JobFileWorkspaceCard({
   jobId,
   userRole,
@@ -309,16 +318,32 @@ export default function JobFileWorkspaceCard({
       const file = files[i]
       setPhotoUploadProgress({ done: i, total: files.length })
       try {
-        const formData = new FormData()
-        formData.append('photo_tag', photoTag)
-        formData.append('file', file, multipartFilenameForUpload(file, `photo_${i + 1}`))
-
-        const response = await fetch(`/api/ops/jobs/${jobId}/photos`, {
+        const safeName = multipartFilenameForUpload(file, `photo_${i + 1}`)
+        const reg = await fetchOpsJson(`/api/ops/jobs/${jobId}/photos/register`, {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: safeName }),
         })
-        const data = await parseUploadResponseJson(response)
-        if (!response.ok) throw new Error(String(data.error || 'Failed to upload photo'))
+        const photoId = String(reg.photoId)
+        const storagePath = String(reg.storagePath)
+        const bucket = String(reg.bucket)
+
+        const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        })
+        if (uploadError) throw new Error(uploadError.message)
+
+        const data = await fetchOpsJson(`/api/ops/jobs/${jobId}/photos/finalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            photoId,
+            photo_tag: photoTag,
+            mime_type: file.type || null,
+            file_size: file.size,
+          }),
+        })
 
         if (data?.photo) {
           setPhotos((prev) => [data.photo as PhotoRow, ...prev])
@@ -361,23 +386,45 @@ export default function JobFileWorkspaceCard({
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
       try {
-        const formData = new FormData()
-        formData.append('category', documentCategory)
-        if (documentRole) formData.append('document_role', documentRole)
+        const safeName = multipartFilenameForUpload(file, `document_${i + 1}`)
         const baseTitle =
           files.length === 1 && documentTitle.trim()
             ? documentTitle.trim()
             : file.name.replace(/\.[^.]+$/, '') || file.name
-        formData.append('title', baseTitle)
-        if (documentDescription) formData.append('description', documentDescription)
-        formData.append('file', file, multipartFilenameForUpload(file, `document_${i + 1}`))
 
-        const response = await fetch(`/api/ops/jobs/${jobId}/documents`, {
+        const regBody: Record<string, string | null | undefined> = { filename: safeName }
+        if (documentRole) regBody.document_role = documentRole
+
+        const reg = await fetchOpsJson(`/api/ops/jobs/${jobId}/documents/register`, {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(regBody),
         })
-        const data = await parseUploadResponseJson(response)
-        if (!response.ok) throw new Error(String(data.error || 'Failed to upload document'))
+        const documentId = String(reg.documentId)
+        const storagePath = String(reg.storagePath)
+        const bucket = String(reg.bucket)
+
+        const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        })
+        if (uploadError) throw new Error(uploadError.message)
+
+        await fetchOpsJson(`/api/ops/jobs/${jobId}/documents/finalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documentId,
+            category: documentCategory,
+            title: baseTitle,
+            description: documentDescription || null,
+            document_role: documentRole || null,
+            linked_record_type: null,
+            linked_record_id: null,
+            mime_type: file.type || null,
+            file_size: file.size,
+          }),
+        })
         ok++
       } catch (error: any) {
         if (!firstError) firstError = error?.message || 'Document upload failed.'
@@ -414,16 +461,37 @@ export default function JobFileWorkspaceCard({
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
       try {
-        const formData = new FormData()
-        formData.append('job_cost_line_id', selectedCostLineId)
-        formData.append('file', file, multipartFilenameForUpload(file, `attachment_${i + 1}`))
-
-        const response = await fetch(`/api/ops/jobs/${jobId}/cost-attachments`, {
+        const safeName = multipartFilenameForUpload(file, `attachment_${i + 1}`)
+        const reg = await fetchOpsJson(`/api/ops/jobs/${jobId}/cost-attachments/register`, {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: safeName,
+            job_cost_line_id: selectedCostLineId,
+          }),
         })
-        const data = await parseUploadResponseJson(response)
-        if (!response.ok) throw new Error(String(data.error || 'Failed to upload attachment'))
+        const attachmentId = String(reg.attachmentId)
+        const documentId = String(reg.documentId)
+        const storagePath = String(reg.storagePath)
+        const bucket = String(reg.bucket)
+
+        const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        })
+        if (uploadError) throw new Error(uploadError.message)
+
+        await fetchOpsJson(`/api/ops/jobs/${jobId}/cost-attachments/finalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attachmentId,
+            documentId,
+            job_cost_line_id: selectedCostLineId,
+            mime_type: file.type || null,
+            file_size: file.size,
+          }),
+        })
         ok++
       } catch (error: any) {
         if (!firstError) firstError = error?.message || 'Upload failed'
@@ -449,15 +517,31 @@ export default function JobFileWorkspaceCard({
     setReplacingDocumentId(documentId)
     setStatusMessage(null)
     try {
-      const formData = new FormData()
-      formData.append('file', file, multipartFilenameForUpload(file, 'document'))
-
-      const response = await fetch(`/api/ops/jobs/${jobId}/documents/${documentId}/replace`, {
+      const safeName = multipartFilenameForUpload(file, 'document')
+      const reg = await fetchOpsJson(`/api/ops/jobs/${jobId}/documents/${documentId}/replace/register`, {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: safeName }),
       })
-      const data = await parseUploadResponseJson(response)
-      if (!response.ok) throw new Error(String(data.error || 'Failed to replace document'))
+      const newDocumentId = String(reg.newDocumentId)
+      const storagePath = String(reg.storagePath)
+      const bucket = String(reg.bucket)
+
+      const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
+        contentType: file.type || 'application/octet-stream',
+        upsert: false,
+      })
+      if (uploadError) throw new Error(uploadError.message)
+
+      await fetchOpsJson(`/api/ops/jobs/${jobId}/documents/${documentId}/replace/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newDocumentId,
+          mime_type: file.type || null,
+          file_size: file.size,
+        }),
+      })
 
       setStatusMessage({
         type: 'success',
