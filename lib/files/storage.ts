@@ -20,15 +20,25 @@ function extensionFromFilename(filename: string): string {
 }
 
 /**
- * Safari (esp. iOS) can throw "The string did not match the expected pattern" when posting
- * FormData with File objects whose names contain non-ASCII or problematic Unicode. Use a File
- * with an ASCII-only name while preserving bytes and MIME hints.
+ * ASCII-safe multipart filename for uploads. Use with
+ * `formData.append('file', fileOrBlob, multipartFilenameForUpload(...))` — especially on iOS
+ * Safari, which can throw "The string did not match the expected pattern" when using
+ * `new File([...], name)` + FormData.
  */
-export function fileWithSafeName(file: File, fallbackBase: string): File {
+export function multipartFilenameForUpload(file: File, fallbackBase: string): string {
   let safe =
     sanitizeFilenameForUpload(file.name) ||
     `${fallbackBase.replace(/[^A-Za-z0-9_-]/g, '_')}.${extensionFromFilename(file.name) || 'bin'}`
   if (safe.length > 200) safe = safe.slice(0, 200)
+  return safe
+}
+
+/**
+ * @deprecated Prefer `multipartFilenameForUpload` + `formData.append('file', blob, name)` for
+ * browser uploads (avoids iOS Safari FormData / File constructor issues).
+ */
+export function fileWithSafeName(file: File, fallbackBase: string): File {
+  const safe = multipartFilenameForUpload(file, fallbackBase)
   if (safe === file.name) return file
   return new File([file], safe, {
     type: file.type || 'application/octet-stream',

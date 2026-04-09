@@ -32,7 +32,12 @@ export function buildOrderFormContractSaleDescription(contract: {
   return parts.length ? parts.join(' — ') : 'Order form contract signed'
 }
 
-/** Roles that receive the post-sale announcement (sales org + management; excludes operations). */
+/**
+ * Roles that receive the post-sale announcement (sales org + management; excludes operations).
+ * Must match PostgreSQL `user_role` enum literals only — invalid values make `.in('role', …)` fail
+ * for the whole query (no one gets mail). Legacy UI names `rep` / `manager` / `closer` were migrated
+ * to `sales_rep` / `sales_manager` (see 013_rbac_teams_regions) and are not enum values.
+ */
 const SALE_NOTIFICATION_ROLES = [
   'admin',
   'owner',
@@ -40,12 +45,10 @@ const SALE_NOTIFICATION_ROLES = [
   'regional_setter_manager',
   'sales_manager',
   'setter_manager',
-  'manager', // legacy management role
-  'rep',
   'sales_rep',
-  'closer',
   'setter',
   'canvasser',
+  'custom',
 ] as const
 
 /**
@@ -89,7 +92,12 @@ export async function notifyOrgAdminsOfSale(
     )
   )
 
-  if (emails.length === 0) return
+  if (emails.length === 0) {
+    console.warn('notifyOrgAdminsOfSale: no recipients (check org users have active email + a sales-notification role)', {
+      orgId: params.orgId,
+    })
+    return
+  }
 
   const n = Number(params.totalAmount)
   const totalStr =

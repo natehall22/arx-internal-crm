@@ -2,7 +2,7 @@
 
 import type { DragEvent, FormEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fileWithSafeName } from '@/lib/files/storage'
+import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { createClientBrowser } from '@/lib/supabase/client'
 
 type PhotoRow = {
@@ -75,6 +75,30 @@ function isImageFile(file: File) {
 
 function hasFilePayload(e: DragEvent) {
   return e.dataTransfer.types.includes('Files')
+}
+
+/**
+ * Upload routes return JSON; reverse proxies (e.g. Vercel) may respond with plain text on limits
+ * (e.g. "413 Request Entity Too Large") before the handler runs — `response.json()` then throws
+ * "Unexpected token 'R'..." which is confusing.
+ */
+async function parseUploadResponseJson(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text()
+  if (!text) return {}
+  try {
+    return JSON.parse(text) as Record<string, unknown>
+  } catch {
+    const t = text.replace(/\s+/g, ' ').trim()
+    const tooLarge =
+      response.status === 413 ||
+      /request entity too large|payload too large|body exceeded|max body/i.test(t)
+    if (tooLarge) {
+      throw new Error(
+        'This file exceeds the server upload size limit (often about 4.5 MB on typical hosted deployments). Compress the image or use a smaller file.'
+      )
+    }
+    throw new Error(t.slice(0, 200) || `Upload failed (HTTP ${response.status})`)
+  }
 }
 
 export default function JobFileWorkspaceCard({
@@ -287,14 +311,14 @@ export default function JobFileWorkspaceCard({
       try {
         const formData = new FormData()
         formData.append('photo_tag', photoTag)
-        formData.append('file', fileWithSafeName(file, `photo_${i + 1}`))
+        formData.append('file', file, multipartFilenameForUpload(file, `photo_${i + 1}`))
 
         const response = await fetch(`/api/ops/jobs/${jobId}/photos`, {
           method: 'POST',
           body: formData,
         })
-        const data = await response.json()
-        if (!response.ok) throw new Error(data.error || 'Failed to upload photo')
+        const data = await parseUploadResponseJson(response)
+        if (!response.ok) throw new Error(String(data.error || 'Failed to upload photo'))
 
         if (data?.photo) {
           setPhotos((prev) => [data.photo as PhotoRow, ...prev])
@@ -346,14 +370,14 @@ export default function JobFileWorkspaceCard({
             : file.name.replace(/\.[^.]+$/, '') || file.name
         formData.append('title', baseTitle)
         if (documentDescription) formData.append('description', documentDescription)
-        formData.append('file', fileWithSafeName(file, `document_${i + 1}`))
+        formData.append('file', file, multipartFilenameForUpload(file, `document_${i + 1}`))
 
         const response = await fetch(`/api/ops/jobs/${jobId}/documents`, {
           method: 'POST',
           body: formData,
         })
-        const data = await response.json()
-        if (!response.ok) throw new Error(data.error || 'Failed to upload document')
+        const data = await parseUploadResponseJson(response)
+        if (!response.ok) throw new Error(String(data.error || 'Failed to upload document'))
         ok++
       } catch (error: any) {
         if (!firstError) firstError = error?.message || 'Document upload failed.'
@@ -392,14 +416,14 @@ export default function JobFileWorkspaceCard({
       try {
         const formData = new FormData()
         formData.append('job_cost_line_id', selectedCostLineId)
-        formData.append('file', fileWithSafeName(file, `attachment_${i + 1}`))
+        formData.append('file', file, multipartFilenameForUpload(file, `attachment_${i + 1}`))
 
         const response = await fetch(`/api/ops/jobs/${jobId}/cost-attachments`, {
           method: 'POST',
           body: formData,
         })
-        const data = await response.json()
-        if (!response.ok) throw new Error(data.error || 'Failed to upload attachment')
+        const data = await parseUploadResponseJson(response)
+        if (!response.ok) throw new Error(String(data.error || 'Failed to upload attachment'))
         ok++
       } catch (error: any) {
         if (!firstError) firstError = error?.message || 'Upload failed'
@@ -426,14 +450,14 @@ export default function JobFileWorkspaceCard({
     setStatusMessage(null)
     try {
       const formData = new FormData()
-      formData.append('file', fileWithSafeName(file, 'document'))
+      formData.append('file', file, multipartFilenameForUpload(file, 'document'))
 
       const response = await fetch(`/api/ops/jobs/${jobId}/documents/${documentId}/replace`, {
         method: 'POST',
         body: formData,
       })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to replace document')
+      const data = await parseUploadResponseJson(response)
+      if (!response.ok) throw new Error(String(data.error || 'Failed to replace document'))
 
       setStatusMessage({
         type: 'success',
