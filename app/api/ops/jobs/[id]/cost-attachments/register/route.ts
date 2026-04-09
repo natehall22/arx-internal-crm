@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { FILES_BUCKET, buildCostAttachmentStoragePath, safeUploadFilename } from '@/lib/files/storage'
+import { signedUploadTokenForPath } from '@/lib/files/signed-upload'
 
 export const runtime = 'nodejs'
 
@@ -63,12 +64,18 @@ export async function POST(
       filename: safeName,
     })
 
+    const signed = await signedUploadTokenForPath(supabase, FILES_BUCKET, storagePath)
+    if ('error' in signed) {
+      return NextResponse.json({ error: signed.error }, { status: 500 })
+    }
+
     return NextResponse.json({
       attachmentId,
       documentId,
       storagePath,
       bucket: FILES_BUCKET,
       jobCostLineId,
+      signedUploadToken: signed.token,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to register cost attachment upload'

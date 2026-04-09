@@ -327,11 +327,13 @@ export default function JobFileWorkspaceCard({
         const photoId = String(reg.photoId)
         const storagePath = String(reg.storagePath)
         const bucket = String(reg.bucket)
+        const signedUploadToken = String(reg.signedUploadToken)
 
-        const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
-          contentType: file.type || 'application/octet-stream',
-          upsert: false,
-        })
+        const { error: uploadError } = await supabase.storage
+          .from(bucket)
+          .uploadToSignedUrl(storagePath, signedUploadToken, file, {
+            contentType: file.type || 'application/octet-stream',
+          })
         if (uploadError) throw new Error(uploadError.message)
 
         const data = await fetchOpsJson(`/api/ops/jobs/${jobId}/photos/finalize`, {
@@ -403,11 +405,13 @@ export default function JobFileWorkspaceCard({
         const documentId = String(reg.documentId)
         const storagePath = String(reg.storagePath)
         const bucket = String(reg.bucket)
+        const signedUploadToken = String(reg.signedUploadToken)
 
-        const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
-          contentType: file.type || 'application/octet-stream',
-          upsert: false,
-        })
+        const { error: uploadError } = await supabase.storage
+          .from(bucket)
+          .uploadToSignedUrl(storagePath, signedUploadToken, file, {
+            contentType: file.type || 'application/octet-stream',
+          })
         if (uploadError) throw new Error(uploadError.message)
 
         await fetchOpsJson(`/api/ops/jobs/${jobId}/documents/finalize`, {
@@ -474,11 +478,13 @@ export default function JobFileWorkspaceCard({
         const documentId = String(reg.documentId)
         const storagePath = String(reg.storagePath)
         const bucket = String(reg.bucket)
+        const signedUploadToken = String(reg.signedUploadToken)
 
-        const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
-          contentType: file.type || 'application/octet-stream',
-          upsert: false,
-        })
+        const { error: uploadError } = await supabase.storage
+          .from(bucket)
+          .uploadToSignedUrl(storagePath, signedUploadToken, file, {
+            contentType: file.type || 'application/octet-stream',
+          })
         if (uploadError) throw new Error(uploadError.message)
 
         await fetchOpsJson(`/api/ops/jobs/${jobId}/cost-attachments/finalize`, {
@@ -526,11 +532,13 @@ export default function JobFileWorkspaceCard({
       const newDocumentId = String(reg.newDocumentId)
       const storagePath = String(reg.storagePath)
       const bucket = String(reg.bucket)
+      const signedUploadToken = String(reg.signedUploadToken)
 
-      const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, {
-        contentType: file.type || 'application/octet-stream',
-        upsert: false,
-      })
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .uploadToSignedUrl(storagePath, signedUploadToken, file, {
+          contentType: file.type || 'application/octet-stream',
+        })
       if (uploadError) throw new Error(uploadError.message)
 
       await fetchOpsJson(`/api/ops/jobs/${jobId}/documents/${documentId}/replace/finalize`, {

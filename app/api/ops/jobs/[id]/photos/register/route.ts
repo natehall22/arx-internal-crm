@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { FILES_BUCKET, buildJobPhotoStoragePath, safeUploadFilename } from '@/lib/files/storage'
+import { signedUploadTokenForPath } from '@/lib/files/signed-upload'
 
 export const runtime = 'nodejs'
 
 /**
  * Start a direct-to-Supabase photo upload (avoids Vercel ~4.5MB request body limits).
- * Client uploads bytes with the browser Supabase client, then calls …/finalize.
+ * Client uploads via signed URL token (no user JWT required), then calls …/finalize.
  */
 export async function POST(
   request: Request,
@@ -44,10 +45,16 @@ export async function POST(
       filename: safeName,
     })
 
+    const signed = await signedUploadTokenForPath(supabase, FILES_BUCKET, storagePath)
+    if ('error' in signed) {
+      return NextResponse.json({ error: signed.error }, { status: 500 })
+    }
+
     return NextResponse.json({
       photoId,
       storagePath,
       bucket: FILES_BUCKET,
+      signedUploadToken: signed.token,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to register photo upload'

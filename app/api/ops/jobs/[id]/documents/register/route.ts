@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { FILES_BUCKET, buildJobDocumentStoragePath, safeUploadFilename } from '@/lib/files/storage'
+import { signedUploadTokenForPath } from '@/lib/files/signed-upload'
 import type { DocumentRole, LinkedRecordType } from '@/lib/files/documents'
 
 export const runtime = 'nodejs'
@@ -80,11 +81,17 @@ export async function POST(
       folder,
     })
 
+    const signed = await signedUploadTokenForPath(supabase, FILES_BUCKET, storagePath)
+    if ('error' in signed) {
+      return NextResponse.json({ error: signed.error }, { status: 500 })
+    }
+
     return NextResponse.json({
       documentId,
       storagePath,
       bucket: FILES_BUCKET,
       folder,
+      signedUploadToken: signed.token,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to register document upload'
