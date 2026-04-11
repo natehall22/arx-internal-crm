@@ -95,6 +95,18 @@ function getDisplayPricing(proposal: Proposal) {
   }
 }
 
+/** Single quote total: financed contract amount when financing applies (includes lender gross-up), else tax-included total. */
+function getQuotedTotal(proposal: Proposal, taxIncludedTotal: number): number {
+  if (
+    proposal.financing_available &&
+    proposal.financed_contract_total != null &&
+    proposal.financed_contract_total > 0
+  ) {
+    return proposal.financed_contract_total
+  }
+  return taxIncludedTotal
+}
+
 export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -292,10 +304,13 @@ export default function ProposalDetailPage() {
       }
       console.log('PDF Generation - Company for PDF:', companyForPdf)
 
-      // Calculate monthly payment if financing
+      const displayForPdf = getDisplayPricing(proposal)
+      const quoteTotalForPdf = getQuotedTotal(proposal, displayForPdf.total)
+
+      // Calculate monthly payment if financing (principal = quoted total when financed program applies)
       let monthlyPayment: number | undefined
       if (financingType === 'financed' && financingTermMonths > 0) {
-        const principal = proposal.total
+        const principal = quoteTotalForPdf
         const monthlyRate = financingInterestRate / 100 / 12
         if (monthlyRate > 0) {
           monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)
@@ -326,7 +341,7 @@ export default function ProposalDetailPage() {
           discount_percent: proposal.discount_percent,
           tax_rate: proposal.tax_rate,
           tax_amount: proposal.tax_amount,
-          total: proposal.total,
+          total: quoteTotalForPdf,
           scope_of_work: proposal.scope_of_work,
           created_at: proposal.created_at,
         },
@@ -563,6 +578,7 @@ export default function ProposalDetailPage() {
   }
 
   const displayPricing = getDisplayPricing(proposal)
+  const quotedTotal = getQuotedTotal(proposal, displayPricing.total)
   const canEditProposal = !['accepted', 'declined'].includes(proposal.status)
   const canDeleteProposal =
     !!currentUserId &&
@@ -747,7 +763,7 @@ export default function ProposalDetailPage() {
                         </div>
                         <p className="text-xs text-blue-700">
                           Est. ${(() => {
-                          const principal = displayPricing.total
+                          const principal = quotedTotal
                             const monthlyRate = financingInterestRate / 100 / 12
                             if (monthlyRate > 0) {
                               return (principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)).toFixed(2)
@@ -820,7 +836,7 @@ export default function ProposalDetailPage() {
               <div className="text-right">
                 <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Project Total</h3>
                 <p className="text-4xl font-bold" style={{ color: proposal.accent_color || '#4f46e5' }}>
-                  ${displayPricing.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  ${quotedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </p>
                 {proposal.financing_available && proposal.monthly_payment && (
                   <p className="text-gray-900 mt-1">
@@ -1222,7 +1238,7 @@ export default function ProposalDetailPage() {
                 </div>
                 <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
                   <span>Total Investment</span>
-                  <span>${displayPricing.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>${quotedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>

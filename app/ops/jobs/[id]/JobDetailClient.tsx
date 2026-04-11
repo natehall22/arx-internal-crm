@@ -53,6 +53,7 @@ interface Job {
   internal_notes: string | null
   labor_cost: number | null
   material_cost: number | null
+  dealer_fee_amount?: number | null
   // Insurance
   job_source?: 'retail' | 'insurance'
   insurance_stage?: string | null
@@ -183,11 +184,14 @@ function renderWorkflowButton(
   job: Job,
   id: WorkflowBtnId,
   isPrimary: boolean,
-  opts: {
+    opts: {
     saving: boolean
     setShowScheduleModal: (v: boolean) => void
     updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
     handleCompleteClick: () => void
+    handleCollectedClick: () => void
+    canMarkCollected: boolean
+    markCollectedTitle?: string
   }
 ) {
   const outline =
@@ -201,7 +205,7 @@ function renderWorkflowButton(
   const pc = isPrimary ? primaryIndigo : outline
   const pcGreen = isPrimary ? primaryGreen : outline
   const pcGray = isPrimary ? primaryGray : outline
-  const { saving, setShowScheduleModal, updateStatus, handleCompleteClick } = opts
+  const { saving, setShowScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, canMarkCollected, markCollectedTitle } = opts
 
   switch (id) {
     case 'schedule':
@@ -263,8 +267,9 @@ function renderWorkflowButton(
         <button
           key={id}
           type="button"
-          onClick={() => updateStatus('collected')}
-          disabled={saving}
+          onClick={handleCollectedClick}
+          disabled={saving || !canMarkCollected}
+          title={markCollectedTitle}
           className={pcGray}
         >
           Mark as Collected
@@ -801,6 +806,28 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
     setShowCompleteModal(false)
   }
 
+  const saleAmountCentsForCollected = Math.round((job.sale_amount || 0) * 100)
+  const collectedCentsForWorkflow = paymentSummary?.collected_cents ?? 0
+  const canMarkCollected =
+    saleAmountCentsForCollected <= 0 ||
+    (paymentSummary != null && collectedCentsForWorkflow >= saleAmountCentsForCollected)
+  const markCollectedTitle =
+    !canMarkCollected && saleAmountCentsForCollected > 0
+      ? paymentSummary == null
+        ? 'Loading payment summary…'
+        : 'Record payments until the job is fully collected before moving it to the Completed list.'
+      : undefined
+
+  const handleCollectedClick = () => {
+    if (saleAmountCentsForCollected > 0 && collectedCentsForWorkflow < saleAmountCentsForCollected) {
+      alert(
+        'Record payments until the balance is zero. The Completed list is only for jobs that are fully collected.'
+      )
+      return
+    }
+    void updateStatus('collected')
+  }
+
   const updateMaterialsStatus = async (newStatus: string) => {
     setSaving(true)
 
@@ -889,6 +916,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const saleAmount = job.sale_amount || 0
   const laborCost = job.labor_cost || 0
   const materialCost = effectiveMaterialCost || 0
+  const dealerFeeCost = job.dealer_fee_amount || 0
   const toCents = (value: number) => Math.round(value * 100)
   const formatCents = (valueInCents: number) =>
     `$${(valueInCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -896,11 +924,13 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const saleAmountCents = toCents(saleAmount)
   const laborCostCents = toCents(laborCost)
   const materialCostCents = toCents(materialCost)
+  const dealerFeeCents = toCents(dealerFeeCost)
   const commissionCents =
     payrollSnapshot.poolCap != null
       ? Math.round(payrollSnapshot.poolCap * 100)
       : Math.round(saleAmountCents * SALES_COMMISSION_POOL_RATE)
-  const profitCents = saleAmountCents - laborCostCents - materialCostCents - commissionCents
+  const profitCents =
+    saleAmountCents - laborCostCents - materialCostCents - dealerFeeCents - commissionCents
   const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
 
   const handleAttachReceiptInvoiceShortcut = () => {
@@ -981,6 +1011,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 setShowScheduleModal,
                 updateStatus,
                 handleCompleteClick,
+                handleCollectedClick,
+                canMarkCollected,
+                markCollectedTitle,
               }
               const overflowAllowed =
                 (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') || userRole === 'admin'
@@ -1155,6 +1188,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                     setShowScheduleModal,
                     updateStatus,
                     handleCompleteClick,
+                    handleCollectedClick,
+                    canMarkCollected,
+                    markCollectedTitle,
                   }
                   const overflowAllowed =
                     (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') || userRole === 'admin'
@@ -1249,6 +1285,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 materialsNotes={job.materials_notes}
                 onTotalChange={setMaterialOrdersTotal}
                 onAttachReceiptInvoice={handleAttachReceiptInvoiceShortcut}
+                dealerFeeAmount={job.dealer_fee_amount ?? null}
               />
             </div>
 
@@ -1479,12 +1516,19 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
 
             </div>{/* end overview tab wrapper */}
 
+            {/* Final photos — desktop: above Financials (admin/owner); mobile: Photos tab */}
+            <div className={mobileTab !== 'photos' ? 'hidden lg:block' : undefined}>
+              <FinalPhotosCard jobId={job.id} projectId={job.project_id} orgId={job.org_id} />
+            </div>
+
             {/* COSTS TAB — Financials, Payments, Invoices, Work Orders */}
             <div className={mobileTab !== 'costs' ? 'hidden lg:block' : undefined}>
             {canViewFinancials && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
-                <p className="text-xs text-gray-500 mb-4">Sale minus est. comp, labor, and materials — admin &amp; owner only.</p>
+                <p className="text-xs text-gray-500 mb-4">
+                  Sale minus est. comp, labor, materials, and any lender dealer fee — admin &amp; owner only.
+                </p>
                 <div className="space-y-3 text-sm sm:text-base">
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-700">Sale</span>
@@ -1510,6 +1554,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                       {effectiveMaterialCost !== null ? formatCents(materialCostCents) : '—'}
                     </span>
                   </div>
+                  {dealerFeeCents > 0 && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-gray-700">Lender / dealer fee</span>
+                      <span className="font-medium text-amber-900 tabular-nums">{formatCents(dealerFeeCents)}</span>
+                    </div>
+                  )}
                   <div className="border-t border-gray-200 pt-3 flex justify-between gap-4">
                     <span className="text-gray-900 font-medium">Est. profit</span>
                     <span className={`font-semibold tabular-nums ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
@@ -1559,12 +1609,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
             <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
             </div>{/* end costs tab wrapper */}
 
-            {/* PHOTOS TAB — Final Photos */}
-            <div className={mobileTab !== 'photos' ? 'hidden lg:block' : undefined}>
-            <FinalPhotosCard jobId={job.id} projectId={job.project_id} orgId={job.org_id} />
-            </div>{/* end photos tab wrapper */}
-
-            {/* OVERVIEW TAB — Permit + Related (below photos on desktop) */}
+            {/* OVERVIEW TAB — Permit + Related */}
             <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
 
             {job.permit_required && (

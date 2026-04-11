@@ -21,6 +21,8 @@ interface Job {
   job_type: string
   address_text: string
   sale_amount: number | null
+  /** Lender dealer fee from financed sale (COGS). */
+  dealer_fee_amount?: number | null
   labor_cost?: number | null
   material_cost?: number | null
   sale_date: string | null
@@ -152,13 +154,15 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     const hasLabor = typeof job.labor_cost === 'number'
     const hasMaterial = typeof job.material_cost === 'number'
     const hasCompleteCosts = hasLabor && hasMaterial
-    const directCosts = (job.labor_cost ?? 0) + (job.material_cost ?? 0)
+    const dealerFee = job.dealer_fee_amount ?? 0
+    const directCosts = (job.labor_cost ?? 0) + (job.material_cost ?? 0) + dealerFee
     const profit = revenue - directCosts
     const marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0
 
     return {
       revenue,
       directCosts,
+      dealerFee,
       profit,
       marginPercent,
       hasCompleteCosts,
@@ -230,17 +234,29 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   }
 
   const updateJobStatus = async (jobId: string, newStatus: JobStatus) => {
-    const updates: any = { status: newStatus }
+    const updates: Record<string, unknown> = { status: newStatus }
     if (newStatus === 'in_progress') {
       updates.started_at = new Date().toISOString()
     } else if (newStatus === 'complete') {
       updates.completed_at = new Date().toISOString()
     }
 
-    await supabase
-      .from('production_jobs')
-      .update(updates)
-      .eq('id', jobId)
+    const response = await fetch(`/api/ops/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+
+    if (!response.ok) {
+      let message = 'Could not update job status'
+      try {
+        const err = await response.json()
+        if (err?.error && typeof err.error === 'string') message = err.error
+      } catch {
+        /* ignore */
+      }
+      alert(message)
+    }
 
     await loadData()
   }
@@ -472,7 +488,13 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                 ${jobs
                   .filter((j) => j.status !== 'collected')
                   .filter((j) => typeof j.labor_cost === 'number' && typeof j.material_cost === 'number')
-                  .reduce((sum, j) => sum + ((j.sale_amount || 0) - ((j.labor_cost || 0) + (j.material_cost || 0))), 0)
+                  .reduce(
+                    (sum, j) =>
+                      sum +
+                      ((j.sale_amount || 0) -
+                        ((j.labor_cost || 0) + (j.material_cost || 0) + (j.dealer_fee_amount || 0))),
+                    0
+                  )
                   .toLocaleString()}
               </div>
               <div className="text-xs text-gray-500">Gross Profit (Known)</div>
@@ -724,7 +746,14 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                                 ${profitability.profit.toLocaleString()}
                               </div>
                               <div className="text-gray-500">
-                                Costs ${profitability.directCosts.toLocaleString()} · {profitability.marginPercent.toFixed(1)}%
+                                Costs ${profitability.directCosts.toLocaleString()}
+                                {profitability.dealerFee > 0 && (
+                                  <span className="text-amber-800" title="Lender dealer fee on financed sale">
+                                    {' '}
+                                    (dealer fee ${profitability.dealerFee.toLocaleString()})
+                                  </span>
+                                )}{' '}
+                                · {profitability.marginPercent.toFixed(1)}%
                               </div>
                             </div>
                           ) : (

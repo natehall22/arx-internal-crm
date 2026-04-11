@@ -27,6 +27,8 @@ interface JobMaterialsCardProps {
   materialsNotes?: string | null
   onTotalChange?: (total: number) => void
   onAttachReceiptInvoice?: () => void
+  /** From financed sale — lender dealer fee (read-only COGS line). */
+  dealerFeeAmount?: number | null
 }
 
 type OrderStatus = ProductOrder['status']
@@ -61,6 +63,7 @@ export default function JobMaterialsCard({
   materialsNotes,
   onTotalChange,
   onAttachReceiptInvoice,
+  dealerFeeAmount,
 }: JobMaterialsCardProps) {
   const [orders, setOrders] = useState<ProductOrder[]>([])
   const [total, setTotal] = useState(0)
@@ -331,6 +334,18 @@ export default function JobMaterialsCard({
               <p className="text-xs text-gray-500 mt-2">Enter labor cost for this job.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {dealerFeeAmount != null && dealerFeeAmount > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Lender / dealer fee</p>
+              <p className="text-xs text-gray-600">Financing program cost from the sold proposal (not editable).</p>
+            </div>
+            <span className="text-lg font-semibold text-amber-900 tabular-nums">{formatCurrency(dealerFeeAmount)}</span>
+          </div>
         </div>
       )}
 

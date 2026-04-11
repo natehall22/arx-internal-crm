@@ -195,7 +195,7 @@ export async function GET() {
         amount,
         status,
         created_at,
-        job:production_jobs(job_number)
+        job:production_jobs(job_number, customer:customers(name))
       `)
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
@@ -214,7 +214,7 @@ export async function GET() {
           status,
           notes,
           created_at,
-          job:production_jobs(job_number)
+          job:production_jobs(job_number, customer:customers(name))
         `)
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
@@ -230,25 +230,34 @@ export async function GET() {
         })
       )
 
-      formattedRecentOrders = mappedOrders.map((order: any) => ({
-        id: order.id,
-        job_id: order.job_id,
-        job_number: jobById.get(order.id)?.job_number || 'Unknown',
-        description: order.description,
-        supplier: order.supplier,
-        amount: parseFloat(order.amount) || 0,
-        status: order.status,
-        created_at: order.created_at,
-      }))
-    } else if (recentOrdersError) {
-      throw recentOrdersError
-    } else {
-      formattedRecentOrders = (recentOrders || []).map(order => {
-        const job = Array.isArray(order.job) ? order.job[0] : order.job
+      formattedRecentOrders = mappedOrders.map((order: any) => {
+        const job: any = jobById.get(order.id)
+        const cust = job?.customer
+        const c = Array.isArray(cust) ? cust[0] : cust
         return {
           id: order.id,
           job_id: order.job_id,
           job_number: job?.job_number || 'Unknown',
+          customer_name: c?.name || '',
+          description: order.description,
+          supplier: order.supplier,
+          amount: parseFloat(order.amount) || 0,
+          status: order.status,
+          created_at: order.created_at,
+        }
+      })
+    } else if (recentOrdersError) {
+      throw recentOrdersError
+    } else {
+      formattedRecentOrders = (recentOrders || []).map((order: any) => {
+        const job = Array.isArray(order.job) ? order.job[0] : order.job
+        const cust = job?.customer
+        const c = Array.isArray(cust) ? cust[0] : cust
+        return {
+          id: order.id,
+          job_id: order.job_id,
+          job_number: job?.job_number || 'Unknown',
+          customer_name: c?.name || '',
           description: order.description,
           supplier: order.supplier,
           amount: parseFloat(order.amount) || 0,

@@ -793,6 +793,15 @@ export default function ProposalBuilderPage() {
       ? financingEstimate.monthly_payment
       : totals.monthlyPayment
 
+  const displayFinancedContractTotal =
+    form.financing_available && form.financing_program_id && financingEstimate
+      ? financingEstimate.financed_contract_total
+      : null
+  const primaryDisplayTotal =
+    displayFinancedContractTotal != null && displayFinancedContractTotal > 0
+      ? displayFinancedContractTotal
+      : totals.total
+
   useEffect(() => {
     let cancelled = false
     if (!form.financing_available || !form.financing_program_id) {
@@ -872,7 +881,13 @@ export default function ProposalBuilderPage() {
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-500">Total</p>
-              <p className="text-2xl font-bold text-gray-900">${(totals.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p className="text-2xl font-bold text-gray-900">
+                $
+                {(primaryDisplayTotal || 0).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
             </div>
           </div>
         </div>
@@ -1754,7 +1769,11 @@ export default function ProposalBuilderPage() {
                   <div className="text-right">
                     <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Project Total</h3>
                     <p className="text-4xl font-bold" style={{ color: form.accent_color }}>
-                      ${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      $
+                      {primaryDisplayTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </p>
                     {form.financing_available && (
                       <p className="text-gray-500 mt-1">
@@ -1795,7 +1814,13 @@ export default function ProposalBuilderPage() {
                     </div>
                     <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
                       <span>Total Investment</span>
-                      <span>${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      <span>
+                        $
+                        {(primaryDisplayTotal || 0).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500 mt-4 pt-3 border-t">

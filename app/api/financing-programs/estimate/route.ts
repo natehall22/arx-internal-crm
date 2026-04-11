@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Program not found' }, { status: 404 })
     }
 
-    const { financedContractTotal, dealerFeeAmount: _fee } = computeFinancedContractTotal(
+    const { financedContractTotal, dealerFeeAmount } = computeFinancedContractTotal(
       baseTotal,
       program.dealer_fee_percent
     )
@@ -144,6 +144,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       financed_contract_total: financedContractTotal,
+      /** Dollar amount of lender/dealer fee implied by gross-up (internal; not the fee %). */
+      dealer_fee_amount: dealerFeeAmount,
       monthly_payment,
       lender_name: program.lender_name,
     })

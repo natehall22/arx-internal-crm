@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { getJobPaymentSummary } from '@/lib/job-payments'
 
 const jobSelectWithPaymentMethod = `
   *,
@@ -85,6 +86,25 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    // Fail-safe: "collected" is the closed-out state (Completed tab). Do not allow it until
+    // recorded payments cover the sale amount (same rule as the job detail auto-collect effect).
+    if (updateData.status === 'collected') {
+      const summary = await getJobPaymentSummary(adminClient, params.id)
+      if (!summary) {
+        return NextResponse.json({ error: 'Could not verify payments for this job' }, { status: 400 })
+      }
+      const { sale_amount_cents: saleCents, collected_cents: collected } = summary
+      if (saleCents > 0 && collected < saleCents) {
+        return NextResponse.json(
+          {
+            error: 'Cannot mark as collected until the job is fully paid',
+            remaining_cents: saleCents - collected,
+          },
+          { status: 400 }
+        )
+      }
     }
 
     // Update the job
