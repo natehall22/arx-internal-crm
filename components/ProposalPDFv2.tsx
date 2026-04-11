@@ -737,6 +737,7 @@ const processSteps = [
 ]
 
 const warranties = [
+  { text: '5-Year Workmanship Warranty' },
   { text: '1-Year No-Leak Guarantee' },
   { text: '25-Year Manufacturer Warranty' },
   { text: '6-Month Post-Installation Checkup' },
