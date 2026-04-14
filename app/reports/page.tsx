@@ -12,6 +12,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 type ReportMetrics = {
   doorsKnocked: number
@@ -33,6 +34,10 @@ type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all'
 type OutcomeMetricRow = {
   inspection_outcome: string | null
   inspection_outcome_at?: string | null
+}
+
+function userOutcomeColumn(role: string | null | undefined) {
+  return isSetterLikeRole(role || '') ? 'setter_user_id' : 'owner_user_id'
 }
 
 /** Same ids as report builder — drives GET date filter via POST override */
@@ -126,39 +131,46 @@ export default function ReportsPage() {
     const supabase = createClientBrowser()
     const dateFilter = getDateFilter()
     const scope = getReportScope(currentUser.role as UserRole)
+    const orgId = currentUser.org_id
 
     // Load org-level metrics
     const [leadsRes, oppsRes, outcomeOppsRes, appointmentsRes, projectsRes, statusUpdatesRes, orgRes] = await Promise.all([
       supabase
         .from('leads')
         .select('id, status, source, canvass_disposition, created_at, owner_user_id')
+        .eq('org_id', orgId)
         .gte('created_at', dateFilter),
       supabase
         .from('opportunities')
         .select('id, status, inspection_outcome, inspection_outcome_at, created_at, owner_user_id, setter_user_id')
+        .eq('org_id', orgId)
         .gte('created_at', dateFilter),
       supabase
         .from('opportunities')
         .select('id, status, inspection_outcome, inspection_outcome_at, owner_user_id, setter_user_id')
+        .eq('org_id', orgId)
         .not('inspection_outcome', 'is', null)
         .not('inspection_outcome_at', 'is', null)
         .gte('inspection_outcome_at', dateFilter),
       supabase
         .from('scheduled_appointments')
         .select('id, canvasser_user_id, created_at')
+        .eq('org_id', orgId)
         .gte('created_at', dateFilter),
       supabase
         .from('projects')
         .select('id, status, created_at')
+        .eq('org_id', orgId)
         .gte('created_at', dateFilter),
       supabase
         .from('inspection_status_updates')
         .select('id, outcome, completed_at, closer_user_id')
+        .eq('org_id', orgId)
         .gte('completed_at', dateFilter),
       supabase
         .from('orgs')
         .select('settings')
-        .eq('id', currentUser.org_id)
+        .eq('id', orgId)
         .single(),
     ])
 
@@ -190,7 +202,7 @@ export default function ReportsPage() {
       contacts: leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
       inspectionsSet: appointments.length,
       opportunitiesCreated: opps.length,
-      contractsSigned: opps.filter(o => o.status === 'won').length,
+      contractsSigned: orgCloseMetrics.sales,
       projectsCompleted: projects.filter(p => p.status === 'complete').length,
       inspectionsRun: orgCloseMetrics.inspectionsRun,
       closeRate: orgCloseMetrics.closeRate,
@@ -233,6 +245,7 @@ export default function ReportsPage() {
       const { data: regionsData } = await supabase
         .from('regions')
         .select('*')
+        .eq('org_id', orgId)
         .order('name')
 
       // For each region, calculate metrics
@@ -242,6 +255,7 @@ export default function ReportsPage() {
         const { data: regionTeams } = await supabase
           .from('teams')
           .select('*')
+          .eq('org_id', orgId)
           .eq('region_id', region.id)
 
         // Get users in those teams
@@ -249,6 +263,7 @@ export default function ReportsPage() {
         const { data: regionUsers } = await supabase
           .from('users')
           .select('id')
+          .eq('org_id', orgId)
           .in('team_id', teamIds.length > 0 ? teamIds : ['none'])
 
         const userIds = (regionUsers || []).map(u => u.id)
@@ -257,12 +272,14 @@ export default function ReportsPage() {
         const { data: regionLeads } = await supabase
           .from('leads')
           .select('id, status, source, canvass_disposition')
+          .eq('org_id', orgId)
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
         const { data: regionAppointments } = await supabase
           .from('scheduled_appointments')
           .select('id, canvasser_user_id')
+          .eq('org_id', orgId)
           .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
@@ -270,19 +287,24 @@ export default function ReportsPage() {
         const { data: regionOwnedOpps } = await supabase
           .from('opportunities')
           .select('id, status')
+          .eq('org_id', orgId)
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        // Get outcome events for close-rate metrics
-        const { data: regionOutcomeOpps } = await supabase
-          .from('opportunities')
-          .select('id, status, inspection_outcome, inspection_outcome_at')
-          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
-          .not('inspection_outcome', 'is', null)
-          .not('inspection_outcome_at', 'is', null)
-          .gte('inspection_outcome_at', dateFilter)
+        let regionOutcomeOpps: OutcomeMetricRow[] = []
+        if (userIds.length > 0) {
+          const { data } = await supabase
+            .from('opportunities')
+            .select('id, status, inspection_outcome, inspection_outcome_at')
+            .eq('org_id', orgId)
+            .or(`owner_user_id.in.(${userIds.join(',')}),setter_user_id.in.(${userIds.join(',')})`)
+            .not('inspection_outcome', 'is', null)
+            .not('inspection_outcome_at', 'is', null)
+            .gte('inspection_outcome_at', dateFilter)
+          regionOutcomeOpps = data || []
+        }
 
-        const regionCloseMetrics = calculateCloseMetrics(regionOutcomeOpps || [])
+        const regionCloseMetrics = calculateCloseMetrics(regionOutcomeOpps)
         
         regionsWithMetrics.push({
           ...region,
@@ -290,7 +312,7 @@ export default function ReportsPage() {
           contacts: (regionLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
           inspectionsSet: (regionAppointments || []).length,
           opportunitiesCreated: (regionOwnedOpps || []).length,
-          contractsSigned: (regionOwnedOpps || []).filter(o => o.status === 'won').length,
+          contractsSigned: regionCloseMetrics.sales,
           projectsCompleted: 0,
           inspectionsRun: regionCloseMetrics.inspectionsRun,
           closeRate: regionCloseMetrics.closeRate,
@@ -304,6 +326,7 @@ export default function ReportsPage() {
     // Load teams if viewing team level
     if (selectedRegionId || scope === 'team') {
       let teamsQuery = supabase.from('teams').select('*').order('name')
+      teamsQuery = teamsQuery.eq('org_id', orgId)
       
       if (selectedRegionId) {
         teamsQuery = teamsQuery.eq('region_id', selectedRegionId)
@@ -318,6 +341,7 @@ export default function ReportsPage() {
         const { data: teamUsers } = await supabase
           .from('users')
           .select('id')
+          .eq('org_id', orgId)
           .eq('team_id', team.id)
 
         const userIds = (teamUsers || []).map(u => u.id)
@@ -325,12 +349,14 @@ export default function ReportsPage() {
         const { data: teamLeads } = await supabase
           .from('leads')
           .select('id, status, source, canvass_disposition')
+          .eq('org_id', orgId)
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
         const { data: teamAppointments } = await supabase
           .from('scheduled_appointments')
           .select('id, canvasser_user_id')
+          .eq('org_id', orgId)
           .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
@@ -338,19 +364,24 @@ export default function ReportsPage() {
         const { data: teamOwnedOpps } = await supabase
           .from('opportunities')
           .select('id, status')
+          .eq('org_id', orgId)
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        // Get outcome events for close-rate metrics
-        const { data: teamOutcomeOpps } = await supabase
-          .from('opportunities')
-          .select('id, status, inspection_outcome, inspection_outcome_at')
-          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
-          .not('inspection_outcome', 'is', null)
-          .not('inspection_outcome_at', 'is', null)
-          .gte('inspection_outcome_at', dateFilter)
+        let teamOutcomeOpps: OutcomeMetricRow[] = []
+        if (userIds.length > 0) {
+          const { data } = await supabase
+            .from('opportunities')
+            .select('id, status, inspection_outcome, inspection_outcome_at')
+            .eq('org_id', orgId)
+            .or(`owner_user_id.in.(${userIds.join(',')}),setter_user_id.in.(${userIds.join(',')})`)
+            .not('inspection_outcome', 'is', null)
+            .not('inspection_outcome_at', 'is', null)
+            .gte('inspection_outcome_at', dateFilter)
+          teamOutcomeOpps = data || []
+        }
 
-        const teamCloseMetrics = calculateCloseMetrics(teamOutcomeOpps || [])
+        const teamCloseMetrics = calculateCloseMetrics(teamOutcomeOpps)
 
         teamsWithMetrics.push({
           ...team,
@@ -358,7 +389,7 @@ export default function ReportsPage() {
           contacts: (teamLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
           inspectionsSet: (teamAppointments || []).length,
           opportunitiesCreated: (teamOwnedOpps || []).length,
-          contractsSigned: (teamOwnedOpps || []).filter(o => o.status === 'won').length,
+          contractsSigned: teamCloseMetrics.sales,
           projectsCompleted: 0,
           inspectionsRun: teamCloseMetrics.inspectionsRun,
           closeRate: teamCloseMetrics.closeRate,
@@ -371,7 +402,7 @@ export default function ReportsPage() {
 
     // Load individual users if viewing user level
     if (selectedTeamId || scope === 'own') {
-      let usersQuery = supabase.from('users').select('*').eq('active', true).order('full_name')
+      let usersQuery = supabase.from('users').select('*').eq('org_id', orgId).eq('active', true).order('full_name')
       
       if (selectedTeamId) {
         usersQuery = usersQuery.eq('team_id', selectedTeamId)
@@ -386,12 +417,14 @@ export default function ReportsPage() {
         const { data: userLeads } = await supabase
           .from('leads')
           .select('id, status, source, canvass_disposition')
+          .eq('org_id', orgId)
           .eq('owner_user_id', user.id)
           .gte('created_at', dateFilter)
 
         const { data: userAppointments } = await supabase
           .from('scheduled_appointments')
           .select('id, canvasser_user_id')
+          .eq('org_id', orgId)
           .eq('canvasser_user_id', user.id)
           .gte('created_at', dateFilter)
 
@@ -399,6 +432,7 @@ export default function ReportsPage() {
         const { data: userOwnedOpps } = await supabase
           .from('opportunities')
           .select('id, status')
+          .eq('org_id', orgId)
           .eq('owner_user_id', user.id)
           .gte('created_at', dateFilter)
 
@@ -406,7 +440,8 @@ export default function ReportsPage() {
         const { data: userOutcomeOpps } = await supabase
           .from('opportunities')
           .select('id, status, inspection_outcome, inspection_outcome_at')
-          .eq('owner_user_id', user.id)
+          .eq('org_id', orgId)
+          .eq(userOutcomeColumn(user.role), user.id)
           .not('inspection_outcome', 'is', null)
           .not('inspection_outcome_at', 'is', null)
           .gte('inspection_outcome_at', dateFilter)
@@ -419,7 +454,7 @@ export default function ReportsPage() {
           contacts: (userLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
           inspectionsSet: (userAppointments || []).length,
           opportunitiesCreated: (userOwnedOpps || []).length,
-          contractsSigned: (userOwnedOpps || []).filter(o => o.status === 'won').length,
+          contractsSigned: userCloseMetrics.sales,
           projectsCompleted: 0,
           inspectionsRun: userCloseMetrics.inspectionsRun,
           closeRate: userCloseMetrics.closeRate,
