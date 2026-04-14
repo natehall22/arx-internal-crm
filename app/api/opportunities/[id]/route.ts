@@ -151,6 +151,7 @@ export async function PATCH(
       'status', 'stage', 'outcome', 'notes', 'inspection_outcome', 'inspection_outcome_at',
       'inspection_notes', 'sale_amount', 'contact_name', 'contact_email', 'contact_phone',
       'address_text', 'assigned_user_id', 'closer_user_id', 'setter_user_id',
+      'job_source', 'insurance_stage',
       'insurance_company', 'claim_number', 'adjuster_name', 'adjuster_phone',
       'deductible', 'rcv', 'acv', 'profit_margin', 'contract_signed_at',
       'customer_id', 'follow_up_at', 'source', 'pipeline_stage',

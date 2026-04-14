@@ -233,6 +233,7 @@ export async function POST(request: NextRequest) {
         status: 'scheduled',
         address_text: originalAppointment.address_text,
         notes: notes || `Rescheduled from ${formatDateTimeInTimezone(originalAppointment.scheduled_for)} ET`,
+        appointment_type: typeKey,
       })
       .select()
       .single()

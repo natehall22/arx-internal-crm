@@ -75,6 +75,15 @@ export async function POST(request: Request) {
       }, { status: 409 })
     }
 
+    const { data: opportunityForSource } = project.opportunity_id
+      ? await adminClient
+          .from('opportunities')
+          .select('job_source, insurance_stage')
+          .eq('id', project.opportunity_id)
+          .eq('org_id', profile.org_id)
+          .maybeSingle()
+      : { data: null }
+
     // Create the production job
     const { data: newJob, error: createError } = await adminClient
       .from('production_jobs')
@@ -90,6 +99,10 @@ export async function POST(request: Request) {
         sale_date: new Date().toISOString().split('T')[0],
         sale_amount: sale_amount || null,
         created_by: user.id,
+        job_source: opportunityForSource?.job_source || 'retail',
+        insurance_stage: opportunityForSource?.job_source === 'insurance'
+          ? (opportunityForSource.insurance_stage || 'contingency_signed')
+          : null,
       })
       .select()
       .single()

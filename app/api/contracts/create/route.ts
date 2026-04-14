@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
     const {
       opportunityId,
       proposalId,
+      agreementType,
       customerName,
       customerEmail,
       customerPhone,
@@ -36,9 +37,17 @@ export async function POST(request: NextRequest) {
       repSignature,
     } = body
 
-    if (!customerName || !projectAddress || !projectCost) {
+    const safeAgreementType = agreementType === 'contingency' ? 'contingency' : 'installation'
+    const safeProjectCost = safeAgreementType === 'contingency' ? 0 : Number(projectCost || 0)
+    const safeDepositAmount = safeAgreementType === 'contingency' ? 0 : Number(depositAmount || 0)
+    const safePaymentMethod = safeAgreementType === 'contingency' ? 'insurance' : (paymentMethod || 'cash')
+    const agreementLabel = safeAgreementType === 'contingency'
+      ? 'Insurance Contingency Agreement'
+      : 'Installation Agreement'
+
+    if (!customerName || !projectAddress || (safeAgreementType === 'installation' && !safeProjectCost)) {
       return NextResponse.json(
-        { error: 'Customer name, project address, and project cost are required' },
+        { error: safeAgreementType === 'installation' ? 'Customer name, project address, and project cost are required' : 'Customer name and project address are required' },
         { status: 400 }
       )
     }
@@ -56,6 +65,7 @@ export async function POST(request: NextRequest) {
         .from('order_form_contracts')
         .delete()
         .eq('opportunity_id', opportunityId)
+        .eq('agreement_type', safeAgreementType)
         .eq('status', 'pending_customer')
 
       if (deleteError) {
@@ -73,13 +83,14 @@ export async function POST(request: NextRequest) {
       .from('order_form_contracts')
       .insert({
         org_id: profile.org_id,
+        agreement_type: safeAgreementType,
         opportunity_id: opportunityId || null,
         proposal_id: proposalId || null,
         customer_name: customerName,
         customer_email: customerEmail || null,
         customer_phone: customerPhone || null,
         project_address: projectAddress,
-        project_cost: projectCost,
+        project_cost: safeProjectCost,
         total_squares: totalSquares || null,
         roofing_material: roofingMaterial || null,
         scope_roof_replacement: scopeRoofReplacement || false,
@@ -87,9 +98,9 @@ export async function POST(request: NextRequest) {
         scope_gutters: scopeGutters || false,
         scope_siding: scopeSiding || false,
         scope_other: scopeOther || null,
-        payment_method: paymentMethod || 'cash',
-        finance_company: financeCompany || null,
-        deposit_amount: depositAmount || 0,
+        payment_method: safePaymentMethod,
+        finance_company: safeAgreementType === 'installation' ? (financeCompany || null) : null,
+        deposit_amount: safeDepositAmount,
         est_completion_date: estCompletionDate || null,
         exclusions: exclusions || null,
         additional_products: additionalProducts || null,
@@ -130,15 +141,15 @@ export async function POST(request: NextRequest) {
         await transporter.sendMail({
           from: process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>',
           to: customerEmail,
-          subject: 'ARX Roofing - Your Contract is Ready to Sign',
+          subject: `ARX Roofing - Your ${agreementLabel} is Ready to Sign`,
           text: `Hi ${customerName},
 
-Your contract is ready! Please review and sign it using the link below:
+Your ${agreementLabel} is ready. Please review and sign it using the link below:
 
 ${signingUrl}
 
 Project: ${projectAddress}
-Amount: $${projectCost.toLocaleString()}
+${safeAgreementType === 'installation' ? `Amount: $${safeProjectCost.toLocaleString()}` : 'Amount: Not required until final Installation Agreement'}
 
 This link expires in 7 days.
 
@@ -158,13 +169,13 @@ Questions? Call 704-313-8834 or email info@arxroofing.com
 
 <tr><td style="padding:30px 30px 20px 30px;">
 <p style="margin:0 0 15px 0;font-size:16px;color:#333;">Hi ${customerName},</p>
-<p style="margin:0 0 25px 0;font-size:16px;color:#333;">Your contract is ready for signature. Click below to review and sign:</p>
+<p style="margin:0 0 25px 0;font-size:16px;color:#333;">Your ${agreementLabel} is ready for signature. Click below to review and sign:</p>
 </td></tr>
 
 <tr><td align="center" style="padding:0 30px 25px 30px;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="background:#22c55e;border-radius:6px;padding:14px 32px;">
-<a href="${signingUrl}" style="color:#ffffff;text-decoration:none;font-size:18px;font-weight:bold;display:block;">Review & Sign Contract</a>
+<a href="${signingUrl}" style="color:#ffffff;text-decoration:none;font-size:18px;font-weight:bold;display:block;">Review & Sign Agreement</a>
 </td>
 </tr></table>
 </td></tr>
@@ -173,7 +184,8 @@ Questions? Call 704-313-8834 or email info@arxroofing.com
 <table width="100%" cellpadding="12" cellspacing="0" style="background:#f9f9f9;border-radius:6px;">
 <tr><td style="font-size:14px;color:#666;">
 <strong style="color:#333;">Project:</strong> ${projectAddress}<br>
-<strong style="color:#333;">Amount:</strong> $${projectCost.toLocaleString()}
+<strong style="color:#333;">Agreement:</strong> ${agreementLabel}<br>
+<strong style="color:#333;">Amount:</strong> ${safeAgreementType === 'installation' ? `$${safeProjectCost.toLocaleString()}` : 'Not required until final Installation Agreement'}
 </td></tr>
 </table>
 </td></tr>
@@ -204,7 +216,7 @@ ${repName}<br>ARX Roofing & Exteriors LLC
         opportunity_id: opportunityId,
         user_id: profile.id,
         type: 'note',
-        body: `Contract created and sent to ${customerEmail || 'customer'}. Signing link: ${signingUrl}`,
+        body: `${agreementLabel} created and sent to ${customerEmail || 'customer'}. Signing link: ${signingUrl}`,
       })
     }
 

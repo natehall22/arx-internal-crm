@@ -110,6 +110,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const agreementType = contract.agreement_type === 'contingency' ? 'contingency' : 'installation'
+    const isContingency = agreementType === 'contingency'
+    const agreementLabel = isContingency ? 'Insurance Contingency Agreement' : 'Installation Agreement'
+
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 
                      request.headers.get('x-real-ip') || 
                      'unknown'
@@ -140,7 +144,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    try {
+    if (!isContingency) try {
       const soldDescription = buildOrderFormContractSaleDescription(contract)
       const totalAmount =
         contract.project_cost != null && Number.isFinite(Number(contract.project_cost))
@@ -214,6 +218,7 @@ export async function POST(request: NextRequest) {
           .from('order_form_contracts')
           .select('id, pdf_storage_path')
           .eq('opportunity_id', contract.opportunity_id)
+          .eq('agreement_type', agreementType)
           .neq('id', contract.id)
 
         if (olderContracts && olderContracts.length > 0) {
@@ -266,7 +271,7 @@ export async function POST(request: NextRequest) {
       
       console.log('[Contract Sign] PDF generated, size:', pdfBuffer.length, 'bytes')
       
-      const fileName = `contract_${contract.id}_${Date.now()}.pdf`
+      const fileName = `${isContingency ? 'contingency' : 'contract'}_${contract.id}_${Date.now()}.pdf`
       pdfStoragePath = `org/${contract.org_id}/contracts/${fileName}`
 
       // Try files bucket first (more reliable)
@@ -323,19 +328,32 @@ export async function POST(request: NextRequest) {
 
     let projectId = null
     let projectCreateError: string | null = null
-    try {
+    if (isContingency) {
+      if (contract.opportunity_id) {
+        await supabase
+          .from('opportunities')
+          .update({
+            job_source: 'insurance',
+            insurance_stage: 'contingency_signed',
+            status: 'in_progress',
+          })
+          .eq('id', contract.opportunity_id)
+      }
+    } else try {
       let existingProject: { id: string } | null = null
       let oppForProject: {
         customer_id: string | null
         lead_id: string | null
         owner_user_id: string | null
         inspection_outcome: string | null
+        job_source?: string | null
+        insurance_stage?: string | null
       } | null = null
 
       if (contract.opportunity_id) {
         const { data: oppRow } = await supabase
           .from('opportunities')
-          .select('customer_id, lead_id, owner_user_id, inspection_outcome')
+          .select('customer_id, lead_id, owner_user_id, inspection_outcome, job_source, insurance_stage')
           .eq('id', contract.opportunity_id)
           .maybeSingle()
         oppForProject = oppRow
@@ -437,8 +455,13 @@ export async function POST(request: NextRequest) {
         // Only mark the deal won when a project row actually exists — avoids won opportunities with no project.
         if (projectId && contract.opportunity_id) {
           const wonUpdate: Record<string, unknown> = { status: 'won', customer_id: customerId }
-          // Dashboard sales metrics use inspection_outcome + owner_user_id; set sale if not already recorded
-          if (!opportunity?.inspection_outcome) {
+          if (contract.payment_method === 'insurance') {
+            wonUpdate.job_source = 'insurance'
+            wonUpdate.insurance_stage = oppForProject?.insurance_stage || 'contingency_signed'
+          }
+          // Dashboard sales metrics use inspection_outcome + owner_user_id.
+          // A contingency can leave "insurance_follow_up" on the opportunity; the final Installation Agreement is the sale.
+          if (opportunity?.inspection_outcome !== 'sale') {
             wonUpdate.inspection_outcome = 'sale'
             wonUpdate.inspection_outcome_at = customerSignedAt
           }
@@ -522,6 +545,11 @@ export async function POST(request: NextRequest) {
                   created_by: contract.created_by,
                   internal_notes: contract.notes || null,
                   special_instructions: contract.exclusions || null,
+                  job_source: oppForProject?.job_source || (contract.payment_method === 'insurance' ? 'insurance' : 'retail'),
+                  insurance_stage:
+                    (oppForProject?.job_source === 'insurance' || contract.payment_method === 'insurance')
+                      ? (oppForProject?.insurance_stage || 'contingency_signed')
+                      : null,
                   ...proposalFinancing,
                 })
                 .select('id, job_number')
@@ -726,7 +754,7 @@ export async function POST(request: NextRequest) {
         opportunity_id: contract.opportunity_id,
         user_id: contract.created_by,
         type: 'status_change',
-        body: `Contract signed by ${printName} from IP ${clientIp}`,
+        body: `${agreementLabel} signed by ${printName} from IP ${clientIp}`,
       })
     }
 
@@ -747,25 +775,25 @@ export async function POST(request: NextRequest) {
       
       const pdfSection = pdfUrl
         ? `<p style="text-align: center;">
-            <a href="${pdfUrl}" style="display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Download Signed Contract</a>
+            <a href="${pdfUrl}" style="display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Download Signed Agreement</a>
           </p>`
         : `<p style="background: #fef3c7; padding: 12px; border-radius: 6px; color: #92400e;">
-            Your signed contract is being processed. A copy will be sent to you shortly, or you can contact us to request one.
+            Your signed agreement is being processed. A copy will be sent to you shortly, or you can contact us to request one.
           </p>`
 
       const pdfTextSection = pdfUrl
-        ? `You can download your signed contract here:\n${pdfUrl}`
-        : `Your signed contract is being processed. Please contact us if you need a copy.`
+        ? `You can download your signed agreement here:\n${pdfUrl}`
+        : `Your signed agreement is being processed. Please contact us if you need a copy.`
 
       const emailText = `Dear ${contract.customer_name},
 
-Thank you for signing your contract with ARX Roofing & Exteriors!
+Thank you for signing your ${agreementLabel} with ARX Roofing & Exteriors!
 
 ${pdfTextSection}
 
 Project Details:
 - Address: ${contract.project_address}
-- Project Cost: $${contract.project_cost.toLocaleString()}
+${isContingency ? '- Project Cost: Not required until final Installation Agreement' : `- Project Cost: $${contract.project_cost.toLocaleString()}`}
 
 We look forward to working with you!
 
@@ -793,16 +821,16 @@ ARX Roofing & Exteriors LLC`
   <div class="container">
     <div class="header">
       <h1 style="margin: 0;">ARX ROOFING & EXTERIORS LLC</h1>
-      <p style="margin: 5px 0 0 0; opacity: 0.9;">Contract Signed Successfully!</p>
+      <p style="margin: 5px 0 0 0; opacity: 0.9;">Agreement Signed Successfully!</p>
     </div>
     <div class="content">
       <p>Dear ${contract.customer_name},</p>
-      <p>Thank you for signing your contract with ARX Roofing & Exteriors!</p>
+      <p>Thank you for signing your ${agreementLabel} with ARX Roofing & Exteriors!</p>
       
       <div class="details">
         <strong>Project Details:</strong><br>
         Address: ${contract.project_address}<br>
-        Project Cost: $${contract.project_cost.toLocaleString()}
+        Project Cost: ${isContingency ? 'Not required until final Installation Agreement' : `$${contract.project_cost.toLocaleString()}`}
       </div>
       
       ${pdfSection}
@@ -828,7 +856,7 @@ ARX Roofing & Exteriors LLC`
 
       emailSent = await sendEmail(
         contract.customer_email,
-        'ARX Roofing & Exteriors - Your Signed Contract',
+        `ARX Roofing & Exteriors - Your Signed ${agreementLabel}`,
         emailText,
         emailHtml
       )

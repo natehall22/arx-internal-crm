@@ -139,7 +139,7 @@ export default async function OpportunityDetailPage({
   try {
     const { data } = await supabase
       .from('order_form_contracts')
-      .select('id, status, signing_token, customer_signed_at, pdf_url, created_at')
+      .select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type')
       .eq('opportunity_id', params.id)
       .order('created_at', { ascending: false })
     orderFormContracts = data

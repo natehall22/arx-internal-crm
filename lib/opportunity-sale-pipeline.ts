@@ -79,7 +79,7 @@ export async function materializeSaleFromInspectionOutcome(
   const { data: opp, error: oppErr } = await supabase
     .from('opportunities')
     .select(
-      'id, owner_user_id, project_type, address_text, lat, lng, roof_squares, customer_id, status'
+      'id, owner_user_id, project_type, address_text, lat, lng, roof_squares, customer_id, status, job_source, insurance_stage'
     )
     .eq('id', options.opportunityId)
     .eq('org_id', orgId)
@@ -169,6 +169,8 @@ export async function materializeSaleFromInspectionOutcome(
       sale_date: new Date().toISOString().split('T')[0],
       created_by: actingUserId,
       internal_notes: 'Auto-created from inspection sale outcome.',
+      job_source: opp.job_source || 'retail',
+      insurance_stage: opp.job_source === 'insurance' ? (opp.insurance_stage || 'contingency_signed') : null,
     })
     .select('id')
     .single()

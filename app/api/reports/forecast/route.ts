@@ -117,15 +117,33 @@ export async function GET(request: NextRequest) {
     // Upcoming inspections (scheduled appointments not yet ran)
     const { data: upcomingAppts } = await supabase
       .from('scheduled_appointments')
-      .select('id, closer_user_id')
+      .select('id, closer_user_id, opportunity_id')
       .eq('org_id', profile.org_id)
       .gte('scheduled_for', now.toISOString())
       .lte('scheduled_for', periodEnd.toISOString())
 
+    const upcomingOpportunityIds = (upcomingAppts || [])
+      .map((appt) => appt.opportunity_id)
+      .filter(Boolean) as string[]
+    const { data: upcomingOpportunitySources } = upcomingOpportunityIds.length > 0
+      ? await supabase
+          .from('opportunities')
+          .select('id, job_source')
+          .in('id', upcomingOpportunityIds)
+      : { data: [] as { id: string; job_source: string | null }[] }
+    const insuranceUpcomingOpportunityIds = new Set(
+      (upcomingOpportunitySources || [])
+        .filter((opp) => opp.job_source === 'insurance')
+        .map((opp) => opp.id)
+    )
+    const retailUpcomingAppts = (upcomingAppts || []).filter((appt) =>
+      !appt.opportunity_id || !insuranceUpcomingOpportunityIds.has(appt.opportunity_id)
+    )
+
     // Opportunities ran but no outcome yet (in progress)
     const { data: ranPending } = await supabase
       .from('opportunities')
-      .select('id, owner_user_id')
+      .select('id, owner_user_id, job_source')
       .eq('org_id', profile.org_id)
       .eq('status', 'in_progress')
       .is('inspection_outcome', null)
@@ -134,16 +152,17 @@ export async function GET(request: NextRequest) {
     // (opportunity.status has no contract_sent enum — see 011_opportunities_projects.sql)
     const { data: contractProjectRows } = await supabase
       .from('projects')
-      .select('id, opportunities!opportunity_id(status)')
+      .select('id, opportunities!opportunity_id(status, job_source)')
       .eq('org_id', profile.org_id)
       .not('contract_sent_at', 'is', null)
 
     const contractsSentList = (contractProjectRows || []).filter((row: {
-      opportunities?: { status?: string } | { status?: string }[] | null
+      opportunities?: { status?: string; job_source?: string | null } | { status?: string; job_source?: string | null }[] | null
     }) => {
       const opp = row.opportunities
       const st = Array.isArray(opp) ? opp[0]?.status : opp?.status
-      return st === 'open' || st === 'in_progress'
+      const source = Array.isArray(opp) ? opp[0]?.job_source : opp?.job_source
+      return (st === 'open' || st === 'in_progress') && source !== 'insurance'
     })
 
     // Won in this period (locked retail revenue)
@@ -158,14 +177,15 @@ export async function GET(request: NextRequest) {
 
     const lockedRetail = (wonInPeriod || []).reduce((s, j) => s + (j.sale_amount || avgDealValue), 0)
     const contractSentExpected = contractsSentList.length * avgDealValue * RETAIL_STAGE_PROBABILITY.contract_sent
-    const inspectionRanExpected = (ranPending?.length || 0) * avgDealValue * RETAIL_STAGE_PROBABILITY.inspection_ran
-    const upcomingExpected = (upcomingAppts?.length || 0) * avgDealValue * RETAIL_STAGE_PROBABILITY.scheduled_inspection
+    const retailRanPending = (ranPending || []).filter((opp) => opp.job_source !== 'insurance')
+    const inspectionRanExpected = retailRanPending.length * avgDealValue * RETAIL_STAGE_PROBABILITY.inspection_ran
+    const upcomingExpected = retailUpcomingAppts.length * avgDealValue * RETAIL_STAGE_PROBABILITY.scheduled_inspection
 
     const retailPipeline = [
       { stage: 'Signed / active jobs', count: wonInPeriod?.length || 0, expectedRevenue: lockedRetail, probability: 95, locked: true },
       { stage: 'Contract sent', count: contractsSentList.length, expectedRevenue: contractSentExpected, probability: 65 },
-      { stage: 'Inspection ran, pending', count: ranPending?.length || 0, expectedRevenue: inspectionRanExpected, probability: 35 },
-      { stage: 'Inspection scheduled', count: upcomingAppts?.length || 0, expectedRevenue: upcomingExpected, probability: 20 },
+      { stage: 'Inspection ran, pending', count: retailRanPending.length, expectedRevenue: inspectionRanExpected, probability: 35 },
+      { stage: 'Inspection scheduled', count: retailUpcomingAppts.length, expectedRevenue: upcomingExpected, probability: 20 },
     ]
 
     const retailTotal = retailPipeline.reduce((s, r) => s + r.expectedRevenue, 0)
@@ -173,13 +193,50 @@ export async function GET(request: NextRequest) {
     // ── Insurance pipeline ────────────────────────────────────────────────────
     const { data: insuranceJobs } = await supabase
       .from('production_jobs')
-      .select('id, insurance_stage, acv_amount, depreciation_amount, supplement_amount, sale_amount, status')
+      .select('id, project_id, insurance_stage, acv_amount, depreciation_amount, supplement_amount, sale_amount, status')
       .eq('org_id', profile.org_id)
       .eq('job_source', 'insurance')
       .not('status', 'in', '("collected")')
 
+    const insuranceJobProjectIds = (insuranceJobs || [])
+      .map((job) => job.project_id)
+      .filter(Boolean) as string[]
+    const { data: insuranceJobProjects } = insuranceJobProjectIds.length > 0
+      ? await supabase
+          .from('projects')
+          .select('id, opportunity_id')
+          .in('id', insuranceJobProjectIds)
+      : { data: [] as { id: string; opportunity_id: string | null }[] }
+    const opportunityIdsWithInsuranceJobs = new Set(
+      (insuranceJobProjects || [])
+        .map((project) => project.opportunity_id)
+        .filter(Boolean)
+    )
+
+    const { data: insuranceOpportunities } = await supabase
+      .from('opportunities')
+      .select('id, insurance_stage, estimated_value, status')
+      .eq('org_id', profile.org_id)
+      .eq('job_source', 'insurance')
+      .in('status', ['open', 'in_progress', 'won'])
+
     // Group by stage and calculate expected revenue per stage
     const insuranceByStage = new Map<string, { count: number; expectedRevenue: number; lockedRevenue: number }>()
+
+    for (const opp of insuranceOpportunities || []) {
+      if (opportunityIdsWithInsuranceJobs.has(opp.id)) continue
+
+      const stage = opp.insurance_stage || 'contingency_signed'
+      const prob = INSURANCE_STAGE_PROBABILITY[stage] ?? 0.35
+      const jobValue = (opp.estimated_value && opp.estimated_value > 0) ? opp.estimated_value : avgDealValue
+
+      if (!insuranceByStage.has(stage)) {
+        insuranceByStage.set(stage, { count: 0, expectedRevenue: 0, lockedRevenue: 0 })
+      }
+      const entry = insuranceByStage.get(stage)!
+      entry.count++
+      entry.expectedRevenue += jobValue * prob
+    }
 
     for (const job of insuranceJobs || []) {
       const stage = job.insurance_stage || 'contingency_signed'

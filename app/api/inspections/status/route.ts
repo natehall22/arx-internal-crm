@@ -378,7 +378,8 @@ export async function POST(request: NextRequest) {
     const outcomeConfig = inspectionOutcomes.find(
       (o: any) => String(o.id || '').toLowerCase() === String(outcome || '').toLowerCase()
     )
-    const shouldCreateOpportunity = Boolean(outcomeConfig?.converts_to_opportunity)
+    const shouldCreateOpportunity =
+      Boolean(outcomeConfig?.converts_to_opportunity) || outcome === 'insurance_follow_up'
 
     const staticOutcomeLabels: Record<string, string> = {
       sale: 'Sale!',
@@ -475,6 +476,8 @@ export async function POST(request: NextRequest) {
           inspection_outcome: outcome,
           inspection_outcome_at: new Date().toISOString(),
           inspection_notes: notes || null,
+          job_source: outcome === 'insurance_follow_up' ? 'insurance' : 'retail',
+          insurance_stage: outcome === 'insurance_follow_up' ? 'contingency_signed' : null,
         })
         .select()
         .single()
@@ -565,6 +568,10 @@ export async function POST(request: NextRequest) {
         opportunityUpdate.status = 'lost'
       } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up') {
         opportunityUpdate.status = 'in_progress' // Active opportunities being worked
+      }
+      if (outcome === 'insurance_follow_up') {
+        opportunityUpdate.job_source = 'insurance'
+        opportunityUpdate.insurance_stage = 'contingency_signed'
       }
       // 'not_home' and 'rescheduled' keep status as 'open'
 

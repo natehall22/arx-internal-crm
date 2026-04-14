@@ -20,6 +20,7 @@ interface ContractModalProps {
 }
 
 interface ContractFormData {
+  agreementType: 'installation' | 'contingency'
   customerName: string
   customerEmail: string
   customerPhone: string
@@ -64,6 +65,7 @@ export default function ContractModal({
   const [success, setSuccess] = useState(false)
 
   const [formData, setFormData] = useState<ContractFormData>({
+    agreementType: 'installation',
     customerName: customerName || '',
     customerEmail: customerEmail || '',
     customerPhone: customerPhone || '',
@@ -113,12 +115,17 @@ export default function ContractModal({
   const validateStep = (currentStep: number): boolean => {
     switch (currentStep) {
       case 1:
-        if (!formData.customerName || !formData.projectAddress || !formData.projectCost) {
-          setError('Please fill in customer name, project address, and project cost')
+        if (!formData.customerName || !formData.projectAddress) {
+          setError('Please fill in customer name and project address')
+          return false
+        }
+        if (formData.agreementType === 'installation' && !formData.projectCost) {
+          setError('Please enter the project cost')
           return false
         }
         break
       case 2:
+        if (formData.agreementType === 'contingency') break
         if (!formData.paymentMethod) {
           setError('Please select a payment method')
           return false
@@ -195,7 +202,7 @@ export default function ContractModal({
         <div className="relative bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
           <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between z-10">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Create Contract</h2>
+              <h2 className="text-xl font-bold text-gray-900">Send Agreement</h2>
               <p className="text-sm text-gray-500">Step {step} of 4</p>
             </div>
             <button
@@ -235,13 +242,45 @@ export default function ContractModal({
             {success && (
               <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-sm text-green-700">
-                  Contract created and sent to customer! Redirecting...
+                  Agreement created and sent to customer! Redirecting...
                 </p>
               </div>
             )}
 
             {step === 1 && (
               <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Agreement Type *
+                  </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleInputChange('agreementType', 'installation')}
+                      className={`text-left border rounded-lg p-4 ${
+                        formData.agreementType === 'installation'
+                          ? 'border-indigo-600 bg-indigo-50'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <p className="font-semibold text-gray-900">Installation Agreement</p>
+                      <p className="text-sm text-gray-600 mt-1">Final signed agreement after scope and price are ready.</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleInputChange('agreementType', 'contingency')}
+                      className={`text-left border rounded-lg p-4 ${
+                        formData.agreementType === 'contingency'
+                          ? 'border-indigo-600 bg-indigo-50'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <p className="font-semibold text-gray-900">Insurance Contingency</p>
+                      <p className="text-sm text-gray-600 mt-1">Early claim agreement before insurance approval.</p>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -382,8 +421,12 @@ export default function ContractModal({
                         onChange={e => handleInputChange('projectCost', parseFloat(e.target.value) || 0)}
                         className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         required
+                        disabled={formData.agreementType === 'contingency'}
                       />
                     </div>
+                    {formData.agreementType === 'contingency' && (
+                      <p className="text-xs text-gray-500 mt-1">Not required until final installation agreement.</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -428,6 +471,15 @@ export default function ContractModal({
 
             {step === 2 && (
               <div className="space-y-6">
+                {formData.agreementType === 'contingency' && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-sm text-amber-900">
+                      This contingency agreement does not collect payment details. It authorizes ARX to help with the insurance claim and becomes active only if the claim, scope, and price are approved.
+                    </p>
+                  </div>
+                )}
+                {formData.agreementType === 'installation' && (
+                  <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Payment Method *
@@ -488,22 +540,26 @@ export default function ContractModal({
                     </label>
                   </div>
                 </div>
+                  </>
+                )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Deposit (Due At Signing)
-                  </label>
-                  <div className="relative w-48">
-                    <span className="absolute left-3 top-2 text-gray-500">$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={formData.depositAmount}
-                      onChange={e => handleInputChange('depositAmount', parseFloat(e.target.value) || 0)}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+                {formData.agreementType === 'installation' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Deposit (Due At Signing)
+                    </label>
+                    <div className="relative w-48">
+                      <span className="absolute left-3 top-2 text-gray-500">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formData.depositAmount}
+                        onChange={e => handleInputChange('depositAmount', parseFloat(e.target.value) || 0)}
+                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -572,8 +628,8 @@ export default function ContractModal({
                 <div className="p-4 bg-green-50 rounded-lg">
                   <h3 className="font-medium text-green-900 mb-2">Ready to Send</h3>
                   <p className="text-sm text-green-700">
-                    Review the contract details below. Once submitted, an email will be sent to{' '}
-                    <strong>{formData.customerEmail || 'the customer'}</strong> with a link to sign the contract.
+                    Review the agreement below. Once submitted, an email will be sent to{' '}
+                    <strong>{formData.customerEmail || 'the customer'}</strong> with a link to sign.
                   </p>
                 </div>
 
@@ -581,6 +637,7 @@ export default function ContractModal({
                   <div className="p-4">
                     <h4 className="font-medium text-gray-900 mb-2">Customer & Project</h4>
                     <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div><span className="text-gray-500">Type:</span> {formData.agreementType === 'contingency' ? 'Insurance Contingency' : 'Installation Agreement'}</div>
                       <div><span className="text-gray-500">Name:</span> {formData.customerName}</div>
                       <div><span className="text-gray-500">Address:</span> {formData.projectAddress}</div>
                       <div><span className="text-gray-500">Phone:</span> {formData.customerPhone || 'N/A'}</div>
@@ -602,17 +659,26 @@ export default function ContractModal({
                     )}
                   </div>
 
-                  <div className="p-4">
-                    <h4 className="font-medium text-gray-900 mb-2">Payment</h4>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div><span className="text-gray-500">Project Cost:</span> ${formData.projectCost.toLocaleString()}</div>
-                      <div><span className="text-gray-500">Deposit:</span> ${formData.depositAmount.toLocaleString()}</div>
-                      <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.financeCompany && ` (${formData.financeCompany})`}</div>
-                      {formData.estCompletionDate && (
-                        <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>
-                      )}
+                  {formData.agreementType === 'installation' ? (
+                    <div className="p-4">
+                      <h4 className="font-medium text-gray-900 mb-2">Payment</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div><span className="text-gray-500">Project Cost:</span> ${formData.projectCost.toLocaleString()}</div>
+                        <div><span className="text-gray-500">Deposit:</span> ${formData.depositAmount.toLocaleString()}</div>
+                        <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.financeCompany && ` (${formData.financeCompany})`}</div>
+                        {formData.estCompletionDate && (
+                          <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="p-4">
+                      <h4 className="font-medium text-gray-900 mb-2">Insurance Contingency</h4>
+                      <p className="text-sm text-gray-700">
+                        No project price, deposit, or construction start is created from this agreement.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="p-4">
                     <h4 className="font-medium text-gray-900 mb-2">Representative Signature</h4>
@@ -674,7 +740,7 @@ export default function ContractModal({
                 ) : success ? (
                   'Sent!'
                 ) : (
-                  'Create & Send Contract'
+                  'Create & Send Agreement'
                 )}
               </button>
             )}

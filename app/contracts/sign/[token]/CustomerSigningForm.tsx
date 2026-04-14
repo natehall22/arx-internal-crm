@@ -5,6 +5,7 @@ import SignaturePad from '@/components/contracts/SignaturePad'
 
 interface Contract {
   id: string
+  agreement_type?: 'installation' | 'contingency'
   customer_name: string
   customer_email: string
   customer_phone: string
@@ -117,7 +118,29 @@ Section 15 — Entire Agreement; Signatures; Authority
 15.5 Signatures may be executed electronically and will be treated as original signatures.
 `
 
+const CONTINGENCY_TERMS = `
+Insurance Contingency Agreement
+
+1. Purpose. This agreement lets ARX inspect, document, estimate, and communicate with the insurance carrier about exterior storm damage. It does not authorize construction work.
+
+2. Contingency. Customer has no obligation to move forward unless the insurance carrier approves the claim and ARX accepts the approved scope and price.
+
+3. Contractor Selection. If the claim, scope, and price are approved, Customer agrees to use ARX for the approved exterior work, subject to a final Installation Agreement before construction starts.
+
+4. Customer Costs. Customer remains responsible for the deductible, upgrades, non-covered work, code items not paid by insurance, and signed change orders. ARX will not waive deductibles or offer improper inducements.
+
+5. Claim Help. ARX may provide photos, measurements, estimates, supplements, and meeting support. ARX is not a public adjuster and does not decide coverage.
+
+6. No Construction Start. Materials are not ordered and work does not start until the final Installation Agreement is signed.
+
+7. Cancellation. Customer may cancel within any required 3-business-day cancellation period and before the final Installation Agreement. If Customer asks ARX to incur outside costs, Customer will reimburse documented costs.
+
+8. Photos And Communication. Customer authorizes ARX to take photos/video for claim documentation, quality control, training, and project records.
+`
+
 export default function CustomerSigningForm({ contract, token }: CustomerSigningFormProps) {
+  const isContingency = contract.agreement_type === 'contingency'
+  const agreementLabel = isContingency ? 'Insurance Contingency Agreement' : 'Installation Agreement'
   const [preferredContact, setPreferredContact] = useState<'phone' | 'email'>('phone')
   const [printName, setPrintName] = useState('')
   const [signature, setSignature] = useState<string | null>(null)
@@ -142,14 +165,19 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
       return
     }
     if (!signature) {
-      setError('Please sign the contract')
+      setError('Please sign the agreement')
       return
     }
-    if (!initialsChangeOrders || !initialsPropertyCondition || !initialsLandscaping) {
+    if (isContingency) {
+      if (!initialsInsurance) {
+        setError('Please initial the insurance contingency acknowledgement')
+        return
+      }
+    } else if (!initialsChangeOrders || !initialsPropertyCondition || !initialsLandscaping) {
       setError('Please initial all acknowledgement sections')
       return
     }
-    if (contract.payment_method === 'insurance' && !initialsInsurance) {
+    if (!isContingency && contract.payment_method === 'insurance' && !initialsInsurance) {
       setError('Please initial the insurance acknowledgement section')
       return
     }
@@ -165,10 +193,10 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
           preferredContact,
           printName,
           signature,
-          initialsChangeOrders,
-          initialsPropertyCondition,
-          initialsLandscaping,
-          initialsInsurance: contract.payment_method === 'insurance' ? initialsInsurance : null,
+          initialsChangeOrders: isContingency ? null : initialsChangeOrders,
+          initialsPropertyCondition: isContingency ? null : initialsPropertyCondition,
+          initialsLandscaping: isContingency ? null : initialsLandscaping,
+          initialsInsurance: (isContingency || contract.payment_method === 'insurance') ? initialsInsurance : null,
         }),
       })
 
@@ -198,9 +226,9 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Contract Signed Successfully!</h1>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Agreement Signed Successfully!</h1>
           <p className="text-gray-600 mb-4">
-            Thank you for signing. A copy of the signed contract has been sent to your email.
+            Thank you for signing. A copy of the signed agreement has been sent to your email.
           </p>
           {pdfUrl && (
             <a
@@ -212,7 +240,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              Download Signed Contract
+              Download Signed Agreement
             </a>
           )}
           <p className="text-sm text-gray-500 mt-6">
@@ -238,7 +266,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               Phone: 704-313-8834 | Email: info@arxroofing.com
             </p>
             <div className="mt-4 inline-block bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold">
-              Order Form
+              {agreementLabel}
             </div>
           </div>
 
@@ -304,7 +332,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
             {/* Project Details */}
             <section>
-              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Project Details</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">{isContingency ? 'Claim Details' : 'Project Details'}</h2>
               <div className="space-y-3 text-sm">
                 <div>
                   <span className="text-gray-500">Scope Of Work:</span>
@@ -328,10 +356,12 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     <span className="ml-2 font-medium text-black">{contract.total_squares}</span>
                   </div>
                 )}
-                <div>
-                  <span className="text-gray-500">Project Cost:</span>
-                  <span className="ml-2 font-medium text-lg text-black">${contract.project_cost.toLocaleString()}</span>
-                </div>
+                {!isContingency && (
+                  <div>
+                    <span className="text-gray-500">Project Cost:</span>
+                    <span className="ml-2 font-medium text-lg text-black">${contract.project_cost.toLocaleString()}</span>
+                  </div>
+                )}
                 {contract.est_completion_date && (
                   <div>
                     <span className="text-gray-500">Est. Completion Date:</span>
@@ -353,29 +383,43 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               </div>
             </section>
 
-            {/* Payment Details */}
-            <section>
-              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Payment Details</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-500">Payment Method:</span>
-                  <span className="ml-2 font-medium capitalize text-black">
-                    {contract.payment_method}
-                    {contract.finance_company && ` (${contract.finance_company})`}
-                  </span>
+            {!isContingency ? (
+              <section>
+                <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Payment Details</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Payment Method:</span>
+                    <span className="ml-2 font-medium capitalize text-black">
+                      {contract.payment_method}
+                      {contract.finance_company && ` (${contract.finance_company})`}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Deposit (Due At Signing):</span>
+                    <span className="ml-2 font-medium text-black">${contract.deposit_amount.toLocaleString()}</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-gray-500">Deposit (Due At Signing):</span>
-                  <span className="ml-2 font-medium text-black">${contract.deposit_amount.toLocaleString()}</span>
+                {contract.notes && (
+                  <div className="mt-3 text-sm">
+                    <span className="text-gray-500">Notes:</span>
+                    <p className="mt-1 text-black whitespace-pre-wrap">{contract.notes}</p>
+                  </div>
+                )}
+              </section>
+            ) : (
+              <section>
+                <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Contingency Summary</h2>
+                <div className="p-4 bg-amber-50 rounded-lg text-sm text-black">
+                  This agreement does not start construction, order materials, or set the final project price. A final Installation Agreement is required before work begins.
                 </div>
-              </div>
-              {contract.notes && (
-                <div className="mt-3 text-sm">
-                  <span className="text-gray-500">Notes:</span>
-                  <p className="mt-1 text-black whitespace-pre-wrap">{contract.notes}</p>
-                </div>
-              )}
-            </section>
+                {contract.notes && (
+                  <div className="mt-3 text-sm">
+                    <span className="text-gray-500">Notes:</span>
+                    <p className="mt-1 text-black whitespace-pre-wrap">{contract.notes}</p>
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* Terms and Conditions */}
             <section>
@@ -392,7 +436,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               </button>
               {showTerms && (
                 <div className="mt-4 p-4 bg-gray-50 rounded-lg max-h-96 overflow-y-auto text-sm text-gray-700 whitespace-pre-wrap">
-                  {TERMS_AND_CONDITIONS}
+                  {isContingency ? CONTINGENCY_TERMS : TERMS_AND_CONDITIONS}
                 </div>
               )}
             </section>
@@ -403,6 +447,8 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               <p className="text-sm text-gray-600 mb-4">Please initial each acknowledgement below:</p>
               
               <div className="space-y-4">
+                {!isContingency && (
+                  <>
                 <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg">
                   <input
                     type="text"
@@ -448,7 +494,10 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                   </p>
                 </div>
 
-                {contract.payment_method === 'insurance' && (
+                  </>
+                )}
+
+                {(isContingency || contract.payment_method === 'insurance') && (
                   <div className="flex items-start gap-4 p-3 bg-amber-50 rounded-lg">
                     <input
                       type="text"
@@ -460,7 +509,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                       maxLength={4}
                     />
                     <p className="text-sm text-black">
-                      <strong>Insurance Funds:</strong> I agree to Section 11 regarding insurance claim projects.
+                      <strong>{isContingency ? 'Insurance Contingency:' : 'Insurance Funds:'}</strong> I agree to the insurance terms for this agreement.
                     </p>
                   </div>
                 )}
@@ -472,7 +521,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Signatures</h2>
               
               <div className="p-4 bg-gray-50 rounded-lg mb-6 text-sm text-black">
-                By signing below, the undersigned represents that (i) he or she has read the above Order Form and the Terms and Conditions (collectively, the "Agreement") in its entirety, and (ii) he or she agrees to be bound by the terms and conditions of the Agreement.
+                By signing below, the undersigned represents that he or she has read this Agreement in its entirety and agrees to be bound by its terms.
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -571,19 +620,19 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    Signing Contract...
+                    Signing Agreement...
                   </>
                 ) : (
                   <>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Sign Contract
+                    Sign Agreement
                   </>
                 )}
               </button>
               <p className="text-xs text-gray-500 text-center mt-3">
-                By clicking "Sign Contract", you agree to the terms and conditions above.
+                By clicking "Sign Agreement", you agree to the terms and conditions above.
               </p>
             </div>
           </form>

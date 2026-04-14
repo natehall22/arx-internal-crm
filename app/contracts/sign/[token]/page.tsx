@@ -65,6 +65,8 @@ export default async function ContractSigningPage({
   }
 
   if (contract.status === 'completed') {
+    const agreementLabel = contract.agreement_type === 'contingency' ? 'agreement' : 'contract'
+
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
@@ -73,9 +75,9 @@ export default async function ContractSigningPage({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Contract Already Signed</h1>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Agreement Already Signed</h1>
           <p className="text-gray-600">
-            This contract has already been signed. A copy of the signed contract has been sent to your email.
+            This {agreementLabel} has already been signed. A copy has been sent to your email.
           </p>
           {contract.pdf_url && (
             <a
@@ -87,7 +89,7 @@ export default async function ContractSigningPage({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              Download Signed Contract
+              Download Signed Agreement
             </a>
           )}
         </div>

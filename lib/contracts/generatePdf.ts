@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf'
 
 export interface ContractData {
   id: string
+  agreement_type?: string
   customer_name: string
   customer_email?: string
   customer_phone?: string
@@ -101,7 +102,139 @@ function wrapText(doc: jsPDF, text: string, maxWidth: number): string[] {
   return lines
 }
 
+function generateContingencyPdf(contract: ContractData): Buffer {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+  const pageWidth = 612
+  const pageHeight = 792
+  const margin = 42
+  const contentWidth = pageWidth - margin * 2
+  let y = margin
+
+  const addWrapped = (text: string, fontSize = 8.5, gap = 10) => {
+    doc.setFontSize(fontSize)
+    const lines = wrapText(doc, text, contentWidth)
+    for (const line of lines) {
+      doc.text(line, margin, y)
+      y += gap
+    }
+  }
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(17)
+  doc.text('ARX ROOFING & EXTERIORS LLC', pageWidth / 2, y, { align: 'center' })
+  y += 15
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text('4101 Woodbury Terrace NW, Concord, NC 28027 | 704-313-8834 | info@arxroofing.com', pageWidth / 2, y, { align: 'center' })
+  y += 24
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(15)
+  doc.text('Insurance Contingency Agreement', pageWidth / 2, y, { align: 'center' })
+  y += 22
+
+  doc.setFontSize(9)
+  doc.text('Customer And Property', margin, y)
+  y += 4
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 12
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Customer: ${contract.customer_name || ''}`, margin, y)
+  y += 12
+  doc.text(`Property: ${contract.project_address || ''}`, margin, y)
+  y += 12
+  doc.text(`Phone: ${contract.customer_phone || ''}`, margin, y)
+  doc.text(`Email: ${contract.customer_email || ''}`, 300, y)
+  y += 18
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('Claim Scope', margin, y)
+  y += 4
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 12
+  doc.setFont('helvetica', 'normal')
+  const scope = [
+    contract.scope_roof_replacement && 'Roof Replacement',
+    contract.scope_roof_repair && 'Roof Repair',
+    contract.scope_gutters && 'Gutters',
+    contract.scope_siding && 'Siding',
+    contract.scope_other,
+  ].filter(Boolean).join(', ') || 'Exterior storm damage claim assistance'
+  addWrapped(`Requested scope: ${scope}`)
+  if (contract.roofing_material) addWrapped(`Primary roofing system: ${contract.roofing_material}`)
+  if (contract.notes) addWrapped(`Notes: ${contract.notes}`)
+  y += 6
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('Terms', margin, y)
+  y += 4
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 12
+  doc.setFont('helvetica', 'normal')
+  const terms = [
+    '1. Purpose. Customer authorizes ARX to inspect, document, estimate, and communicate with the insurance carrier about exterior storm damage. This agreement does not authorize construction work.',
+    '2. Contingency. Customer has no obligation to move forward unless the insurance carrier approves the claim and ARX accepts the approved scope and price.',
+    '3. Contractor Selection. If the claim, scope, and price are approved, Customer agrees to use ARX for the approved exterior work, subject to a final Installation Agreement before construction starts.',
+    '4. Customer Costs. Customer remains responsible for the deductible, upgrades, non-covered work, code items not paid by insurance, and signed change orders. ARX will not waive deductibles or offer improper inducements.',
+    '5. Claim Help. ARX may provide photos, measurements, estimates, supplements, and meeting support. ARX is not a public adjuster and does not decide coverage.',
+    '6. No Construction Start. Materials are not ordered and work does not start until the final Installation Agreement is signed.',
+    '7. Cancellation. Customer may cancel within any required 3-business-day cancellation period and before the final Installation Agreement. If Customer asks ARX to incur outside costs, Customer will reimburse documented costs.',
+    '8. Photos And Communication. Customer authorizes ARX to take photos/video for claim documentation, quality control, training, and project records.',
+  ]
+  for (const term of terms) addWrapped(term)
+  y += 8
+
+  doc.setFont('helvetica', 'bold')
+  doc.text(`Customer Initials: ${contract.customer_initials_insurance || '________'}`, margin, y)
+  y += 22
+
+  const leftCol = margin
+  const rightCol = 320
+  doc.text('Customer', leftCol, y)
+  doc.text('ARX Roofing & Exteriors', rightCol, y)
+  y += 14
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Print Name: ${contract.customer_print_name || ''}`, leftCol, y)
+  doc.text(`Print Name: ${contract.rep_name || ''}`, rightCol, y)
+  y += 14
+  doc.text('Signature:', leftCol, y)
+  doc.text('Signature:', rightCol, y)
+  y += 4
+  doc.rect(leftCol, y, 150, 38)
+  doc.rect(rightCol, y, 150, 38)
+  if (contract.customer_signature_data) {
+    try {
+      doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 34)
+    } catch {
+      doc.text('[Signature on file]', leftCol + 10, y + 22)
+    }
+  }
+  if (contract.rep_signature_data) {
+    try {
+      doc.addImage(contract.rep_signature_data, 'PNG', rightCol + 2, y + 2, 146, 34)
+    } catch {
+      doc.text('[Signature on file]', rightCol + 10, y + 22)
+    }
+  }
+  y += 48
+  doc.text(`Date: ${formatDate(contract.customer_signed_at)}`, leftCol, y)
+  doc.text(`Title: ${contract.rep_title || ''}`, rightCol, y)
+  y += 14
+  doc.text(`Signed IP: ${contract.customer_ip || ''}`, leftCol, y)
+  doc.text(`Date: ${formatDate(contract.rep_signed_at)}`, rightCol, y)
+
+  doc.setFontSize(7)
+  doc.setTextColor(100)
+  doc.text('Page 1 of 1 | ARX Roofing & Exteriors LLC', pageWidth / 2, pageHeight - 24, { align: 'center' })
+
+  return Buffer.from(doc.output('arraybuffer'))
+}
+
 export async function generateContractPdf(contract: ContractData): Promise<Buffer> {
+  if (contract.agreement_type === 'contingency') {
+    return generateContingencyPdf(contract)
+  }
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',

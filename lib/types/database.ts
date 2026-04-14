@@ -388,6 +388,8 @@ export interface Opportunity {
   lead_id: string | null
   owner_user_id: string | null
   status: OpportunityStatus
+  job_source: JobSource
+  insurance_stage: InsuranceStage | null
   project_type: ProjectType
   address_text: string | null
   lat: number | null

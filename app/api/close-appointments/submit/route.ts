@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { getValidCloseOutcomeIdsFromSettings } from '@/lib/close-outcomes'
 import { sendSetterEmail } from '@/lib/setter-email'
+import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import {
   fetchOrgAppointmentTypesFromTable,
   getCloseSlotBufferAfterFromTable,
@@ -258,6 +259,10 @@ export async function POST(request: NextRequest) {
     } else if (outcomeNorm === 'said_no') {
       oppUpdate.status = 'lost'
     }
+    if (outcomeNorm === 'insurance_follow_up' || outcomeNorm === 'waiting_on_insurance') {
+      oppUpdate.job_source = 'insurance'
+      oppUpdate.insurance_stage = 'contingency_signed'
+    }
 
     if (Object.keys(oppUpdate).length > 0) {
       await admin.from('opportunities').update(oppUpdate).eq('id', opportunityId).eq('org_id', profile.org_id)
@@ -281,7 +286,7 @@ export async function POST(request: NextRequest) {
 
       const { data: orgRow } = await admin
         .from('orgs')
-        .select('default_scheduling_gap_minutes')
+        .select('default_scheduling_gap_minutes, inspection_feedback_buffer_minutes')
         .eq('id', profile.org_id)
         .single()
 
@@ -300,24 +305,51 @@ export async function POST(request: NextRequest) {
 
       const followUpDateTime = new Date(follow_up_date)
 
-      const { error: fuErr } = await admin.from('scheduled_appointments').insert({
-        org_id: profile.org_id,
-        lead_id: opportunity.lead_id,
-        opportunity_id: opportunityId,
-        closer_user_id: user.id,
-        canvasser_user_id: leadRow?.owner_user_id || null,
-        scheduled_for: followUpDateTime.toISOString(),
-        duration_minutes: durationMinutes,
-        buffer_after_minutes: bufferAfter,
-        address_text: leadRow?.address_text || null,
-        status: 'scheduled',
-        notes: `Insurance follow-up after close feedback${notes ? `: ${notes}` : ''}`,
-        appointment_type: 'insurance_follow_up',
-      })
+      const { data: followUpAppointment, error: fuErr } = await admin
+        .from('scheduled_appointments')
+        .insert({
+          org_id: profile.org_id,
+          lead_id: opportunity.lead_id,
+          opportunity_id: opportunityId,
+          closer_user_id: user.id,
+          canvasser_user_id: leadRow?.owner_user_id || null,
+          scheduled_for: followUpDateTime.toISOString(),
+          duration_minutes: durationMinutes,
+          buffer_after_minutes: bufferAfter,
+          address_text: leadRow?.address_text || null,
+          status: 'scheduled',
+          notes: `Insurance follow-up after close feedback${notes ? `: ${notes}` : ''}`,
+          appointment_type: 'insurance_follow_up',
+        })
+        .select('id, scheduled_for, duration_minutes, buffer_after_minutes, closer_user_id')
+        .single()
 
       if (fuErr) {
         console.error('insurance follow-up from close feedback', fuErr)
         return NextResponse.json({ error: fuErr.message }, { status: 500 })
+      }
+
+      if (followUpAppointment?.id) {
+        const promptAt = computeInspectionFeedbackPromptAt(
+          followUpAppointment.scheduled_for,
+          followUpAppointment.duration_minutes || durationMinutes,
+          followUpAppointment.buffer_after_minutes ?? bufferAfter,
+          orgRow?.inspection_feedback_buffer_minutes ?? 0
+        )
+        const { error: promptError } = await admin.from('pending_status_prompts').upsert(
+          {
+            org_id: profile.org_id,
+            appointment_id: followUpAppointment.id,
+            closer_user_id: followUpAppointment.closer_user_id || user.id,
+            prompt_at: promptAt,
+            completed: false,
+            dismissed: false,
+          },
+          { onConflict: 'appointment_id' }
+        )
+        if (promptError) {
+          console.error('insurance follow-up prompt from close feedback', promptError)
+        }
       }
 
       const setterId = leadRow?.owner_user_id
