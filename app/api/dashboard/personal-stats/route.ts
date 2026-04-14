@@ -8,6 +8,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
     // ---- LEADS (doors / contacts) ----
     let leadsQuery = supabase
       .from('leads')
-      .select('id, canvass_disposition, owner_user_id')
+      .select('id, source, canvass_disposition, owner_user_id')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
@@ -130,30 +131,15 @@ export async function GET(request: NextRequest) {
     }
 
     // ---- COMPUTE ----
-    const contactDisps = ['go_back', 'hot_lead', 'not_interested', 'renter']
-
-    const myLeads = (leads || []).filter(l => inScope(l.owner_user_id))
+    const myLeads = (leads || []).filter(l => inScope(l.owner_user_id) && isCanvassDoorLead(l))
     const rawDoors = myLeads.length
-    const rawContacts = myLeads.filter(l => contactDisps.includes(l.canvass_disposition)).length
+    const rawContacts = myLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
 
     const myAppointments = (appointments || []).filter(a => inScope(a.canvasser_user_id))
     const inspectionsSet = myAppointments.length
 
-    // Bonus doors/contacts from inspections not already covered by a lead
-    const bonusDoors = myAppointments.filter(a => {
-      if (!a.lead_id) return true
-      return !myLeads.find(l => l.id === a.lead_id)
-    }).length
-
-    const bonusContacts = myAppointments.filter(a => {
-      if (!a.lead_id) return true
-      const lead = myLeads.find(l => l.id === a.lead_id)
-      if (!lead) return true
-      return !contactDisps.includes(lead.canvass_disposition)
-    }).length
-
-    const doorsKnocked = rawDoors + bonusDoors
-    const contacts = rawContacts + bonusContacts
+    const doorsKnocked = rawDoors
+    const contacts = rawContacts
 
     const sales = (salesRows || []).filter(o =>
       isSetter ? inScope(o.setter_user_id) : inScope(o.owner_user_id)

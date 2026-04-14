@@ -15,6 +15,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -346,21 +347,16 @@ export default async function DashboardPage() {
 
     const { data: members } = await membersQuery
     
-    // Contact dispositions - where rep actually talked to someone
-    const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
-
     if (members && members.length > 0) {
       // Calculate stats for each member
       // Data is already filtered by date in queries
       for (const member of members) {
         // Leads owned by this member (already filtered to this week)
-        const memberLeads = (allLeads || []).filter(l => l.owner_user_id === member.id)
+        const memberLeads = (allLeads || []).filter(l => l.owner_user_id === member.id && isCanvassDoorLead(l))
         const rawDoors = memberLeads.length
         
         // Count contacts - only dispositions where they talked to someone
-        const rawContacts = memberLeads.filter(l => 
-          l.canvass_disposition && contactDispositions.includes(l.canvass_disposition)
-        ).length
+        const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
         
         // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
         const memberAppointments = (allAppointments || []).filter(a => 
@@ -368,23 +364,8 @@ export default async function DashboardPage() {
         )
         const inspectionsSet = memberAppointments.length
         
-        // Calculate bonus doors/contacts from inspections
-        // Bonus = inspections that weren't already counted via a lead owned by this user
-        const inspectionBonusDoors = memberAppointments.filter(a => {
-          if (!a.lead_id) return true
-          const lead = memberLeads.find(l => l.id === a.lead_id)
-          return !lead
-        }).length
-        
-        const inspectionBonusContacts = memberAppointments.filter(a => {
-          if (!a.lead_id) return true
-          const lead = memberLeads.find(l => l.id === a.lead_id)
-          if (!lead) return true
-          return !contactDispositions.includes(lead.canvass_disposition || '')
-        }).length
-        
-        const finalDoors = rawDoors + inspectionBonusDoors
-        const finalContacts = rawContacts + inspectionBonusContacts
+        const finalDoors = rawDoors
+        const finalContacts = rawContacts
 
         const memberSales = (salesOpportunities || []).filter(o =>
           isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
@@ -443,12 +424,9 @@ export default async function DashboardPage() {
   }
 
   // Data is already filtered by date in queries, so use directly
-  const thisWeekLeads = allLeads || []
+  const thisWeekLeads = (allLeads || []).filter(isCanvassDoorLead)
   const rawDoorsKnocked = thisWeekLeads.length
-  const contactDisps = ['go_back', 'hot_lead', 'not_interested', 'renter']
-  const rawContacts = thisWeekLeads.filter(l => 
-    contactDisps.includes(l.canvass_disposition || '')
-  ).length
+  const rawContacts = thisWeekLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
   
   // Inspections set - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
   // Filter by user role for non-admins
@@ -457,22 +435,8 @@ export default async function DashboardPage() {
   )
   const inspectionsSet = thisWeekAppointments.length
   
-  // Calculate bonus doors/contacts from inspections
-  // Bonus = inspections that weren't already counted via a lead
-  const inspectionBonusDoors = thisWeekAppointments.filter(a => {
-    if (!a.lead_id) return true
-    const lead = thisWeekLeads.find(l => l.id === a.lead_id)
-    return !lead
-  }).length
-  const inspectionBonusContacts = thisWeekAppointments.filter(a => {
-    if (!a.lead_id) return true
-    const lead = thisWeekLeads.find(l => l.id === a.lead_id)
-    if (!lead) return true
-    return !contactDisps.includes(lead.canvass_disposition || '')
-  }).length
-  
-  const doorsKnocked = rawDoorsKnocked + inspectionBonusDoors
-  const contacts = rawContacts + inspectionBonusContacts
+  const doorsKnocked = rawDoorsKnocked
+  const contacts = rawContacts
   
   // Sales attribution:
   // - setter/canvasser users get credit for sales from their sets

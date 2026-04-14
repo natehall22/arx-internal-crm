@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import * as XLSX from 'xlsx'
+import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -68,10 +69,11 @@ export async function GET(request: NextRequest) {
     const range = (request.nextUrl.searchParams.get('range') || '30d') as DateRange
     const dateFilter = getDateFilter(range)
 
-    const [usersRes, leadsRes, oppsRes, projectsRes, regionsRes, teamsRes] = await Promise.all([
+    const [usersRes, leadsRes, oppsRes, appointmentsRes, projectsRes, regionsRes, teamsRes] = await Promise.all([
       supabase.from('users').select('*').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
       supabase.from('leads').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('opportunities').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
+      supabase.from('scheduled_appointments').select('id, canvasser_user_id').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('projects').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('regions').select('*').eq('org_id', profile.org_id).order('name'),
       supabase.from('teams').select('*').eq('org_id', profile.org_id).order('name'),
@@ -80,6 +82,7 @@ export async function GET(request: NextRequest) {
     const users = usersRes.data || []
     const leads = leadsRes.data || []
     const opps = oppsRes.data || []
+    const appointments = appointmentsRes.data || []
     const projects = projectsRes.data || []
     const regions = regionsRes.data || []
     const teams = teamsRes.data || []
@@ -92,9 +95,9 @@ export async function GET(request: NextRequest) {
       ['Generated', new Date().toISOString()],
       [''],
       ['Metric', 'Value'],
-      ['Total Doors Knocked', leads.length],
-      ['Total Contacts', leads.filter(l => ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')).length],
-      ['Inspections Set', leads.filter(l => l.status === 'inspection').length],
+      ['Total Doors Knocked', leads.filter(isCanvassDoorLead).length],
+      ['Total Contacts', leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length],
+      ['Inspections Set', appointments.length],
       ['Opportunities Created', opps.length],
       ['Contracts Signed', opps.filter(o => o.status === 'won').length],
       ['Projects Completed', projects.filter(p => p.status === 'complete').length],
@@ -103,15 +106,16 @@ export async function GET(request: NextRequest) {
     XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary')
 
     const userMetrics = users.map(u => {
-      const userLeads = leads.filter(l => l.owner_user_id === u.id)
+      const userLeads = leads.filter(l => l.owner_user_id === u.id && isCanvassDoorLead(l))
       const userOpps = opps.filter(o => o.owner_user_id === u.id)
+      const userAppointments = appointments.filter(a => a.canvasser_user_id === u.id)
       return {
         Name: u.full_name || 'Unknown',
         Role: u.role,
         Email: u.email,
         'Doors Knocked': userLeads.length,
-        Contacts: userLeads.filter(l => ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')).length,
-        'Inspections Set': userLeads.filter(l => l.status === 'inspection').length,
+        Contacts: userLeads.filter(l => isContactDisposition(l.canvass_disposition)).length,
+        'Inspections Set': userAppointments.length,
         Opportunities: userOpps.length,
         'Contracts Signed': userOpps.filter(o => o.status === 'won').length,
       }
@@ -121,16 +125,17 @@ export async function GET(request: NextRequest) {
 
     const teamMetrics = teams.map(t => {
       const teamUserIds = users.filter(u => u.team_id === t.id).map(u => u.id)
-      const teamLeads = leads.filter(l => teamUserIds.includes(l.owner_user_id))
+      const teamLeads = leads.filter(l => teamUserIds.includes(l.owner_user_id) && isCanvassDoorLead(l))
       const teamOpps = opps.filter(o => teamUserIds.includes(o.owner_user_id))
+      const teamAppointments = appointments.filter(a => teamUserIds.includes(a.canvasser_user_id))
       const region = regions.find(r => r.id === t.region_id)
       return {
         Team: t.name,
         Region: region?.name || 'Unassigned',
         Members: teamUserIds.length,
         'Doors Knocked': teamLeads.length,
-        Contacts: teamLeads.filter(l => ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')).length,
-        'Inspections Set': teamLeads.filter(l => l.status === 'inspection').length,
+        Contacts: teamLeads.filter(l => isContactDisposition(l.canvass_disposition)).length,
+        'Inspections Set': teamAppointments.length,
         Opportunities: teamOpps.length,
         'Contracts Signed': teamOpps.filter(o => o.status === 'won').length,
       }
@@ -141,15 +146,16 @@ export async function GET(request: NextRequest) {
     const regionMetrics = regions.map(r => {
       const regionTeamIds = teams.filter(t => t.region_id === r.id).map(t => t.id)
       const regionUserIds = users.filter(u => regionTeamIds.includes(u.team_id || '')).map(u => u.id)
-      const regionLeads = leads.filter(l => regionUserIds.includes(l.owner_user_id))
+      const regionLeads = leads.filter(l => regionUserIds.includes(l.owner_user_id) && isCanvassDoorLead(l))
       const regionOpps = opps.filter(o => regionUserIds.includes(o.owner_user_id))
+      const regionAppointments = appointments.filter(a => regionUserIds.includes(a.canvasser_user_id))
       return {
         Region: r.name,
         Teams: regionTeamIds.length,
         Members: regionUserIds.length,
         'Doors Knocked': regionLeads.length,
-        Contacts: regionLeads.filter(l => ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')).length,
-        'Inspections Set': regionLeads.filter(l => l.status === 'inspection').length,
+        Contacts: regionLeads.filter(l => isContactDisposition(l.canvass_disposition)).length,
+        'Inspections Set': regionAppointments.length,
         Opportunities: regionOpps.length,
         'Contracts Signed': regionOpps.filter(o => o.status === 'won').length,
       }

@@ -8,6 +8,7 @@ import {
 } from '@/lib/inspection-outcomes'
 import { distinctDealCountsForMemberScope } from '@/lib/dashboard-distinct-deals'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -278,50 +279,23 @@ export async function GET(request: NextRequest) {
         ) || []
     }
 
-    // Contact dispositions - where rep actually talked to someone
-    const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
-
     // Calculate stats for each member
     const teamMemberStats = members.map(member => {
       // ---- DOORS ----
       // Raw: leads owned by this user (door knocks)
-      const memberLeads = leads?.filter(l => l.owner_user_id === member.id) || []
+      const memberLeads = leads?.filter(l => l.owner_user_id === member.id && isCanvassDoorLead(l)) || []
       const rawDoors = memberLeads.length
 
       // Inspections set by this user
       const memberAppointments = appointments?.filter(a => a.canvasser_user_id === member.id) || []
       const inspectionsSet = memberAppointments.length
 
-      // Bonus doors: inspections that were NOT already counted via a lead
-      // (i.e., inspection was set without a prior canvass knock on that lead)
-      const inspectionBonusDoors = memberAppointments.filter(a => {
-        // If appointment has no lead_id, it's a bonus
-        if (!a.lead_id) return true
-        // If the lead exists but was owned by someone else, this setter gets bonus
-        const lead = memberLeads.find(l => l.id === a.lead_id)
-        return !lead // No matching lead owned by this user = bonus
-      }).length
-
-      const finalDoors = rawDoors + inspectionBonusDoors
+      const finalDoors = rawDoors
 
       // ---- CONTACTS ----
       // Raw: leads with contact disposition
-      const rawContacts = memberLeads.filter(l => 
-        contactDispositions.includes(l.canvass_disposition)
-      ).length
-
-      // Bonus contacts: inspections that were NOT already counted as contacts
-      // An inspection implies contact was made
-      const inspectionBonusContacts = memberAppointments.filter(a => {
-        if (!a.lead_id) return true
-        // Check if this lead was already counted as a contact
-        const lead = memberLeads.find(l => l.id === a.lead_id)
-        if (!lead) return true // No lead = bonus contact
-        // If lead exists but wasn't a contact disposition, bonus
-        return !contactDispositions.includes(lead.canvass_disposition)
-      }).length
-
-      const finalContacts = rawContacts + inspectionBonusContacts
+      const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
+      const finalContacts = rawContacts
 
       // ---- SALES (timeframe) ----
       const sales = (salesOpportunities || []).filter(o =>
@@ -358,10 +332,10 @@ export async function GET(request: NextRequest) {
       if (debug) {
         result._debug = {
           doors_raw: rawDoors,
-          doors_bonus_from_inspections: inspectionBonusDoors,
+          doors_bonus_from_inspections: 0,
           doors_display: finalDoors,
           contacts_raw: rawContacts,
-          contacts_bonus_from_inspections: inspectionBonusContacts,
+          contacts_bonus_from_inspections: 0,
           contacts_display: finalContacts,
           inspections_set_raw: inspectionsSet,
           sales_raw: sales,

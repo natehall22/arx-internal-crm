@@ -11,6 +11,7 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 type ReportMetrics = {
   doorsKnocked: number
@@ -127,10 +128,10 @@ export default function ReportsPage() {
     const scope = getReportScope(currentUser.role as UserRole)
 
     // Load org-level metrics
-    const [leadsRes, oppsRes, outcomeOppsRes, projectsRes, statusUpdatesRes, orgRes] = await Promise.all([
+    const [leadsRes, oppsRes, outcomeOppsRes, appointmentsRes, projectsRes, statusUpdatesRes, orgRes] = await Promise.all([
       supabase
         .from('leads')
-        .select('id, status, canvass_disposition, created_at, owner_user_id')
+        .select('id, status, source, canvass_disposition, created_at, owner_user_id')
         .gte('created_at', dateFilter),
       supabase
         .from('opportunities')
@@ -142,6 +143,10 @@ export default function ReportsPage() {
         .not('inspection_outcome', 'is', null)
         .not('inspection_outcome_at', 'is', null)
         .gte('inspection_outcome_at', dateFilter),
+      supabase
+        .from('scheduled_appointments')
+        .select('id, canvasser_user_id, created_at')
+        .gte('created_at', dateFilter),
       supabase
         .from('projects')
         .select('id, status, created_at')
@@ -160,6 +165,7 @@ export default function ReportsPage() {
     const leads = leadsRes.data || []
     const opps = oppsRes.data || []
     const outcomeOpps = outcomeOppsRes.data || []
+    const appointments = appointmentsRes.data || []
     const projects = projectsRes.data || []
     const statusUpdates = statusUpdatesRes.data || []
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
@@ -180,11 +186,9 @@ export default function ReportsPage() {
     const orgCloseMetrics = calculateCloseMetrics(outcomeOpps)
 
     const orgMetricsData: ReportMetrics = {
-      doorsKnocked: leads.length,
-      contacts: leads.filter(l => 
-        ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
-      ).length,
-      inspectionsSet: opps.length, // Count opportunities created (inspections set)
+      doorsKnocked: leads.filter(isCanvassDoorLead).length,
+      contacts: leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+      inspectionsSet: appointments.length,
       opportunitiesCreated: opps.length,
       contractsSigned: opps.filter(o => o.status === 'won').length,
       projectsCompleted: projects.filter(p => p.status === 'complete').length,
@@ -252,15 +256,14 @@ export default function ReportsPage() {
         // Get leads for those users (doors knocked by setter)
         const { data: regionLeads } = await supabase
           .from('leads')
-          .select('id, status, canvass_disposition')
+          .select('id, status, source, canvass_disposition')
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        // Get opportunities SET by users in this region (setter gets credit for inspections set)
-        const { data: regionSetOpps } = await supabase
-          .from('opportunities')
-          .select('id, status, inspection_outcome, setter_user_id')
-          .in('setter_user_id', userIds.length > 0 ? userIds : ['none'])
+        const { data: regionAppointments } = await supabase
+          .from('scheduled_appointments')
+          .select('id, canvasser_user_id')
+          .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
         // Get opportunities OWNED by users in this region (created pipeline)
@@ -283,11 +286,9 @@ export default function ReportsPage() {
         
         regionsWithMetrics.push({
           ...region,
-          doorsKnocked: (regionLeads || []).length,
-          contacts: (regionLeads || []).filter(l => 
-            ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
-          ).length,
-          inspectionsSet: (regionSetOpps || []).length, // Credit to setters
+          doorsKnocked: (regionLeads || []).filter(isCanvassDoorLead).length,
+          contacts: (regionLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+          inspectionsSet: (regionAppointments || []).length,
           opportunitiesCreated: (regionOwnedOpps || []).length,
           contractsSigned: (regionOwnedOpps || []).filter(o => o.status === 'won').length,
           projectsCompleted: 0,
@@ -323,15 +324,14 @@ export default function ReportsPage() {
 
         const { data: teamLeads } = await supabase
           .from('leads')
-          .select('id, status, canvass_disposition')
+          .select('id, status, source, canvass_disposition')
           .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
-        // Get opportunities SET by users in this team (setter gets credit)
-        const { data: teamSetOpps } = await supabase
-          .from('opportunities')
-          .select('id, status, inspection_outcome')
-          .in('setter_user_id', userIds.length > 0 ? userIds : ['none'])
+        const { data: teamAppointments } = await supabase
+          .from('scheduled_appointments')
+          .select('id, canvasser_user_id')
+          .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
           .gte('created_at', dateFilter)
 
         // Get opportunities OWNED by users in this team (created pipeline)
@@ -354,11 +354,9 @@ export default function ReportsPage() {
 
         teamsWithMetrics.push({
           ...team,
-          doorsKnocked: (teamLeads || []).length,
-          contacts: (teamLeads || []).filter(l => 
-            ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
-          ).length,
-          inspectionsSet: (teamSetOpps || []).length, // Credit to setters
+          doorsKnocked: (teamLeads || []).filter(isCanvassDoorLead).length,
+          contacts: (teamLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+          inspectionsSet: (teamAppointments || []).length,
           opportunitiesCreated: (teamOwnedOpps || []).length,
           contractsSigned: (teamOwnedOpps || []).filter(o => o.status === 'won').length,
           projectsCompleted: 0,
@@ -387,15 +385,14 @@ export default function ReportsPage() {
       for (const user of usersData || []) {
         const { data: userLeads } = await supabase
           .from('leads')
-          .select('id, status, canvass_disposition')
+          .select('id, status, source, canvass_disposition')
           .eq('owner_user_id', user.id)
           .gte('created_at', dateFilter)
 
-        // Get opportunities SET by this user (setter gets credit for inspections set)
-        const { data: userSetOpps } = await supabase
-          .from('opportunities')
-          .select('id, status, inspection_outcome')
-          .eq('setter_user_id', user.id)
+        const { data: userAppointments } = await supabase
+          .from('scheduled_appointments')
+          .select('id, canvasser_user_id')
+          .eq('canvasser_user_id', user.id)
           .gte('created_at', dateFilter)
 
         // Get opportunities OWNED by this user (created pipeline)
@@ -418,11 +415,9 @@ export default function ReportsPage() {
 
         usersWithMetrics.push({
           ...user,
-          doorsKnocked: (userLeads || []).length,
-          contacts: (userLeads || []).filter(l => 
-            ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(l.canvass_disposition || '')
-          ).length,
-          inspectionsSet: (userSetOpps || []).length, // Credit to setter
+          doorsKnocked: (userLeads || []).filter(isCanvassDoorLead).length,
+          contacts: (userLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+          inspectionsSet: (userAppointments || []).length,
           opportunitiesCreated: (userOwnedOpps || []).length,
           contractsSigned: (userOwnedOpps || []).filter(o => o.status === 'won').length,
           projectsCompleted: 0,

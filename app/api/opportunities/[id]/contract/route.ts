@@ -157,6 +157,7 @@ export async function POST(
           org_id: profile.org_id,
           customer_id: customerId,
           lead_id: opportunity.lead_id,
+          opportunity_id: opportunityId,
           owner_user_id: opportunity.owner_user_id,
           status: 'open',
           project_type: opportunity.project_type,
@@ -175,6 +176,13 @@ export async function POST(
         .single()
 
       projectId = createdProject?.id ?? null
+    } else {
+      await adminClient
+        .from('projects')
+        .update({ opportunity_id: opportunityId, customer_id: customerId })
+        .eq('id', projectId)
+        .eq('org_id', profile.org_id)
+        .is('opportunity_id', null)
     }
 
     // Upload file to storage
@@ -210,7 +218,12 @@ export async function POST(
     if (projectId) {
       await adminClient
         .from('opportunities')
-        .update({ status: 'won', customer_id: customerId })
+        .update({
+          status: 'won',
+          customer_id: customerId,
+          inspection_outcome: 'sale',
+          inspection_outcome_at: new Date().toISOString(),
+        })
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
 
