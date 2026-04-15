@@ -22,42 +22,10 @@ export async function GET(request: NextRequest) {
     const { start, end } = getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
 
     const isAdmin = profile.role === 'admin'
-    const isRegionalManager = profile.role === 'regional_manager'
-    const isSalesManager = profile.role === 'sales_manager'
     const isSetter = isSetterLikeRole(profile.role)
 
-    let scopeIds: string[] = [profile.id]
-
-    if (isAdmin) {
-      scopeIds = []
-    } else if (isSalesManager && profile.team_id) {
-      const { data: tm } = await supabase
-        .from('users')
-        .select('id')
-        .eq('team_id', profile.team_id)
-      scopeIds = tm?.map(m => m.id) || [profile.id]
-    } else if (isRegionalManager && profile.region_id) {
-      const { data: rt } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('region_id', profile.region_id)
-      const teamIds = rt?.map(t => t.id) || []
-      if (teamIds.length > 0) {
-        const { data: rm } = await supabase
-          .from('users')
-          .select('id')
-          .in('team_id', teamIds)
-        scopeIds = rm?.map(m => m.id) || [profile.id]
-      }
-    } else if (!isAdmin && !isRegionalManager && !isSalesManager && profile.team_id) {
-      const { data: tm } = await supabase
-        .from('users')
-        .select('id')
-        .eq('team_id', profile.team_id)
-      scopeIds = tm?.map(m => m.id) || [profile.id]
-    }
-
-    const scopeForRpc = isAdmin ? [] : scopeIds
+    // Personal overview = this user only (team rollups live under Team performance API).
+    const scopeForRpc = isAdmin ? [] : [profile.id]
 
     const { data: orgRow } = await supabase
       .from('orgs')
@@ -84,7 +52,7 @@ export async function GET(request: NextRequest) {
       .eq('org_id', pOrg)
       .gte('created_at', pStart)
       .lt('created_at', pEnd)
-    if (!isAdmin) inspectionsCountQuery = inspectionsCountQuery.in('canvasser_user_id', scopeIds)
+    if (!isAdmin) inspectionsCountQuery = inspectionsCountQuery.eq('canvasser_user_id', profile.id)
 
     let efficiencyCountQuery = supabase
       .from('scheduled_appointments')
@@ -93,7 +61,7 @@ export async function GET(request: NextRequest) {
       .not('closer_user_id', 'is', null)
       .gte('scheduled_for', pStart)
       .lt('scheduled_for', pEnd)
-    if (!isAdmin) efficiencyCountQuery = efficiencyCountQuery.in('closer_user_id', scopeIds)
+    if (!isAdmin) efficiencyCountQuery = efficiencyCountQuery.eq('closer_user_id', profile.id)
 
     const [
       doorRes,
