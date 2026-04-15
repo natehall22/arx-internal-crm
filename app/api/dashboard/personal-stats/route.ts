@@ -14,6 +14,7 @@ import {
   isCanvassDoorLead,
   isContactDisposition,
 } from '@/lib/sales-metrics'
+import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,47 +69,55 @@ export async function GET(request: NextRequest) {
     const inScope = (id: string | null | undefined) =>
       isAdmin || (id != null && scopeIds.includes(id))
 
-    // ---- LEADS (doors / contacts) ----
-    let leadsQuery = supabase
-      .from('leads')
-      .select('id, source, canvass_disposition, owner_user_id')
-      .eq('org_id', profile.org_id)
-      .gte('created_at', start.toISOString())
-      .lt('created_at', end.toISOString())
-
-    if (!isAdmin) {
-      leadsQuery = leadsQuery.in('owner_user_id', scopeIds)
-    }
-    const { data: leads } = await leadsQuery
+    // ---- LEADS (doors / contacts) — page past PostgREST 1000-row default ----
+    const leads = await fetchSupabaseAllPages(async (from, to) => {
+      let q = supabase
+        .from('leads')
+        .select('id, source, canvass_disposition, owner_user_id')
+        .eq('org_id', profile.org_id)
+        .gte('created_at', start.toISOString())
+        .lt('created_at', end.toISOString())
+      if (!isAdmin) q = q.in('owner_user_id', scopeIds)
+      return q.range(from, to)
+    })
 
     // ---- APPOINTMENTS (inspections set, by created_at) ----
-    const { data: appointments } = await supabase
-      .from('scheduled_appointments')
-      .select('id, canvasser_user_id, closer_user_id, lead_id')
-      .eq('org_id', profile.org_id)
-      .gte('created_at', start.toISOString())
-      .lt('created_at', end.toISOString())
+    const appointments = await fetchSupabaseAllPages(async (from, to) =>
+      supabase
+        .from('scheduled_appointments')
+        .select('id, canvasser_user_id, closer_user_id, lead_id')
+        .eq('org_id', profile.org_id)
+        .gte('created_at', start.toISOString())
+        .lt('created_at', end.toISOString())
+        .range(from, to)
+    )
 
     // ---- APPOINTMENTS ON CLOSER'S CALENDAR in period (by scheduled_for) — efficiency denominator ----
-    const { data: apptsForEfficiency } = await supabase
-      .from('scheduled_appointments')
-      .select('id, closer_user_id')
-      .eq('org_id', profile.org_id)
-      .not('closer_user_id', 'is', null)
-      .gte('scheduled_for', start.toISOString())
-      .lt('scheduled_for', end.toISOString())
+    const apptsForEfficiency = await fetchSupabaseAllPages(async (from, to) =>
+      supabase
+        .from('scheduled_appointments')
+        .select('id, closer_user_id')
+        .eq('org_id', profile.org_id)
+        .not('closer_user_id', 'is', null)
+        .gte('scheduled_for', start.toISOString())
+        .lt('scheduled_for', end.toISOString())
+        .range(from, to)
+    )
 
     // ---- SALES (signed Installation Agreements in period) ----
-    const { data: signedInstallationContracts } = await supabase
-      .from('order_form_contracts')
-      .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-      .eq('org_id', profile.org_id)
-      .eq('agreement_type', 'installation')
-      .eq('status', 'completed')
-      .not('customer_signed_at', 'is', null)
-      .gte('customer_signed_at', start.toISOString())
-      .lt('customer_signed_at', end.toISOString())
-      .order('customer_signed_at', { ascending: false })
+    const signedInstallationContracts = await fetchSupabaseAllPages(async (from, to) =>
+      supabase
+        .from('order_form_contracts')
+        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+        .eq('org_id', profile.org_id)
+        .eq('agreement_type', 'installation')
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', start.toISOString())
+        .lt('customer_signed_at', end.toISOString())
+        .order('customer_signed_at', { ascending: false })
+        .range(from, to)
+    )
 
     // ---- SIT OUTCOMES CONFIG ----
     const { data: orgRow } = await supabase
@@ -127,26 +136,29 @@ export async function GET(request: NextRequest) {
     // ---- SITS (in period) ----
     let sitRows: { owner_user_id: string | null; setter_user_id: string | null; inspection_outcome: string | null }[] = []
     if (sitOutcomeIdSet.size > 0) {
-      const { data: raw } = await supabase
-        .from('opportunities')
-        .select('owner_user_id, setter_user_id, inspection_outcome')
-        .eq('org_id', profile.org_id)
-        .not('inspection_outcome', 'is', null)
-        .not('inspection_outcome_at', 'is', null)
-        .gte('inspection_outcome_at', start.toISOString())
-        .lt('inspection_outcome_at', end.toISOString())
+      const raw = await fetchSupabaseAllPages(async (from, to) =>
+        supabase
+          .from('opportunities')
+          .select('owner_user_id, setter_user_id, inspection_outcome')
+          .eq('org_id', profile.org_id)
+          .not('inspection_outcome', 'is', null)
+          .not('inspection_outcome_at', 'is', null)
+          .gte('inspection_outcome_at', start.toISOString())
+          .lt('inspection_outcome_at', end.toISOString())
+          .range(from, to)
+      )
 
-      sitRows = (raw || []).filter(o =>
+      sitRows = raw.filter(o =>
         sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
       )
     }
 
     // ---- COMPUTE ----
-    const myLeads = (leads || []).filter(l => inScope(l.owner_user_id) && isCanvassDoorLead(l))
+    const myLeads = leads.filter(l => inScope(l.owner_user_id) && isCanvassDoorLead(l))
     const rawDoors = myLeads.length
     const rawContacts = myLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
 
-    const myAppointments = (appointments || []).filter(a => inScope(a.canvasser_user_id))
+    const myAppointments = appointments.filter(a => inScope(a.canvasser_user_id))
     const inspectionsSet = myAppointments.length
 
     const doorsKnocked = rawDoors
@@ -164,7 +176,7 @@ export async function GET(request: NextRequest) {
     // Close rate = sales / sits for the selected period
     const closeRate = sits > 0 ? parseFloat((sales / sits * 100).toFixed(1)) : null
     // Efficiency = sales / appointments on closer's calendar in the selected period
-    const apptCount = (apptsForEfficiency || []).filter(a => inScope(a.closer_user_id)).length
+    const apptCount = apptsForEfficiency.filter(a => inScope(a.closer_user_id)).length
     const efficiency = apptCount > 0 ? parseFloat((sales / apptCount * 100).toFixed(1)) : null
 
     return NextResponse.json({

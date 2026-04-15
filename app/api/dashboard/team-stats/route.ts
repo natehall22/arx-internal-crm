@@ -14,6 +14,7 @@ import {
   isCanvassDoorLead,
   isContactDisposition,
 } from '@/lib/sales-metrics'
+import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 
 export const dynamic = 'force-dynamic'
 
@@ -195,65 +196,73 @@ export async function GET(request: NextRequest) {
 
     // 1) LEADS (raw door knocks from canvassing)
     // owner_user_id = the setter who knocked the door
-    let leadsQuery = supabase
-      .from('leads')
-      .select('id, owner_user_id, canvass_disposition, source, created_at')
-      .eq('org_id', profile.org_id)
-      .gte('created_at', start.toISOString())
-      .lt('created_at', end.toISOString())
-
-    if (!isAdmin && teamMemberIds.length > 0) {
-      leadsQuery = leadsQuery.in('owner_user_id', teamMemberIds)
-    }
-
-    const { data: leads } = await leadsQuery
+    const leads = await fetchSupabaseAllPages(async (from, to) => {
+      let q = supabase
+        .from('leads')
+        .select('id, owner_user_id, canvass_disposition, source, created_at')
+        .eq('org_id', profile.org_id)
+        .gte('created_at', start.toISOString())
+        .lt('created_at', end.toISOString())
+      if (!isAdmin && teamMemberIds.length > 0) {
+        q = q.in('owner_user_id', teamMemberIds)
+      }
+      return q.range(from, to)
+    })
 
     // 2) SCHEDULED APPOINTMENTS (inspections set)
     // canvasser_user_id = the setter who scheduled the inspection
     // This is the SOURCE OF TRUTH for "who set the inspection"
     // Fetch all org appointments (no user filter) — setter attribution uses canvasser_user_id,
     // efficiency uses closer_user_id, so we need both and can't narrow by a single column.
-    const { data: appointments } = await supabase
-      .from('scheduled_appointments')
-      .select('id, canvasser_user_id, closer_user_id, lead_id, created_at')
-      .eq('org_id', profile.org_id)
-      .gte('created_at', start.toISOString())
-      .lt('created_at', end.toISOString())
+    const appointments = await fetchSupabaseAllPages(async (from, to) =>
+      supabase
+        .from('scheduled_appointments')
+        .select('id, canvasser_user_id, closer_user_id, lead_id, created_at')
+        .eq('org_id', profile.org_id)
+        .gte('created_at', start.toISOString())
+        .lt('created_at', end.toISOString())
+        .range(from, to)
+    )
 
     // 3) OPPORTUNITIES (for sales - closer gets credit)
     // owner_user_id = the closer who ran the inspection
-    const oppsQuery = supabase
-      .from('opportunities')
-      .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at, created_at')
-      .eq('org_id', profile.org_id)
-      .gte('created_at', start.toISOString())
-      .lt('created_at', end.toISOString())
-
-    const { data: opportunities } = await oppsQuery
+    const opportunities = await fetchSupabaseAllPages(async (from, to) =>
+      supabase
+        .from('opportunities')
+        .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at, created_at')
+        .eq('org_id', profile.org_id)
+        .gte('created_at', start.toISOString())
+        .lt('created_at', end.toISOString())
+        .range(from, to)
+    )
 
     // Sales are signed Installation Agreements, not inspection feedback outcomes.
-    const salesContractsQuery = supabase
-      .from('order_form_contracts')
-      .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-      .eq('org_id', profile.org_id)
-      .eq('agreement_type', 'installation')
-      .eq('status', 'completed')
-      .not('customer_signed_at', 'is', null)
-      .gte('customer_signed_at', start.toISOString())
-      .lt('customer_signed_at', end.toISOString())
-      .order('customer_signed_at', { ascending: false })
-
-    const { data: salesContracts } = await salesContractsQuery
+    const salesContracts = await fetchSupabaseAllPages(async (from, to) =>
+      supabase
+        .from('order_form_contracts')
+        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+        .eq('org_id', profile.org_id)
+        .eq('agreement_type', 'installation')
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', start.toISOString())
+        .lt('customer_signed_at', end.toISOString())
+        .order('customer_signed_at', { ascending: false })
+        .range(from, to)
+    )
     const salesOpportunities = getAttributedInstallationSales(salesContracts as any[])
 
     // Appointments on closer's calendar in the selected period (by scheduled_for) — efficiency denominator
-    const { data: apptsForEfficiency } = await supabase
-      .from('scheduled_appointments')
-      .select('id, closer_user_id')
-      .eq('org_id', profile.org_id)
-      .not('closer_user_id', 'is', null)
-      .gte('scheduled_for', start.toISOString())
-      .lt('scheduled_for', end.toISOString())
+    const apptsForEfficiency = await fetchSupabaseAllPages(async (from, to) =>
+      supabase
+        .from('scheduled_appointments')
+        .select('id, closer_user_id')
+        .eq('org_id', profile.org_id)
+        .not('closer_user_id', 'is', null)
+        .gte('scheduled_for', start.toISOString())
+        .lt('scheduled_for', end.toISOString())
+        .range(from, to)
+    )
 
     const { data: orgForSits } = await supabase
       .from('orgs')
@@ -276,30 +285,32 @@ export async function GET(request: NextRequest) {
     }[] = []
 
     if (sitOutcomeIdSet.size > 0) {
-      const { data: sitRows } = await supabase
-        .from('opportunities')
-        .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
-        .eq('org_id', profile.org_id)
-        .not('inspection_outcome', 'is', null)
-        .not('inspection_outcome_at', 'is', null)
-        .gte('inspection_outcome_at', start.toISOString())
-        .lt('inspection_outcome_at', end.toISOString())
+      const sitRows = await fetchSupabaseAllPages(async (from, to) =>
+        supabase
+          .from('opportunities')
+          .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
+          .eq('org_id', profile.org_id)
+          .not('inspection_outcome', 'is', null)
+          .not('inspection_outcome_at', 'is', null)
+          .gte('inspection_outcome_at', start.toISOString())
+          .lt('inspection_outcome_at', end.toISOString())
+          .range(from, to)
+      )
 
-      sitOpportunities =
-        (sitRows || []).filter((o) =>
-          sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
-        ) || []
+      sitOpportunities = sitRows.filter((o) =>
+        sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
+      )
     }
 
     // Calculate stats for each member
     const teamMemberStats = members.map(member => {
       // ---- DOORS ----
       // Raw: leads owned by this user (door knocks)
-      const memberLeads = leads?.filter(l => l.owner_user_id === member.id && isCanvassDoorLead(l)) || []
+      const memberLeads = leads.filter(l => l.owner_user_id === member.id && isCanvassDoorLead(l))
       const rawDoors = memberLeads.length
 
       // Inspections set by this user
-      const memberAppointments = appointments?.filter(a => a.canvasser_user_id === member.id) || []
+      const memberAppointments = appointments.filter(a => a.canvasser_user_id === member.id)
       const inspectionsSet = memberAppointments.length
 
       const finalDoors = rawDoors
@@ -324,7 +335,7 @@ export async function GET(request: NextRequest) {
       // Close rate = sales / sits for the selected period
       const closeRate = sits > 0 ? (sales / sits * 100) : null
       // Efficiency = sales / appointments on closer's calendar in the selected period
-      const apptsOnCalendar = (apptsForEfficiency || []).filter((a) => a.closer_user_id === member.id).length
+      const apptsOnCalendar = apptsForEfficiency.filter((a) => a.closer_user_id === member.id).length
       const efficiency = apptsOnCalendar > 0 ? (sales / apptsOnCalendar * 100) : null
 
       const result: any = {
@@ -405,9 +416,9 @@ export async function GET(request: NextRequest) {
         end_utc: end.toISOString(),
         start_local: debugDateRange.startLocal || start.toISOString(),
         end_local: debugDateRange.endLocal || end.toISOString(),
-        total_leads_in_range: leads?.length || 0,
-        total_appointments_in_range: appointments?.length || 0,
-        total_opportunities_in_range: opportunities?.length || 0,
+        total_leads_in_range: leads.length,
+        total_appointments_in_range: appointments.length,
+        total_opportunities_in_range: opportunities.length,
         total_sales_events_in_range: salesOpportunities?.length || 0,
         sit_outcome_ids_configured: sitOutcomeIdSet.size,
         total_sit_events_in_range: sitOpportunities.length,
