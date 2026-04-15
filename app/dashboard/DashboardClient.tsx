@@ -51,6 +51,8 @@ interface TeamMemberStat {
   doorsKnocked: number
   contacts: number
   inspectionsSet: number
+  /** Scheduled appointments in period where this user is the assigned closer (credit follows reassignment). */
+  inspectionsReceived?: number
   /** Inspection outcomes flagged "counts as sit" in admin; attributed like sales */
   sits: number
   sales: number
@@ -1146,7 +1148,7 @@ export default function DashboardClient({
                               <p className="text-xs text-gray-500 capitalize">{member.role.replace('_', ' ')}</p>
                             </div>
                           </div>
-                          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center">
+                          <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center">
                             <div>
                               <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                                 {member.doorsKnocked}
@@ -1164,6 +1166,12 @@ export default function DashboardClient({
                                 {member.inspectionsSet ?? 0}
                               </p>
                               <p className="text-xs text-gray-500">Set</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${(member.inspectionsReceived ?? 0) > 0 ? 'text-sky-600' : 'text-gray-400'}`}>
+                                {member.inspectionsReceived ?? 0}
+                              </p>
+                              <p className="text-xs text-gray-500">Recv.</p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${(member.sits ?? 0) > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
@@ -1208,6 +1216,10 @@ export default function DashboardClient({
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doors</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Contacts</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. set</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Insp. recv.
+                              <span className="block font-normal normal-case text-gray-400">(assigned closer)</span>
+                            </th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1269,6 +1281,11 @@ export default function DashboardClient({
                               <td className="px-4 py-3 text-center">
                                 <span className={`text-lg font-bold ${(member.inspectionsSet ?? 0) > 0 ? 'text-orange-500' : 'text-gray-400'}`}>
                                   {member.inspectionsSet ?? 0}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`text-lg font-bold ${(member.inspectionsReceived ?? 0) > 0 ? 'text-sky-600' : 'text-gray-400'}`}>
+                                  {member.inspectionsReceived ?? 0}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">

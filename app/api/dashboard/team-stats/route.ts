@@ -20,6 +20,8 @@ type TeamStatRow = {
   doorsKnocked: number
   contacts: number
   inspectionsSet: number
+  /** Appointments created in period with this user as assigned closer (reassignment moves credit). */
+  inspectionsReceived: number
   sits: number
   sales: number
   closeRate: string
@@ -221,6 +223,7 @@ export async function GET(request: NextRequest) {
       doorRows,
       contactRows,
       inspRows,
+      inspRecvRows,
       effRows,
       sitSetterRows,
       sitOwnerRows,
@@ -245,6 +248,12 @@ export async function GET(request: NextRequest) {
             p_disposition_ids: dispositionIds,
           }),
       supabase.rpc('dashboard_inspections_set_by_canvasser', {
+        p_org_id: pOrg,
+        p_start: pStart,
+        p_end: pEnd,
+        p_member_ids: memberIds,
+      }),
+      supabase.rpc('dashboard_inspections_received_by_closer', {
         p_org_id: pOrg,
         p_start: pStart,
         p_end: pEnd,
@@ -307,6 +316,7 @@ export async function GET(request: NextRequest) {
       doorRows.error ||
       contactRows.error ||
       inspRows.error ||
+      inspRecvRows.error ||
       effRows.error ||
       sitSetterRows.error ||
       sitOwnerRows.error ||
@@ -330,6 +340,10 @@ export async function GET(request: NextRequest) {
     const inspByCanvasser = new Map<string, number>()
     for (const r of (inspRows.data || []) as RpcRow[]) {
       if (r.canvasser_id) inspByCanvasser.set(r.canvasser_id, num(r.cnt))
+    }
+    const inspReceivedByCloser = new Map<string, number>()
+    for (const r of (inspRecvRows.data || []) as RpcRow[]) {
+      if (r.closer_id) inspReceivedByCloser.set(r.closer_id, num(r.cnt))
     }
     const effByCloser = new Map<string, number>()
     for (const r of (effRows.data || []) as RpcRow[]) {
@@ -356,6 +370,7 @@ export async function GET(request: NextRequest) {
       const doorsKnocked = doorByOwner.get(member.id) ?? 0
       const contacts = contactByOwner.get(member.id) ?? 0
       const inspectionsSet = inspByCanvasser.get(member.id) ?? 0
+      const inspectionsReceived = inspReceivedByCloser.get(member.id) ?? 0
       const sits = isSetterLikeRole(member.role)
         ? (sitBySetter.get(member.id) ?? 0)
         : (sitByOwner.get(member.id) ?? 0)
@@ -374,6 +389,7 @@ export async function GET(request: NextRequest) {
         doorsKnocked,
         contacts,
         inspectionsSet,
+        inspectionsReceived,
         sits,
         sales,
         closeRate: closeRate !== null ? closeRate.toFixed(0) : '—',
@@ -385,6 +401,7 @@ export async function GET(request: NextRequest) {
           doors_raw: doorsKnocked,
           contacts_raw: contacts,
           inspections_set_raw: inspectionsSet,
+          inspections_received_raw: inspectionsReceived,
           sales_raw: sales,
           sits_raw: sits,
         }

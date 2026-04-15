@@ -382,6 +382,9 @@ export default async function DashboardPage() {
           a.canvasser_user_id === member.id
         )
         const inspectionsSet = memberAppointments.length
+        const inspectionsReceived = (allAppointments || []).filter(
+          (a) => a.closer_user_id === member.id
+        ).length
         
         const finalDoors = rawDoors
         const finalContacts = rawContacts
@@ -411,6 +414,7 @@ export default async function DashboardPage() {
           doorsKnocked: finalDoors,
           contacts: finalContacts,
           inspectionsSet,
+          inspectionsReceived,
           sits,
           sales: memberSalesCount,
           closeRate: memberCloseRate !== null ? memberCloseRate.toFixed(0) : '—',
