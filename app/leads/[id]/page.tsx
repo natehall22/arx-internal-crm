@@ -16,6 +16,7 @@ import {
   CalendarEvent 
 } from '@/lib/google-calendar'
 import { easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
+import { leadOwnerLabel } from '@/lib/lead-owner-display'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -135,6 +136,7 @@ export default async function LeadDetailPage({
 
   const closerName =
     (closers || []).find((closer: any) => closer.id === lead.closer_user_id)?.full_name ||
+    (lead as { closer_display_name?: string | null }).closer_display_name ||
     null
 
   const canvassDispositions = [
@@ -535,7 +537,7 @@ export default async function LeadDetailPage({
               </div>
               <div>
                 <span className="text-gray-500">Owner:</span>
-                <span className="ml-2 text-gray-900">{lead.users?.full_name || 'Unassigned'}</span>
+                <span className="ml-2 text-gray-900">{leadOwnerLabel(lead)}</span>
               </div>
               <div>
                 <span className="text-gray-500">Closer:</span>

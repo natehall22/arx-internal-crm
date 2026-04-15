@@ -338,7 +338,6 @@ export default async function DashboardPage() {
       .from('users')
       .select('id, full_name, role, show_in_reports')
       .eq('org_id', profile.org_id)
-      .eq('active', true)
       .neq('show_in_reports', false)
 
     if (isSalesManager && profile.team_id) {

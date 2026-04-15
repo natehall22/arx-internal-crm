@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { leadOwnerLabel } from '@/lib/lead-owner-display'
 
 type Lead = {
   id: string
@@ -17,6 +18,7 @@ type Lead = {
   campaign_id: string | null
   lead_source_id: string | null
   owner_user_id: string | null
+  owner_display_name?: string | null
   created_at: string
   users: { full_name: string } | null
   campaigns: { name: string } | null
@@ -369,7 +371,9 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
           </div>
         ) : (
           <>
-            {leads.map((lead) => (
+            {leads.map((lead) => {
+              const ownerLabelText = leadOwnerLabel(lead)
+              return (
               <Link
                 key={lead.id}
                 href={`/leads/${lead.id}`}
@@ -394,7 +398,13 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                   {lead.address_text || 'No address'}
                 </p>
                 <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>{lead.users?.full_name || <span className="text-orange-600">Unassigned</span>}</span>
+                  <span>
+                    {ownerLabelText === 'Unassigned' ? (
+                      <span className="text-orange-600">Unassigned</span>
+                    ) : (
+                      ownerLabelText
+                    )}
+                  </span>
                   {canViewInbound && lead.channel && (
                     <span className={`px-2 py-0.5 rounded ${channelColors[lead.channel] || 'bg-gray-100'}`}>
                       {lead.channel}
@@ -402,7 +412,8 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                   )}
                 </div>
               </Link>
-            ))}
+              )
+            })}
             
             {/* Mobile Pagination */}
             {pagination.totalPages > 1 && (
@@ -487,6 +498,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                 <tbody className="bg-white divide-y divide-gray-200">
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const lead = leads[virtualRow.index]
+                    const ownerLabelText = leadOwnerLabel(lead)
                     return (
                       <tr 
                         key={lead.id} 
@@ -538,8 +550,10 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                           )}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {lead.users?.full_name || (
+                          {ownerLabelText === 'Unassigned' ? (
                             <span className="text-orange-600 font-medium">Unassigned</span>
+                          ) : (
+                            ownerLabelText
                           )}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm">

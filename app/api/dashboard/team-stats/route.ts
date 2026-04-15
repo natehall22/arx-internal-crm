@@ -172,12 +172,12 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Get all active team members
+    // Team roster: include inactive users so historical doors/sits still roll up to former reps
+    // (Prefer deactivating users over removing team_id so scoped queries still match.)
     let membersQuery = supabase
       .from('users')
       .select('id, full_name, role, show_in_reports')
       .eq('org_id', profile.org_id)
-      .eq('active', true)
       .neq('show_in_reports', false)
     
     if (!isAdmin && teamMemberIds.length > 0) {
