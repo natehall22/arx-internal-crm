@@ -95,6 +95,8 @@ interface Job {
     payment_method?: string | null
   } | null
   installation_agreement?: { pdf_url: string | null; status: string } | null
+  /** Latest completed change order with stored PDF (public storage URL). */
+  change_order_pdf?: { pdf_url: string; co_number: string } | null
 }
 
 interface Crew {
@@ -749,6 +751,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
           customer: customer,
           salesperson: Array.isArray(data.salesperson) ? data.salesperson[0] : data.salesperson,
           project: rawProject,
+          installation_agreement: job.installation_agreement,
+          change_order_pdf: job.change_order_pdf,
         }
         setJob(transformedJob)
       }
@@ -1660,6 +1664,19 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                       PDF generating...
                     </div>
                   )
+                )}
+                {job.change_order_pdf?.pdf_url && (
+                  <a
+                    href={job.change_order_pdf.pdf_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[44px] flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 mb-3"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    View Change Order{job.change_order_pdf.co_number ? ` (${job.change_order_pdf.co_number})` : ''}
+                  </a>
                 )}
                 {job.project_id && (
                   <Link

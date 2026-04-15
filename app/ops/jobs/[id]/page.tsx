@@ -185,6 +185,23 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
   }
 
+  let changeOrderPdf: { pdf_url: string; co_number: string } | null = null
+  if (jobRes.data.project_id) {
+    const { data: coRows } = await supabase
+      .from('job_change_orders')
+      .select('pdf_url, co_number')
+      .eq('org_id', profile.org_id)
+      .eq('project_id', jobRes.data.project_id)
+      .eq('status', 'completed')
+      .not('pdf_url', 'is', null)
+      .order('signed_at', { ascending: false })
+      .limit(1)
+    const row = coRows?.[0]
+    if (row?.pdf_url) {
+      changeOrderPdf = { pdf_url: row.pdf_url, co_number: row.co_number }
+    }
+  }
+
   const transformedJob = {
     ...jobRes.data,
     assigned_crew: Array.isArray(jobRes.data.assigned_crew) ? jobRes.data.assigned_crew[0] : jobRes.data.assigned_crew,
@@ -194,6 +211,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     project: rawProject,
     opportunity_id: opportunityId,
     installation_agreement: installationAgreement,
+    change_order_pdf: changeOrderPdf,
   }
 
   return (
