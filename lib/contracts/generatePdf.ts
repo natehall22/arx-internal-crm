@@ -161,7 +161,6 @@ function generateContingencyPdf(contract: ContractData): Buffer {
     contract.scope_other,
   ].filter(Boolean).join(', ') || 'Exterior storm damage claim assistance'
   addWrapped(`Requested scope: ${scope}`)
-  if (contract.roofing_material) addWrapped(`Primary roofing system: ${contract.roofing_material}`)
   if (contract.notes) addWrapped(`Notes: ${contract.notes}`)
   y += 6
 

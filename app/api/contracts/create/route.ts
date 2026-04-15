@@ -41,6 +41,11 @@ export async function POST(request: NextRequest) {
     const safeProjectCost = safeAgreementType === 'contingency' ? 0 : Number(projectCost || 0)
     const safeDepositAmount = safeAgreementType === 'contingency' ? 0 : Number(depositAmount || 0)
     const safePaymentMethod = safeAgreementType === 'contingency' ? 'insurance' : (paymentMethod || 'cash')
+    const safeTotalSquares = safeAgreementType === 'contingency' ? null : (totalSquares || null)
+    const safeRoofingMaterial = safeAgreementType === 'contingency' ? null : (roofingMaterial || null)
+    const safeEstCompletionDate = safeAgreementType === 'contingency' ? null : (estCompletionDate || null)
+    const safeExclusions = safeAgreementType === 'contingency' ? null : (exclusions || null)
+    const safeAdditionalProducts = safeAgreementType === 'contingency' ? null : (additionalProducts || null)
     const agreementLabel = safeAgreementType === 'contingency'
       ? 'Insurance Contingency Agreement'
       : 'Installation Agreement'
@@ -91,8 +96,8 @@ export async function POST(request: NextRequest) {
         customer_phone: customerPhone || null,
         project_address: projectAddress,
         project_cost: safeProjectCost,
-        total_squares: totalSquares || null,
-        roofing_material: roofingMaterial || null,
+        total_squares: safeTotalSquares,
+        roofing_material: safeRoofingMaterial,
         scope_roof_replacement: scopeRoofReplacement || false,
         scope_roof_repair: scopeRoofRepair || false,
         scope_gutters: scopeGutters || false,
@@ -101,9 +106,9 @@ export async function POST(request: NextRequest) {
         payment_method: safePaymentMethod,
         finance_company: safeAgreementType === 'installation' ? (financeCompany || null) : null,
         deposit_amount: safeDepositAmount,
-        est_completion_date: estCompletionDate || null,
-        exclusions: exclusions || null,
-        additional_products: additionalProducts || null,
+        est_completion_date: safeEstCompletionDate,
+        exclusions: safeExclusions,
+        additional_products: safeAdditionalProducts,
         notes: notes || null,
         rep_name: repName,
         rep_title: repTitle || 'Sales Representative',

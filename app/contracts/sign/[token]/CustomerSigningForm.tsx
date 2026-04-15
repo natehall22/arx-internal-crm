@@ -344,13 +344,13 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     {contract.scope_other && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">{contract.scope_other}</span>}
                   </div>
                 </div>
-                {contract.roofing_material && (
+                {!isContingency && contract.roofing_material && (
                   <div>
                     <span className="text-gray-500">Primary Roofing System:</span>
                     <span className="ml-2 font-medium text-black">{contract.roofing_material}</span>
                   </div>
                 )}
-                {contract.total_squares && (
+                {!isContingency && contract.total_squares && (
                   <div>
                     <span className="text-gray-500">Total Squares:</span>
                     <span className="ml-2 font-medium text-black">{contract.total_squares}</span>
@@ -362,19 +362,19 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     <span className="ml-2 font-medium text-lg text-black">${contract.project_cost.toLocaleString()}</span>
                   </div>
                 )}
-                {contract.est_completion_date && (
+                {!isContingency && contract.est_completion_date && (
                   <div>
                     <span className="text-gray-500">Est. Completion Date:</span>
                     <span className="ml-2 font-medium text-black">{new Date(contract.est_completion_date).toLocaleDateString()}</span>
                   </div>
                 )}
-                {contract.exclusions && (
+                {!isContingency && contract.exclusions && (
                   <div>
                     <span className="text-gray-500">Exclusions / Observations:</span>
                     <p className="mt-1 text-black whitespace-pre-wrap">{contract.exclusions}</p>
                   </div>
                 )}
-                {contract.additional_products && (
+                {!isContingency && contract.additional_products && (
                   <div>
                     <span className="text-gray-500">Additional Products:</span>
                     <p className="mt-1 text-black whitespace-pre-wrap">{contract.additional_products}</p>
