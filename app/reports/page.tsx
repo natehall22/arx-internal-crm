@@ -11,7 +11,7 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
-import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 type ReportMetrics = {
@@ -183,6 +183,9 @@ export default function ReportsPage() {
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
       orgRes.data?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
     )
+    const contactDispositionIdSet = getContactDispositionIdSet(
+      orgRes.data?.settings?.canvass_dispositions as any[] | undefined
+    )
     const calculateCloseMetrics = (rows: OutcomeMetricRow[]) => {
       const inspectionsRun = rows.filter(o =>
         sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
@@ -199,7 +202,7 @@ export default function ReportsPage() {
 
     const orgMetricsData: ReportMetrics = {
       doorsKnocked: leads.filter(isCanvassDoorLead).length,
-      contacts: leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+      contacts: leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
       inspectionsSet: appointments.length,
       opportunitiesCreated: opps.length,
       contractsSigned: orgCloseMetrics.sales,
@@ -309,7 +312,7 @@ export default function ReportsPage() {
         regionsWithMetrics.push({
           ...region,
           doorsKnocked: (regionLeads || []).filter(isCanvassDoorLead).length,
-          contacts: (regionLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+          contacts: (regionLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
           inspectionsSet: (regionAppointments || []).length,
           opportunitiesCreated: (regionOwnedOpps || []).length,
           contractsSigned: regionCloseMetrics.sales,
@@ -386,7 +389,7 @@ export default function ReportsPage() {
         teamsWithMetrics.push({
           ...team,
           doorsKnocked: (teamLeads || []).filter(isCanvassDoorLead).length,
-          contacts: (teamLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+          contacts: (teamLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
           inspectionsSet: (teamAppointments || []).length,
           opportunitiesCreated: (teamOwnedOpps || []).length,
           contractsSigned: teamCloseMetrics.sales,
@@ -451,7 +454,7 @@ export default function ReportsPage() {
         usersWithMetrics.push({
           ...user,
           doorsKnocked: (userLeads || []).filter(isCanvassDoorLead).length,
-          contacts: (userLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length,
+          contacts: (userLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
           inspectionsSet: (userAppointments || []).length,
           opportunitiesCreated: (userOwnedOpps || []).length,
           contractsSigned: userCloseMetrics.sales,

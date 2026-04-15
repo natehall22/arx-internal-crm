@@ -8,7 +8,7 @@ import {
 } from '@/lib/inspection-outcomes'
 import { distinctDealCountsForMemberScope } from '@/lib/dashboard-distinct-deals'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -255,6 +255,9 @@ export async function GET(request: NextRequest) {
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
       orgForSits?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
     )
+    const contactDispositionIdSet = getContactDispositionIdSet(
+      orgForSits?.settings?.canvass_dispositions as any[] | undefined
+    )
 
     let sitOpportunities: {
       id: string
@@ -294,7 +297,7 @@ export async function GET(request: NextRequest) {
 
       // ---- CONTACTS ----
       // Raw: leads with contact disposition
-      const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
+      const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
       const finalContacts = rawContacts
 
       // ---- SALES (timeframe) ----

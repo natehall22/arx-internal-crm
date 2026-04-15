@@ -8,7 +8,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -112,6 +112,9 @@ export async function GET(request: NextRequest) {
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
       orgRow?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
     )
+    const contactDispositionIdSet = getContactDispositionIdSet(
+      orgRow?.settings?.canvass_dispositions as any[] | undefined
+    )
 
     // ---- SITS (in period) ----
     let sitRows: { owner_user_id: string | null; setter_user_id: string | null; inspection_outcome: string | null }[] = []
@@ -133,7 +136,7 @@ export async function GET(request: NextRequest) {
     // ---- COMPUTE ----
     const myLeads = (leads || []).filter(l => inScope(l.owner_user_id) && isCanvassDoorLead(l))
     const rawDoors = myLeads.length
-    const rawContacts = myLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
+    const rawContacts = myLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
 
     const myAppointments = (appointments || []).filter(a => inScope(a.canvasser_user_id))
     const inspectionsSet = myAppointments.length

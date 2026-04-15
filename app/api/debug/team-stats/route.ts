@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getDateRangeWithDebug } from '@/lib/date-ranges'
+import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -221,14 +222,22 @@ export async function GET(request: NextRequest) {
     
     const { data: opportunities } = await opportunitiesQuery
 
-    const contactDispositions = ['go_back', 'hot_lead', 'not_interested', 'renter']
+    const { data: orgRow } = await supabase
+      .from('orgs')
+      .select('settings')
+      .eq('id', profile.org_id)
+      .single()
+
+    const contactDispositionIdSet = getContactDispositionIdSet(
+      orgRow?.settings?.canvass_dispositions as any[] | undefined
+    )
 
     const reps = members.map(member => {
       // LEADS (raw door knocks)
-      const memberLeads = leads?.filter(l => l.owner_user_id === member.id) || []
+      const memberLeads = leads?.filter(l => l.owner_user_id === member.id && isCanvassDoorLead(l)) || []
       const rawDoors = memberLeads.length
-      const rawContacts = memberLeads.filter(l => 
-        contactDispositions.includes(l.canvass_disposition)
+      const rawContacts = memberLeads.filter(l =>
+        isContactDisposition(l.canvass_disposition, contactDispositionIdSet)
       ).length
 
       // APPOINTMENTS (inspections set by this user)
@@ -246,7 +255,7 @@ export async function GET(request: NextRequest) {
         if (!a.lead_id) return true
         const lead = memberLeads.find(l => l.id === a.lead_id)
         if (!lead) return true
-        return !contactDispositions.includes(lead.canvass_disposition)
+        return !isContactDisposition(lead.canvass_disposition, contactDispositionIdSet)
       }).length
 
       // SALES (closer gets credit)

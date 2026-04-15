@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import * as XLSX from 'xlsx'
-import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export const dynamic = 'force-dynamic'
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     const range = (request.nextUrl.searchParams.get('range') || '30d') as DateRange
     const dateFilter = getDateFilter(range)
 
-    const [usersRes, leadsRes, oppsRes, outcomeOppsRes, appointmentsRes, projectsRes, regionsRes, teamsRes] = await Promise.all([
+    const [usersRes, leadsRes, oppsRes, outcomeOppsRes, appointmentsRes, projectsRes, regionsRes, teamsRes, orgRes] = await Promise.all([
       supabase.from('users').select('*').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
       supabase.from('leads').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('opportunities').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
       supabase.from('projects').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('regions').select('*').eq('org_id', profile.org_id).order('name'),
       supabase.from('teams').select('*').eq('org_id', profile.org_id).order('name'),
+      supabase.from('orgs').select('settings').eq('id', profile.org_id).single(),
     ])
 
     const users = usersRes.data || []
@@ -96,6 +97,9 @@ export async function GET(request: NextRequest) {
     const regions = regionsRes.data || []
     const teams = teamsRes.data || []
     const salesOpps = outcomeOpps.filter(o => o.inspection_outcome === 'sale')
+    const contactDispositionIdSet = getContactDispositionIdSet(
+      orgRes.data?.settings?.canvass_dispositions as any[] | undefined
+    )
 
     const wb = XLSX.utils.book_new()
 
@@ -106,7 +110,7 @@ export async function GET(request: NextRequest) {
       [''],
       ['Metric', 'Value'],
       ['Total Doors Knocked', leads.filter(isCanvassDoorLead).length],
-      ['Total Contacts', leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition)).length],
+      ['Total Contacts', leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length],
       ['Inspections Set', appointments.length],
       ['Opportunities Created', opps.length],
       ['Contracts Signed', salesOpps.length],
@@ -127,7 +131,7 @@ export async function GET(request: NextRequest) {
         Role: u.role,
         Email: u.email,
         'Doors Knocked': userLeads.length,
-        Contacts: userLeads.filter(l => isContactDisposition(l.canvass_disposition)).length,
+        Contacts: userLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
         'Inspections Set': userAppointments.length,
         Opportunities: userOpps.length,
         'Contracts Signed': userSales.length,
@@ -148,7 +152,7 @@ export async function GET(request: NextRequest) {
         Region: region?.name || 'Unassigned',
         Members: teamUserIds.length,
         'Doors Knocked': teamLeads.length,
-        Contacts: teamLeads.filter(l => isContactDisposition(l.canvass_disposition)).length,
+        Contacts: teamLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
         'Inspections Set': teamAppointments.length,
         Opportunities: teamOpps.length,
         'Contracts Signed': teamSales.length,
@@ -169,7 +173,7 @@ export async function GET(request: NextRequest) {
         Teams: regionTeamIds.length,
         Members: regionUserIds.length,
         'Doors Knocked': regionLeads.length,
-        Contacts: regionLeads.filter(l => isContactDisposition(l.canvass_disposition)).length,
+        Contacts: regionLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
         'Inspections Set': regionAppointments.length,
         Opportunities: regionOpps.length,
         'Contracts Signed': regionSales.length,

@@ -42,6 +42,7 @@ interface DispositionType {
   id: string
   label: string
   category: string
+  counts_as_contact?: boolean
   color: string
   active: boolean
   sort_order: number
@@ -150,12 +151,12 @@ export default function AdminSettingsPage() {
     include_admins_in_reports: true, // Default: admins show in reports
   })
   const [dispositions, setDispositions] = useState<DispositionType[]>([
-    { id: 'not_home', label: 'Not Home', category: 'No Contact', color: '#ef4444', active: true, sort_order: 0 },
-    { id: 'bad_roof', label: 'Bad Roof', category: 'No Contact', color: '#f97316', active: true, sort_order: 1 },
-    { id: 'renter', label: 'Renter', category: 'Unqualified', color: '#eab308', active: true, sort_order: 2 },
-    { id: 'go_back', label: 'Go Back', category: 'Contact', color: '#3b82f6', active: true, sort_order: 3 },
-    { id: 'hot_lead', label: 'Hot Lead', category: 'Contact', color: '#22c55e', active: true, sort_order: 4 },
-    { id: 'not_interested', label: 'Not Interested', category: 'Closed', color: '#6b7280', active: true, sort_order: 5 },
+    { id: 'not_home', label: 'Not Home', category: 'No Contact', counts_as_contact: false, color: '#ef4444', active: true, sort_order: 0 },
+    { id: 'bad_roof', label: 'Bad Roof', category: 'No Contact', counts_as_contact: false, color: '#f97316', active: true, sort_order: 1 },
+    { id: 'renter', label: 'Renter', category: 'Unqualified', counts_as_contact: true, color: '#eab308', active: true, sort_order: 2 },
+    { id: 'go_back', label: 'Go Back', category: 'Contact', counts_as_contact: true, color: '#3b82f6', active: true, sort_order: 3 },
+    { id: 'hot_lead', label: 'Hot Lead', category: 'Contact', counts_as_contact: true, color: '#22c55e', active: true, sort_order: 4 },
+    { id: 'not_interested', label: 'Not Interested', category: 'Closed', counts_as_contact: true, color: '#6b7280', active: true, sort_order: 5 },
   ])
   const [editingDisposition, setEditingDisposition] = useState<DispositionType | null>(null)
   const [showAddDisposition, setShowAddDisposition] = useState(false)
@@ -571,7 +572,12 @@ export default function AdminSettingsPage() {
       
       // Load canvass dispositions from org settings
       if (data.settings?.canvass_dispositions) {
-        setDispositions(data.settings.canvass_dispositions)
+        setDispositions(data.settings.canvass_dispositions.map((d: DispositionType) => ({
+          ...d,
+          counts_as_contact:
+            d.counts_as_contact ??
+            ['go_back', 'hot_lead', 'not_interested', 'renter'].includes(d.id),
+        })))
       }
       
       // Load inspection outcomes from org settings
@@ -1809,6 +1815,7 @@ export default function AdminSettingsPage() {
                       id: `dispo_${Date.now()}`,
                       label: '',
                       category: 'Contact',
+                      counts_as_contact: true,
                       color: '#3b82f6',
                       active: true,
                       sort_order: dispositions.length,
@@ -1838,6 +1845,7 @@ export default function AdminSettingsPage() {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Color</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
@@ -1856,6 +1864,13 @@ export default function AdminSettingsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm text-gray-600">{dispo.category}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            dispo.counts_as_contact ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {dispo.counts_as_contact ? 'Yes' : 'No'}
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -1959,6 +1974,18 @@ export default function AdminSettingsPage() {
                           <option value="Unqualified">Unqualified</option>
                           <option value="Closed">Closed</option>
                         </select>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          id="dispo-counts-contact"
+                          checked={!!editingDisposition.counts_as_contact}
+                          onChange={(e) => setEditingDisposition(prev => prev ? { ...prev, counts_as_contact: e.target.checked } : null)}
+                          className="mt-1 w-4 h-4 rounded border-gray-300 text-indigo-600"
+                        />
+                        <label htmlFor="dispo-counts-contact" className="text-sm text-gray-700">
+                          Count this disposition as a contact in dashboards and reports
+                        </label>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>

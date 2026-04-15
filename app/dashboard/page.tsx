@@ -15,7 +15,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -155,6 +155,9 @@ export default async function DashboardPage() {
 
   const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
     orgForSits?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
+  )
+  const contactDispositionIdSet = getContactDispositionIdSet(
+    orgForSits?.settings?.canvass_dispositions as any[] | undefined
   )
 
   let sitOpportunities: {
@@ -356,7 +359,7 @@ export default async function DashboardPage() {
         const rawDoors = memberLeads.length
         
         // Count contacts - only dispositions where they talked to someone
-        const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
+        const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
         
         // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
         const memberAppointments = (allAppointments || []).filter(a => 
@@ -426,7 +429,7 @@ export default async function DashboardPage() {
   // Data is already filtered by date in queries, so use directly
   const thisWeekLeads = (allLeads || []).filter(isCanvassDoorLead)
   const rawDoorsKnocked = thisWeekLeads.length
-  const rawContacts = thisWeekLeads.filter(l => isContactDisposition(l.canvass_disposition)).length
+  const rawContacts = thisWeekLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
   
   // Inspections set - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
   // Filter by user role for non-admins
