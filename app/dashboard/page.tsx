@@ -128,16 +128,19 @@ export default async function DashboardPage() {
   // Fetch leads created this week (filter in query to avoid Supabase row limits)
   let leadsQuery = supabase
     .from('leads')
-    .select('id, status, source, canvass_disposition, created_at, owner_user_id')
+    .select('id, status, source, canvass_disposition, created_at, owner_user_id, pin_attributed_user_id')
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())
   
   if (!isAdmin) {
     if (teamMemberIds.length > 1) {
-      leadsQuery = leadsQuery.in('owner_user_id', teamMemberIds)
+      const idList = teamMemberIds.join(',')
+      leadsQuery = leadsQuery.or(`owner_user_id.in.(${idList}),pin_attributed_user_id.in.(${idList})`)
     } else {
-      leadsQuery = leadsQuery.eq('owner_user_id', profile.id)
+      leadsQuery = leadsQuery.or(
+        `owner_user_id.eq.${profile.id},pin_attributed_user_id.eq.${profile.id}`
+      )
     }
   }
   const { data: allLeads, error: leadsError } = await leadsQuery
@@ -361,8 +364,14 @@ export default async function DashboardPage() {
       // Calculate stats for each member
       // Data is already filtered by date in queries
       for (const member of members) {
-        // Leads owned by this member (already filtered to this week)
-        const memberLeads = (allLeads || []).filter(l => l.owner_user_id === member.id && isCanvassDoorLead(l))
+        const effectiveLeadOwner = (l: {
+          owner_user_id?: string | null
+          pin_attributed_user_id?: string | null
+        }) => l.owner_user_id || l.pin_attributed_user_id
+        // Leads attributed to this member (owner or frozen pin id if user was deleted)
+        const memberLeads = (allLeads || []).filter(
+          l => effectiveLeadOwner(l) === member.id && isCanvassDoorLead(l)
+        )
         const rawDoors = memberLeads.length
         
         // Count contacts - only dispositions where they talked to someone

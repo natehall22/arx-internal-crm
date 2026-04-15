@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
     // Full details fetched via /api/canvass/lead/[id] on click
     let query = adminClient
       .from('leads')
-      .select('id, lat, lng, canvass_disposition, status, owner_user_id, created_at')
+      .select('id, lat, lng, canvass_disposition, status, owner_user_id, pin_attributed_user_id, created_at')
       .eq('org_id', profile.org_id)
       .not('lat', 'is', null)
       .not('lng', 'is', null)
@@ -199,9 +199,10 @@ export async function GET(request: NextRequest) {
       .lte('lng', maxLng)
       .limit(limit)
 
-    // Apply visibility filter
+    // Apply visibility filter (include pin_attributed_user_id so deleted users' pins stay visible)
     if (visibleUserIds.length > 0) {
-      query = query.in('owner_user_id', visibleUserIds)
+      const idList = visibleUserIds.join(',')
+      query = query.or(`owner_user_id.in.(${idList}),pin_attributed_user_id.in.(${idList})`)
     }
 
     // Apply disposition filter if provided
@@ -227,11 +228,11 @@ export async function GET(request: NextRequest) {
     // Return minimal pin data
     const pins = (leads || []).map(lead => ({
       id: lead.id,
-      lat: parseFloat(lead.lat),
-      lng: parseFloat(lead.lng),
+      lat: parseFloat(String(lead.lat)),
+      lng: parseFloat(String(lead.lng)),
       d: lead.canvass_disposition, // Short key for bandwidth
       s: lead.status,              // Short key for bandwidth
-      o: lead.owner_user_id,       // Short key for bandwidth
+      o: lead.owner_user_id ?? (lead as { pin_attributed_user_id?: string | null }).pin_attributed_user_id,
       t: lead.created_at,          // Timestamp for sorting
     }))
 

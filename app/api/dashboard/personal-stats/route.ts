@@ -4,17 +4,10 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import {
   getSitOutcomeNormalizedIdSet,
-  normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import {
-  getAttributedInstallationSales,
-  getContactDispositionIdSet,
-  isCanvassDoorLead,
-  isContactDisposition,
-} from '@/lib/sales-metrics'
-import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
+import { getContactDispositionIdSet } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,11 +26,10 @@ export async function GET(request: NextRequest) {
     const isSalesManager = profile.role === 'sales_manager'
     const isSetter = isSetterLikeRole(profile.role)
 
-    // Scope: which user IDs count toward this user's personal stats
     let scopeIds: string[] = [profile.id]
 
     if (isAdmin) {
-      scopeIds = [] // admin sees all — handled by isAdmin flag
+      scopeIds = []
     } else if (isSalesManager && profile.team_id) {
       const { data: tm } = await supabase
         .from('users')
@@ -58,7 +50,6 @@ export async function GET(request: NextRequest) {
         scopeIds = rm?.map(m => m.id) || [profile.id]
       }
     } else if (!isAdmin && !isRegionalManager && !isSalesManager && profile.team_id) {
-      // Match team-stats: teammates share the same dashboard scope (incl. inspections set by closers on the team).
       const { data: tm } = await supabase
         .from('users')
         .select('id')
@@ -66,60 +57,8 @@ export async function GET(request: NextRequest) {
       scopeIds = tm?.map(m => m.id) || [profile.id]
     }
 
-    const inScope = (id: string | null | undefined) =>
-      isAdmin || (id != null && scopeIds.includes(id))
+    const scopeForRpc = isAdmin ? [] : scopeIds
 
-    // ---- LEADS (doors / contacts) — page past PostgREST 1000-row default ----
-    const leads = await fetchSupabaseAllPages(async (from, to) => {
-      let q = supabase
-        .from('leads')
-        .select('id, source, canvass_disposition, owner_user_id')
-        .eq('org_id', profile.org_id)
-        .gte('created_at', start.toISOString())
-        .lt('created_at', end.toISOString())
-      if (!isAdmin) q = q.in('owner_user_id', scopeIds)
-      return q.range(from, to)
-    })
-
-    // ---- APPOINTMENTS (inspections set, by created_at) ----
-    const appointments = await fetchSupabaseAllPages(async (from, to) =>
-      supabase
-        .from('scheduled_appointments')
-        .select('id, canvasser_user_id, closer_user_id, lead_id')
-        .eq('org_id', profile.org_id)
-        .gte('created_at', start.toISOString())
-        .lt('created_at', end.toISOString())
-        .range(from, to)
-    )
-
-    // ---- APPOINTMENTS ON CLOSER'S CALENDAR in period (by scheduled_for) — efficiency denominator ----
-    const apptsForEfficiency = await fetchSupabaseAllPages(async (from, to) =>
-      supabase
-        .from('scheduled_appointments')
-        .select('id, closer_user_id')
-        .eq('org_id', profile.org_id)
-        .not('closer_user_id', 'is', null)
-        .gte('scheduled_for', start.toISOString())
-        .lt('scheduled_for', end.toISOString())
-        .range(from, to)
-    )
-
-    // ---- SALES (signed Installation Agreements in period) ----
-    const signedInstallationContracts = await fetchSupabaseAllPages(async (from, to) =>
-      supabase
-        .from('order_form_contracts')
-        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-        .eq('org_id', profile.org_id)
-        .eq('agreement_type', 'installation')
-        .eq('status', 'completed')
-        .not('customer_signed_at', 'is', null)
-        .gte('customer_signed_at', start.toISOString())
-        .lt('customer_signed_at', end.toISOString())
-        .order('customer_signed_at', { ascending: false })
-        .range(from, to)
-    )
-
-    // ---- SIT OUTCOMES CONFIG ----
     const { data: orgRow } = await supabase
       .from('orgs')
       .select('settings')
@@ -132,52 +71,90 @@ export async function GET(request: NextRequest) {
     const contactDispositionIdSet = getContactDispositionIdSet(
       orgRow?.settings?.canvass_dispositions as any[] | undefined
     )
+    const normOutcomes = Array.from(sitOutcomeIdSet)
+    const dispositionIds = Array.from(contactDispositionIdSet)
 
-    // ---- SITS (in period) ----
-    let sitRows: { owner_user_id: string | null; setter_user_id: string | null; inspection_outcome: string | null }[] = []
-    if (sitOutcomeIdSet.size > 0) {
-      const raw = await fetchSupabaseAllPages(async (from, to) =>
-        supabase
-          .from('opportunities')
-          .select('owner_user_id, setter_user_id, inspection_outcome')
-          .eq('org_id', profile.org_id)
-          .not('inspection_outcome', 'is', null)
-          .not('inspection_outcome_at', 'is', null)
-          .gte('inspection_outcome_at', start.toISOString())
-          .lt('inspection_outcome_at', end.toISOString())
-          .range(from, to)
-      )
+    const pStart = start.toISOString()
+    const pEnd = end.toISOString()
+    const pOrg = profile.org_id
 
-      sitRows = raw.filter(o =>
-        sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
-      )
-    }
+    let inspectionsCountQuery = supabase
+      .from('scheduled_appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', pOrg)
+      .gte('created_at', pStart)
+      .lt('created_at', pEnd)
+    if (!isAdmin) inspectionsCountQuery = inspectionsCountQuery.in('canvasser_user_id', scopeIds)
 
-    // ---- COMPUTE ----
-    const myLeads = leads.filter(l => inScope(l.owner_user_id) && isCanvassDoorLead(l))
-    const rawDoors = myLeads.length
-    const rawContacts = myLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
+    let efficiencyCountQuery = supabase
+      .from('scheduled_appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', pOrg)
+      .not('closer_user_id', 'is', null)
+      .gte('scheduled_for', pStart)
+      .lt('scheduled_for', pEnd)
+    if (!isAdmin) efficiencyCountQuery = efficiencyCountQuery.in('closer_user_id', scopeIds)
 
-    const myAppointments = appointments.filter(a => inScope(a.canvasser_user_id))
-    const inspectionsSet = myAppointments.length
+    const [
+      doorRes,
+      contactRes,
+      salesRes,
+      sitsRes,
+      inspRes,
+      effRes,
+    ] = await Promise.all([
+      supabase.rpc('dashboard_count_door_leads_scoped', {
+        p_org_id: pOrg,
+        p_start: pStart,
+        p_end: pEnd,
+        p_scope_user_ids: scopeForRpc,
+      }),
+      dispositionIds.length === 0
+        ? Promise.resolve({ data: 0, error: null })
+        : supabase.rpc('dashboard_count_contact_leads_scoped', {
+            p_org_id: pOrg,
+            p_start: pStart,
+            p_end: pEnd,
+            p_scope_user_ids: scopeForRpc,
+            p_disposition_ids: dispositionIds,
+          }),
+      supabase.rpc('dashboard_count_install_sales_scoped', {
+        p_org_id: pOrg,
+        p_start: pStart,
+        p_end: pEnd,
+        p_scope_user_ids: scopeForRpc,
+        p_attribute_by_setter: isSetter,
+      }),
+      normOutcomes.length === 0
+        ? Promise.resolve({ data: 0, error: null })
+        : supabase.rpc('dashboard_count_sits_scoped', {
+            p_org_id: pOrg,
+            p_start: pStart,
+            p_end: pEnd,
+            p_scope_user_ids: scopeForRpc,
+            p_attribute_by_setter: isSetter,
+            p_normalized_outcomes: normOutcomes,
+          }),
+      inspectionsCountQuery,
+      efficiencyCountQuery,
+    ])
 
-    const doorsKnocked = rawDoors
-    const contacts = rawContacts
+    if (doorRes.error) throw doorRes.error
+    if (contactRes.error) throw contactRes.error
+    if (salesRes.error) throw salesRes.error
+    if (sitsRes.error) throw sitsRes.error
+    if (inspRes.error) throw inspRes.error
+    if (effRes.error) throw effRes.error
 
-    const signedSales = getAttributedInstallationSales(signedInstallationContracts as any[])
-    const sales = signedSales.filter(o =>
-      isSetter ? inScope(o.setter_user_id) : inScope(o.owner_user_id)
-    ).length
+    const doorsKnocked = Number(doorRes.data ?? 0)
+    const contacts = Number(contactRes.data ?? 0)
+    const sales = Number(salesRes.data ?? 0)
+    const sits = Number(sitsRes.data ?? 0)
+    const inspectionsSet = inspRes.count ?? 0
+    const apptCount = effRes.count ?? 0
 
-    const sits = sitRows.filter(o =>
-      isSetter ? inScope(o.setter_user_id) : inScope(o.owner_user_id)
-    ).length
-
-    // Close rate = sales / sits for the selected period
-    const closeRate = sits > 0 ? parseFloat((sales / sits * 100).toFixed(1)) : null
-    // Efficiency = sales / appointments on closer's calendar in the selected period
-    const apptCount = apptsForEfficiency.filter(a => inScope(a.closer_user_id)).length
-    const efficiency = apptCount > 0 ? parseFloat((sales / apptCount * 100).toFixed(1)) : null
+    const closeRate = sits > 0 ? parseFloat(((sales / sits) * 100).toFixed(1)) : null
+    const efficiency = apptCount > 0 ? parseFloat(((sales / apptCount) * 100).toFixed(1)) : null
 
     return NextResponse.json({
       doorsKnocked,

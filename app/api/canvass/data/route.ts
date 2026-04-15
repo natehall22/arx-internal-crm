@@ -189,9 +189,10 @@ export async function GET(request: NextRequest) {
       .not('lat', 'is', null)
       .not('lng', 'is', null)
     
-    // Apply user filter if not showing all org leads
+    // Apply user filter (pin_attributed_user_id keeps pins when owner_user_id was cleared on user delete)
     if (visibleUserIds.length > 0) {
-      leadsQuery = leadsQuery.in('owner_user_id', visibleUserIds)
+      const idList = visibleUserIds.join(',')
+      leadsQuery = leadsQuery.or(`owner_user_id.in.(${idList}),pin_attributed_user_id.in.(${idList})`)
     }
 
     const { data: leads, error: leadsError } = await leadsQuery
