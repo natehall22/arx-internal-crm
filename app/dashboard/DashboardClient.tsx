@@ -848,7 +848,10 @@ export default function DashboardClient({
               </div>
               <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+            <div
+              className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100"
+              title="Close rate = your attributed sales ÷ sits (inspection outcomes that count as sits) in this period."
+            >
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Close Rate</p>
@@ -862,9 +865,12 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">30-day rolling</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100">
+            <div
+              className="bg-white rounded-xl shadow-sm p-3 sm:p-5 border border-gray-100"
+              title="Efficiency = your attributed sales ÷ appointments on your calendar (by scheduled date) in this period."
+            >
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-gray-500 truncate">Efficiency</p>
@@ -878,7 +884,7 @@ export default function DashboardClient({
                   </svg>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1 sm:mt-2">30-day rolling</p>
+              <p className="text-xs text-gray-400 mt-1 sm:mt-2 capitalize">{timeFrameLabel[timeFrame]}</p>
             </div>
           </div>
         )}
@@ -1172,13 +1178,19 @@ export default function DashboardClient({
                               <p className={`text-base font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
                                 {member.closeRate}%
                               </p>
-                              <p className="text-xs text-gray-500">Close (30d)</p>
+                              <p className="text-xs text-gray-500">
+                                Close %{' '}
+                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                              </p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
                                 {member.efficiency ?? '0'}%
                               </p>
-                              <p className="text-xs text-gray-500">Effic. (30d)</p>
+                              <p className="text-xs text-gray-500">
+                                Effic. %{' '}
+                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -1197,11 +1209,15 @@ export default function DashboardClient({
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                               Close %
-                              <span className="block font-normal normal-case text-gray-400">(30d)</span>
+                              <span className="block font-normal normal-case text-gray-400">
+                                ({timeFrameLabel[timeFrame]})
+                              </span>
                             </th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                               Effic. %
-                              <span className="block font-normal normal-case text-gray-400">(30d)</span>
+                              <span className="block font-normal normal-case text-gray-400">
+                                ({timeFrameLabel[timeFrame]})
+                              </span>
                             </th>
                           </tr>
                         </thead>
@@ -1293,7 +1309,12 @@ export default function DashboardClient({
           <div className="lg:col-span-2 space-y-4 sm:space-y-6">
             {/* Weekly Progress */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Weekly Progress</h2>
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3">Weekly Progress</h2>
+              {timeFrame !== 'week' && (
+                <p className="text-xs text-gray-500 mb-3 sm:mb-4">
+                  Progress bars always use this week&apos;s activity and goals; they are not filtered by the date range above.
+                </p>
+              )}
               <ProgressBar
                 label="Doors Knocked"
                 current={progress.doors_knocked.current}
