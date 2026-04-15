@@ -7,6 +7,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
 import { getContactDispositionIdSet } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
@@ -21,11 +22,10 @@ export async function GET(request: NextRequest) {
     const timeframe = request.nextUrl.searchParams.get('timeframe') || 'week'
     const { start, end } = getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
 
-    const isAdmin = profile.role === 'admin'
     const isSetter = isSetterLikeRole(profile.role)
-
-    // Personal overview = this user only (team rollups live under Team performance API).
-    const scopeForRpc = isAdmin ? [] : [profile.id]
+    const orgWideKpis = isDashboardPersonalKpiOrgWide(profile.role)
+    // Empty scope = whole org in dashboard_*_scoped RPCs; reps see only their id.
+    const scopeForRpc = orgWideKpis ? [] : [profile.id]
 
     const { data: orgRow } = await supabase
       .from('orgs')
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       .eq('org_id', pOrg)
       .gte('created_at', pStart)
       .lt('created_at', pEnd)
-    if (!isAdmin) inspectionsCountQuery = inspectionsCountQuery.eq('canvasser_user_id', profile.id)
+    if (!orgWideKpis) inspectionsCountQuery = inspectionsCountQuery.eq('canvasser_user_id', profile.id)
 
     let efficiencyCountQuery = supabase
       .from('scheduled_appointments')
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       .not('closer_user_id', 'is', null)
       .gte('scheduled_for', pStart)
       .lt('scheduled_for', pEnd)
-    if (!isAdmin) efficiencyCountQuery = efficiencyCountQuery.eq('closer_user_id', profile.id)
+    if (!orgWideKpis) efficiencyCountQuery = efficiencyCountQuery.eq('closer_user_id', profile.id)
 
     const [
       doorRes,

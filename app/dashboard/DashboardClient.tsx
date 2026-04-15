@@ -9,6 +9,7 @@ import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -672,7 +673,9 @@ export default function DashboardClient({
               Welcome back, {profile.full_name?.split(' ')[0] || 'there'}!
             </h1>
             <p className="text-gray-500 text-sm sm:text-base mt-1">
-              Here's your performance overview for {timeFrameLabel[timeFrame]}
+              {isDashboardPersonalKpiOrgWide(profile.role)
+                ? `Organization-wide performance overview for ${timeFrameLabel[timeFrame]}`
+                : `Here's your performance overview for ${timeFrameLabel[timeFrame]}`}
             </p>
           </div>
           <div className="flex items-center gap-3 self-start sm:self-auto">
