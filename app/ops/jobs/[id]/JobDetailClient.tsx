@@ -1144,38 +1144,98 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                     <p className="text-gray-500 mt-1 text-sm">No address</p>
                   )}
 
-                  {/** Pipeline — derived from job milestones only */}
-                  <div className="mt-3 pt-3 border-t border-gray-100 overflow-x-auto pb-0.5">
-                    <div className="flex items-center min-w-[min(100%,520px)] sm:min-w-0">
-                      {PIPELINE_STAGES.map((label, i) => {
-                        const currentIdx = getJobPipelineCurrentIndex(job)
-                        return (
-                          <div key={label} className="flex items-center flex-1 min-w-0">
-                            {i > 0 && (
-                              <div
-                                className={`h-1 flex-1 rounded-full mx-0.5 sm:mx-1 min-w-[6px] ${
-                                  currentIdx >= i ? 'bg-emerald-400' : 'bg-gray-200'
-                                }`}
-                              />
-                            )}
-                            <div className="flex flex-col items-center shrink-0 w-[18%] sm:flex-1 sm:min-w-[3.25rem]">
-                              <span
-                                className={`text-[9px] sm:text-[10px] uppercase tracking-wide text-center leading-tight ${
-                                  i === currentIdx
-                                    ? 'text-indigo-800 font-semibold'
-                                    : i < currentIdx
-                                      ? 'text-gray-600'
-                                      : 'text-gray-400'
-                                }`}
-                              >
-                                {label}
-                              </span>
-                            </div>
+                  {/** Pipeline — milestones; vertical on small screens, horizontal on lg+ */}
+                  {(() => {
+                    const pipelineCurrentIdx = getJobPipelineCurrentIndex(job)
+                    const currentLabel = PIPELINE_STAGES[pipelineCurrentIdx] ?? '—'
+                    return (
+                      <>
+                        <div className="mt-3 pt-3 border-t border-gray-100 lg:hidden">
+                          <div className="flex items-baseline justify-between gap-2 mb-3">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Job progress
+                            </span>
+                            <span className="text-sm font-semibold text-indigo-700 tabular-nums shrink-0">
+                              Now: {currentLabel}
+                            </span>
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
+                          <ol className="space-y-0" aria-label="Job pipeline steps">
+                            {PIPELINE_STAGES.map((label, i) => {
+                              const isDone = i < pipelineCurrentIdx
+                              const isCurrent = i === pipelineCurrentIdx
+                              const isLast = i === PIPELINE_STAGES.length - 1
+                              return (
+                                <li key={label} className="flex gap-3">
+                                  <div className="flex flex-col items-center w-7 flex-shrink-0 pt-0.5">
+                                    <span
+                                      className={`rounded-full w-3 h-3 border-2 shrink-0 ${
+                                        isDone
+                                          ? 'bg-emerald-500 border-emerald-500'
+                                          : isCurrent
+                                            ? 'bg-indigo-600 border-indigo-600 shadow-[0_0_0_3px_rgba(79,70,229,0.25)]'
+                                            : 'bg-white border-gray-300'
+                                      }`}
+                                      aria-hidden
+                                    />
+                                    {!isLast && (
+                                      <span
+                                        className={`w-0.5 flex-1 min-h-[14px] my-0.5 rounded-full ${
+                                          pipelineCurrentIdx > i ? 'bg-emerald-400' : 'bg-gray-200'
+                                        }`}
+                                        aria-hidden
+                                      />
+                                    )}
+                                  </div>
+                                  <div className={`pb-2.5 min-w-0 ${isLast ? 'pb-0' : ''}`}>
+                                    <span
+                                      className={`text-sm leading-snug ${
+                                        isCurrent
+                                          ? 'font-semibold text-gray-900'
+                                          : isDone
+                                            ? 'text-gray-800'
+                                            : 'text-gray-400'
+                                      }`}
+                                    >
+                                      {label}
+                                    </span>
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ol>
+                        </div>
+
+                        <div className="mt-3 pt-3 border-t border-gray-100 overflow-x-auto pb-0.5 hidden lg:block">
+                          <div className="flex items-center min-w-[520px]">
+                            {PIPELINE_STAGES.map((label, i) => (
+                              <div key={label} className="flex items-center flex-1 min-w-0">
+                                {i > 0 && (
+                                  <div
+                                    className={`h-1 flex-1 rounded-full mx-1 min-w-[8px] ${
+                                      pipelineCurrentIdx >= i ? 'bg-emerald-400' : 'bg-gray-200'
+                                    }`}
+                                  />
+                                )}
+                                <div className="flex flex-col items-center shrink-0 flex-1 min-w-[4.5rem]">
+                                  <span
+                                    className={`text-[10px] uppercase tracking-wide text-center leading-tight px-0.5 ${
+                                      i === pipelineCurrentIdx
+                                        ? 'text-indigo-800 font-semibold'
+                                        : i < pipelineCurrentIdx
+                                          ? 'text-gray-600'
+                                          : 'text-gray-400'
+                                    }`}
+                                  >
+                                    {label}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
                 <span className={`text-sm px-3 py-1 rounded-full whitespace-nowrap self-start ${
                   job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
