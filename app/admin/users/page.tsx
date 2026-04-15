@@ -80,7 +80,7 @@ export default function UsersPage() {
   const [formTeamId, setFormTeamId] = useState('')
   const [formRegionId, setFormRegionId] = useState('')
   const [formManagerId, setFormManagerId] = useState('')
-  const [formCanvassVisibility, setFormCanvassVisibility] = useState<'own' | 'team' | 'region' | 'org'>('org')
+  const [formCanvassVisibility, setFormCanvassVisibility] = useState<'own' | 'team' | 'region' | 'org' | 'territory'>('org')
   const [formShowInReports, setFormShowInReports] = useState(true)
   const [formCanReceiveAppointments, setFormCanReceiveAppointments] = useState<boolean | null>(null)
   const [formDashboardView, setFormDashboardView] = useState<'sales' | 'ops'>('sales')
@@ -1157,11 +1157,12 @@ export default function UsersPage() {
                     <p className="text-xs text-gray-500 mb-3">
                       Control which pins this user can see in the canvassing app. This helps prevent data overload in large organizations.
                     </p>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                       {[
                         { value: 'own', label: 'Own Pins Only', desc: 'Only their own pins', icon: '👤' },
                         { value: 'team', label: 'Team Pins', desc: 'Pins from their team', icon: '👥' },
                         { value: 'region', label: 'Region Pins', desc: 'Pins from their region', icon: '🗺️' },
+                        { value: 'territory', label: 'Work areas', desc: 'Pins inside assigned map polygons only', icon: '📍' },
                         { value: 'org', label: 'All Company', desc: 'All pins in company', icon: '🏢' },
                       ].map((option) => (
                         <button
@@ -1188,6 +1189,13 @@ export default function UsersPage() {
                     </div>
                     <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
                       Note: Admins and managers always see all pins regardless of this setting.
+                    </p>
+                    <p className="mt-2 text-xs text-gray-600">
+                      <strong>Work areas:</strong> assign polygons under{' '}
+                      <a href="/admin/canvass-territories" className="text-indigo-600 hover:underline">
+                        Admin → Canvass work areas
+                      </a>
+                      , then set visibility to Work areas here.
                     </p>
                   </div>
 
@@ -1529,11 +1537,12 @@ export default function UsersPage() {
                   <p className="text-xs text-gray-500 mb-3">
                     Control which pins this user can see in the canvassing app.
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {[
                       { value: 'own', label: 'Own Only', icon: '👤' },
                       { value: 'team', label: 'Team', icon: '👥' },
                       { value: 'region', label: 'Region', icon: '🗺️' },
+                      { value: 'territory', label: 'Work areas', icon: '📍' },
                       { value: 'org', label: 'All Company', icon: '🏢' },
                     ].map((option) => (
                       <button

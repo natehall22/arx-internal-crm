@@ -226,16 +226,19 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Fetch setter and sales rep names from the linked opportunity
+      // Fetch setter / sales rep names and linked lead (for canvass "sold" pin) from the opportunity
       let setterName: string | null = null
       let closerName: string | null = null
+      let resolvedLeadId: string | null = null
       if (contract.opportunity_id) {
         const { data: opp } = await supabase
           .from('opportunities')
-          .select('setter_user_id, owner_user_id, leads(owner_user_id, closer_user_id)')
+          .select('lead_id, setter_user_id, owner_user_id, leads(owner_user_id, closer_user_id)')
           .eq('id', contract.opportunity_id)
+          .eq('org_id', contract.org_id)
           .maybeSingle()
 
+        resolvedLeadId = opp?.lead_id ?? null
         const leadData = pickEmbeddedLead(opp?.leads)
         // Sales rep: lead closer, else opportunity owner (closer-of-record)
         const closerUserId = leadData?.closer_user_id ?? opp?.owner_user_id ?? null
@@ -251,6 +254,19 @@ export async function POST(request: NextRequest) {
           const userMap = Object.fromEntries((salesUsers || []).map((u: { id: string; full_name: string }) => [u.id, u.full_name]))
           if (resolvedSetterUserId) setterName = userMap[resolvedSetterUserId] ?? null
           if (closerUserId) closerName = userMap[closerUserId] ?? null
+        }
+      }
+
+      // Push "sale" to canvass map (green $ pin) — same moment as sales-org blast email below
+      if (resolvedLeadId) {
+        const { error: leadSaleErr } = await supabase
+          .from('leads')
+          .update({ installation_agreement_signed_at: customerSignedAt })
+          .eq('id', resolvedLeadId)
+          .eq('org_id', contract.org_id)
+
+        if (leadSaleErr) {
+          console.error('[Contract Sign] installation_agreement_signed_at on lead:', leadSaleErr)
         }
       }
 

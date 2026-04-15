@@ -78,6 +78,35 @@ function getPinTitle(pin: AnyPin): string {
   return 'Pin'
 }
 
+function hasInstallationSalePin(pin: AnyPin): boolean {
+  if ('ia' in pin && pin.ia) return true
+  if (
+    'installation_agreement_signed_at' in pin &&
+    (pin as { installation_agreement_signed_at?: string | null }).installation_agreement_signed_at
+  ) {
+    return true
+  }
+  return false
+}
+
+function teardropIconAndLabel(pin: AnyPin, dispositionColor: string, synced: boolean) {
+  const sale = hasInstallationSalePin(pin)
+  const fillColor = sale ? '#16a34a' : dispositionColor
+  const icon = {
+    path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
+    fillColor,
+    fillOpacity: synced ? 1 : 0.6,
+    strokeColor: synced ? '#ffffff' : '#FCD34D',
+    strokeWeight: synced ? 2 : 3,
+    scale: 1.5,
+    anchor: new google.maps.Point(12, 22),
+  }
+  const label = sale
+    ? { text: '$', color: '#FFFFFF', fontSize: '12px', fontWeight: 'bold' as const }
+    : null
+  return { icon, label, sale }
+}
+
 // Cluster styles for MarkerClusterer
 const clusterStyles = [
   { textColor: 'white', textSize: 12, width: 30, height: 30, url: '' },
@@ -268,6 +297,24 @@ export default function CanvassMap({
     }
   }, [refetchTrigger, onBoundsChanged, isViewportMode])
 
+  // Refetch viewport when disposition filter changes (pin store is cleared in useViewportLeads)
+  const prevDispositionFilterRef = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    if (!onBoundsChanged || !isViewportMode) return
+    if (!mapInstanceRef.current) return
+    if (prevDispositionFilterRef.current === undefined) {
+      prevDispositionFilterRef.current = dispositionFilter ?? null
+      return
+    }
+    if (prevDispositionFilterRef.current === (dispositionFilter ?? null)) return
+    prevDispositionFilterRef.current = dispositionFilter ?? null
+    const bounds = mapInstanceRef.current.getBounds()
+    const zoom = mapInstanceRef.current.getZoom()
+    if (bounds && zoom !== undefined) {
+      onBoundsChanged(bounds, zoom)
+    }
+  }, [dispositionFilter, onBoundsChanged, isViewportMode])
+
   // Reset map to north-facing
   const handleResetHeading = () => {
     if (mapInstanceRef.current) {
@@ -321,6 +368,14 @@ export default function CanvassMap({
     // Remove markers that are no longer in pins
     currentMarkers.forEach((marker, id) => {
       if (!newPinIds.has(id)) {
+        if (markerClustererRef.current) {
+          try {
+            markerClustererRef.current.removeMarker(marker)
+          } catch {
+            // clusterer may not expose removeMarker in some builds
+          }
+        }
+        clusteredPinIdsRef.current.delete(id)
         marker.setMap(null)
         currentMarkers.delete(id)
       }
@@ -333,38 +388,27 @@ export default function CanvassMap({
       const disposition = getDisposition(pin)
       const color = pinColors[disposition || ''] || pinColors.default
       const synced = isSynced(pin)
+      const { icon, label, sale } = teardropIconAndLabel(pin, color, synced)
 
       if (currentMarkers.has(pin.id)) {
-        // Marker exists - update icon if disposition changed
         const marker = currentMarkers.get(pin.id)
         if (marker) {
-          // Update the marker icon with current disposition color
-          marker.setIcon({
-            path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
-            fillColor: color,
-            fillOpacity: synced ? 1 : 0.6,
-            strokeColor: synced ? '#ffffff' : '#FCD34D',
-            strokeWeight: synced ? 2 : 3,
-            scale: 1.5,
-            anchor: new google.maps.Point(12, 22),
-          })
+          marker.setIcon(icon)
+          if (label) marker.setLabel(label)
+          else marker.setLabel(null)
+          marker.setZIndex(sale ? 700 : 0)
           markersForClusterer.push(marker)
         }
       } else {
-        // Create new marker
         const marker = new google.maps.Marker({
           position: { lat: pin.lat, lng: pin.lng },
           map: isViewportMode && markerClustererRef.current ? null : mapInstanceRef.current,
-          icon: {
-            path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
-            fillColor: color,
-            fillOpacity: synced ? 1 : 0.6,
-            strokeColor: synced ? '#ffffff' : '#FCD34D',
-            strokeWeight: synced ? 2 : 3,
-            scale: 1.5,
-            anchor: new google.maps.Point(12, 22),
-          },
-          title: getPinTitle(pin),
+          icon,
+          label: label ?? undefined,
+          zIndex: sale ? 700 : undefined,
+          title: hasInstallationSalePin(pin)
+            ? `${getPinTitle(pin)} — Sold (Installation Agreement)`
+            : getPinTitle(pin),
           optimized: true, // Important for performance with many markers
         })
 

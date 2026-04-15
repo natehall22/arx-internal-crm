@@ -24,6 +24,8 @@ export interface ViewportPin {
   s: string         // status (short key)
   o: string | null  // owner_user_id (short key)
   t: string         // created_at timestamp
+  /** Installation Agreement signed — show green $ on map */
+  ia?: boolean
 }
 
 // Full pin data (fetched on click)
@@ -43,6 +45,8 @@ export interface FullPinData {
   updated_at?: string
   owner_user_id?: string
   owner?: { id: string; full_name: string }
+  /** Customer signed Installation Agreement — canvass map shows green $ */
+  installation_agreement_signed_at?: string | null
 }
 
 // Cache configuration
@@ -116,6 +120,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
   const abortControllerRef = useRef<AbortController | null>(null)
   const lastBoundsRef = useRef<string | null>(null)
   const pinsCountRef = useRef(0)
+  const dispositionFilterSeenRef = useRef<string | null | undefined>(undefined)
 
   // Keep pins count in ref for use in fetchForBounds (avoids stale closure)
   useEffect(() => {
@@ -399,13 +404,35 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     })
   }, [])
 
-  // Clear cache when disposition filter changes
+  // When disposition filter changes, reset tile cache and pin store so merges
+  // cannot leave stale pins from a previous filter (viewport API merges by ID).
   useEffect(() => {
-    // Don't clear on initial mount
-    if (lastBoundsRef.current !== null) {
-      fetchedTilesRef.current.clear()
-      lastBoundsRef.current = null
+    if (dispositionFilterSeenRef.current === undefined) {
+      dispositionFilterSeenRef.current = dispositionFilter
+      return
     }
+    if (dispositionFilterSeenRef.current === dispositionFilter) return
+    dispositionFilterSeenRef.current = dispositionFilter
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+
+    fetchedTilesRef.current.clear()
+    lastBoundsRef.current = null
+    setState(prev => ({
+      ...prev,
+      pins: new Map(),
+      pinDetails: new Map(),
+      totalLoaded: 0,
+      hasMore: false,
+      error: null,
+    }))
   }, [dispositionFilter])
 
   return {

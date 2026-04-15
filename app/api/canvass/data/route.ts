@@ -5,6 +5,7 @@ import {
   getCloseSlotDurationFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
+import { fetchExteriorRingsForUser, leadLngLatInRings } from '@/lib/canvass-territories'
 
 export const dynamic = 'force-dynamic'
 
@@ -123,11 +124,14 @@ export async function GET(request: NextRequest) {
     // Determine which user IDs' leads to show based on visibility setting
     let visibleUserIds: string[] = []
     const visibility = profile.canvass_pin_visibility || 'org'
-    const isManager = ['admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)
-    
+    const isManager = ['owner', 'admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)
+    const territoryMode = !isManager && visibility === 'territory'
+
     if (isManager || visibility === 'org') {
       // Managers and 'org' visibility see all leads in org
       visibleUserIds = [] // Empty means no filter - get all org leads
+    } else if (territoryMode) {
+      visibleUserIds = []
     } else if (visibility === 'own') {
       // Only their own leads
       visibleUserIds = [user.id]
@@ -195,10 +199,25 @@ export async function GET(request: NextRequest) {
       leadsQuery = leadsQuery.or(`owner_user_id.in.(${idList}),pin_attributed_user_id.in.(${idList})`)
     }
 
-    const { data: leads, error: leadsError } = await leadsQuery
+    const { data: leadsRaw, error: leadsError } = await leadsQuery
 
     if (leadsError) {
       console.error('Leads error:', leadsError)
+    }
+
+    let leads = leadsRaw || []
+    if (territoryMode) {
+      const rings = await fetchExteriorRingsForUser(adminClient, profile.org_id, user.id)
+      if (rings.length === 0) {
+        leads = []
+      } else {
+        leads = leads.filter((row) => {
+          const lng = parseFloat(String(row.lng))
+          const lat = parseFloat(String(row.lat))
+          if (Number.isNaN(lng) || Number.isNaN(lat)) return false
+          return leadLngLatInRings(lng, lat, rings)
+        })
+      }
     }
     
     console.log('Canvass data: returning', leads?.length || 0, 'leads, visibility:', visibility, 'filter:', visibleUserIds.length > 0 ? visibleUserIds : 'all')
