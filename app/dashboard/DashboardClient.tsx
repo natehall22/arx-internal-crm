@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
@@ -293,6 +293,8 @@ export default function DashboardClient({
   const [showCompPlanModal, setShowCompPlanModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
   const [mounted, setMounted] = useState(false)
+  /** First timeframe-driven fetch: avoid skeleton/spinner when SSR already matched default "week". */
+  const initialTimeframeFetchRef = useRef(true)
   // Calculator inputs - dynamic based on plan type
   const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
   const [calcJobsClosed, setCalcJobsClosed] = useState(4)
@@ -321,52 +323,67 @@ export default function DashboardClient({
   }, [pendingPrompts])
 
   useEffect(() => {
-    loadTeamStatsForTimeFrame()
-  }, [timeFrame])
-
-  useEffect(() => {
     setFilteredSetterStats(setterTeamStats)
     setFilteredCloserStats(closerTeamStats)
     setTeamMemberCount(setterTeamStats.length + closerTeamStats.length)
   }, [setterTeamStats, closerTeamStats])
 
-  const loadTeamStatsForTimeFrame = async () => {
-    setLoadingStats(true)
-    setLoadingPersonalStats(true)
-    try {
-      const [teamRes, personalRes] = await Promise.all([
-        fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`),
-        fetch(`/api/dashboard/personal-stats?timeframe=${timeFrame}`),
-      ])
-      if (teamRes.ok) {
-        const data = await teamRes.json()
-        setFilteredSetterStats(data.setterStats || [])
-        setFilteredCloserStats(data.closerStats || [])
-        const n = data.teamMemberCount
-        if (typeof n === 'number') {
-          setTeamMemberCount(n)
-        } else {
-          const ss = data.setterStats || []
-          const cs = data.closerStats || []
-          setTeamMemberCount(ss.length + cs.length)
+  const loadTeamStatsForTimeFrame = useCallback(
+    async (options?: { showLoadingIndicators?: boolean }) => {
+      const showLoading = options?.showLoadingIndicators !== false
+      if (showLoading) {
+        setLoadingStats(true)
+        setLoadingPersonalStats(true)
+      }
+      try {
+        const [teamRes, personalRes] = await Promise.all([
+          fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`),
+          fetch(`/api/dashboard/personal-stats?timeframe=${timeFrame}`),
+        ])
+        if (teamRes.ok) {
+          const data = await teamRes.json()
+          setFilteredSetterStats(data.setterStats || [])
+          setFilteredCloserStats(data.closerStats || [])
+          const n = data.teamMemberCount
+          if (typeof n === 'number') {
+            setTeamMemberCount(n)
+          } else {
+            const ss = data.setterStats || []
+            const cs = data.closerStats || []
+            setTeamMemberCount(ss.length + cs.length)
+          }
+          if (data.distinctDealCounts && typeof data.distinctDealCounts.sitOpportunitiesInPeriod === 'number') {
+            setDistinctDealCounts(data.distinctDealCounts)
+          } else {
+            setDistinctDealCounts(null)
+          }
         }
-        if (data.distinctDealCounts && typeof data.distinctDealCounts.sitOpportunitiesInPeriod === 'number') {
-          setDistinctDealCounts(data.distinctDealCounts)
-        } else {
-          setDistinctDealCounts(null)
+        if (personalRes.ok) {
+          const pData = await personalRes.json()
+          setPersonalStats(pData)
+        }
+      } catch (error) {
+        console.error('Failed to load stats:', error)
+      } finally {
+        if (showLoading) {
+          setLoadingStats(false)
+          setLoadingPersonalStats(false)
         }
       }
-      if (personalRes.ok) {
-        const pData = await personalRes.json()
-        setPersonalStats(pData)
-      }
-    } catch (error) {
-      console.error('Failed to load stats:', error)
-    } finally {
-      setLoadingStats(false)
-      setLoadingPersonalStats(false)
+    },
+    [timeFrame]
+  )
+
+  useEffect(() => {
+    const isFirstFetch = initialTimeframeFetchRef.current
+    if (isFirstFetch) {
+      initialTimeframeFetchRef.current = false
+      // Default range is "week" and matches server-rendered props — refresh quietly for distinct counts + any drift without swapping the whole block for spinners.
+      void loadTeamStatsForTimeFrame({ showLoadingIndicators: false })
+      return
     }
-  }
+    void loadTeamStatsForTimeFrame({ showLoadingIndicators: true })
+  }, [timeFrame, loadTeamStatsForTimeFrame])
 
   const timeFrameLabel: Record<TimeFrame, string> = {
     today: 'today',
@@ -604,7 +621,7 @@ export default function DashboardClient({
         <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ${color} ${
-              isComplete ? 'animate-pulse' : ''
+              isComplete ? 'ring-2 ring-green-400/80 ring-offset-1 ring-offset-white' : ''
             }`}
             style={{ width: `${percentage}%` }}
           />
