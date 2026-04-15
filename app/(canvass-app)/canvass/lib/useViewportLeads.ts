@@ -120,6 +120,8 @@ export function useViewportLeads(): UseViewportLeadsReturn {
   const abortControllerRef = useRef<AbortController | null>(null)
   const lastBoundsRef = useRef<string | null>(null)
   const pinsCountRef = useRef(0)
+  /** Pin IDs used for excludeIds — must stay in sync with merges and clear synchronously on filter change */
+  const loadedPinIdsRef = useRef<Set<string>>(new Set())
   const dispositionFilterSeenRef = useRef<string | null | undefined>(undefined)
 
   // Keep pins count in ref for use in fetchForBounds (avoids stale closure)
@@ -149,7 +151,9 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     }
   }, [])
 
-  const fetchForBounds = useCallback((bounds: MapBounds, zoom: number) => {
+  const fetchImplRef = useRef<(bounds: MapBounds, zoom: number) => void>(() => {})
+
+  const fetchForBoundsInner = useCallback((bounds: MapBounds, zoom: number) => {
     // Clear pending debounce
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
@@ -220,9 +224,10 @@ export function useViewportLeads(): UseViewportLeadsReturn {
           params.set('disposition', dispositionFilter)
         }
 
-        // For incremental loading, exclude already-loaded IDs
-        // Only do this if we have a reasonable number
-        const currentIds = Array.from(state.pins.keys())
+        // Incremental load: exclude IDs we already have for *this* filter context.
+        // Never use state.pins here — on disposition change the parent effect clears pins in
+        // setState while this callback may still see stale keys and exclude everything.
+        const currentIds = Array.from(loadedPinIdsRef.current)
         if (currentIds.length > 0 && currentIds.length < 500) {
           params.set('excludeIds', currentIds.join(','))
         }
@@ -263,6 +268,8 @@ export function useViewportLeads(): UseViewportLeadsReturn {
             newPins.set(pin.id, pin)
           }
 
+          loadedPinIdsRef.current = new Set(newPins.keys())
+
           // DEV LOGGING: Diagnostic info for viewport mode
           if (process.env.NODE_ENV === 'development') {
             console.log('[Viewport]', {
@@ -295,7 +302,14 @@ export function useViewportLeads(): UseViewportLeadsReturn {
         }))
       }
     }, DEBOUNCE_MS)
-  }, [dispositionFilter, saveFetchedTiles, state.pins])
+  }, [dispositionFilter, saveFetchedTiles])
+
+  fetchImplRef.current = fetchForBoundsInner
+
+  /** Stable identity so map `idle` listener always calls latest logic (disposition filter, exclude IDs). */
+  const fetchForBounds = useCallback((bounds: MapBounds, zoom: number) => {
+    fetchImplRef.current(bounds, zoom)
+  }, [])
 
   // Fetch full pin details on demand (for click/modal)
   const getPinDetails = useCallback(async (id: string): Promise<FullPinData | null> => {
@@ -335,6 +349,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
   }, [state.pinDetails])
 
   const clearCache = useCallback(() => {
+    loadedPinIdsRef.current = new Set()
     setState({
       pins: new Map(),
       pinDetails: new Map(),
@@ -364,6 +379,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     setState(prev => {
       const newPins = new Map(prev.pins)
       newPins.set(pin.id, pin)
+      loadedPinIdsRef.current = new Set(newPins.keys())
       return {
         ...prev,
         pins: newPins,
@@ -377,6 +393,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     setState(prev => {
       const newPins = new Map(prev.pins)
       newPins.set(pin.id, pin)
+      loadedPinIdsRef.current = new Set(newPins.keys())
       // Also clear cached details so they get refetched
       const newDetails = new Map(prev.pinDetails)
       newDetails.delete(pin.id)
@@ -393,6 +410,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     setState(prev => {
       const newPins = new Map(prev.pins)
       newPins.delete(id)
+      loadedPinIdsRef.current = new Set(newPins.keys())
       const newDetails = new Map(prev.pinDetails)
       newDetails.delete(id)
       return {
@@ -425,6 +443,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
 
     fetchedTilesRef.current.clear()
     lastBoundsRef.current = null
+    loadedPinIdsRef.current = new Set()
     setState(prev => ({
       ...prev,
       pins: new Map(),
