@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import ChangeOrderModal from './ChangeOrderModal'
 
 interface ChangeOrder {
@@ -43,8 +44,26 @@ export default function ChangeOrdersSection({
   repName,
   changeOrders: initialChangeOrders,
 }: ChangeOrdersSectionProps) {
+  const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [changeOrders, setChangeOrders] = useState(initialChangeOrders)
+  const [pdfBusyId, setPdfBusyId] = useState<string | null>(null)
+
+  const regeneratePdf = async (coId: string) => {
+    setPdfBusyId(coId)
+    try {
+      const res = await fetch(`/api/change-orders/${coId}/regenerate-pdf`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to generate PDF')
+      }
+      router.refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to generate PDF')
+    } finally {
+      setPdfBusyId(null)
+    }
+  }
 
   const getNextCoNumber = () => {
     if (changeOrders.length === 0) return 'CO-001'
@@ -143,12 +162,32 @@ export default function ChangeOrdersSection({
                   </svg>
                   View PDF
                 </a>
+              ) : co.status === 'completed' ? (
+                <div className="flex flex-col items-end gap-1 max-w-[220px]">
+                  <button
+                    type="button"
+                    onClick={() => regeneratePdf(co.id)}
+                    disabled={pdfBusyId === co.id}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 min-h-[44px] disabled:opacity-60"
+                  >
+                    {pdfBusyId === co.id ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Generating…
+                      </>
+                    ) : (
+                      'Generate PDF'
+                    )}
+                  </button>
+                  <p className="text-xs text-gray-500 text-right">
+                    No PDF was stored when this was signed. Generate it now, or ask an admin if this persists.
+                  </p>
+                </div>
               ) : (
-                <span className="text-sm text-gray-500 flex items-center gap-2">
-                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  PDF generating...
+                <span className="text-sm text-amber-800 text-right max-w-[200px]">
+                  Awaiting customer signature — the PDF will be available after signing.
                 </span>
               )}
             </div>

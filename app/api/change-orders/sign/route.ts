@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       })
 
       const fileName = `${String(changeOrder.co_number || 'co').replace(/-/g, '_')}_${Date.now()}.pdf`
-      pdfStoragePath = `change-orders/${changeOrder.project_id}/${fileName}`
+      pdfStoragePath = `org/${changeOrder.org_id}/change-orders/${changeOrder.project_id}/${fileName}`
 
       const { error: uploadError } = await supabase.storage
         .from('files')

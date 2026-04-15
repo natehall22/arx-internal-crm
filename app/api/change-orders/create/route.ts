@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import nodemailer from 'nodemailer'
 import crypto from 'crypto'
@@ -84,11 +85,13 @@ export async function POST(request: NextRequest) {
 
       console.log('[Change Order] PDF generated, size:', pdfBuffer.length, 'bytes')
 
-      // Use same storage bucket as Installation Agreement (files bucket)
+      // Storage RLS only allows paths under org/{org_id}/... (see 003_storage_buckets.sql).
+      // User-scoped client uploads to change-orders/... fail silently; use service role + org path.
       const fileName = `${coNumber.replace(/-/g, '_')}_${Date.now()}.pdf`
-      pdfStoragePath = `change-orders/${projectId}/${fileName}`
+      pdfStoragePath = `org/${profile.org_id}/change-orders/${projectId}/${fileName}`
 
-      const { error: uploadError } = await supabase.storage
+      const serviceSupabase = createServiceClient()
+      const { error: uploadError } = await serviceSupabase.storage
         .from('files')
         .upload(pdfStoragePath, pdfBuffer, {
           contentType: 'application/pdf',
