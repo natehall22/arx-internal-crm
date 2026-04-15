@@ -293,17 +293,8 @@ export async function PATCH(
             }
           }
           
-          // Mark opportunity as won and ensure approval is counted as a sale event.
-          // Dashboard/reports key off inspection_outcome + timestamps — not proposals.rep_signed_at / customer_signed_at.
-          // Binding signature and primary sale attribution for order-flow deals remain on contract signing (order_form_contracts).
-          await adminClient
-            .from('opportunities')
-            .update({
-              status: 'won',
-              inspection_outcome: 'sale',
-              inspection_outcome_at: new Date().toISOString(),
-            })
-            .eq('id', proposalSnapshot.opportunity_id)
+          // Proposal acceptance can create production prep, but dashboard sales count only
+          // completed Installation Agreements from order_form_contracts.
         }
       }
 

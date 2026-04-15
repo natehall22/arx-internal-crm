@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getDateRangeWithDebug } from '@/lib/date-ranges'
-import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import {
+  getAttributedInstallationSales,
+  getContactDispositionIdSet,
+  isCanvassDoorLead,
+  isContactDisposition,
+} from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -222,6 +227,19 @@ export async function GET(request: NextRequest) {
     
     const { data: opportunities } = await opportunitiesQuery
 
+    const { data: signedContracts } = await supabase
+      .from('order_form_contracts')
+      .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+      .eq('org_id', profile.org_id)
+      .eq('agreement_type', 'installation')
+      .eq('status', 'completed')
+      .not('customer_signed_at', 'is', null)
+      .gte('customer_signed_at', start.toISOString())
+      .lt('customer_signed_at', end.toISOString())
+      .order('customer_signed_at', { ascending: false })
+
+    const signedSales = getAttributedInstallationSales(signedContracts as any[])
+
     const { data: orgRow } = await supabase
       .from('orgs')
       .select('settings')
@@ -258,9 +276,9 @@ export async function GET(request: NextRequest) {
         return !isContactDisposition(lead.canvass_disposition, contactDispositionIdSet)
       }).length
 
-      // SALES (closer gets credit)
+      // SALES (completed Installation Agreement)
       const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
-      const sales = memberOwnedOpps.filter(o => o.inspection_outcome === 'sale').length
+      const sales = signedSales.filter(o => o.owner_user_id === member.id).length
       const totalInspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length
       const closeRate = totalInspectionsRun > 0 ? (sales / totalInspectionsRun * 100) : 0
 

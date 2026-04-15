@@ -155,17 +155,8 @@ export async function POST(
           }
         }
         
-        // Mark opportunity as won and ensure approval is counted as a sale event.
-        if (opp.status !== 'won' || opp.inspection_outcome !== 'sale') {
-          await adminClient
-            .from('opportunities')
-            .update({
-              status: 'won',
-              inspection_outcome: 'sale',
-              inspection_outcome_at: new Date().toISOString(),
-            })
-            .eq('id', proposal.opportunity_id)
-        }
+        // Project creation from a proposal is not a dashboard sale.
+        // Sales count only completed Installation Agreements from order_form_contracts.
       }
     }
 

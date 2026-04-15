@@ -34,12 +34,14 @@ type CostLineRow = {
   cost_type: string
   status: string
   vendor_name?: string | null
+  is_system?: boolean
 }
 
 interface JobFileWorkspaceCardProps {
   jobId: string
   userRole: string
   registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
+  dealerFeeAmount?: number | null
 }
 
 type StatusMessage = {
@@ -114,6 +116,7 @@ export default function JobFileWorkspaceCard({
   jobId,
   userRole,
   registerOpenCostAttachmentShortcut,
+  dealerFeeAmount,
 }: JobFileWorkspaceCardProps) {
   const supabase = useMemo(() => createClientBrowser(), [])
 
@@ -244,7 +247,7 @@ export default function JobFileWorkspaceCard({
     setPhotos((photosRes.data || []) as PhotoRow[])
     setDocuments((docsRes.data || []) as DocumentRow[])
 
-    const normalizedCostLines = ((costRes.data || []) as any[]).map((row) => ({
+    const normalizedCostLines: CostLineRow[] = ((costRes.data || []) as any[]).map((row) => ({
       id: row.id,
       description: row.description,
       amount: Number(row.amount || 0),
@@ -252,8 +255,30 @@ export default function JobFileWorkspaceCard({
       status: row.status,
       vendor_name: Array.isArray(row.vendors) ? row.vendors[0]?.name || null : row.vendors?.name || null,
     }))
-    setCostLines(normalizedCostLines)
-    setSelectedCostLineId((prev) => prev || normalizedCostLines[0]?.id || '')
+    const hasPersistedDealerFee = normalizedCostLines.some((line) =>
+      /lender|dealer fee/i.test(line.description)
+    )
+    const displayCostLines: CostLineRow[] =
+      dealerFeeAmount != null && dealerFeeAmount > 0 && !hasPersistedDealerFee
+        ? [
+            {
+              id: 'system-lender-dealer-fee',
+              description: 'Lender / dealer fee',
+              amount: Number(dealerFeeAmount || 0),
+              cost_type: 'misc',
+              status: 'active',
+              vendor_name: null,
+              is_system: true,
+            },
+            ...normalizedCostLines,
+          ]
+        : normalizedCostLines
+    setCostLines(displayCostLines)
+    const firstAttachableLine = displayCostLines.find((line) => !line.is_system)
+    setSelectedCostLineId((prev) => {
+      if (prev && displayCostLines.some((line) => line.id === prev && !line.is_system)) return prev
+      return firstAttachableLine?.id || ''
+    })
 
     if (normalizedCostLines.length > 0) {
       const lineIds = normalizedCostLines.map((line) => line.id)
@@ -292,7 +317,7 @@ export default function JobFileWorkspaceCard({
     if (!registerOpenCostAttachmentShortcut) return
 
     const openCostAttachmentPicker = () => {
-      if (tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+      if (tableUnavailable || uploadingCostAttachment || !selectedCostLineId) return
       costAttachmentInputRef.current?.click()
     }
 
@@ -300,7 +325,7 @@ export default function JobFileWorkspaceCard({
     return () => {
       registerOpenCostAttachmentShortcut(null)
     }
-  }, [registerOpenCostAttachmentShortcut, tableUnavailable, uploadingCostAttachment, costLines.length])
+  }, [registerOpenCostAttachmentShortcut, tableUnavailable, uploadingCostAttachment, selectedCostLineId])
 
   useEffect(() => {
     if (costLines.length > 0) setShowAddCostForm(false)
@@ -1075,9 +1100,9 @@ export default function JobFileWorkspaceCard({
                 value={selectedCostLineId}
                 onChange={(e) => setSelectedCostLineId(e.target.value)}
                 className="text-sm border rounded-lg px-2 py-2 text-gray-900 max-w-[180px]"
-                disabled={costLines.length === 0}
+                disabled={!costLines.some((line) => !line.is_system)}
               >
-                {costLines.map((line) => (
+                {costLines.filter((line) => !line.is_system).map((line) => (
                   <option key={line.id} value={line.id}>
                     {line.description.slice(0, 28)}
                   </option>
@@ -1086,7 +1111,7 @@ export default function JobFileWorkspaceCard({
               <button
                 type="button"
                 onClick={() => costAttachmentInputRef.current?.click()}
-                disabled={uploadingCostAttachment || costLines.length === 0 || tableUnavailable}
+                disabled={uploadingCostAttachment || !selectedCostLineId || tableUnavailable}
                 className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
                 {uploadingCostAttachment ? 'Uploading...' : 'Attach receipts / invoices'}
@@ -1239,12 +1264,21 @@ export default function JobFileWorkspaceCard({
                   <tbody>
                     {costLines.map((line) => (
                       <tr key={line.id} className="border-t">
-                        <td className="px-3 py-2 text-gray-900">{line.description}</td>
+                        <td className="px-3 py-2 text-gray-900">
+                          {line.description}
+                          {line.is_system && (
+                            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                              from financing
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-gray-700">{line.vendor_name || '-'}</td>
                         {canSeeAmounts && <td className="px-3 py-2 text-gray-700">{formatCurrency(line.amount)}</td>}
                         <td className="px-3 py-2 text-gray-700">{line.cost_type}</td>
                         <td className="px-3 py-2 text-gray-700">{line.status}</td>
-                        <td className="px-3 py-2 text-gray-700">{attachmentCountByLine[line.id] || 0}</td>
+                        <td className="px-3 py-2 text-gray-700">
+                          {line.is_system ? '-' : attachmentCountByLine[line.id] || 0}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

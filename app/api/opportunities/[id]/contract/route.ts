@@ -221,8 +221,6 @@ export async function POST(
         .update({
           status: 'won',
           customer_id: customerId,
-          inspection_outcome: 'sale',
-          inspection_outcome_at: new Date().toISOString(),
         })
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)

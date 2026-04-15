@@ -14,12 +14,70 @@ function getAdminClient() {
 }
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
+type AdminSupabaseClient = ReturnType<typeof getAdminClient>
 
 /** Nested `leads` from Supabase may be an array, a single row, or absent; empty array → null. */
 function pickEmbeddedLead(leads: unknown): EmbeddedLeadRow | null {
   if (leads == null) return null
   if (Array.isArray(leads)) return (leads[0] as EmbeddedLeadRow | undefined) ?? null
   return leads as EmbeddedLeadRow
+}
+
+async function ensureDealerFeeCostLine(
+  supabase: AdminSupabaseClient,
+  args: {
+    orgId: string
+    jobId: string
+    userId: string | null
+    dealerFeeAmount: number | null | undefined
+  }
+) {
+  const amount = Math.round((Number(args.dealerFeeAmount) || 0) * 100) / 100
+  if (amount <= 0) return
+
+  try {
+    const description = 'Lender / dealer fee'
+    const { data: existing, error: findError } = await supabase
+      .from('job_cost_lines')
+      .select('id, amount')
+      .eq('org_id', args.orgId)
+      .eq('job_id', args.jobId)
+      .eq('description', description)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    if (findError) {
+      console.error('[Contract Sign] Dealer fee cost-line lookup failed:', findError)
+      return
+    }
+
+    if (existing?.id) {
+      if (Number(existing.amount || 0) !== amount) {
+        await supabase
+          .from('job_cost_lines')
+          .update({ amount, cost_type: 'misc', status: 'active' })
+          .eq('id', existing.id)
+      }
+      return
+    }
+
+    const { error: insertError } = await supabase.from('job_cost_lines').insert({
+      org_id: args.orgId,
+      job_id: args.jobId,
+      description,
+      amount,
+      cost_type: 'misc',
+      status: 'active',
+      notes: 'Financing lender/dealer fee from signed Installation Agreement.',
+      created_by: args.userId,
+    })
+
+    if (insertError) {
+      console.error('[Contract Sign] Dealer fee cost-line insert failed:', insertError)
+    }
+  } catch (error) {
+    console.error('[Contract Sign] Dealer fee cost-line sync failed:', error)
+  }
 }
 
 async function sendEmail(
@@ -459,12 +517,8 @@ export async function POST(request: NextRequest) {
             wonUpdate.job_source = 'insurance'
             wonUpdate.insurance_stage = oppForProject?.insurance_stage || 'contingency_signed'
           }
-          // Dashboard sales metrics use inspection_outcome + owner_user_id.
-          // A contingency can leave "insurance_follow_up" on the opportunity; the final Installation Agreement is the sale.
-          if (opportunity?.inspection_outcome !== 'sale') {
-            wonUpdate.inspection_outcome = 'sale'
-            wonUpdate.inspection_outcome_at = customerSignedAt
-          }
+          // Dashboard sales metrics count this completed Installation Agreement.
+          // Leave inspection_outcome alone so sits/no-sits stay tied to inspection feedback settings.
           await supabase.from('opportunities').update(wonUpdate).eq('id', contract.opportunity_id)
         }
 
@@ -559,6 +613,12 @@ export async function POST(request: NextRequest) {
                 console.error('[Contract Sign] Error creating production job:', jobError)
               } else if (newJob) {
                 console.log('[Contract Sign] Production job created:', newJob.job_number)
+                await ensureDealerFeeCostLine(supabase, {
+                  orgId: contract.org_id,
+                  jobId: newJob.id,
+                  userId: contract.created_by,
+                  dealerFeeAmount: proposalFinancing.dealer_fee_amount,
+                })
                 
                 // Update project status to in_progress
                 await supabase
@@ -577,6 +637,19 @@ export async function POST(request: NextRequest) {
               }
             } else {
               console.log('[Contract Sign] Production job already exists:', existingJob.job_number)
+              if (proposalFinancing.dealer_fee_amount != null) {
+                await supabase
+                  .from('production_jobs')
+                  .update(proposalFinancing)
+                  .eq('id', existingJob.id)
+                  .eq('org_id', contract.org_id)
+              }
+              await ensureDealerFeeCostLine(supabase, {
+                orgId: contract.org_id,
+                jobId: existingJob.id,
+                userId: contract.created_by,
+                dealerFeeAmount: proposalFinancing.dealer_fee_amount,
+              })
             }
           } catch (jobCreationError) {
             console.error('[Contract Sign] Error in job creation:', jobCreationError)
@@ -725,6 +798,12 @@ export async function POST(request: NextRequest) {
               console.error('[Contract Sign] Error creating production job for existing project:', jobError)
             } else if (newJob) {
               console.log('[Contract Sign] Production job created for existing project:', newJob.job_number)
+              await ensureDealerFeeCostLine(supabase, {
+                orgId: contract.org_id,
+                jobId: newJob.id,
+                userId: contract.created_by,
+                dealerFeeAmount: proposalFinancingExisting.dealer_fee_amount,
+              })
               
               await supabase
                 .from('projects')
@@ -739,6 +818,20 @@ export async function POST(request: NextRequest) {
                 body: `Production job ${newJob.job_number} auto-created from signed Installation Agreement.`,
               })
             }
+          } else {
+            if (proposalFinancingExisting.dealer_fee_amount != null) {
+              await supabase
+                .from('production_jobs')
+                .update(proposalFinancingExisting)
+                .eq('id', existingJob.id)
+                .eq('org_id', contract.org_id)
+            }
+            await ensureDealerFeeCostLine(supabase, {
+              orgId: contract.org_id,
+              jobId: existingJob.id,
+              userId: contract.created_by,
+              dealerFeeAmount: proposalFinancingExisting.dealer_fee_amount,
+            })
           }
         } catch (jobCreationError) {
           console.error('[Contract Sign] Error creating job for existing project:', jobCreationError)

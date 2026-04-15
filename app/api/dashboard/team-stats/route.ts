@@ -8,7 +8,12 @@ import {
 } from '@/lib/inspection-outcomes'
 import { distinctDealCountsForMemberScope } from '@/lib/dashboard-distinct-deals'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import {
+  getAttributedInstallationSales,
+  getContactDispositionIdSet,
+  isCanvassDoorLead,
+  isContactDisposition,
+} from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -226,16 +231,20 @@ export async function GET(request: NextRequest) {
 
     const { data: opportunities } = await oppsQuery
 
-    // Sales are counted by sale event time, not opportunity creation time.
-    const salesOppsQuery = supabase
-      .from('opportunities')
-      .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
+    // Sales are signed Installation Agreements, not inspection feedback outcomes.
+    const salesContractsQuery = supabase
+      .from('order_form_contracts')
+      .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
       .eq('org_id', profile.org_id)
-      .eq('inspection_outcome', 'sale')
-      .gte('inspection_outcome_at', start.toISOString())
-      .lt('inspection_outcome_at', end.toISOString())
+      .eq('agreement_type', 'installation')
+      .eq('status', 'completed')
+      .not('customer_signed_at', 'is', null)
+      .gte('customer_signed_at', start.toISOString())
+      .lt('customer_signed_at', end.toISOString())
+      .order('customer_signed_at', { ascending: false })
 
-    const { data: salesOpportunities } = await salesOppsQuery
+    const { data: salesContracts } = await salesContractsQuery
+    const salesOpportunities = getAttributedInstallationSales(salesContracts as any[])
 
     // Appointments on closer's calendar in the selected period (by scheduled_for) — efficiency denominator
     const { data: apptsForEfficiency } = await supabase

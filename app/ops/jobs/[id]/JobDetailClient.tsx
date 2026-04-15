@@ -462,7 +462,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
     openCostAttachmentShortcutRef.current = openPicker
   }, [])
   // Mobile tab navigation (lg+ always shows all sections)
-  const [mobileTab, setMobileTab] = useState<'overview' | 'scope' | 'costs' | 'photos' | 'notes'>('overview')
+  const [mobileTab, setMobileTab] = useState<'overview' | 'scope' | 'materials' | 'financials' | 'photos' | 'notes'>('overview')
 
   // Mention/tagging state
   const [orgUsers, setOrgUsers] = useState<OrgUser[]>([])
@@ -496,8 +496,10 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
     const applyHashToTab = () => {
       if (typeof window === 'undefined' || window.innerWidth >= 1024) return
       const hash = window.location.hash
-      if (hash === '#payments-section' || hash === '#invoices-section' || hash === '#materials-section') {
-        setMobileTab('costs')
+      if (hash === '#materials-section') {
+        setMobileTab('materials')
+      } else if (hash === '#payments-section' || hash === '#invoices-section') {
+        setMobileTab('financials')
       } else if (hash === '#job-files-workspace-section') {
         setMobileTab('photos')
       }
@@ -911,7 +913,8 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
   const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
-  const canViewFinancials = userRole === 'admin' || userRole === 'owner'
+  const canViewProfitability = userRole === 'admin' || userRole === 'owner'
+  const canViewFinancialTab = canViewProfitability || canViewJobBilling
   const payrollSnapshot = useMemo(() => buildCommissionPayrollSnapshot(job), [job])
   const saleAmount = job.sale_amount || 0
   const laborCost = job.labor_cost || 0
@@ -1076,18 +1079,19 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
 
         {/* Mobile tab bar — hidden on desktop */}
         <div className="lg:hidden bg-white border rounded-xl shadow-sm mb-4 overflow-hidden">
-          <div className="flex">
+          <div className="flex overflow-x-auto">
             {([
               { key: 'overview', label: 'Overview' },
               { key: 'scope',    label: 'Details' },
-              { key: 'costs',    label: 'Materials' },
+              { key: 'materials', label: 'Materials' },
+              ...(canViewFinancialTab ? [{ key: 'financials' as const, label: 'Financials' }] : []),
               { key: 'photos',   label: 'Photos' },
               { key: 'notes',    label: 'Notes' },
             ] as const).map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setMobileTab(tab.key)}
-                className={`flex-1 py-3 text-xs font-medium border-b-2 transition-colors ${
+                className={`flex-none min-w-[5.75rem] px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
                   mobileTab === tab.key
                     ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -1268,12 +1272,12 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               />
             </div>
 
-            {/* COSTS TAB */}
-            <div id="materials-section" className={mobileTab !== 'costs' ? 'hidden lg:block' : undefined}>
+            {/* MATERIALS TAB */}
+            <div id="materials-section" className={mobileTab !== 'materials' ? 'hidden lg:block' : undefined}>
               <JobMaterialsCard
                 jobId={job.id}
                 userRole={userRole}
-                title="Job Costs"
+                title="Materials"
                 materialsStatus={job.materials_status}
                 onMaterialsStatusChange={updateMaterialsStatus}
                 updatingMaterialsStatus={saving}
@@ -1285,7 +1289,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 materialsNotes={job.materials_notes}
                 onTotalChange={setMaterialOrdersTotal}
                 onAttachReceiptInvoice={handleAttachReceiptInvoiceShortcut}
-                dealerFeeAmount={job.dealer_fee_amount ?? null}
               />
             </div>
 
@@ -1295,6 +1298,7 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                 jobId={job.id}
                 userRole={userRole}
                 registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
+                dealerFeeAmount={job.dealer_fee_amount ?? null}
               />
             </div>
 
@@ -1521,9 +1525,9 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
               <FinalPhotosCard jobId={job.id} projectId={job.project_id} orgId={job.org_id} />
             </div>
 
-            {/* COSTS TAB — Financials, Payments, Invoices, Work Orders */}
-            <div className={mobileTab !== 'costs' ? 'hidden lg:block' : undefined}>
-            {canViewFinancials && (
+            {/* FINANCIALS TAB — Financials, Payments, Invoices, Work Orders */}
+            <div className={mobileTab !== 'financials' ? 'hidden lg:block' : undefined}>
+            {canViewProfitability && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
                 <p className="text-xs text-gray-500 mb-4">

@@ -7,11 +7,11 @@ import OpsClient from './OpsClient'
 import { canAccessJobBoard } from '@/lib/permissions'
 
 function sanitizeJobForRole(job: any, role: string) {
-  const isAdmin = role === 'admin'
-  if (isAdmin) return job
+  const canViewProfitability = role === 'admin' || role === 'owner'
+  if (canViewProfitability) return job
 
-  // Do not expose direct cost fields to non-admin roles on the job board payload.
-  const { labor_cost, material_cost, ...safeJob } = job
+  // Do not expose direct cost fields to roles without profitability access.
+  const { labor_cost, material_cost, dealer_fee_amount, ...safeJob } = job
   return safeJob
 }
 
@@ -92,7 +92,7 @@ export default async function OpsPage() {
       initialCrews={crewsRes.data || []}
       initialSubs={subsRes.data || []}
       orgId={profile.org_id}
-      canViewProfitability={profile.role === 'admin'}
+      canViewProfitability={profile.role === 'admin' || profile.role === 'owner'}
     />
   )
 }

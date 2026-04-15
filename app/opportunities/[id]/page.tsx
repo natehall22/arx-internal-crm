@@ -127,7 +127,7 @@ export default async function OpportunityDetailPage({
   // Fetch accepted proposal for contract creation
   const { data: acceptedProposal } = await supabase
     .from('proposals')
-    .select('id, total, scope_of_work')
+    .select('id, total, financed_contract_total, financing_lender_name, scope_of_work')
     .eq('opportunity_id', params.id)
     .eq('status', 'accepted')
     .order('accepted_at', { ascending: false })
@@ -799,7 +799,12 @@ export default async function OpportunityDetailPage({
               customerEmail={leadRow?.email || opportunity.customers?.email || ''}
               customerPhone={leadRow?.phone || opportunity.customers?.phone || ''}
               projectAddress={opportunity.address_text || ''}
-              projectCost={acceptedProposal?.total || 0}
+              projectCost={
+                acceptedProposal?.financed_contract_total != null && acceptedProposal.financed_contract_total > 0
+                  ? acceptedProposal.financed_contract_total
+                  : acceptedProposal?.total || 0
+              }
+              defaultFinanceCompany={acceptedProposal?.financing_lender_name}
               totalSquares={opportunity.roof_squares || undefined}
               scopeOfWork={acceptedProposal?.scope_of_work || ''}
             />

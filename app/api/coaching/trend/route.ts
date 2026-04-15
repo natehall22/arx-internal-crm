@@ -6,6 +6,7 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { getAttributedInstallationSales } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -216,19 +217,22 @@ export async function GET(request: NextRequest) {
         .gte('inspection_outcome_at', overallStart.toISOString())
         .lt('inspection_outcome_at', overallEnd.toISOString()),
       supabase
-        .from('opportunities')
-        .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
+        .from('order_form_contracts')
+        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
         .eq('org_id', profile.org_id)
-        .eq('inspection_outcome', 'sale')
-        .gte('inspection_outcome_at', overallStart.toISOString())
-        .lt('inspection_outcome_at', overallEnd.toISOString()),
+        .eq('agreement_type', 'installation')
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', overallStart.toISOString())
+        .lt('customer_signed_at', overallEnd.toISOString())
+        .order('customer_signed_at', { ascending: false }),
     ])
 
     const allAppts = apptRes.data || []
     const allSitRows = (sitRes.data || []).filter(o =>
       sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
     )
-    const allSales = saleRes.data || []
+    const allSales = getAttributedInstallationSales(saleRes.data as any[])
 
     const result = (memberDetails || []).map(member => {
       const bucketed = buckets.map(bucket => {
@@ -248,7 +252,7 @@ export async function GET(request: NextRequest) {
 
         const sales = allSales.filter(o => {
           const attr = isSetterLike(member.role) ? o.setter_user_id : o.owner_user_id
-          return attr === member.id && inBucket(o.inspection_outcome_at!)
+          return attr === member.id && o.signed_at && inBucket(o.signed_at)
         }).length
 
         return { label: bucket.label, sets, sits, sales }

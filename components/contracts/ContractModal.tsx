@@ -101,6 +101,7 @@ export default function ContractModal({
         projectCost: projectCost || prev.projectCost,
         totalSquares: totalSquares || prev.totalSquares,
         financeCompany: defaultFinanceCompany?.trim() || prev.financeCompany || '',
+        paymentMethod: defaultFinanceCompany?.trim() ? 'finance' : prev.paymentMethod,
       }))
       setStep(1)
       setError(null)

@@ -8,7 +8,12 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import {
+  getAttributedInstallationSales,
+  getContactDispositionIdSet,
+  isCanvassDoorLead,
+  isContactDisposition,
+} from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -93,14 +98,17 @@ export async function GET(request: NextRequest) {
       .gte('scheduled_for', start.toISOString())
       .lt('scheduled_for', end.toISOString())
 
-    // ---- SALES (in period) ----
-    const { data: salesRows } = await supabase
-      .from('opportunities')
-      .select('id, owner_user_id, setter_user_id')
+    // ---- SALES (signed Installation Agreements in period) ----
+    const { data: signedInstallationContracts } = await supabase
+      .from('order_form_contracts')
+      .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
       .eq('org_id', profile.org_id)
-      .eq('inspection_outcome', 'sale')
-      .gte('inspection_outcome_at', start.toISOString())
-      .lt('inspection_outcome_at', end.toISOString())
+      .eq('agreement_type', 'installation')
+      .eq('status', 'completed')
+      .not('customer_signed_at', 'is', null)
+      .gte('customer_signed_at', start.toISOString())
+      .lt('customer_signed_at', end.toISOString())
+      .order('customer_signed_at', { ascending: false })
 
     // ---- SIT OUTCOMES CONFIG ----
     const { data: orgRow } = await supabase
@@ -144,7 +152,8 @@ export async function GET(request: NextRequest) {
     const doorsKnocked = rawDoors
     const contacts = rawContacts
 
-    const sales = (salesRows || []).filter(o =>
+    const signedSales = getAttributedInstallationSales(signedInstallationContracts as any[])
+    const sales = signedSales.filter(o =>
       isSetter ? inScope(o.setter_user_id) : inScope(o.owner_user_id)
     ).length
 

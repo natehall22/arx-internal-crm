@@ -22,6 +22,7 @@ export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
     icon: '✓',
     active: true,
     converts_to_opportunity: true,
+    counts_as_sit: true,
     sort_order: 0,
   },
   {
@@ -43,6 +44,7 @@ export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
     icon: '📋',
     active: true,
     converts_to_opportunity: false,
+    counts_as_sit: true,
     sort_order: 2,
   },
   {
@@ -53,6 +55,7 @@ export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
     icon: '✗',
     active: true,
     converts_to_opportunity: false,
+    counts_as_sit: true,
     sort_order: 3,
   },
   {
@@ -73,6 +76,7 @@ export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
     icon: '○',
     active: true,
     converts_to_opportunity: false,
+    counts_as_sit: true,
     sort_order: 5,
   },
   {
@@ -83,6 +87,7 @@ export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
     icon: '🔧',
     active: true,
     converts_to_opportunity: false,
+    counts_as_sit: true,
     sort_order: 6,
   },
   {

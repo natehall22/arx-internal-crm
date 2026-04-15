@@ -11,7 +11,12 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
-import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import {
+  getAttributedInstallationSales,
+  getContactDispositionIdSet,
+  isCanvassDoorLead,
+  isContactDisposition,
+} from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 type ReportMetrics = {
@@ -134,7 +139,7 @@ export default function ReportsPage() {
     const orgId = currentUser.org_id
 
     // Load org-level metrics
-    const [leadsRes, oppsRes, outcomeOppsRes, appointmentsRes, projectsRes, statusUpdatesRes, orgRes] = await Promise.all([
+    const [leadsRes, oppsRes, outcomeOppsRes, signedContractsRes, appointmentsRes, projectsRes, statusUpdatesRes, orgRes] = await Promise.all([
       supabase
         .from('leads')
         .select('id, status, source, canvass_disposition, created_at, owner_user_id')
@@ -152,6 +157,15 @@ export default function ReportsPage() {
         .not('inspection_outcome', 'is', null)
         .not('inspection_outcome_at', 'is', null)
         .gte('inspection_outcome_at', dateFilter),
+      supabase
+        .from('order_form_contracts')
+        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+        .eq('org_id', orgId)
+        .eq('agreement_type', 'installation')
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', dateFilter)
+        .order('customer_signed_at', { ascending: false }),
       supabase
         .from('scheduled_appointments')
         .select('id, canvasser_user_id, created_at')
@@ -177,6 +191,7 @@ export default function ReportsPage() {
     const leads = leadsRes.data || []
     const opps = oppsRes.data || []
     const outcomeOpps = outcomeOppsRes.data || []
+    const signedSales = getAttributedInstallationSales(signedContractsRes.data as any[])
     const appointments = appointmentsRes.data || []
     const projects = projectsRes.data || []
     const statusUpdates = statusUpdatesRes.data || []
@@ -186,11 +201,11 @@ export default function ReportsPage() {
     const contactDispositionIdSet = getContactDispositionIdSet(
       orgRes.data?.settings?.canvass_dispositions as any[] | undefined
     )
-    const calculateCloseMetrics = (rows: OutcomeMetricRow[]) => {
+    const calculateCloseMetrics = (rows: OutcomeMetricRow[], salesRows = signedSales) => {
       const inspectionsRun = rows.filter(o =>
         sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
       ).length
-      const sales = rows.filter(o => normalizeInspectionOutcomeId(o.inspection_outcome) === 'sale').length
+      const sales = salesRows.length
       return {
         inspectionsRun,
         sales,
@@ -227,9 +242,18 @@ export default function ReportsPage() {
       if (sitOutcomeIdSet.has(normalizeInspectionOutcomeId(opp.inspection_outcome))) {
         weeklyData[weekKey].inspections++
       }
-      if (normalizeInspectionOutcomeId(opp.inspection_outcome) === 'sale') {
-        weeklyData[weekKey].sales++
+    })
+    signedSales.forEach(sale => {
+      if (!sale.signed_at) return
+      const date = new Date(sale.signed_at)
+      const weekStart = new Date(date)
+      weekStart.setDate(date.getDate() - date.getDay())
+      const weekKey = weekStart.toISOString().split('T')[0]
+
+      if (!weeklyData[weekKey]) {
+        weeklyData[weekKey] = { inspections: 0, sales: 0 }
       }
+      weeklyData[weekKey].sales++
     })
 
     const history = Object.entries(weeklyData)
@@ -307,7 +331,10 @@ export default function ReportsPage() {
           regionOutcomeOpps = data || []
         }
 
-        const regionCloseMetrics = calculateCloseMetrics(regionOutcomeOpps)
+        const regionSales = signedSales.filter(s =>
+          userIds.includes(s.owner_user_id || '') || userIds.includes(s.setter_user_id || '')
+        )
+        const regionCloseMetrics = calculateCloseMetrics(regionOutcomeOpps, regionSales)
         
         regionsWithMetrics.push({
           ...region,
@@ -384,7 +411,10 @@ export default function ReportsPage() {
           teamOutcomeOpps = data || []
         }
 
-        const teamCloseMetrics = calculateCloseMetrics(teamOutcomeOpps)
+        const teamSales = signedSales.filter(s =>
+          userIds.includes(s.owner_user_id || '') || userIds.includes(s.setter_user_id || '')
+        )
+        const teamCloseMetrics = calculateCloseMetrics(teamOutcomeOpps, teamSales)
 
         teamsWithMetrics.push({
           ...team,
@@ -449,7 +479,10 @@ export default function ReportsPage() {
           .not('inspection_outcome_at', 'is', null)
           .gte('inspection_outcome_at', dateFilter)
 
-        const userCloseMetrics = calculateCloseMetrics(userOutcomeOpps || [])
+        const userSales = signedSales.filter(s =>
+          isSetterLikeRole(user.role) ? s.setter_user_id === user.id : s.owner_user_id === user.id
+        )
+        const userCloseMetrics = calculateCloseMetrics(userOutcomeOpps || [], userSales)
 
         usersWithMetrics.push({
           ...user,

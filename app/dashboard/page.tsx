@@ -15,7 +15,12 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import {
+  getAttributedInstallationSales,
+  getContactDispositionIdSet,
+  isCanvassDoorLead,
+  isContactDisposition,
+} from '@/lib/sales-metrics'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -137,15 +142,18 @@ export default async function DashboardPage() {
   }
   const { data: allLeads, error: leadsError } = await leadsQuery
 
-  // Sales events should be driven by when the deal is actually marked sold.
-  // Proposal approval sets inspection_outcome='sale' and inspection_outcome_at.
-  const { data: salesOpportunities } = await supabase
-    .from('opportunities')
-    .select('id, owner_user_id, setter_user_id, inspection_outcome_at')
+  // Sales are signed Installation Agreements. Inspection feedback outcomes only drive sits/no-sits.
+  const { data: salesContracts } = await supabase
+    .from('order_form_contracts')
+    .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
     .eq('org_id', profile.org_id)
-    .eq('inspection_outcome', 'sale')
-    .gte('inspection_outcome_at', weekStart.toISOString())
-    .lt('inspection_outcome_at', weekEnd.toISOString())
+    .eq('agreement_type', 'installation')
+    .eq('status', 'completed')
+    .not('customer_signed_at', 'is', null)
+    .gte('customer_signed_at', weekStart.toISOString())
+    .lt('customer_signed_at', weekEnd.toISOString())
+    .order('customer_signed_at', { ascending: false })
+  const salesOpportunities = getAttributedInstallationSales(salesContracts as any[])
 
   const { data: orgForSits } = await supabase
     .from('orgs')

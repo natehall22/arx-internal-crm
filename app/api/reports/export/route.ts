@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import * as XLSX from 'xlsx'
-import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
+import {
+  getAttributedInstallationSales,
+  getContactDispositionIdSet,
+  isCanvassDoorLead,
+  isContactDisposition,
+} from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export const dynamic = 'force-dynamic'
@@ -70,17 +75,19 @@ export async function GET(request: NextRequest) {
     const range = (request.nextUrl.searchParams.get('range') || '30d') as DateRange
     const dateFilter = getDateFilter(range)
 
-    const [usersRes, leadsRes, oppsRes, outcomeOppsRes, appointmentsRes, projectsRes, regionsRes, teamsRes, orgRes] = await Promise.all([
+    const [usersRes, leadsRes, oppsRes, signedContractsRes, appointmentsRes, projectsRes, regionsRes, teamsRes, orgRes] = await Promise.all([
       supabase.from('users').select('*').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
       supabase.from('leads').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('opportunities').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase
-        .from('opportunities')
-        .select('id, owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
+        .from('order_form_contracts')
+        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
         .eq('org_id', profile.org_id)
-        .not('inspection_outcome', 'is', null)
-        .not('inspection_outcome_at', 'is', null)
-        .gte('inspection_outcome_at', dateFilter),
+        .eq('agreement_type', 'installation')
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', dateFilter)
+        .order('customer_signed_at', { ascending: false }),
       supabase.from('scheduled_appointments').select('id, canvasser_user_id').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('projects').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
       supabase.from('regions').select('*').eq('org_id', profile.org_id).order('name'),
@@ -91,12 +98,11 @@ export async function GET(request: NextRequest) {
     const users = usersRes.data || []
     const leads = leadsRes.data || []
     const opps = oppsRes.data || []
-    const outcomeOpps = outcomeOppsRes.data || []
     const appointments = appointmentsRes.data || []
     const projects = projectsRes.data || []
     const regions = regionsRes.data || []
     const teams = teamsRes.data || []
-    const salesOpps = outcomeOpps.filter(o => o.inspection_outcome === 'sale')
+    const salesOpps = getAttributedInstallationSales(signedContractsRes.data as any[])
     const contactDispositionIdSet = getContactDispositionIdSet(
       orgRes.data?.settings?.canvass_dispositions as any[] | undefined
     )
