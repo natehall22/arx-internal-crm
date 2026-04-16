@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { isValidBoundaryGeoJSON } from '@/lib/canvass-territory-geometry'
+import { isCanvassTerritoryAssigneeEligible } from '@/lib/canvass-territory-assignee-filter'
 import { CANVASS_TERRITORY_MANAGER_ROLES } from '@/lib/canvass-territory-manager-roles'
 
 export const dynamic = 'force-dynamic'
@@ -150,10 +151,14 @@ export async function PATCH(
     if (uids.length > 0) {
       const { data: validUsers } = await admin
         .from('users')
-        .select('id')
+        .select('id, dashboard_view, role')
         .eq('org_id', profile.org_id)
         .in('id', uids)
-      const ok = new Set((validUsers || []).map((u) => u.id))
+      const ok = new Set(
+        (validUsers || [])
+          .filter((u) => isCanvassTerritoryAssigneeEligible(u))
+          .map((u) => u.id)
+      )
       const rows = uids.filter((uid) => ok.has(uid)).map((user_id) => ({
         territory_id: id,
         user_id,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { isCanvassTerritoryAssigneeEligible } from '@/lib/canvass-territory-assignee-filter'
 import { exteriorRingsFromGeoJSON } from '@/lib/canvass-territory-geometry'
 
 declare const google: any
@@ -15,7 +16,13 @@ export type TerritoryRow = {
   team_ids: string[]
 }
 
-type OrgUser = { id: string; full_name: string | null; email: string | null; role: string }
+type OrgUser = {
+  id: string
+  full_name: string | null
+  email: string | null
+  role: string
+  dashboard_view?: string | null
+}
 type OrgTeam = { id: string; name: string }
 
 function polygonToGeoJSON(polygon: { getPath: () => { getLength: () => number; getAt: (i: number) => { lng: () => number; lat: () => number } } }): {
@@ -122,7 +129,11 @@ export function CanvassTerritoriesEditor({
 
       if (uRes.ok) {
         const uJson = await uRes.json()
-        setUsers((uJson.users || []).filter((u: OrgUser) => u.id))
+        setUsers(
+          (uJson.users || []).filter(
+            (u: OrgUser) => !!u.id && isCanvassTerritoryAssigneeEligible(u)
+          )
+        )
         const rawTeams = uJson.teams
         if (Array.isArray(rawTeams)) {
           setOrgTeams(
@@ -168,6 +179,8 @@ export function CanvassTerritoriesEditor({
     }
   }, [territories, selectedId])
 
+  // Map must mount in the DOM before this runs. Do not gate the map container on API `loading`,
+  // or `ready` becomes true while mapRef is null and the map never initializes.
   useEffect(() => {
     if (!ready || !mapRef.current || mapInstanceRef.current) return
     mapInstanceRef.current = new google.maps.Map(mapRef.current, {
@@ -220,7 +233,7 @@ export function CanvassTerritoriesEditor({
       google.maps.event.trigger(map, 'resize')
     })
     return () => cancelAnimationFrame(id)
-  }, [ready, compact])
+  }, [ready, compact, loading])
 
   useEffect(() => {
     if (!ready) return
@@ -383,141 +396,148 @@ export function CanvassTerritoriesEditor({
         <div className="mb-4 rounded-lg bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>
       )}
 
-      {loading ? (
-        <p className="text-gray-500">Loading…</p>
-      ) : (
-        <div className={gridClass}>
-          <div className={formColClass}>
-            <div className="bg-white rounded-lg shadow p-4">
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="font-medium text-gray-900">Areas</h2>
-                <button
-                  type="button"
-                  onClick={startNew}
-                  className="text-sm text-indigo-600 hover:underline"
-                >
-                  New area
-                </button>
-              </div>
-              <ul className="space-y-2 max-h-64 overflow-y-auto">
-                {territories.map((t) => (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => selectTerritory(t)}
-                      className={`w-full text-left px-3 py-2 rounded border flex items-center gap-2 ${
-                        selectedId === t.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: t.color }} />
-                      <span className="min-w-0 flex-1">
-                        <span className="text-sm font-medium text-gray-900 truncate block">{t.name}</span>
-                        <span className="text-xs text-gray-500">
-                          {(t.user_ids?.length ?? 0)} rep{(t.user_ids?.length ?? 0) === 1 ? '' : 's'}
-                          {' · '}
-                          {(t.team_ids?.length ?? 0)} team{(t.team_ids?.length ?? 0) === 1 ? '' : 's'}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-                {territories.length === 0 && (
-                  <li className="text-sm text-gray-500">No areas yet — draw one on the map.</li>
-                )}
-              </ul>
+      <div className={gridClass}>
+        <div className={formColClass}>
+          {loading ? (
+            <div className="bg-white rounded-lg shadow p-6 text-gray-500 text-sm">
+              Loading areas and users…
             </div>
-
-            <div className="bg-white rounded-lg shadow p-4 space-y-3">
-              <h2 className="font-medium text-gray-900">{selectedId ? 'Edit area' : 'New area'}</h2>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
-                <input
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. North Oak Hills"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Color</label>
-                <input
-                  type="color"
-                  className="h-10 w-full border rounded cursor-pointer"
-                  value={formColor}
-                  onChange={(e) => setFormColor(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Assigned reps</label>
-                <div className="max-h-40 overflow-y-auto border rounded p-2 space-y-1">
-                  {users.map((u) => (
-                    <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formUserIds.includes(u.id)}
-                        onChange={() => toggleUser(u.id)}
-                      />
-                      <span className="truncate">{u.full_name || u.email || u.id}</span>
-                    </label>
-                  ))}
+          ) : (
+            <>
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="font-medium text-gray-900">Areas</h2>
+                  <button
+                    type="button"
+                    onClick={startNew}
+                    className="text-sm text-indigo-600 hover:underline"
+                  >
+                    New area
+                  </button>
                 </div>
+                <ul className="space-y-2 max-h-64 overflow-y-auto">
+                  {territories.map((t) => (
+                    <li key={t.id}>
+                      <button
+                        type="button"
+                        onClick={() => selectTerritory(t)}
+                        className={`w-full text-left px-3 py-2 rounded border flex items-center gap-2 ${
+                          selectedId === t.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: t.color }} />
+                        <span className="min-w-0 flex-1">
+                          <span className="text-sm font-medium text-gray-900 truncate block">{t.name}</span>
+                          <span className="text-xs text-gray-500">
+                            {(t.user_ids?.length ?? 0)} rep{(t.user_ids?.length ?? 0) === 1 ? '' : 's'}
+                            {' · '}
+                            {(t.team_ids?.length ?? 0)} team{(t.team_ids?.length ?? 0) === 1 ? '' : 's'}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {territories.length === 0 && (
+                    <li className="text-sm text-gray-500">No areas yet — draw one on the map.</li>
+                  )}
+                </ul>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Assigned teams</label>
-                <div className="max-h-32 overflow-y-auto border rounded p-2 space-y-1">
-                  {orgTeams.length === 0 ? (
-                    <p className="text-xs text-gray-500">No teams in this org.</p>
-                  ) : (
-                    orgTeams.map((team) => (
-                      <label key={team.id} className="flex items-center gap-2 text-sm cursor-pointer">
+
+              <div className="bg-white rounded-lg shadow p-4 space-y-3">
+                <h2 className="font-medium text-gray-900">{selectedId ? 'Edit area' : 'New area'}</h2>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
+                  <input
+                    className="w-full border rounded px-3 py-2 text-sm"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="e.g. North Oak Hills"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Color</label>
+                  <input
+                    type="color"
+                    className="h-10 w-full border rounded cursor-pointer"
+                    value={formColor}
+                    onChange={(e) => setFormColor(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Assigned reps</label>
+                  <p className="text-xs text-gray-500 mb-1.5">
+                    Sales-side users only (Ops dashboard users are not listed).
+                  </p>
+                  <div className="max-h-40 overflow-y-auto border rounded p-2 space-y-1">
+                    {users.map((u) => (
+                      <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={formTeamIds.includes(team.id)}
-                          onChange={() => toggleTeam(team.id)}
+                          checked={formUserIds.includes(u.id)}
+                          onChange={() => toggleUser(u.id)}
                         />
-                        <span className="truncate">{team.name || team.id}</span>
+                        <span className="truncate">{u.full_name || u.email || u.id}</span>
                       </label>
-                    ))
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Assigned teams</label>
+                  <div className="max-h-32 overflow-y-auto border rounded p-2 space-y-1">
+                    {orgTeams.length === 0 ? (
+                      <p className="text-xs text-gray-500">No teams in this org.</p>
+                    ) : (
+                      orgTeams.map((team) => (
+                        <label key={team.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formTeamIds.includes(team.id)}
+                            onChange={() => toggleTeam(team.id)}
+                          />
+                          <span className="truncate">{team.name || team.id}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Use the polygon tool on the map to {selectedId ? 'replace the shape (optional)' : 'define the boundary'}.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={saveTerritory}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium disabled:opacity-50"
+                  >
+                    {saving ? 'Saving…' : selectedId ? 'Save changes' : 'Create area'}
+                  </button>
+                  {selectedId && (
+                    <button
+                      type="button"
+                      onClick={() => deleteTerritory(selectedId)}
+                      className="px-4 py-2 border border-red-300 text-red-700 rounded text-sm"
+                    >
+                      Delete
+                    </button>
                   )}
                 </div>
               </div>
-              <p className="text-xs text-gray-500">
-                Use the polygon tool on the map to {selectedId ? 'replace the shape (optional)' : 'define the boundary'}.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={saveTerritory}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium disabled:opacity-50"
-                >
-                  {saving ? 'Saving…' : selectedId ? 'Save changes' : 'Create area'}
-                </button>
-                {selectedId && (
-                  <button
-                    type="button"
-                    onClick={() => deleteTerritory(selectedId)}
-                    className="px-4 py-2 border border-red-300 text-red-700 rounded text-sm"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+            </>
+          )}
+        </div>
 
-          <div className={mapColClass}>
-            <div className={`bg-white rounded-lg shadow overflow-hidden ${mapShellClass} relative`}>
-              {!ready && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-600 text-sm z-10">
-                  Loading map…
-                </div>
-              )}
-              <div ref={mapRef} className="w-full h-full min-h-[200px]" />
-            </div>
+        <div className={mapColClass}>
+          <div className={`bg-white rounded-lg shadow overflow-hidden ${mapShellClass} relative`}>
+            {!ready && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-600 text-sm z-10">
+                Loading map…
+              </div>
+            )}
+            <div ref={mapRef} className="w-full h-full min-h-[200px]" />
           </div>
         </div>
-      )}
+      </div>
     </>
   )
 }

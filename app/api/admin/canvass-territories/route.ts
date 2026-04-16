@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { isValidBoundaryGeoJSON } from '@/lib/canvass-territory-geometry'
+import { isCanvassTerritoryAssigneeEligible } from '@/lib/canvass-territory-assignee-filter'
 import { CANVASS_TERRITORY_MANAGER_ROLES } from '@/lib/canvass-territory-manager-roles'
 
 export const dynamic = 'force-dynamic'
@@ -160,17 +161,23 @@ export async function POST(request: NextRequest) {
   }
 
   const uids = Array.isArray(user_ids) ? user_ids.filter((x): x is string => typeof x === 'string') : []
+  let savedUserIds: string[] = []
   if (uids.length > 0) {
     const { data: validUsers } = await admin
       .from('users')
-      .select('id')
+      .select('id, dashboard_view, role')
       .eq('org_id', profile.org_id)
       .in('id', uids)
-    const ok = new Set((validUsers || []).map((u) => u.id))
+    const ok = new Set(
+      (validUsers || [])
+        .filter((u) => isCanvassTerritoryAssigneeEligible(u))
+        .map((u) => u.id)
+    )
     const rows = uids.filter((id) => ok.has(id)).map((user_id) => ({
       territory_id: row.id,
       user_id,
     }))
+    savedUserIds = rows.map((r) => r.user_id)
     if (rows.length > 0) {
       await admin.from('canvass_territory_users').insert(rows)
     }
@@ -192,5 +199,5 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ territory: { ...row, user_ids: uids, team_ids: savedTeamIds } })
+  return NextResponse.json({ territory: { ...row, user_ids: savedUserIds, team_ids: savedTeamIds } })
 }
