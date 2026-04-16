@@ -2,6 +2,11 @@ import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
+import {
+  getOrgDefaultSchedulingGapMinutes,
+  resolveSchedulingBuffers,
+  type UserCalendarBufferFields,
+} from '@/lib/org-scheduling-gap'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,14 +80,17 @@ export async function GET(request: NextRequest) {
 
     const durationMinutes = parseInt(durationStr || '60', 10)
 
-    // Get team timezone
+    // Get team timezone + org for admin default scheduling gap
     const { data: team } = await adminClient
       .from('teams')
-      .select('timezone')
+      .select('timezone, org_id')
       .eq('id', teamId)
       .single()
-    
+
     const timezone = team?.timezone || 'America/New_York'
+    const orgDefaultGap = team?.org_id
+      ? await getOrgDefaultSchedulingGapMinutes(adminClient, team.org_id)
+      : 15
 
     // Get active closers in the team's queue who have Google Calendar connected
     const { data: queueClosers, error: queueError } = await adminClient
@@ -136,6 +144,24 @@ export async function GET(request: NextRequest) {
 
     console.log(`Team availability: ${closersWithCalendars.length} closers with calendars:`, 
       closersWithCalendars.map((c: any) => c.user?.full_name))
+
+    const calendarCloserIds = closersWithCalendars.map((c: { user_id: string }) => c.user_id)
+    const { data: teamCloserUserSettings } = await adminClient
+      .from('user_settings')
+      .select(
+        'user_id, appointment_buffer_before, appointment_buffer_after, appointment_buffer_minutes'
+      )
+      .in('user_id', calendarCloserIds)
+    const userSettingsByCloserId = new Map<string, UserCalendarBufferFields>(
+      (teamCloserUserSettings ?? []).map((row: Record<string, unknown>) => [
+        row.user_id as string,
+        {
+          appointment_buffer_before: row.appointment_buffer_before as number | null | undefined,
+          appointment_buffer_after: row.appointment_buffer_after as number | null | undefined,
+          appointment_buffer_minutes: row.appointment_buffer_minutes as number | null | undefined,
+        },
+      ])
+    )
 
     // Default working hours: 8 AM - 8 PM
     const workingHoursStart = '08:00'
@@ -284,9 +310,8 @@ export async function GET(request: NextRequest) {
       for (const closer of closersWithCalendars) {
         const busySlots = allCloserBusySlots.get(closer.user_id) || []
         
-        // Use separate before/after buffers (fall back to buffer_minutes for backwards compatibility)
-        const bufferBefore = closer.buffer_before ?? 0
-        const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? 15
+        const us = userSettingsByCloserId.get(closer.user_id)
+        const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(closer, us, orgDefaultGap)
         
         // Check for conflicts with separate before/after buffers
         const hasConflict = busySlots.some(busy => {
@@ -345,11 +370,18 @@ export async function GET(request: NextRequest) {
     }
 
     // Include debug info about buffers
-    const closerDebug = closersWithCalendars.map((c: any) => ({
-      name: c.user?.full_name,
-      buffer_before: c.buffer_before ?? 0,
-      buffer_after: c.buffer_after ?? c.buffer_minutes ?? 15
-    }))
+    const closerDebug = closersWithCalendars.map((c: any) => {
+      const resolved = resolveSchedulingBuffers(
+        c,
+        userSettingsByCloserId.get(c.user_id),
+        orgDefaultGap
+      )
+      return {
+        name: c.user?.full_name,
+        buffer_before: resolved.bufferBefore,
+        buffer_after: resolved.bufferAfter,
+      }
+    })
 
     const elapsed = Date.now() - startTime
     console.log(`Team availability: Request completed in ${elapsed}ms, returning ${slots.length} slots`)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { isValidBoundaryGeoJSON } from '@/lib/canvass-territory-geometry'
+import { CANVASS_TERRITORY_MANAGER_ROLES } from '@/lib/canvass-territory-manager-roles'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,16 +64,6 @@ function getAdminClient() {
   })
 }
 
-const MANAGER_ROLES = [
-  'owner',
-  'admin',
-  'regional_manager',
-  'regional_setter_manager',
-  'sales_manager',
-  'setter_manager',
-  'operations',
-] as const
-
 async function requireManager(req: NextRequest) {
   const { client: authClient, accessToken } = getAuthClient(req)
   if (!accessToken) {
@@ -88,7 +79,7 @@ async function requireManager(req: NextRequest) {
     .select('role, org_id')
     .eq('id', user.id)
     .single()
-  if (!profile || !MANAGER_ROLES.includes(profile.role as (typeof MANAGER_ROLES)[number])) {
+  if (!profile || !CANVASS_TERRITORY_MANAGER_ROLES.includes(profile.role as (typeof CANVASS_TERRITORY_MANAGER_ROLES)[number])) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
   return { user, profile, admin }
@@ -115,11 +106,12 @@ export async function PATCH(
   }
 
   const body = await request.json()
-  const { name, color, boundary_geojson, user_ids } = body as {
+  const { name, color, boundary_geojson, user_ids, team_ids } = body as {
     name?: string
     color?: string
     boundary_geojson?: unknown
     user_ids?: string[]
+    team_ids?: string[]
   }
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
@@ -172,15 +164,36 @@ export async function PATCH(
     }
   }
 
-  const { data: links } = await admin
-    .from('canvass_territory_users')
-    .select('user_id')
-    .eq('territory_id', id)
+  if (team_ids !== undefined) {
+    await admin.from('canvass_territory_teams').delete().eq('territory_id', id)
+    const tids = Array.isArray(team_ids) ? team_ids.filter((x): x is string => typeof x === 'string') : []
+    if (tids.length > 0) {
+      const { data: validTeams } = await admin
+        .from('teams')
+        .select('id')
+        .eq('org_id', profile.org_id)
+        .in('id', tids)
+      const okTeams = new Set((validTeams || []).map((t) => t.id))
+      const trows = tids.filter((tid) => okTeams.has(tid)).map((team_id) => ({
+        territory_id: id,
+        team_id,
+      }))
+      if (trows.length > 0) {
+        await admin.from('canvass_territory_teams').insert(trows)
+      }
+    }
+  }
+
+  const [{ data: links }, { data: teamLinks }] = await Promise.all([
+    admin.from('canvass_territory_users').select('user_id').eq('territory_id', id),
+    admin.from('canvass_territory_teams').select('team_id').eq('territory_id', id),
+  ])
 
   return NextResponse.json({
     territory: {
       ...row,
       user_ids: (links || []).map((l) => l.user_id),
+      team_ids: (teamLinks || []).map((l) => l.team_id),
     },
   })
 }

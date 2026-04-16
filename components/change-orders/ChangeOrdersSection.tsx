@@ -28,6 +28,8 @@ interface ChangeOrdersSectionProps {
   jobId: string | null
   repName: string
   changeOrders: ChangeOrder[]
+  /** Match ops job sidebar cards (rounded-xl, border) vs project page */
+  variant?: 'default' | 'ops'
 }
 
 export default function ChangeOrdersSection({
@@ -43,6 +45,7 @@ export default function ChangeOrdersSection({
   jobId,
   repName,
   changeOrders: initialChangeOrders,
+  variant = 'default',
 }: ChangeOrdersSectionProps) {
   const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -97,10 +100,17 @@ export default function ChangeOrdersSection({
     }).format(amount)
   }
 
+  const surfaceClass =
+    variant === 'ops'
+      ? 'bg-white rounded-xl shadow-sm border p-4 sm:p-6'
+      : 'bg-white shadow rounded-lg p-6 mb-6'
+  const titleClass =
+    variant === 'ops' ? 'text-base sm:text-lg font-semibold text-gray-900' : 'text-xl font-bold text-gray-900'
+
   return (
-    <div className="bg-white shadow rounded-lg p-6 mb-6">
+    <div className={surfaceClass}>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Change Orders</h2>
+        <h2 className={titleClass}>Change Orders</h2>
         <button
           onClick={() => setIsModalOpen(true)}
           className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 min-h-[44px]"

@@ -7,12 +7,14 @@ import {
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { 
-  createCalendarEvent, 
+import {
+  createCalendarEvent,
   refreshAccessToken,
-  isSlotAvailable,
-  CalendarEvent 
+  getFreeBusy,
+  CalendarEvent,
 } from '@/lib/google-calendar'
+import { hasBufferedConflict } from '@/lib/scheduling-buffer'
+import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import nodemailer from 'nodemailer'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 
@@ -231,7 +233,9 @@ async function checkCloserAvailability(
   adminClient: any,
   closerUserId: string,
   scheduledFor: string,
-  durationMinutes: number
+  durationMinutes: number,
+  /** From orgs.default_scheduling_gap_minutes (Admin → Scheduling) */
+  orgDefaultGapMinutes: number
 ): Promise<{ available: boolean; hasCalendar: boolean; error?: string }> {
   try {
     const startTime = new Date(scheduledFor)
@@ -253,8 +257,11 @@ async function checkCloserAvailability(
         .maybeSingle(),
     ])
 
-    const bufferBefore = queueEntry?.buffer_before ?? settings?.appointment_buffer_before ?? 0
-    const bufferAfter = queueEntry?.buffer_after ?? settings?.appointment_buffer_after ?? settings?.appointment_buffer_minutes ?? 15
+    const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(
+      queueEntry ?? undefined,
+      settings ?? undefined,
+      orgDefaultGapMinutes
+    )
 
     // Always enforce DB conflict checks, even when calendar tokens fail.
     const queryStart = new Date(startTime.getTime() - 12 * 60 * 60 * 1000)
@@ -285,20 +292,21 @@ async function checkCloserAvailability(
     }
 
     const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
-    
+
     if (!googleAccessToken) {
       // No calendar connected - DB check above is still authoritative.
       return { available: true, hasCalendar: false }
     }
 
-    // isSlotAvailable uses symmetric buffer. Use the stricter side to avoid under-blocking.
-    const available = await isSlotAvailable(
-      googleAccessToken,
-      startTime,
-      endTime,
-      Math.max(bufferBefore, bufferAfter)
-    )
-    return { available, hasCalendar: true }
+    const windowStart = new Date(startTime.getTime() - 12 * 60 * 60 * 1000)
+    const windowEnd = new Date(endTime.getTime() + 12 * 60 * 60 * 1000)
+    const busySlots = await getFreeBusy(googleAccessToken, windowStart, windowEnd)
+    const hasGoogleConflict = busySlots.some((busy: { start: string; end: string }) => {
+      const busyStart = new Date(busy.start)
+      const busyEnd = new Date(busy.end)
+      return hasBufferedConflict(startTime, endTime, busyStart, busyEnd, bufferBefore, bufferAfter)
+    })
+    return { available: !hasGoogleConflict, hasCalendar: true }
   } catch (error) {
     console.error('Availability check error:', error)
     // Fail closed to prevent double-booking when availability cannot be verified.
@@ -499,15 +507,9 @@ export async function POST(request: Request) {
     let roundRobinGoogleEventId: string | null = null
     let reusedExistingAppointment = false
 
-    let orgSchedulingGap = 15
-    if (scheduleInspection) {
-      const { data: orgScheduling } = await supabase
-        .from('orgs')
-        .select('default_scheduling_gap_minutes')
-        .eq('id', profile.org_id)
-        .maybeSingle()
-      orgSchedulingGap = orgScheduling?.default_scheduling_gap_minutes ?? 15
-    }
+    const orgSchedulingGap = scheduleInspection
+      ? await getOrgDefaultSchedulingGapMinutes(supabase, profile.org_id)
+      : 15
 
     const inspectionBufferAfter = getInspectionBufferAfterFromTable(
       inspectionTypeRows,
@@ -607,6 +609,18 @@ export async function POST(request: Request) {
       }
     }
 
+    // Do not allow "scheduled" inspections without an assigned closer (round-robin failure, empty queue, etc.).
+    if (scheduleInspection && inspectionScheduledFor && !closerUserId) {
+      return NextResponse.json(
+        {
+          error:
+            'No closer could be assigned for this time. Choose another time, pick an individual closer, or ask an admin to check the team closer queue and calendars.',
+          code: 'NO_CLOSER_ASSIGNED',
+        },
+        { status: 409 }
+      )
+    }
+
     if (scheduleInspection) {
       const { data: existingOpportunity } = await supabase
         .from('opportunities')
@@ -663,7 +677,8 @@ export async function POST(request: Request) {
           supabase,
           closerUserId,
           inspectionScheduledFor,
-          inspectionDuration
+          inspectionDuration,
+          orgSchedulingGap
         )
 
         if (!availabilityCheck.available) {

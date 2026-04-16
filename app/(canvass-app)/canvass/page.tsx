@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { matchesCanvassDispositionFilter } from '@/lib/canvass-pin-filter'
 import CanvassMap from './components/CanvassMap'
 import CanvassNav from './components/CanvassNav'
 import LeadModal from './components/LeadModal'
@@ -8,6 +9,7 @@ import SyncStatus from './components/SyncStatus'
 import { useOfflineStore } from './lib/offlineStore'
 import { useGeolocation } from './lib/useGeolocation'
 import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLeads'
+import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
 
 // Global type declarations for Google Maps and MarkerClusterer
 declare global {
@@ -57,6 +59,7 @@ export default function CanvassPage() {
   const [users, setUsers] = useState<Array<{ id: string; full_name: string; has_calendar?: boolean }>>([])
   const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([])
   const [inspectionDuration, setInspectionDuration] = useState(60)
+  const [assignedTerritories, setAssignedTerritories] = useState<AssignedTerritoryMapPayload[]>([])
   
   // Disposition settings from admin
   const [dispositions, setDispositions] = useState<Array<{ id: string; label: string; color: string; active: boolean }>>([
@@ -143,6 +146,7 @@ export default function CanvassPage() {
         full_name: data.currentUserName,
         role: data.currentUserRole,
         org_id: data.orgId,
+        canManageCanvassTerritories: !!data.canManageCanvassTerritories,
       })
       
       // Store users and teams for scheduling
@@ -171,6 +175,12 @@ export default function CanvassPage() {
         }
       }
 
+      if (Array.isArray(data.assignedTerritories)) {
+        setAssignedTerritories(data.assignedTerritories)
+      } else {
+        setAssignedTerritories([])
+      }
+
       // Pins load via viewport bounds (useViewportLeads); pending offline leads merge in displayPins
       setLoading(false)
     } catch (error) {
@@ -183,10 +193,16 @@ export default function CanvassPage() {
     fetchForBounds(bounds, zoom)
   }, [fetchForBounds])
 
-  const displayPins: DisplayPin[] = [
-    ...pendingLeads.map((lead) => ({ ...lead, synced: false } as CanvassPin)),
-    ...viewportPins,
-  ]
+  const displayPins: DisplayPin[] = useMemo(() => {
+    const merged: DisplayPin[] = [
+      ...pendingLeads.map((lead) => ({ ...lead, synced: false } as CanvassPin)),
+      ...viewportPins,
+    ]
+    if (dispositionFilter == null || dispositionFilter === '') {
+      return merged
+    }
+    return merged.filter((p) => matchesCanvassDispositionFilter(p, dispositionFilter))
+  }, [pendingLeads, viewportPins, dispositionFilter])
 
   const handleMapClick = (lat: number, lng: number) => {
     setNewPinLocation({ lat, lng })
@@ -286,7 +302,11 @@ export default function CanvassPage() {
           } else {
             const errorData = await response.json().catch(() => ({}))
             console.error('Failed to update lead - API error:', errorData)
-            alert('Failed to save changes. Please try again.')
+            const msg =
+              typeof (errorData as { error?: string }).error === 'string'
+                ? (errorData as { error: string }).error
+                : 'Failed to save changes. Please try again.'
+            alert(msg)
           }
         } catch (error) {
           console.error('Failed to update lead:', error)
@@ -320,6 +340,7 @@ export default function CanvassPage() {
       }
       updateViewportPin(viewportPin)
     } else if (newPinLocation) {
+      let createFailed = false
       // Create new pin
       const newPin: CanvassPin = {
         id: `offline_${Date.now()}`,
@@ -374,8 +395,13 @@ export default function CanvassPage() {
               console.log('Calendar synced successfully')
             }
           } else {
-            // API failed - save to offline store so pin persists and can sync later
-            addLead(newPin)
+            const errorData = await response.json().catch(() => ({}))
+            const msg =
+              typeof (errorData as { error?: string }).error === 'string'
+                ? (errorData as { error: string }).error
+                : 'Could not save lead. Please try again.'
+            alert(msg)
+            createFailed = true
           }
         } catch (error) {
           console.error('Failed to create lead:', error)
@@ -385,6 +411,10 @@ export default function CanvassPage() {
       } else {
         // Save to offline store (scheduling not available offline)
         addLead(newPin)
+      }
+
+      if (createFailed) {
+        return
       }
 
       const viewportPin = {
@@ -487,6 +517,7 @@ export default function CanvassPage() {
             dispositionFilter={dispositionFilter}
             onDispositionFilterChange={setDispositionFilter}
             dispositions={dispositions}
+            assignedTerritories={assignedTerritories}
           />
         ) : (
           <div className="h-full overflow-y-auto p-4 pb-24">
@@ -564,9 +595,10 @@ export default function CanvassPage() {
       </main>
 
       {/* Bottom Navigation */}
-      <CanvassNav 
-        viewMode={viewMode} 
+      <CanvassNav
+        viewMode={viewMode}
         onViewModeChange={setViewMode}
+        showWorkAreasLink={profile?.canManageCanvassTerritories === true}
         todayCount={displayPins.filter(p => {
           const today = new Date()
           today.setHours(0, 0, 0, 0)

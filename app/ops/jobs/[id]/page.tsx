@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { canAccessJobBilling } from '@/lib/finance-access'
@@ -185,22 +186,119 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
   }
 
-  let changeOrderPdf: { pdf_url: string; co_number: string } | null = null
-  if (jobRes.data.project_id) {
-    const { data: coRows } = await supabase
-      .from('job_change_orders')
-      .select('pdf_url, co_number')
-      .eq('org_id', profile.org_id)
-      .eq('project_id', jobRes.data.project_id)
-      .eq('status', 'completed')
-      .not('pdf_url', 'is', null)
-      .order('signed_at', { ascending: false })
-      .limit(1)
-    const row = coRows?.[0]
-    if (row?.pdf_url) {
-      changeOrderPdf = { pdf_url: row.pdf_url, co_number: row.co_number }
+  const supabaseService = createServiceClient()
+
+  // Original contract + change orders (same sources as /projects/[id])
+  let originalContract: {
+    id: string
+    project_cost: number
+    created_at: string
+    payment_method: string | null
+  } | null = null
+  let changeOrders: {
+    id: string
+    co_number: string
+    signed_at: string
+    customer_signed_at: string | null
+    updated_total: number
+    pdf_url: string | null
+    status: string
+    signing_token: string | null
+  }[] = []
+  let amountCollected = 0
+
+  if (jobRes.data.address_text) {
+    try {
+      const { data: contractByAddress } = await supabaseService
+        .from('order_form_contracts')
+        .select('id, project_cost, created_at, payment_method')
+        .eq('org_id', profile.org_id)
+        .eq('project_address', jobRes.data.address_text)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (contractByAddress && contractByAddress.length > 0) {
+        originalContract = contractByAddress[0]
+      }
+
+      if (!originalContract) {
+        const { data: opportunities } = await supabaseService
+          .from('opportunities')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('address_text', jobRes.data.address_text)
+          .limit(1)
+
+        if (opportunities && opportunities.length > 0) {
+          const { data: contractByOpp } = await supabaseService
+            .from('order_form_contracts')
+            .select('id, project_cost, created_at, payment_method')
+            .eq('opportunity_id', opportunities[0].id)
+            .eq('status', 'completed')
+            .order('created_at', { ascending: false })
+            .limit(1)
+
+          if (contractByOpp && contractByOpp.length > 0) {
+            originalContract = contractByOpp[0]
+          }
+        }
+      }
+    } catch {
+      // order_form_contracts may be unavailable
     }
   }
+
+  if (jobRes.data.project_id) {
+    try {
+      const { data: coData } = await supabaseService
+        .from('job_change_orders')
+        .select(
+          'id, co_number, signed_at, updated_total, pdf_url, status, signing_token, customer_signed_at'
+        )
+        .eq('org_id', profile.org_id)
+        .eq('project_id', jobRes.data.project_id)
+        .order('created_at', { ascending: true })
+
+      if (coData) {
+        changeOrders = coData as typeof changeOrders
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const { data: payments } = await supabaseService
+        .from('job_payments')
+        .select('amount_cents')
+        .eq('job_id', jobRes.data.id)
+
+      if (payments) {
+        amountCollected = payments.reduce((sum, p) => sum + (p.amount_cents || 0), 0) / 100
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const projectCustomer = rawProject
+    ? (Array.isArray(rawProject.customers) ? rawProject.customers[0] : rawProject.customers)
+    : null
+  const projectLead = rawProject
+    ? (Array.isArray(rawProject.leads) ? rawProject.leads[0] : rawProject.leads)
+    : null
+  const customerName =
+    customer?.name || projectCustomer?.name || projectLead?.homeowner_name || 'Customer'
+  const customerEmail = customer?.email || projectCustomer?.email || projectLead?.email || null
+
+  const currentContractTotal =
+    changeOrders.length > 0
+      ? changeOrders[changeOrders.length - 1].updated_total
+      : (originalContract?.project_cost ?? jobRes.data.sale_amount ?? 0)
+
+  const showChangeOrdersSection = Boolean(
+    jobRes.data.project_id && (originalContract || jobRes.data.sale_amount != null)
+  )
 
   const transformedJob = {
     ...jobRes.data,
@@ -211,7 +309,6 @@ export default async function JobDetailPage({ params }: PageProps) {
     project: rawProject,
     opportunity_id: opportunityId,
     installation_agreement: installationAgreement,
-    change_order_pdf: changeOrderPdf,
   }
 
   return (
@@ -221,6 +318,28 @@ export default async function JobDetailPage({ params }: PageProps) {
       subs={subsRes.data || []}
       userRole={profile.role}
       canViewJobBilling={canViewJobBilling}
+      changeOrdersSection={
+        showChangeOrdersSection
+          ? {
+              projectId: jobRes.data.project_id,
+              projectAddress: jobRes.data.address_text || '',
+              customerName,
+              customerEmail,
+              originalContractAmount: currentContractTotal,
+              originalContractDate: originalContract?.created_at?.split('T')[0] ?? null,
+              originalContractId: originalContract?.id ?? null,
+              paymentMethod:
+                originalContract?.payment_method ??
+                (rawProject && typeof rawProject === 'object' && 'payment_method' in rawProject
+                  ? (rawProject as { payment_method?: string | null }).payment_method ?? null
+                  : null),
+              amountCollected,
+              jobId: jobRes.data.id,
+              repName: profile.full_name || '',
+              changeOrders,
+            }
+          : null
+      }
     />
   )
 }

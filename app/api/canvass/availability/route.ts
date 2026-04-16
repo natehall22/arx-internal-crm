@@ -2,6 +2,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
+import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 
 export const dynamic = 'force-dynamic'
 
@@ -116,6 +117,15 @@ export async function GET(request: NextRequest) {
 
     const durationMinutes = parseInt(durationStr || '60', 10)
 
+    const { data: closerOrg } = await adminClient
+      .from('users')
+      .select('org_id')
+      .eq('id', closerId)
+      .maybeSingle()
+    const orgDefaultGap = closerOrg?.org_id
+      ? await getOrgDefaultSchedulingGapMinutes(adminClient, closerOrg.org_id)
+      : 15
+
     // Get closer's timezone
     const timezone = await getTimezoneForUser(adminClient, closerId)
 
@@ -139,12 +149,15 @@ export async function GET(request: NextRequest) {
     let workingHoursStart = settings?.working_hours_start || '08:00'
     let workingHoursEnd = settings?.working_hours_end || '20:00'
     
-    // Use buffer settings from team queue if available, otherwise fall back to user_settings
-    // Priority: team_closer_queue > user_settings > defaults
-    const bufferBefore = queueEntry?.buffer_before ?? settings?.appointment_buffer_before ?? 0
-    const bufferAfter = queueEntry?.buffer_after ?? settings?.appointment_buffer_after ?? settings?.appointment_buffer_minutes ?? 15
-    
-    console.log(`Availability: Buffer settings - before=${bufferBefore}, after=${bufferAfter} (from queue: ${!!queueEntry})`)
+    const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(
+      queueEntry ?? undefined,
+      settings ?? undefined,
+      orgDefaultGap
+    )
+
+    console.log(
+      `Availability: Buffer settings - before=${bufferBefore}, after=${bufferAfter} (queue=${!!queueEntry}, orgDefaultGap=${orgDefaultGap})`
+    )
 
     console.log(`Availability: Raw settings:`, settings)
     console.log(`Availability: Working hours from DB: start=${workingHoursStart} (type: ${typeof workingHoursStart}), end=${workingHoursEnd} (type: ${typeof workingHoursEnd})`)

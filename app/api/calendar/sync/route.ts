@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { 
-  createCalendarEvent, 
+import {
+  createCalendarEvent,
   refreshAccessToken,
   isSlotAvailable,
   getAvailableSlots,
-  CalendarEvent 
+  CalendarEvent,
 } from '@/lib/google-calendar'
+import { getOrgDefaultSchedulingGapMinutes } from '@/lib/org-scheduling-gap'
 
 export const dynamic = 'force-dynamic'
 
@@ -274,14 +275,23 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Get closer's settings for buffer time
+    const { data: closerProfile } = await adminClient
+      .from('users')
+      .select('org_id')
+      .eq('id', closerUserId)
+      .maybeSingle()
+    const orgDefaultGap = closerProfile?.org_id
+      ? await getOrgDefaultSchedulingGapMinutes(adminClient, closerProfile.org_id)
+      : 15
+
+    // Personal calendar buffer → org default (Admin → Scheduling) if unset
     const { data: closerSettings } = await adminClient
       .from('user_settings')
       .select('appointment_buffer_minutes, working_hours_start, working_hours_end')
       .eq('user_id', closerUserId)
-      .single()
+      .maybeSingle()
 
-    const bufferMinutes = closerSettings?.appointment_buffer_minutes || 30
+    const bufferMinutes = closerSettings?.appointment_buffer_minutes ?? orgDefaultGap
     const workingStart = closerSettings?.working_hours_start ? parseInt(closerSettings.working_hours_start.split(':')[0]) : 8
     const workingEnd = closerSettings?.working_hours_end ? parseInt(closerSettings.working_hours_end.split(':')[0]) : 20
 

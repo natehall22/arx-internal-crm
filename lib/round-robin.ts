@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { refreshAccessToken, getFreeBusy, createCalendarEvent } from './google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
+import { hasBufferedConflict } from '@/lib/scheduling-buffer'
+import { resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import type { TeamCloserQueue, UserGoogleToken, ScheduledAppointment } from './types/database'
 
 type CloserWithToken = TeamCloserQueue & {
@@ -19,19 +21,6 @@ interface AssignmentResult {
   appointmentId?: string
   googleEventId?: string
   error?: string
-}
-
-function hasBufferedConflict(
-  slotStart: Date,
-  slotEnd: Date,
-  existingStart: Date,
-  existingEnd: Date,
-  bufferBeforeMinutes: number,
-  bufferAfterMinutes: number
-): boolean {
-  const blockedStart = new Date(existingStart.getTime() - bufferAfterMinutes * 60 * 1000)
-  const blockedEnd = new Date(existingEnd.getTime() + bufferBeforeMinutes * 60 * 1000)
-  return slotStart < blockedEnd && slotEnd > blockedStart
 }
 
 async function hasDbConflictForCloser(
@@ -76,8 +65,14 @@ async function hasDbConflictForCloser(
 }
 
 /**
- * Get the next available closer from the round-robin queue
- * Checks calendar availability if Google Calendar is connected
+ * Assign the next available closer from the team queue.
+ *
+ * Ordering: `priority` ascending (lower = tried first), then `last_assigned_at` ascending
+ * with nulls first so never-assigned closers are preferred, then least-recently assigned —
+ * this approximates fair rotation among equal priorities. (Name "round-robin" refers to
+ * queue rotation, not strict cyclic order.)
+ *
+ * Requires Google Calendar connected: closers without a token are skipped (no DB-only path).
  */
 export async function assignNextAvailableCloser(
   supabaseUrl: string,
@@ -136,6 +131,7 @@ export async function assignNextAvailableCloser(
       .eq('team_id', teamId)
       .eq('active', true)
       .order('priority', { ascending: true })
+      .order('last_assigned_at', { ascending: true, nullsFirst: true })
 
     if (closersError || !closers || closers.length === 0) {
       console.log('Round-robin: No active closers found in queue for team', teamId)
@@ -146,6 +142,19 @@ export async function assignNextAvailableCloser(
       closers.map((c: any) => ({ id: c.user_id, name: c.user?.full_name, priority: c.priority })))
 
     const orderedClosers = closers as CloserWithToken[]
+
+    const { data: closerUserSettings } = await supabase
+      .from('user_settings')
+      .select(
+        'user_id, appointment_buffer_before, appointment_buffer_after, appointment_buffer_minutes'
+      )
+      .in(
+        'user_id',
+        orderedClosers.map((c) => c.user_id)
+      )
+    const settingsByUserId = new Map(
+      (closerUserSettings ?? []).map((row: any) => [row.user_id, row])
+    )
 
     // Try each closer in priority order - prefer closers with available calendars.
     for (const closer of orderedClosers) {
@@ -206,23 +215,27 @@ export async function assignNextAvailableCloser(
 
       // Check calendar availability
       const endTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
-      
-      // Match canvass availability API behavior:
-      // use separate before/after queue buffers and fall back to legacy buffer_minutes.
-      const bufferBefore = closer.buffer_before ?? 0
-      const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? 15
-      
+
+      const us = settingsByUserId.get(closer.user_id)
+      const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(closer, us, orgDefaultGap)
+
       try {
         console.log(
           `Round-robin: Checking availability for ${closer.user?.full_name} at ${scheduledFor.toISOString()} with buffers before=${bufferBefore}min after=${bufferAfter}min`
         )
 
-        const bufferedStart = new Date(scheduledFor.getTime() - bufferBefore * 60 * 1000)
-        const bufferedEnd = new Date(endTime.getTime() + bufferAfter * 60 * 1000)
-        const busySlots = await getFreeBusy(accessToken, bufferedStart, bufferedEnd)
-        const available = busySlots.length === 0
+        // Same asymmetric buffer rules as canvass availability APIs (not symmetric isSlotAvailable).
+        const windowStart = new Date(scheduledFor.getTime() - 12 * 60 * 60 * 1000)
+        const windowEnd = new Date(endTime.getTime() + 12 * 60 * 60 * 1000)
+        const busySlots = await getFreeBusy(accessToken, windowStart, windowEnd)
+        const hasGoogleConflict = busySlots.some((busy) => {
+          const busyStart = new Date(busy.start)
+          const busyEnd = new Date(busy.end)
+          return hasBufferedConflict(scheduledFor, endTime, busyStart, busyEnd, bufferBefore, bufferAfter)
+        })
+        const available = !hasGoogleConflict
 
-        console.log(`Round-robin: ${closer.user?.full_name} availability: ${available ? 'AVAILABLE' : 'BUSY'}`)
+        console.log(`Round-robin: ${closer.user?.full_name} availability: ${available ? 'AVAILABLE' : 'BUSY'} (${busySlots.length} busy segments in window)`)
 
         if (available) {
           const hasDbConflict = await hasDbConflictForCloser(
@@ -327,13 +340,15 @@ export async function assignNextAvailableCloser(
             closer,
             scheduledFor,
             durationMinutes,
+            bufferBefore,
+            bufferAfter,
+            orgDefaultGap,
             leadId,
             opportunityId,
             address,
             canvasserUserId,
             orgId,
             googleEventId,
-            orgDefaultGap,
             scheduledAppointmentBufferMinutes
           )
           if (result.success) {
@@ -364,21 +379,21 @@ async function createAppointment(
   closer: CloserWithToken,
   scheduledFor: Date,
   durationMinutes: number,
+  bufferBefore: number,
+  bufferAfter: number,
+  defaultGapForRowMinutes: number,
   leadId?: string,
   opportunityId?: string,
   address?: string,
   canvasserUserId?: string,
   orgId?: string,
   googleEventId?: string,
-  defaultGapMinutes?: number,
   scheduledRowBufferAfter?: number
 ): Promise<AssignmentResult> {
   const slotStart = scheduledFor
   const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60 * 1000)
-  const bufferBefore = closer.buffer_before ?? 0
-  const orgGap = defaultGapMinutes ?? 15
-  const bufferAfter = closer.buffer_after ?? closer.buffer_minutes ?? orgGap
-  const rowBufferAfter = scheduledRowBufferAfter !== undefined ? scheduledRowBufferAfter : orgGap
+  const rowBufferAfter =
+    scheduledRowBufferAfter !== undefined ? scheduledRowBufferAfter : defaultGapForRowMinutes
   const hasConflict = await hasDbConflictForCloser(
     supabase,
     closer.user_id,
@@ -481,8 +496,7 @@ async function createAppointment(
 }
 
 /**
- * Get the default team for round-robin assignment
- * Returns the first team in the org, or null if none exist
+ * Get a default team for round-robin when none is selected (deterministic: by name).
  */
 export async function getDefaultTeam(
   supabase: any,
@@ -492,8 +506,9 @@ export async function getDefaultTeam(
     .from('teams')
     .select('id')
     .eq('org_id', orgId)
+    .order('name', { ascending: true })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   return team?.id || null
 }

@@ -5,7 +5,12 @@ import {
   getCloseSlotDurationFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
-import { fetchExteriorRingsForUser, leadLngLatInRings } from '@/lib/canvass-territories'
+import {
+  fetchAssignedTerritoriesForMap,
+  fetchExteriorRingsForUser,
+  leadLngLatInRings,
+} from '@/lib/canvass-territories'
+import { canManageCanvassTerritories } from '@/lib/canvass-territory-manager-roles'
 
 export const dynamic = 'force-dynamic'
 
@@ -276,6 +281,12 @@ export async function GET(request: NextRequest) {
       60
     )
 
+    const assignedTerritories = await fetchAssignedTerritoriesForMap(
+      adminClient,
+      profile.org_id,
+      user.id
+    )
+
     console.log('Canvass data response:', {
       leadsCount: leads?.length || 0,
       usersCount: usersWithCalendarStatus?.length || 0,
@@ -295,6 +306,8 @@ export async function GET(request: NextRequest) {
       pinVisibility: visibility,
       inspectionDuration,
       closeDurationMinutes,
+      canManageCanvassTerritories: canManageCanvassTerritories(profile.role),
+      assignedTerritories,
     })
   } catch (err) {
     console.error('Canvass data error:', err)

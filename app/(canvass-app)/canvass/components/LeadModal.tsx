@@ -217,7 +217,7 @@ export default function LeadModal({
       notes: formData.notes,
     }
 
-    if (showScheduling && selectedTime) {
+    if (showScheduling && selectedTime && selectedCloser) {
       saveData.schedule_inspection = true
       saveData.closer_user_id = selectedCloser
       saveData.inspection_scheduled_for = selectedTime
@@ -280,8 +280,10 @@ export default function LeadModal({
 
   const hasRequiredName = !!(formData.first_name?.trim() && formData.last_name?.trim())
   const canSchedule = hasRequiredName && formData.phone?.trim() && formData.address_text?.trim()
-  // No name required for Drop Pin / Update Pin; only require names when scheduling
-  const canSubmit = !showScheduling || canSchedule
+  // Scheduling requires closer/team + time; otherwise allow drop pin without those fields
+  const canSubmit =
+    !showScheduling ||
+    (canSchedule && Boolean(selectedCloser?.trim()) && Boolean(selectedTime?.trim()))
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
@@ -650,21 +652,25 @@ export default function LeadModal({
           <div className="p-4 border-t bg-gray-50 safe-area-bottom space-y-3">
             <button
               type="submit"
-              disabled={!canSubmit || (showScheduling && canSchedule && !selectedTime) || isSaving}
+              disabled={!canSubmit || isSaving}
               className={`w-full py-4 rounded-xl font-semibold text-lg ${
-                !canSubmit || (showScheduling && canSchedule && !selectedTime) || isSaving
+                !canSubmit || isSaving
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : showScheduling && selectedTime
+                  : showScheduling && selectedTime && selectedCloser
                   ? 'bg-green-600 text-white active:bg-green-700'
                   : 'bg-indigo-600 text-white active:bg-indigo-700'
               }`}
             >
               {isSaving
                 ? 'Saving...'
-                : showScheduling && selectedTime
+                : showScheduling && selectedTime && selectedCloser
                 ? 'Schedule Inspection'
                 : showScheduling && canSchedule
-                ? 'Select a Time'
+                ? !selectedCloser
+                  ? 'Select closer or team'
+                  : !selectedTime
+                  ? 'Select a time'
+                  : 'Schedule Inspection'
                 : pin
                 ? 'Update Pin'
                 : 'Drop Pin'}

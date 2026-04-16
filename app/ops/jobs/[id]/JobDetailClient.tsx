@@ -18,6 +18,7 @@ import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
 import OperationsSnapshotCard from '@/components/ops/OperationsSnapshotCard'
+import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
 
@@ -95,8 +96,6 @@ interface Job {
     payment_method?: string | null
   } | null
   installation_agreement?: { pdf_url: string | null; status: string } | null
-  /** Latest completed change order with stored PDF (public storage URL). */
-  change_order_pdf?: { pdf_url: string; co_number: string } | null
 }
 
 interface Crew {
@@ -280,12 +279,37 @@ function renderWorkflowButton(
   }
 }
 
+interface JobChangeOrdersSectionProps {
+  projectId: string
+  projectAddress: string
+  customerName: string
+  customerEmail: string | null
+  originalContractAmount: number
+  originalContractDate: string | null
+  originalContractId: string | null
+  paymentMethod: string | null
+  amountCollected: number
+  jobId: string
+  repName: string
+  changeOrders: {
+    id: string
+    co_number: string
+    signed_at: string
+    customer_signed_at: string | null
+    updated_total: number
+    pdf_url: string | null
+    status: string
+    signing_token: string | null
+  }[]
+}
+
 interface JobDetailClientProps {
   initialJob: Job
   crews: Crew[]
   subs: SubContractor[]
   userRole: string
   canViewJobBilling: boolean
+  changeOrdersSection: JobChangeOrdersSectionProps | null
 }
 
 interface JobNote {
@@ -444,7 +468,14 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
-export default function JobDetailClient({ initialJob, crews, subs, userRole, canViewJobBilling }: JobDetailClientProps) {
+export default function JobDetailClient({
+  initialJob,
+  crews,
+  subs,
+  userRole,
+  canViewJobBilling,
+  changeOrdersSection,
+}: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   const [materialOrdersTotal, setMaterialOrdersTotal] = useState<number | null>(null)
@@ -752,7 +783,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
           salesperson: Array.isArray(data.salesperson) ? data.salesperson[0] : data.salesperson,
           project: rawProject,
           installation_agreement: job.installation_agreement,
-          change_order_pdf: job.change_order_pdf,
         }
         setJob(transformedJob)
       }
@@ -1675,6 +1705,24 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
             )}
 
             <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
+
+            {changeOrdersSection && (
+              <ChangeOrdersSection
+                variant="ops"
+                projectId={changeOrdersSection.projectId}
+                projectAddress={changeOrdersSection.projectAddress}
+                customerName={changeOrdersSection.customerName}
+                customerEmail={changeOrdersSection.customerEmail}
+                originalContractAmount={changeOrdersSection.originalContractAmount}
+                originalContractDate={changeOrdersSection.originalContractDate}
+                originalContractId={changeOrdersSection.originalContractId}
+                paymentMethod={changeOrdersSection.paymentMethod}
+                amountCollected={changeOrdersSection.amountCollected}
+                jobId={changeOrdersSection.jobId}
+                repName={changeOrdersSection.repName}
+                changeOrders={changeOrdersSection.changeOrders}
+              />
+            )}
             </div>{/* end costs tab wrapper */}
 
             {/* OVERVIEW TAB — Permit + Related */}
@@ -1724,19 +1772,6 @@ export default function JobDetailClient({ initialJob, crews, subs, userRole, can
                       PDF generating...
                     </div>
                   )
-                )}
-                {job.change_order_pdf?.pdf_url && (
-                  <a
-                    href={job.change_order_pdf.pdf_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="min-h-[44px] flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 mb-3"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    View Change Order{job.change_order_pdf.co_number ? ` (${job.change_order_pdf.co_number})` : ''}
-                  </a>
                 )}
                 {job.project_id && (
                   <Link

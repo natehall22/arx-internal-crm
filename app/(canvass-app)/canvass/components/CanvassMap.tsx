@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
 import type { CanvassPin } from '../page'
 import type { ViewportPin } from '../lib/useViewportLeads'
 
@@ -39,6 +40,8 @@ interface Props {
   onDispositionFilterChange?: (d: string | null) => void
   // Disposition config from admin settings
   dispositions?: DispositionConfig[]
+  /** Work areas assigned to this user (directly or via team) — shown as tinted polygons under pins */
+  assignedTerritories?: AssignedTerritoryMapPayload[]
 }
 
 // Default pin colors (fallback if no admin settings)
@@ -129,6 +132,7 @@ export default function CanvassMap({
   dispositionFilter,
   onDispositionFilterChange,
   dispositions = [],
+  assignedTerritories,
 }: Props) {
   // Build pin colors map from admin dispositions (with fallback to defaults)
   const pinColors = React.useMemo(() => {
@@ -146,6 +150,7 @@ export default function CanvassMap({
   const markerClustererRef = useRef<any>(null)
   const clusteredPinIdsRef = useRef<Set<string>>(new Set()) // Track which pins are in clusterer
   const userMarkerRef = useRef<any>(null)
+  const territoryPolygonsRef = useRef<any[]>([])
   const searchInputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<any>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
@@ -356,6 +361,38 @@ export default function CanvassMap({
       mapInstanceRef.current.setMapTypeId(mapType)
     }
   }, [mapType])
+
+  // Work-area boundaries (reps see assigned polygons; managers see their own assignments too)
+  useEffect(() => {
+    if (!mapInstanceRef.current || !mapLoaded) return
+
+    territoryPolygonsRef.current.forEach((p) => p.setMap(null))
+    territoryPolygonsRef.current = []
+
+    const list = assignedTerritories ?? []
+    for (const t of list) {
+      for (const ring of t.rings) {
+        if (!ring || ring.length < 3) continue
+        const poly = new google.maps.Polygon({
+          paths: ring.map(([lng, lat]) => ({ lat, lng })),
+          strokeColor: t.color,
+          strokeOpacity: 0.92,
+          strokeWeight: 2,
+          fillColor: t.color,
+          fillOpacity: 0.13,
+          map: mapInstanceRef.current,
+          clickable: false,
+          zIndex: 0,
+        })
+        territoryPolygonsRef.current.push(poly)
+      }
+    }
+
+    return () => {
+      territoryPolygonsRef.current.forEach((p) => p.setMap(null))
+      territoryPolygonsRef.current = []
+    }
+  }, [mapLoaded, assignedTerritories])
 
   // Update pin markers - optimized for large datasets
   useEffect(() => {
