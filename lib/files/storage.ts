@@ -38,19 +38,6 @@ export function multipartFilenameForUpload(file: File, fallbackBase: string): st
   return safeUploadFilename(file.name, fallbackBase)
 }
 
-/**
- * @deprecated Prefer `multipartFilenameForUpload` + `formData.append('file', blob, name)` for
- * browser uploads (avoids iOS Safari FormData / File constructor issues).
- */
-export function fileWithSafeName(file: File, fallbackBase: string): File {
-  const safe = multipartFilenameForUpload(file, fallbackBase)
-  if (safe === file.name) return file
-  return new File([file], safe, {
-    type: file.type || 'application/octet-stream',
-    lastModified: file.lastModified,
-  })
-}
-
 function sanitizeFilename(filename: string): string {
   return sanitizeFilenameForUpload(filename)
 }

@@ -73,7 +73,8 @@ export async function GET(
     )
 
     return NextResponse.json({ photos })
-  } catch {
+  } catch (err) {
+    console.error('inspection-photos GET:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -195,7 +196,8 @@ export async function POST(
     }
 
     return NextResponse.json({ photo: row })
-  } catch {
+  } catch (err) {
+    console.error('inspection-photos POST:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

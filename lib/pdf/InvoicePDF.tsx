@@ -1,6 +1,7 @@
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
+import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { JobInvoice, JobInvoiceItem } from '@/lib/types/invoices'
 
 const styles = StyleSheet.create({
@@ -189,23 +190,6 @@ const styles = StyleSheet.create({
   },
 })
 
-function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(cents / 100)
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return ''
-  const date = new Date(dateStr + 'T12:00:00')
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
-
 interface InvoicePDFProps {
   invoice: JobInvoice
   items: JobInvoiceItem[]
@@ -257,12 +241,12 @@ export function InvoicePDF({
             </Text>
             <Text style={styles.invoiceMeta}>
               <Text style={styles.invoiceMetaLabel}>Date: </Text>
-              <Text style={styles.invoiceMetaValue}>{formatDate(invoice.issued_at)}</Text>
+              <Text style={styles.invoiceMetaValue}>{formatInvoiceDisplayDate(invoice.issued_at)}</Text>
             </Text>
             {invoice.due_at && (
               <Text style={styles.invoiceMeta}>
                 <Text style={styles.invoiceMetaLabel}>Due Date: </Text>
-                <Text style={styles.invoiceMetaValue}>{formatDate(invoice.due_at)}</Text>
+                <Text style={styles.invoiceMetaValue}>{formatInvoiceDisplayDate(invoice.due_at)}</Text>
               </Text>
             )}
           </View>

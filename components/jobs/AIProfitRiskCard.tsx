@@ -34,12 +34,13 @@ function parseResponse(result: unknown): ProfitRiskResponse | null {
         })()
       : result
 
-  if (!parsed || typeof parsed !== 'object') return null
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
 
-  const riskLevel = (parsed as any).riskLevel
-  const estimatedMarginPercent = Number((parsed as any).estimatedMarginPercent)
-  const warning = (parsed as any).warning
-  const suggestion = (parsed as any).suggestion
+  const o = parsed as Record<string, unknown>
+  const riskLevel = o.riskLevel
+  const estimatedMarginPercent = Number(o.estimatedMarginPercent)
+  const warning = o.warning
+  const suggestion = o.suggestion
 
   if (riskLevel !== 'high' && riskLevel !== 'medium' && riskLevel !== 'low') return null
   if (!Number.isFinite(estimatedMarginPercent)) return null

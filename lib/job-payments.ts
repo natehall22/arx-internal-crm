@@ -133,3 +133,14 @@ export function formatCurrency(cents: number): string {
     currency: 'USD',
   }).format(cents / 100)
 }
+
+/** YYYY-MM-DD date strings for invoice PDF and print views (noon local parse). */
+export function formatInvoiceDisplayDate(dateStr: string | null): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr + 'T12:00:00')
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}

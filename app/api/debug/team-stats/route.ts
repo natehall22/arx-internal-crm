@@ -6,6 +6,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
@@ -238,7 +239,9 @@ export async function GET(request: NextRequest) {
       .lt('customer_signed_at', end.toISOString())
       .order('customer_signed_at', { ascending: false })
 
-    const signedSales = getAttributedInstallationSales(signedContracts as any[])
+    const signedSales = getAttributedInstallationSales(
+      signedContracts as InstallationSaleContractRow[] | null
+    )
 
     const { data: orgRow } = await supabase
       .from('orgs')

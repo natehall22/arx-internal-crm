@@ -8,7 +8,7 @@ type CanvassDispositionConfig = {
   counts_as_contact?: boolean | null
 }
 
-type InstallationSaleContractRow = {
+export type InstallationSaleContractRow = {
   id?: string | null
   opportunity_id?: string | null
   customer_signed_at?: string | null

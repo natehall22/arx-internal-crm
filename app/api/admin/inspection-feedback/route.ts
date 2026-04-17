@@ -1,16 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
-
-function isPromptDue(prompt: any, nowMs: number) {
-  const scheduledFor = prompt?.appointment?.scheduled_for ? Date.parse(prompt.appointment.scheduled_for) : NaN
-  const promptAt = prompt?.prompt_at ? Date.parse(prompt.prompt_at) : NaN
-
-  const appointmentIsDue = Number.isNaN(scheduledFor) || scheduledFor <= nowMs
-  const promptIsDue = Number.isNaN(promptAt) || promptAt <= nowMs
-
-  return appointmentIsDue && promptIsDue
-}
+import { isPromptDue } from '@/lib/inspection-feedback-prompt'
 
 export async function GET() {
   try {

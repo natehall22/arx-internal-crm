@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import GenerateJobPacketButton from './GenerateJobPacketButton'
 import AIJobPacketModal from '@/components/jobs/AIJobPacketModal'
+import type { JobNoteWithAuthor } from '@/lib/types/job-notes'
 
 interface LineItem {
   id: string
@@ -40,14 +41,6 @@ interface JobCostLine {
   amount: number
   cost_type: string | null
   status: string | null
-}
-
-interface JobNoteForAI {
-  id: string
-  note: string
-  is_internal: boolean
-  created_at: string
-  user?: { full_name?: string | null } | null
 }
 
 interface SoldScopeCardProps {
@@ -99,7 +92,7 @@ export default function SoldScopeCard({
   const [savingItem, setSavingItem] = useState(false)
   const [packetModalOpen, setPacketModalOpen] = useState(false)
   const [jobCostLines, setJobCostLines] = useState<JobCostLine[]>([])
-  const [notes, setNotes] = useState<JobNoteForAI[]>([])
+  const [notes, setNotes] = useState<JobNoteWithAuthor[]>([])
 
   const loadSoldScope = useCallback(async () => {
     const supabase = createClientBrowser()
@@ -324,7 +317,7 @@ export default function SoldScopeCard({
         .eq('job_id', jobId)
         .order('created_at', { ascending: true })
         .limit(20)
-      setNotes((notesData as JobNoteForAI[]) || [])
+      setNotes((notesData as JobNoteWithAuthor[]) || [])
     } catch {
       setNotes([])
     }

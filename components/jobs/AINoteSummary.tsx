@@ -2,17 +2,10 @@
 
 import { useState } from 'react'
 import { useAISettings } from '@/hooks/useAISettings'
-
-type NoteType = {
-  id: string
-  note: string
-  is_internal: boolean
-  created_at: string
-  user?: { full_name?: string | null } | null
-}
+import type { JobNoteWithAuthor } from '@/lib/types/job-notes'
 
 interface AINoteSummaryProps {
-  notes: NoteType[]
+  notes: JobNoteWithAuthor[]
 }
 
 function parseSummary(result: unknown): string | null {

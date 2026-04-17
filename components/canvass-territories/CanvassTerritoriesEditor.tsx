@@ -181,17 +181,40 @@ export function CanvassTerritoriesEditor({
 
   // Map must mount in the DOM before this runs. Do not gate the map container on API `loading`,
   // or `ready` becomes true while mapRef is null and the map never initializes.
+  //
+  // Mobile: default drawingMode was null (pan), so one-finger drags panned the map and never
+  // added polygon vertices. Start in POLYGON mode and disable one-finger pan while drawing;
+  // gestureHandling "none" still allows two-finger pan/zoom per Maps API.
   useEffect(() => {
     if (!ready || !mapRef.current || mapInstanceRef.current) return
-    mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+
+    const map = new google.maps.Map(mapRef.current, {
       center: { lat: 39.8283, lng: -98.5795 },
       zoom: 4,
       mapTypeId: 'hybrid',
       disableDefaultUI: false,
+      mapTypeControl: true,
+      fullscreenControl: true,
+      clickableIcons: false,
+      gestureHandling: 'greedy',
     })
+    mapInstanceRef.current = map
+
+    const syncPanVersusDraw = () => {
+      const dm = drawingManagerRef.current
+      const m = mapInstanceRef.current
+      if (!dm || !m) return
+      const mode = dm.getDrawingMode()
+      const allowOneFingerPan = mode == null
+      m.setOptions({
+        draggable: allowOneFingerPan,
+        scrollwheel: allowOneFingerPan,
+        gestureHandling: allowOneFingerPan ? 'greedy' : 'none',
+      })
+    }
 
     const dm = new google.maps.drawing.DrawingManager({
-      drawingMode: null,
+      drawingMode: google.maps.drawing.OverlayType.POLYGON,
       drawingControl: true,
       drawingControlOptions: {
         position: google.maps.ControlPosition.TOP_CENTER,
@@ -201,13 +224,15 @@ export function CanvassTerritoriesEditor({
         fillColor: '#6366F1',
         fillOpacity: 0.25,
         strokeWeight: 2,
-        clickable: false,
+        clickable: true,
         editable: true,
         zIndex: 1,
       },
     })
-    dm.setMap(mapInstanceRef.current)
+    dm.setMap(map)
     drawingManagerRef.current = dm
+
+    google.maps.event.addListener(dm, 'drawingmode_changed', syncPanVersusDraw)
 
     google.maps.event.addListener(dm, 'overlaycomplete', (e: any) => {
       if (e.type === google.maps.drawing.OverlayType.POLYGON) {
@@ -217,10 +242,12 @@ export function CanvassTerritoriesEditor({
         draftPolygonRef.current = e.overlay
         setDraftGeo(polygonToGeoJSON(e.overlay))
         dm.setDrawingMode(null)
+        syncPanVersusDraw()
       }
     })
 
-    const map = mapInstanceRef.current
+    syncPanVersusDraw()
+
     window.setTimeout(() => {
       google.maps.event.trigger(map, 'resize')
     }, 0)
@@ -257,6 +284,12 @@ export function CanvassTerritoriesEditor({
       draftPolygonRef.current.setMap(null)
       draftPolygonRef.current = null
     }
+    const dm = drawingManagerRef.current
+    const m = mapInstanceRef.current
+    if (dm && m) {
+      dm.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
+      m.setOptions({ draggable: false, scrollwheel: false, gestureHandling: 'none' })
+    }
   }
 
   const selectTerritory = (t: TerritoryRow) => {
@@ -269,6 +302,12 @@ export function CanvassTerritoriesEditor({
     if (draftPolygonRef.current) {
       draftPolygonRef.current.setMap(null)
       draftPolygonRef.current = null
+    }
+    const dm = drawingManagerRef.current
+    const m = mapInstanceRef.current
+    if (dm && m) {
+      dm.setDrawingMode(null)
+      m.setOptions({ draggable: true, scrollwheel: true, gestureHandling: 'greedy' })
     }
     const rings = exteriorRingsFromGeoJSON(t.boundary_geojson)
     if (rings[0]?.length && mapInstanceRef.current) {
@@ -534,8 +573,13 @@ export function CanvassTerritoriesEditor({
                 Loading map…
               </div>
             )}
-            <div ref={mapRef} className="w-full h-full min-h-[200px]" />
+            <div ref={mapRef} className="w-full h-full min-h-[200px] touch-manipulation" />
           </div>
+          <p className="text-xs text-gray-600 mt-2 px-0.5 leading-snug">
+            <strong>Draw:</strong> tap each corner of the work area. <strong>Pan:</strong> use two fingers, or tap the
+            shape tool above the map to switch to pan. <strong>Finish:</strong> tap the first point again or
+            double-tap the last point.
+          </p>
         </div>
       </div>
     </>

@@ -20,6 +20,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 
 export default async function DashboardPage() {
@@ -156,7 +157,9 @@ export default async function DashboardPage() {
     .gte('customer_signed_at', weekStart.toISOString())
     .lt('customer_signed_at', weekEnd.toISOString())
     .order('customer_signed_at', { ascending: false })
-  const salesOpportunities = getAttributedInstallationSales(salesContracts as any[])
+  const salesOpportunities = getAttributedInstallationSales(
+    salesContracts as InstallationSaleContractRow[] | null
+  )
 
   const { data: orgForSits } = await supabase
     .from('orgs')

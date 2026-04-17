@@ -6,6 +6,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
@@ -102,7 +103,9 @@ export async function GET(request: NextRequest) {
     const projects = projectsRes.data || []
     const regions = regionsRes.data || []
     const teams = teamsRes.data || []
-    const salesOpps = getAttributedInstallationSales(signedContractsRes.data as any[])
+    const salesOpps = getAttributedInstallationSales(
+      signedContractsRes.data as InstallationSaleContractRow[] | null
+    )
     const contactDispositionIdSet = getContactDispositionIdSet(
       orgRes.data?.settings?.canvass_dispositions as any[] | undefined
     )

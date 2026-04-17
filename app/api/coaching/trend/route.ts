@@ -6,7 +6,10 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
-import { getAttributedInstallationSales } from '@/lib/sales-metrics'
+import {
+  getAttributedInstallationSales,
+  type InstallationSaleContractRow,
+} from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -232,7 +235,9 @@ export async function GET(request: NextRequest) {
     const allSitRows = (sitRes.data || []).filter(o =>
       sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
     )
-    const allSales = getAttributedInstallationSales(saleRes.data as any[])
+    const allSales = getAttributedInstallationSales(
+      saleRes.data as InstallationSaleContractRow[] | null
+    )
 
     const result = (memberDetails || []).map(member => {
       const bucketed = buckets.map(bucket => {

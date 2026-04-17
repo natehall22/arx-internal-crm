@@ -225,20 +225,6 @@ export async function enqueuePaymentRecorded(
 }
 
 /**
- * Check if integrations are enabled for an org.
- * For now, returns false. In future, check org settings.
- */
-export async function isIntegrationEnabled(
-  supabase: SupabaseClient,
-  orgId: string,
-  provider: IntegrationProvider
-): Promise<boolean> {
-  // TODO: Check org_settings for enabled integrations
-  // For now, always return false (integrations not active)
-  return false
-}
-
-/**
  * Get pending outbox events for processing.
  * Used by integration worker/cron job.
  */

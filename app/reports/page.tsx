@@ -16,6 +16,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
@@ -191,7 +192,9 @@ export default function ReportsPage() {
     const leads = leadsRes.data || []
     const opps = oppsRes.data || []
     const outcomeOpps = outcomeOppsRes.data || []
-    const signedSales = getAttributedInstallationSales(signedContractsRes.data as any[])
+    const signedSales = getAttributedInstallationSales(
+      signedContractsRes.data as InstallationSaleContractRow[] | null
+    )
     const appointments = appointmentsRes.data || []
     const projects = projectsRes.data || []
     const statusUpdates = statusUpdatesRes.data || []

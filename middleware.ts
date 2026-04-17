@@ -42,7 +42,7 @@ export async function middleware(request: NextRequest) {
   const cookieName = `sb-${projectRef}-auth-token`
 
   // Try to get the auth cookie (might be single or chunked)
-  let sessionData: any = null
+  let sessionData: { access_token?: string; expires_at?: number } | null = null
   
   const singleCookie = request.cookies.get(cookieName)
   if (singleCookie?.value) {

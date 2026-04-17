@@ -37,6 +37,16 @@ type CostLineRow = {
   is_system?: boolean
 }
 
+/** Row from `job_cost_lines` select with `vendors(name)` join */
+type JobCostLineQueryRow = {
+  id: string
+  description: string | null
+  amount: unknown
+  cost_type: string
+  status: string
+  vendors?: { name?: string | null } | Array<{ name?: string | null }> | null
+}
+
 interface JobFileWorkspaceCardProps {
   jobId: string
   userRole: string
@@ -247,14 +257,16 @@ export default function JobFileWorkspaceCard({
     setPhotos((photosRes.data || []) as PhotoRow[])
     setDocuments((docsRes.data || []) as DocumentRow[])
 
-    const normalizedCostLines: CostLineRow[] = ((costRes.data || []) as any[]).map((row) => ({
-      id: row.id,
-      description: row.description,
-      amount: Number(row.amount || 0),
-      cost_type: row.cost_type,
-      status: row.status,
-      vendor_name: Array.isArray(row.vendors) ? row.vendors[0]?.name || null : row.vendors?.name || null,
-    }))
+    const normalizedCostLines: CostLineRow[] = ((costRes.data || []) as JobCostLineQueryRow[]).map(
+      (row) => ({
+        id: row.id,
+        description: row.description ?? '',
+        amount: Number(row.amount || 0),
+        cost_type: row.cost_type,
+        status: row.status,
+        vendor_name: Array.isArray(row.vendors) ? row.vendors[0]?.name || null : row.vendors?.name || null,
+      })
+    )
     const hasPersistedDealerFee = normalizedCostLines.some((line) =>
       /lender|dealer fee/i.test(line.description)
     )

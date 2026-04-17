@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { canAccessJobBoard } from '@/lib/permissions'
+import type { User } from '@/lib/types/database'
 
 interface OpsStats {
   activeJobs: number
@@ -43,7 +44,7 @@ interface OpenWorkOrder {
 }
 
 interface OpsDashboardProps {
-  profile: any
+  profile: User
 }
 
 type TimeFrame =

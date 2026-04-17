@@ -1,25 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
+import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { redirect } from 'next/navigation'
 import PrintButton from './PrintButton'
-
-function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(cents / 100)
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return ''
-  const date = new Date(dateStr + 'T12:00:00')
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
 
 interface ResolvedCustomer {
   name: string
@@ -322,12 +306,12 @@ export default async function PrintInvoicePage({
               </div>
               <div className="invoice-meta">
                 <span className="invoice-meta-label">Date: </span>
-                <span className="invoice-meta-value">{formatDate(invoice.issued_at)}</span>
+                <span className="invoice-meta-value">{formatInvoiceDisplayDate(invoice.issued_at)}</span>
               </div>
               {invoice.due_at && (
                 <div className="invoice-meta">
                   <span className="invoice-meta-label">Due Date: </span>
-                  <span className="invoice-meta-value">{formatDate(invoice.due_at)}</span>
+                  <span className="invoice-meta-value">{formatInvoiceDisplayDate(invoice.due_at)}</span>
                 </div>
               )}
             </div>
