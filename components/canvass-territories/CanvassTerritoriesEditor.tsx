@@ -672,7 +672,7 @@ export function CanvassTerritoriesEditor({
   }
 
   const mapShellClass = compact
-    ? 'min-h-[280px] h-[42vh] sm:h-[480px] lg:h-[560px]'
+    ? 'min-h-[300px] h-[48vh] sm:h-[480px] lg:h-[560px]'
     : 'h-[560px]'
 
   const gridClass = compact
@@ -834,99 +834,99 @@ export function CanvassTerritoriesEditor({
             <div ref={mapRef} className="w-full h-full min-h-[200px] touch-manipulation" />
             {ready && mapInitialized && (
               <div
-                className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] flex flex-col justify-end bg-gradient-to-t from-white via-white/95 to-transparent pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-10 px-2 sm:px-3"
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] flex justify-center bg-gradient-to-t from-white/95 via-white/70 to-transparent px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-3 sm:px-3"
               >
-                <div className="pointer-events-auto mx-auto w-full max-w-xl space-y-2">
-                  <div
-                    className="flex flex-wrap items-stretch justify-center gap-2"
-                    role="toolbar"
-                    aria-label="Map drawing tools"
+                <div
+                  className="pointer-events-auto flex w-full max-w-xl flex-wrap items-stretch justify-center gap-2"
+                  role="toolbar"
+                  aria-label="Map drawing tools"
+                >
+                  <button
+                    type="button"
+                    onClick={tapDrawMode}
+                    className={`min-h-[48px] flex-1 min-w-[5.5rem] rounded-xl border-2 px-3 py-2.5 text-sm font-semibold shadow-sm transition active:scale-[0.98] ${
+                      mapTool === 'draw'
+                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                        : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                    }`}
                   >
+                    Draw area
+                  </button>
+                  <button
+                    type="button"
+                    onClick={tapPanMode}
+                    className={`min-h-[48px] flex-1 min-w-[5.5rem] rounded-xl border-2 px-3 py-2.5 text-sm font-semibold shadow-sm transition active:scale-[0.98] ${
+                      mapTool === 'pan'
+                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                        : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                    }`}
+                  >
+                    Pan map
+                  </button>
+                  <button
+                    type="button"
+                    onClick={recenterMapOnUser}
+                    className="min-h-[48px] min-w-[5.5rem] rounded-xl border-2 border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 active:scale-[0.98]"
+                    title="Center on your location"
+                  >
+                    My location
+                  </button>
+                  {draftGeo && (
                     <button
                       type="button"
-                      onClick={tapDrawMode}
-                      className={`min-h-[48px] flex-1 min-w-[5.5rem] rounded-xl border-2 px-3 py-2.5 text-sm font-semibold shadow-sm transition active:scale-[0.98] ${
-                        mapTool === 'draw'
-                          ? 'border-indigo-600 bg-indigo-600 text-white'
-                          : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
-                      }`}
+                      onClick={clearDraftShape}
+                      className="min-h-[48px] min-w-[5.5rem] rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 active:scale-[0.98]"
                     >
-                      Draw area
+                      Clear shape
                     </button>
-                    <button
-                      type="button"
-                      onClick={tapPanMode}
-                      className={`min-h-[48px] flex-1 min-w-[5.5rem] rounded-xl border-2 px-3 py-2.5 text-sm font-semibold shadow-sm transition active:scale-[0.98] ${
-                        mapTool === 'pan'
-                          ? 'border-indigo-600 bg-indigo-600 text-white'
-                          : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
-                      }`}
-                    >
-                      Pan map
-                    </button>
-                    <button
-                      type="button"
-                      onClick={recenterMapOnUser}
-                      className="min-h-[48px] min-w-[5.5rem] rounded-xl border-2 border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 active:scale-[0.98]"
-                      title="Center on your location"
-                    >
-                      My location
-                    </button>
-                    {draftGeo && (
-                      <button
-                        type="button"
-                        onClick={clearDraftShape}
-                        className="min-h-[48px] min-w-[5.5rem] rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 active:scale-[0.98]"
-                      >
-                        Clear shape
-                      </button>
-                    )}
-                  </div>
-                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/90 px-3 py-2.5 text-xs leading-relaxed text-indigo-950 sm:text-sm">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                      <p className="font-semibold text-indigo-900">Quick guide</p>
-                      <button
-                        type="button"
-                        onClick={() => setShowLeadPins((v) => !v)}
-                        className={`min-h-[44px] shrink-0 rounded-lg border-2 px-3 py-2 text-left text-xs font-semibold shadow-sm transition sm:min-h-0 sm:py-1.5 sm:text-sm ${
-                          showLeadPins
-                            ? 'border-emerald-600 bg-emerald-600 text-white'
-                            : 'border-indigo-200 bg-white text-indigo-900 hover:bg-indigo-100/80'
-                        }`}
-                      >
-                        {showLeadPins ? 'Lead pins on' : 'Show lead pins'}
-                      </button>
-                    </div>
-                    {leadPinsHint && (
-                      <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 sm:text-xs">
-                        {leadPinsHint}
-                      </p>
-                    )}
-                    <ul className="mt-1.5 list-disc space-y-1 pl-4 marker:text-indigo-400">
-                      <li>
-                        <strong>Draw area:</strong> tap each corner. Close the shape by tapping the{' '}
-                        <span className="whitespace-nowrap">first point again</span> (or double-tap the last point).
-                      </li>
-                      <li>
-                        <strong>Pan map:</strong> switch here, then drag with one finger. Or stay on Draw and use{' '}
-                        <span className="font-medium">two fingers</span> to move the map without placing a point.
-                      </li>
-                      <li>
-                        <strong>Field tip:</strong> finish the outline before assigning reps — use{' '}
-                        <span className="font-medium">Clear shape</span> to start over.
-                      </li>
-                      {showLeadPins && (
-                        <li>
-                          <strong>Lead pins:</strong> same data as the canvass map (your org visibility rules).
-                          Dots are read-only — they won&apos;t open lead details here.
-                        </li>
-                      )}
-                    </ul>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
+          {ready && mapInitialized && (
+            <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50/90 px-3 py-2.5 text-xs leading-relaxed text-indigo-950 sm:text-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <p className="font-semibold text-indigo-900">Quick guide</p>
+                <button
+                  type="button"
+                  onClick={() => setShowLeadPins((v) => !v)}
+                  className={`min-h-[44px] shrink-0 rounded-lg border-2 px-3 py-2 text-left text-xs font-semibold shadow-sm transition sm:min-h-0 sm:py-1.5 sm:text-sm ${
+                    showLeadPins
+                      ? 'border-emerald-600 bg-emerald-600 text-white'
+                      : 'border-indigo-200 bg-white text-indigo-900 hover:bg-indigo-100/80'
+                  }`}
+                >
+                  {showLeadPins ? 'Lead pins on' : 'Show lead pins'}
+                </button>
+              </div>
+              {leadPinsHint && (
+                <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 sm:text-xs">
+                  {leadPinsHint}
+                </p>
+              )}
+              <ul className="mt-1.5 list-disc space-y-1 pl-4 marker:text-indigo-400">
+                <li>
+                  <strong>Draw area:</strong> tap each corner. Close the shape by tapping the{' '}
+                  <span className="whitespace-nowrap">first point again</span> (or double-tap the last point).
+                </li>
+                <li>
+                  <strong>Pan map:</strong> use the buttons on the map, then drag with one finger. Or stay on Draw and use{' '}
+                  <span className="font-medium">two fingers</span> to move the map without placing a point.
+                </li>
+                <li>
+                  <strong>Field tip:</strong> finish the outline before assigning reps — use{' '}
+                  <span className="font-medium">Clear shape</span> to start over.
+                </li>
+                {showLeadPins && (
+                  <li>
+                    <strong>Lead pins:</strong> same data as the canvass map (your org visibility rules). Dots are
+                    read-only — they won&apos;t open lead details here.
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
           <p className="mt-2 hidden px-0.5 text-xs leading-snug text-gray-600 sm:block">
             Tools also appear on the map on larger screens. Use <strong>Draw area</strong> / <strong>Pan map</strong>{' '}
             at the bottom for the best touch experience.
