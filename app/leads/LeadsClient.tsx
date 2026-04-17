@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import { leadOwnerLabel } from '@/lib/lead-owner-display'
 
 type Lead = {
@@ -193,15 +192,6 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
   }
 
   const hasActiveFilters = filterStatus || filterCampaign || filterSource || filterOwner || debouncedSearch
-
-  // Virtual scrolling for desktop table
-  const parentRef = useRef<HTMLDivElement>(null)
-  const rowVirtualizer = useVirtualizer({
-    count: leads.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 72,
-    overscan: 10,
-  })
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
@@ -459,13 +449,9 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
           </div>
         ) : (
           <>
-            <div 
-              ref={parentRef}
-              className="overflow-auto"
-              style={{ maxHeight: 'calc(100vh - 400px)', minHeight: '400px' }}
-            >
+            <div className="overflow-auto max-h-[min(70vh,900px)]">
               <table className="w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 sticky top-0 z-10">
+                <thead className="bg-gray-50 sticky top-0 z-10 shadow-[0_1px_0_0_rgb(229_231_235)]">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                       Lead
@@ -496,17 +482,10 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const lead = leads[virtualRow.index]
+                  {leads.map((lead) => {
                     const ownerLabelText = leadOwnerLabel(lead)
                     return (
-                      <tr 
-                        key={lead.id} 
-                        className="hover:bg-gray-50"
-                        style={{
-                          height: `${virtualRow.size}px`,
-                        }}
-                      >
+                      <tr key={lead.id} className="hover:bg-gray-50">
                         <td className="px-4 py-4 whitespace-nowrap">
                           <Link
                             href={`/leads/${lead.id}`}

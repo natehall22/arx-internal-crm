@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
 
 const PHOTO_TAGS = [
   { value: 'final_front', label: 'Front' },
@@ -33,7 +34,19 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
   const [photos, setPhotos] = useState<FinalPhoto[]>([])
   const [uploading, setUploading] = useState(false)
   const [selectedTag, setSelectedTag] = useState('final_front')
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const lightboxEntries = useMemo(
+    () =>
+      photos.map(p => ({
+        id: p.id,
+        filename: p.filename,
+        caption: PHOTO_TAGS.find(t => t.value === p.photo_tag)?.label || p.photo_tag || null,
+      })),
+    [photos]
+  )
   useEffect(() => {
     loadPhotos()
   }, [jobId, projectId])
@@ -198,29 +211,41 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
           ))}
         </div>
       ) : photos.length > 0 ? (
-        <div className="grid grid-cols-3 gap-2">
-          {photos.map(photo => (
-            <a
-              key={photo.id}
-              href={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group min-h-[80px]"
-            >
-              <img
-                src={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
-                alt={photo.filename}
-                className="w-full h-full object-cover"
-                loading="lazy"
-              />
-              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-end">
-                <span className="w-full px-1.5 py-1 bg-black bg-opacity-60 text-white text-xs truncate">
-                  {PHOTO_TAGS.find(t => t.value === photo.photo_tag)?.label || photo.photo_tag}
-                </span>
-              </div>
-            </a>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            {photos.map((photo, i) => (
+              <button
+                key={photo.id}
+                type="button"
+                onClick={() => {
+                  setLightboxIndex(i)
+                  setLightboxOpen(true)
+                }}
+                className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group min-h-[80px] w-full text-left ring-offset-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <img
+                  src={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
+                  alt={photo.filename}
+                  className="w-full h-full object-cover pointer-events-none"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-end pointer-events-none">
+                  <span className="w-full px-1.5 py-1 bg-black bg-opacity-60 text-white text-xs truncate">
+                    {PHOTO_TAGS.find(t => t.value === photo.photo_tag)?.label || photo.photo_tag}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <JobPhotoLightbox
+            jobId={jobId}
+            photos={lightboxEntries}
+            open={lightboxOpen}
+            index={lightboxIndex}
+            onClose={() => setLightboxOpen(false)}
+            onIndexChange={setLightboxIndex}
+          />
+        </>
       ) : (
         <p className="text-sm text-gray-500 text-center py-4">
           No final photos uploaded yet. Tap a checklist item above to take a photo.

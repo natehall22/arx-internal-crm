@@ -4,6 +4,7 @@ import type { DragEvent, FormEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { createClientBrowser } from '@/lib/supabase/client'
+import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
 
 type PhotoRow = {
   id: string
@@ -144,6 +145,8 @@ export default function JobFileWorkspaceCard({
   const [uploadingCostAttachment, setUploadingCostAttachment] = useState(false)
   const [replacingDocumentId, setReplacingDocumentId] = useState<string | null>(null)
   const [photoTag, setPhotoTag] = useState('general')
+  const [jobPhotoLightboxOpen, setJobPhotoLightboxOpen] = useState(false)
+  const [jobPhotoLightboxIndex, setJobPhotoLightboxIndex] = useState(0)
   const [documentCategory, setDocumentCategory] = useState('misc')
   const [documentRole, setDocumentRole] = useState('')
   const [documentTitle, setDocumentTitle] = useState('')
@@ -854,7 +857,8 @@ export default function JobFileWorkspaceCard({
           </div>
           <p className="text-xs text-gray-500 mb-3">
             Upload before/progress/final photos so office and production can track the job clearly. Select multiple
-            images in the file picker (Shift- or Cmd/Ctrl-click) or drag files into the area below.
+            images in the file picker (Shift- or Cmd/Ctrl-click) or drag files into the area below. Click a filename to
+            open the photo viewer and step through all job photos with arrow keys.
           </p>
 
           <div
@@ -896,14 +900,17 @@ export default function JobFileWorkspaceCard({
                       <tr key={photo.id} className="border-t">
                         <td className="px-3 py-2 text-gray-700">{photo.photo_tag || 'general'}</td>
                         <td className="px-3 py-2">
-                          <a
-                            href={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
+                          <button
+                            type="button"
+                            className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2 text-left"
+                            onClick={() => {
+                              const idx = photos.findIndex((p) => p.id === photo.id)
+                              setJobPhotoLightboxIndex(idx >= 0 ? idx : 0)
+                              setJobPhotoLightboxOpen(true)
+                            }}
                           >
                             {photo.filename}
-                          </a>
+                          </button>
                         </td>
                         <td className="px-3 py-2 text-gray-700">{formatDate(photo.created_at)}</td>
                         <td className="px-3 py-2 text-gray-700">{formatUserDisplay(photo.uploaded_by_name)}</td>
@@ -914,6 +921,18 @@ export default function JobFileWorkspaceCard({
               </div>
             )}
           </div>
+          <JobPhotoLightbox
+            jobId={jobId}
+            photos={photos.map((p) => ({
+              id: p.id,
+              filename: p.filename,
+              caption: p.photo_tag || 'general',
+            }))}
+            open={jobPhotoLightboxOpen}
+            index={jobPhotoLightboxIndex}
+            onClose={() => setJobPhotoLightboxOpen(false)}
+            onIndexChange={setJobPhotoLightboxIndex}
+          />
         </section>
 
         <section>

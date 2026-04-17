@@ -16,7 +16,6 @@
     "@react-pdf/renderer": "^4.3.2",
     "@supabase/ssr": "^0.1.0",
     "@supabase/supabase-js": "^2.39.3",
-    "@tanstack/react-virtual": "^3.13.21",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "jspdf": "^4.2.0",
