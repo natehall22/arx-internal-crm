@@ -7,7 +7,6 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import SendToOpsButton from '@/components/SendToOpsButton'
-import ProjectStatusUpdate from '@/components/ProjectStatusUpdate'
 import DeleteProjectButton from '@/components/DeleteProjectButton'
 import ProjectFinancialSnapshot from '@/components/ProjectFinancialSnapshot'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
@@ -19,6 +18,15 @@ import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
 import { parseProjectReviewStored } from '@/lib/project-review'
 import { canAccessJobBoard } from '@/lib/permissions'
+
+/** Label for list/detail — matches `mapJobStatusToProjectStatus` on projects list (job is source of truth). */
+function jobStatusLabel(jobStatus: string | null | undefined): string {
+  if (!jobStatus) return ''
+  if (jobStatus === 'collected') return 'Collected'
+  if (jobStatus === 'complete') return 'Complete'
+  if (jobStatus === 'on_hold') return 'On hold'
+  return 'In progress'
+}
 
 export default async function ProjectDetailPage({
   params,
@@ -85,7 +93,7 @@ export default async function ProjectDetailPage({
   // Check if production job exists for this project
   const { data: productionJob } = await supabase
     .from('production_jobs')
-    .select('id, job_number, sale_amount')
+    .select('id, job_number, sale_amount, status')
     .eq('project_id', params.id)
     .single()
 
@@ -240,36 +248,6 @@ export default async function ProjectDetailPage({
     ? changeOrders[changeOrders.length - 1].updated_total
     : (originalContract?.project_cost || productionJob?.sale_amount || 0)
 
-  const updateStatus = async (formData: FormData) => {
-    'use server'
-    const { profile } = await requireAuth()
-    const supabase = createServiceClient()
-
-    const newStatus = String(formData.get('status') ?? '')
-    if (!newStatus) return
-
-    // Only allow operations and admin to update status
-    if (!['admin', 'operations', 'regional_manager'].includes(profile.role)) {
-      return
-    }
-
-    await supabase
-      .from('projects')
-      .update({ status: newStatus })
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-
-    await supabase.from('activities').insert({
-      org_id: profile.org_id,
-      project_id: params.id,
-      user_id: profile.id,
-      type: 'status_change',
-      body: `Project status updated to ${newStatus.replace('_', ' ')}.`,
-    })
-
-    revalidatePath(`/projects/${params.id}`)
-  }
-
   const updateAddress = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
@@ -373,16 +351,30 @@ export default async function ProjectDetailPage({
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500">Status</h3>
-              {['admin', 'operations', 'regional_manager'].includes(profile.role) ? (
-                <ProjectStatusUpdate
-                  projectId={params.id}
-                  currentStatus={project.status}
-                  updateStatusAction={updateStatus}
-                />
-              ) : (
-                <p className="mt-1 text-sm text-gray-900 capitalize">
-                  {project.status.replace('_', ' ')}
+              <p className="mt-1 text-sm text-gray-900 capitalize">
+                {productionJob?.status
+                  ? jobStatusLabel(productionJob.status)
+                  : String(project.status || 'open').replace('_', ' ')}
+              </p>
+              {productionJob?.id ? (
+                <p className="mt-1 text-xs text-gray-500">
+                  {showOpsJobLinks ? (
+                    <>
+                      Set on the{' '}
+                      <Link
+                        href={`/ops/jobs/${productionJob.id}`}
+                        className="text-indigo-600 hover:text-indigo-800 font-medium"
+                      >
+                        Job Board
+                      </Link>
+                      .
+                    </>
+                  ) : (
+                    <>Production status follows the linked job (Job Board).</>
+                  )}
                 </p>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">Updates when a job is created from this project (Send to Ops).</p>
               )}
             </div>
             <div>

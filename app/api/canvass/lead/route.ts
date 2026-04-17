@@ -774,6 +774,48 @@ export async function POST(request: Request) {
           .update({ opportunity_id: opportunityId })
           .eq('id', appointmentId)
       }
+
+      // Round-robin can create scheduled_appointments + Google Calendar before the opportunity
+      // insert above. If that insert failed, the calendar still shows the job but Opportunities
+      // and lead↔opp linking break — recover here and backfill opportunity_id on orphan rows.
+      if (leadRow?.id && closerUserId) {
+        if (!opportunityId) {
+          const recoveryPayload = {
+            org_id: profile.org_id,
+            lead_id: leadRow.id,
+            customer_id: leadRow.customer_id || null,
+            owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
+            setter_user_id: profile.id,
+            status: 'open' as const,
+            project_type: 'roofing' as const,
+            address_text: leadRow.address_text || null,
+            lat: leadRow.lat ?? null,
+            lng: leadRow.lng ?? null,
+            notes: leadRow.notes || null,
+          }
+          const { data: recovered, error: recoveryError } = await supabase
+            .from('opportunities')
+            .insert(recoveryPayload)
+            .select('id')
+            .single()
+
+          if (recoveryError) {
+            console.error('Failed to recover opportunity after inspection scheduling:', recoveryError)
+          } else if (recovered?.id) {
+            opportunityId = recovered.id
+            opportunityInsertedThisRequest = true
+          }
+        }
+        if (opportunityId) {
+          await supabase
+            .from('scheduled_appointments')
+            .update({ opportunity_id: opportunityId })
+            .eq('lead_id', leadRow.id)
+            .eq('org_id', profile.org_id)
+            .is('opportunity_id', null)
+            .in('status', ['scheduled', 'confirmed'])
+        }
+      }
     }
 
     // Google Calendar wiring (closer’s calendar = user_google_tokens for closer_user_id):

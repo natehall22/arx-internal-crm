@@ -181,6 +181,17 @@ export async function GET(request: NextRequest) {
       opportunities?.map(o => o.lead_id).filter(Boolean) || []
     )
 
+    const { data: scheduledForDoorFilter } = await adminClient
+      .from('scheduled_appointments')
+      .select('lead_id')
+      .eq('org_id', profile.org_id)
+      .in('status', ['scheduled', 'confirmed'])
+      .not('lead_id', 'is', null)
+
+    const leadIdsWithScheduledAppointment = new Set(
+      scheduledForDoorFilter?.map((r: { lead_id: string | null }) => r.lead_id).filter(Boolean) || []
+    )
+
     // Helper to apply common filters to a query
     const applyFilters = (query: any): any => {
       let q = query
@@ -255,7 +266,9 @@ export async function GET(request: NextRequest) {
         `)
         .eq('org_id', profile.org_id)
     )
-      .order('created_at', { ascending: false })
+      // Use updated_at so recently scheduled inspections / canvass touches surface even when
+      // the lead row is older (sorting only by created_at hid updated door-to-door leads).
+      .order('updated_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
     const { data: rawLeads, error: leadsError } = await dataQuery
@@ -268,6 +281,8 @@ export async function GET(request: NextRequest) {
     // Hide raw door knocks until there is real pipeline activity. Opportunity alone used to
     // be the signal, but opportunities are often created at inspection outcome — so a lead can
     // be in "inspection" with a scheduled time and still have no opportunity row yet.
+    // If scheduled_appointments exists (calendar path), always show — avoids hiding when the
+    // lead row is stale but the appointment row is not.
     const progressedDoorToDoorStatuses = new Set([
       'appointment',
       'inspection',
@@ -287,6 +302,9 @@ export async function GET(request: NextRequest) {
           return true
         }
         if (leadIdsWithOpportunities.has(lead.id)) {
+          return true
+        }
+        if (leadIdsWithScheduledAppointment.has(lead.id)) {
           return true
         }
         if (lead.inspection_scheduled_for) {
