@@ -18,7 +18,7 @@ const jobSelectWithPaymentMethod = `
   assigned_sub:sub_contractors(id, company_name, contact_name, phone),
   customer:customers(id, name, phone, email),
   salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-  project:projects(id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+  project:projects(id, opportunity_id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
 `
 
 const jobSelectWithoutPaymentMethod = `
@@ -27,7 +27,7 @@ const jobSelectWithoutPaymentMethod = `
   assigned_sub:sub_contractors(id, company_name, contact_name, phone),
   customer:customers(id, name, phone, email),
   salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-  project:projects(id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+  project:projects(id, opportunity_id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
 `
 
 export default async function JobDetailPage({ params }: PageProps) {
@@ -300,8 +300,62 @@ export default async function JobDetailPage({ params }: PageProps) {
     jobRes.data.project_id && (originalContract || jobRes.data.sale_amount != null)
   )
 
+  // If job row was created before dealer_fee_* sync on sign, amounts live on proposals only (same as proposal UI).
+  let proposalDealerFee:
+    | {
+        dealer_fee_amount: number | null
+        dealer_fee_percent: number | null
+        financing_program_id: string | null
+      }
+    | undefined
+  const jobRow = jobRes.data
+  const missingDealerFeeOnJob =
+    jobRow.dealer_fee_amount == null || Number(jobRow.dealer_fee_amount) === 0
+  if (missingDealerFeeOnJob) {
+    const projectOppId =
+      rawProject &&
+      typeof rawProject === 'object' &&
+      'opportunity_id' in rawProject
+        ? (rawProject as { opportunity_id?: string | null }).opportunity_id
+        : null
+    const resolvedOppId = opportunityId || projectOppId || null
+    try {
+      if (resolvedOppId) {
+        const { data: prop } = await supabaseService
+          .from('proposals')
+          .select('dealer_fee_amount, dealer_fee_percent, financing_program_id')
+          .eq('org_id', profile.org_id)
+          .eq('opportunity_id', resolvedOppId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (prop && prop.dealer_fee_amount != null && Number(prop.dealer_fee_amount) > 0) {
+          proposalDealerFee = prop
+        }
+      }
+      if (!proposalDealerFee && jobRow.project_id) {
+        const { data: prop } = await supabaseService
+          .from('proposals')
+          .select('dealer_fee_amount, dealer_fee_percent, financing_program_id')
+          .eq('org_id', profile.org_id)
+          .eq('project_id', jobRow.project_id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (prop && prop.dealer_fee_amount != null && Number(prop.dealer_fee_amount) > 0) {
+          proposalDealerFee = prop
+        }
+      }
+    } catch {
+      // proposals table / RLS
+    }
+  }
+
   const transformedJob = {
     ...jobRes.data,
+    dealer_fee_amount: proposalDealerFee?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount,
+    dealer_fee_percent: proposalDealerFee?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent,
+    financing_program_id: proposalDealerFee?.financing_program_id ?? jobRes.data.financing_program_id,
     assigned_crew: Array.isArray(jobRes.data.assigned_crew) ? jobRes.data.assigned_crew[0] : jobRes.data.assigned_crew,
     assigned_sub: Array.isArray(jobRes.data.assigned_sub) ? jobRes.data.assigned_sub[0] : jobRes.data.assigned_sub,
     customer: customer,

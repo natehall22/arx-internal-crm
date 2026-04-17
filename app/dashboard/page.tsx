@@ -389,8 +389,8 @@ export default async function DashboardPage() {
           (a) => a.closer_user_id === member.id
         ).length
         
-        const finalDoors = rawDoors
-        const finalContacts = rawContacts
+        const finalDoors = isSetterLikeRole(member.role) ? rawDoors : 0
+        const finalContacts = isSetterLikeRole(member.role) ? rawContacts : 0
 
         const memberSales = (salesOpportunities || []).filter(o =>
           isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id

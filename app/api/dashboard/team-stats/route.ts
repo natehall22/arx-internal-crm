@@ -367,8 +367,12 @@ export async function GET(request: NextRequest) {
     }
 
     const teamMemberStats: TeamStatRow[] = members.map((member) => {
-      const doorsKnocked = doorByOwner.get(member.id) ?? 0
-      const contacts = contactByOwner.get(member.id) ?? 0
+      // Doors/contacts are setter-lane metrics (canvass activity). The same lead-owner RPC also
+      // attributes leads to admins/closers who are bulk owner/pin — showing that as "doors" in the
+      // closer table is misleading; only setter-like roles get door/contact counts here.
+      const setterLane = isSetterLikeRole(member.role)
+      const doorsKnocked = setterLane ? doorByOwner.get(member.id) ?? 0 : 0
+      const contacts = setterLane ? contactByOwner.get(member.id) ?? 0 : 0
       const inspectionsSet = inspByCanvasser.get(member.id) ?? 0
       const inspectionsReceived = inspReceivedByCloser.get(member.id) ?? 0
       const sits = isSetterLikeRole(member.role)

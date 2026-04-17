@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
@@ -61,6 +61,30 @@ interface TeamMemberStat {
 }
 
 type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all'
+
+/** Dashboard goal fields in settings are weekly; scale for day/month/quarter/year views. */
+function scaledGoalFromWeekly(weeklyGoal: number, tf: TimeFrame): number {
+  const w = Math.max(0, Number(weeklyGoal) || 0)
+  const atLeast1 = (n: number) => (n < 1 ? 1 : Math.round(n))
+  switch (tf) {
+    case 'today':
+    case 'yesterday':
+      return atLeast1(w / 7)
+    case 'week':
+    case 'last_week':
+      return atLeast1(w)
+    case 'month':
+    case 'last_month':
+      return atLeast1(w * 4.33)
+    case 'quarter':
+      return atLeast1(w * 13)
+    case 'year':
+    case 'all':
+      return atLeast1(w * 52)
+    default:
+      return atLeast1(w)
+  }
+}
 
 interface DashboardClientProps {
   profile: any
@@ -250,7 +274,7 @@ function MyGoalsWidget({ currentUserId }: { currentUserId?: string }) {
 export default function DashboardClient({
   profile,
   stats,
-  progress,
+  progress: _progressSsr,
   pendingPrompts,
   upcomingAppointments,
   recentActivities,
@@ -336,9 +360,10 @@ export default function DashboardClient({
         setLoadingPersonalStats(true)
       }
       try {
+        const tfParam = encodeURIComponent(timeFrame)
         const [teamRes, personalRes] = await Promise.all([
-          fetch(`/api/dashboard/team-stats?timeframe=${timeFrame}`),
-          fetch(`/api/dashboard/personal-stats?timeframe=${timeFrame}`),
+          fetch(`/api/dashboard/team-stats?timeframe=${tfParam}`),
+          fetch(`/api/dashboard/personal-stats?timeframe=${tfParam}`),
         ])
         if (teamRes.ok) {
           const data = await teamRes.json()
@@ -396,6 +421,31 @@ export default function DashboardClient({
     year: 'this year',
     all: 'all time',
   }
+
+  /** Progress bars track the same period as the KPI cards (personal-stats API). Goals are weekly in settings, scaled to the selected range. */
+  const progressForTimeFrame = useMemo(() => {
+    const g = settings?.goals || { doors_knocked: 100, inspections: 20, sales: 5 }
+    const weeklyContactGoal = Math.round((g.doors_knocked || 100) * 0.3)
+    const tf = timeFrame
+    return {
+      doors_knocked: {
+        current: personalStats.doorsKnocked,
+        goal: scaledGoalFromWeekly(g.doors_knocked ?? 100, tf),
+      },
+      contacts: {
+        current: personalStats.contacts,
+        goal: scaledGoalFromWeekly(weeklyContactGoal, tf),
+      },
+      inspections: {
+        current: personalStats.inspectionsSet,
+        goal: scaledGoalFromWeekly(g.inspections ?? 20, tf),
+      },
+      sales: {
+        current: personalStats.sales,
+        goal: scaledGoalFromWeekly(g.sales ?? 5, tf),
+      },
+    }
+  }, [personalStats, timeFrame, settings])
 
   const isManager =
     profile.role === 'admin' ||
@@ -1346,34 +1396,32 @@ export default function DashboardClient({
           <div className="lg:col-span-2 space-y-4 sm:space-y-6">
             {/* Weekly Progress */}
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3">Weekly Progress</h2>
-              {timeFrame !== 'week' && (
-                <p className="text-xs text-gray-500 mb-3 sm:mb-4">
-                  Progress bars always use this week&apos;s activity and goals; they are not filtered by the date range above.
-                </p>
-              )}
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Progress vs goals</h2>
+              <p className="text-xs text-gray-500 mb-3 sm:mb-4 capitalize">
+                Same period as stats above ({timeFrameLabel[timeFrame]}). Goals are your weekly targets from settings, scaled to this period.
+              </p>
               <ProgressBar
                 label="Doors Knocked"
-                current={progress.doors_knocked.current}
-                goal={progress.doors_knocked.goal}
+                current={progressForTimeFrame.doors_knocked.current}
+                goal={progressForTimeFrame.doors_knocked.goal}
                 color="bg-blue-500"
               />
               <ProgressBar
                 label="Contacts Made"
-                current={progress.contacts.current}
-                goal={progress.contacts.goal}
+                current={progressForTimeFrame.contacts.current}
+                goal={progressForTimeFrame.contacts.goal}
                 color="bg-purple-500"
               />
               <ProgressBar
                 label="Inspections Set"
-                current={progress.inspections.current}
-                goal={progress.inspections.goal}
+                current={progressForTimeFrame.inspections.current}
+                goal={progressForTimeFrame.inspections.goal}
                 color="bg-amber-500"
               />
               <ProgressBar
                 label="Sales Closed"
-                current={progress.sales.current}
-                goal={progress.sales.goal}
+                current={progressForTimeFrame.sales.current}
+                goal={progressForTimeFrame.sales.goal}
                 color="bg-green-500"
               />
             </div>
