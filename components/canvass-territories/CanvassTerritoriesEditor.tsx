@@ -4,8 +4,24 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { isCanvassTerritoryAssigneeEligible } from '@/lib/canvass-territory-assignee-filter'
 import { exteriorRingsFromGeoJSON } from '@/lib/canvass-territory-geometry'
+import type { ViewportPin } from '@/app/(canvass-app)/canvass/lib/useViewportLeads'
 
 declare const google: any
+
+/** Dot colors — same dispositions as main canvass map (`ViewportPin.d`) */
+const LEAD_DOT_COLORS: Record<string, string> = {
+  hot_lead: '#EF4444',
+  go_back: '#F59E0B',
+  not_home: '#9CA3AF',
+  not_interested: '#6B7280',
+  bad_roof: '#78716C',
+  renter: '#A1A1AA',
+  scheduled: '#10B981',
+  inspection_scheduled: '#10B981',
+  default: '#4F46E5',
+}
+
+const LEADS_VIEWPORT_DEBOUNCE_MS = 400
 
 export type TerritoryRow = {
   id: string
@@ -80,6 +96,11 @@ export function CanvassTerritoriesEditor({
   const drawingManagerRef = useRef<any>(null)
   const overlayPolygonsRef = useRef<any[]>([])
   const draftPolygonRef = useRef<any>(null)
+  const leadMarkersRef = useRef<any[]>([])
+  const leadPinsIdleListenerRef = useRef<any>(null)
+  const leadFetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const leadFetchAbortRef = useRef<AbortController | null>(null)
+  const showLeadPinsRef = useRef(false)
 
   const [ready, setReady] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -95,6 +116,60 @@ export function CanvassTerritoriesEditor({
   const [formTeamIds, setFormTeamIds] = useState<string[]>([])
   const [draftGeo, setDraftGeo] = useState<{ type: 'Polygon'; coordinates: number[][][] } | null>(null)
   const [saving, setSaving] = useState(false)
+
+  /** One-shot browser location for initial map view (same idea as canvass map + useGeolocation). */
+  const [userLatLng, setUserLatLng] = useState<{ lat: number; lng: number } | null>(null)
+  const [mapInitialized, setMapInitialized] = useState(false)
+  const userLocationAppliedRef = useRef(false)
+
+  /** Mirrors Google drawing mode for mobile toolbar (default control is hidden — too small to tap). */
+  const [mapTool, setMapTool] = useState<'draw' | 'pan'>('draw')
+  /** Reuses `/api/canvass/leads/viewport` — same pins as main canvass map; default off so drawing stays simple. */
+  const [showLeadPins, setShowLeadPins] = useState(false)
+  const [leadPinsHint, setLeadPinsHint] = useState<string | null>(null)
+
+  showLeadPinsRef.current = showLeadPins
+
+  const clearLeadMarkers = useCallback(() => {
+    leadMarkersRef.current.forEach((m) => {
+      try {
+        m?.setMap?.(null)
+      } catch {
+        /* ignore */
+      }
+    })
+    leadMarkersRef.current = []
+  }, [])
+
+  const syncPanVersusDraw = useCallback(() => {
+    const dm = drawingManagerRef.current
+    const m = mapInstanceRef.current
+    if (!dm || !m) return
+    const mode = dm.getDrawingMode()
+    const allowOneFingerPan = mode == null
+    m.setOptions({
+      draggable: allowOneFingerPan,
+      scrollwheel: allowOneFingerPan,
+      gestureHandling: allowOneFingerPan ? 'greedy' : 'none',
+    })
+    setMapTool(mode ? 'draw' : 'pan')
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLatLng({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        })
+      },
+      () => {
+        /* Permission denied or unavailable — keep default US center */
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    )
+  }, [])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -200,30 +275,13 @@ export function CanvassTerritoriesEditor({
     })
     mapInstanceRef.current = map
 
-    const syncPanVersusDraw = () => {
-      const dm = drawingManagerRef.current
-      const m = mapInstanceRef.current
-      if (!dm || !m) return
-      const mode = dm.getDrawingMode()
-      const allowOneFingerPan = mode == null
-      m.setOptions({
-        draggable: allowOneFingerPan,
-        scrollwheel: allowOneFingerPan,
-        gestureHandling: allowOneFingerPan ? 'greedy' : 'none',
-      })
-    }
-
     const dm = new google.maps.drawing.DrawingManager({
       drawingMode: google.maps.drawing.OverlayType.POLYGON,
-      drawingControl: true,
-      drawingControlOptions: {
-        position: google.maps.ControlPosition.TOP_CENTER,
-        drawingModes: [google.maps.drawing.OverlayType.POLYGON],
-      },
+      drawingControl: false,
       polygonOptions: {
         fillColor: '#6366F1',
         fillOpacity: 0.25,
-        strokeWeight: 2,
+        strokeWeight: 3,
         clickable: true,
         editable: true,
         zIndex: 1,
@@ -251,7 +309,157 @@ export function CanvassTerritoriesEditor({
     window.setTimeout(() => {
       google.maps.event.trigger(map, 'resize')
     }, 0)
-  }, [ready])
+
+    setMapInitialized(true)
+  }, [ready, syncPanVersusDraw])
+
+  // Pan/zoom to user once when map + location are ready (canvass uses ~17–18; slightly wider for drawing).
+  useEffect(() => {
+    if (!mapInitialized || !mapInstanceRef.current || userLocationAppliedRef.current) return
+    if (selectedId !== null || draftGeo) return
+    if (!userLatLng) return
+
+    mapInstanceRef.current.setCenter(userLatLng)
+    mapInstanceRef.current.setZoom(16)
+    userLocationAppliedRef.current = true
+  }, [mapInitialized, userLatLng, selectedId, draftGeo])
+
+  /**
+   * Optional lead pins — same API + rules as main canvass map (`/api/canvass/leads/viewport`).
+   * Default off; debounced on map idle; low z-index dots (no click handlers — avoids fighting polygon draw).
+   */
+  useEffect(() => {
+    if (!mapInitialized || !ready || !mapInstanceRef.current) return
+
+    if (!showLeadPins) {
+      if (leadFetchDebounceRef.current) {
+        clearTimeout(leadFetchDebounceRef.current)
+        leadFetchDebounceRef.current = null
+      }
+      leadFetchAbortRef.current?.abort()
+      clearLeadMarkers()
+      setLeadPinsHint(null)
+      if (leadPinsIdleListenerRef.current) {
+        google.maps.event.removeListener(leadPinsIdleListenerRef.current)
+        leadPinsIdleListenerRef.current = null
+      }
+      return
+    }
+
+    const map = mapInstanceRef.current
+
+    const loadPinsForBounds = async () => {
+      if (!showLeadPinsRef.current || !mapInstanceRef.current) return
+
+      const b = map.getBounds()
+      const zoom = map.getZoom()
+      if (!b || zoom === undefined) return
+
+      if (zoom < 10) {
+        clearLeadMarkers()
+        setLeadPinsHint('Zoom in closer to load lead pins.')
+        return
+      }
+
+      const ne = b.getNorthEast()
+      const sw = b.getSouthWest()
+      const params = new URLSearchParams({
+        minLat: String(sw.lat()),
+        maxLat: String(ne.lat()),
+        minLng: String(sw.lng()),
+        maxLng: String(ne.lng()),
+        zoom: String(Math.floor(zoom)),
+      })
+
+      leadFetchAbortRef.current?.abort()
+      const ac = new AbortController()
+      leadFetchAbortRef.current = ac
+
+      try {
+        const res = await fetch(`/api/canvass/leads/viewport?${params.toString()}`, {
+          credentials: 'include',
+          signal: ac.signal,
+        })
+        const data = (await res.json().catch(() => ({}))) as {
+          pins?: ViewportPin[]
+          error?: string
+          minZoomRequired?: number
+          message?: string
+          truncated?: boolean
+        }
+        if (!res.ok) {
+          setLeadPinsHint(typeof data.error === 'string' ? data.error : 'Could not load pins')
+          clearLeadMarkers()
+          return
+        }
+        if (data.minZoomRequired != null) {
+          clearLeadMarkers()
+          setLeadPinsHint(data.message || 'Zoom in to see pins')
+          return
+        }
+        const pins: ViewportPin[] = Array.isArray(data.pins) ? data.pins : []
+        clearLeadMarkers()
+
+        for (const pin of pins) {
+          if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) continue
+          const disp = String(pin.d || '').toLowerCase()
+          const fill = pin.ia
+            ? '#16a34a'
+            : LEAD_DOT_COLORS[disp] || LEAD_DOT_COLORS.default
+          const marker = new google.maps.Marker({
+            position: { lat: pin.lat, lng: pin.lng },
+            map,
+            optimized: true,
+            zIndex: 30,
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 5,
+              fillColor: fill,
+              fillOpacity: 0.88,
+              strokeColor: '#ffffff',
+              strokeWeight: 1,
+            },
+          })
+          leadMarkersRef.current.push(marker)
+        }
+        setLeadPinsHint(
+          data.truncated ? 'Showing a sample — zoom in for more detail in this area.' : null
+        )
+      } catch (e: unknown) {
+        if (e instanceof Error && e.name === 'AbortError') return
+        setLeadPinsHint('Could not load pins')
+        clearLeadMarkers()
+      }
+    }
+
+    const scheduleLoad = () => {
+      if (leadFetchDebounceRef.current) clearTimeout(leadFetchDebounceRef.current)
+      leadFetchDebounceRef.current = setTimeout(() => {
+        leadFetchDebounceRef.current = null
+        loadPinsForBounds()
+      }, LEADS_VIEWPORT_DEBOUNCE_MS)
+    }
+
+    leadPinsIdleListenerRef.current = google.maps.event.addListener(map, 'idle', scheduleLoad)
+    scheduleLoad()
+    window.setTimeout(() => {
+      google.maps.event.trigger(map, 'idle')
+    }, 200)
+
+    return () => {
+      if (leadFetchDebounceRef.current) {
+        clearTimeout(leadFetchDebounceRef.current)
+        leadFetchDebounceRef.current = null
+      }
+      leadFetchAbortRef.current?.abort()
+      if (leadPinsIdleListenerRef.current) {
+        google.maps.event.removeListener(leadPinsIdleListenerRef.current)
+        leadPinsIdleListenerRef.current = null
+      }
+      clearLeadMarkers()
+      setLeadPinsHint(null)
+    }
+  }, [mapInitialized, ready, showLeadPins, clearLeadMarkers])
 
   useEffect(() => {
     if (!ready || !mapInstanceRef.current) return
@@ -273,6 +481,58 @@ export function CanvassTerritoriesEditor({
       .catch((e) => setError(e instanceof Error ? e.message : 'Maps error'))
   }, [])
 
+  const tapDrawMode = useCallback(() => {
+    const dm = drawingManagerRef.current
+    if (!dm) return
+    dm.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
+    syncPanVersusDraw()
+  }, [syncPanVersusDraw])
+
+  const tapPanMode = useCallback(() => {
+    const dm = drawingManagerRef.current
+    if (!dm) return
+    dm.setDrawingMode(null)
+    syncPanVersusDraw()
+  }, [syncPanVersusDraw])
+
+  const clearDraftShape = useCallback(() => {
+    if (draftPolygonRef.current) {
+      draftPolygonRef.current.setMap(null)
+      draftPolygonRef.current = null
+    }
+    setDraftGeo(null)
+    const dm = drawingManagerRef.current
+    if (dm) {
+      dm.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
+      syncPanVersusDraw()
+    }
+  }, [syncPanVersusDraw])
+
+  const recenterMapOnUser = useCallback(() => {
+    const map = mapInstanceRef.current
+    if (!map) return
+    const finish = (lat: number, lng: number) => {
+      map.panTo({ lat, lng })
+      const z = map.getZoom()
+      if (z !== undefined && z < 14) map.setZoom(16)
+    }
+    if (userLatLng) {
+      finish(userLatLng.lat, userLatLng.lng)
+      return
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        setUserLatLng({ lat, lng })
+        finish(lat, lng)
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 120000 }
+    )
+  }, [userLatLng])
+
   const startNew = () => {
     setSelectedId(null)
     setFormName('')
@@ -285,10 +545,9 @@ export function CanvassTerritoriesEditor({
       draftPolygonRef.current = null
     }
     const dm = drawingManagerRef.current
-    const m = mapInstanceRef.current
-    if (dm && m) {
+    if (dm) {
       dm.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
-      m.setOptions({ draggable: false, scrollwheel: false, gestureHandling: 'none' })
+      syncPanVersusDraw()
     }
   }
 
@@ -304,10 +563,9 @@ export function CanvassTerritoriesEditor({
       draftPolygonRef.current = null
     }
     const dm = drawingManagerRef.current
-    const m = mapInstanceRef.current
-    if (dm && m) {
+    if (dm) {
       dm.setDrawingMode(null)
-      m.setOptions({ draggable: true, scrollwheel: true, gestureHandling: 'greedy' })
+      syncPanVersusDraw()
     }
     const rings = exteriorRingsFromGeoJSON(t.boundary_geojson)
     if (rings[0]?.length && mapInstanceRef.current) {
@@ -574,11 +832,104 @@ export function CanvassTerritoriesEditor({
               </div>
             )}
             <div ref={mapRef} className="w-full h-full min-h-[200px] touch-manipulation" />
+            {ready && mapInitialized && (
+              <div
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] flex flex-col justify-end bg-gradient-to-t from-white via-white/95 to-transparent pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-10 px-2 sm:px-3"
+              >
+                <div className="pointer-events-auto mx-auto w-full max-w-xl space-y-2">
+                  <div
+                    className="flex flex-wrap items-stretch justify-center gap-2"
+                    role="toolbar"
+                    aria-label="Map drawing tools"
+                  >
+                    <button
+                      type="button"
+                      onClick={tapDrawMode}
+                      className={`min-h-[48px] flex-1 min-w-[5.5rem] rounded-xl border-2 px-3 py-2.5 text-sm font-semibold shadow-sm transition active:scale-[0.98] ${
+                        mapTool === 'draw'
+                          ? 'border-indigo-600 bg-indigo-600 text-white'
+                          : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                      }`}
+                    >
+                      Draw area
+                    </button>
+                    <button
+                      type="button"
+                      onClick={tapPanMode}
+                      className={`min-h-[48px] flex-1 min-w-[5.5rem] rounded-xl border-2 px-3 py-2.5 text-sm font-semibold shadow-sm transition active:scale-[0.98] ${
+                        mapTool === 'pan'
+                          ? 'border-indigo-600 bg-indigo-600 text-white'
+                          : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                      }`}
+                    >
+                      Pan map
+                    </button>
+                    <button
+                      type="button"
+                      onClick={recenterMapOnUser}
+                      className="min-h-[48px] min-w-[5.5rem] rounded-xl border-2 border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 active:scale-[0.98]"
+                      title="Center on your location"
+                    >
+                      My location
+                    </button>
+                    {draftGeo && (
+                      <button
+                        type="button"
+                        onClick={clearDraftShape}
+                        className="min-h-[48px] min-w-[5.5rem] rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 active:scale-[0.98]"
+                      >
+                        Clear shape
+                      </button>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/90 px-3 py-2.5 text-xs leading-relaxed text-indigo-950 sm:text-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                      <p className="font-semibold text-indigo-900">Quick guide</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowLeadPins((v) => !v)}
+                        className={`min-h-[44px] shrink-0 rounded-lg border-2 px-3 py-2 text-left text-xs font-semibold shadow-sm transition sm:min-h-0 sm:py-1.5 sm:text-sm ${
+                          showLeadPins
+                            ? 'border-emerald-600 bg-emerald-600 text-white'
+                            : 'border-indigo-200 bg-white text-indigo-900 hover:bg-indigo-100/80'
+                        }`}
+                      >
+                        {showLeadPins ? 'Lead pins on' : 'Show lead pins'}
+                      </button>
+                    </div>
+                    {leadPinsHint && (
+                      <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 sm:text-xs">
+                        {leadPinsHint}
+                      </p>
+                    )}
+                    <ul className="mt-1.5 list-disc space-y-1 pl-4 marker:text-indigo-400">
+                      <li>
+                        <strong>Draw area:</strong> tap each corner. Close the shape by tapping the{' '}
+                        <span className="whitespace-nowrap">first point again</span> (or double-tap the last point).
+                      </li>
+                      <li>
+                        <strong>Pan map:</strong> switch here, then drag with one finger. Or stay on Draw and use{' '}
+                        <span className="font-medium">two fingers</span> to move the map without placing a point.
+                      </li>
+                      <li>
+                        <strong>Field tip:</strong> finish the outline before assigning reps — use{' '}
+                        <span className="font-medium">Clear shape</span> to start over.
+                      </li>
+                      {showLeadPins && (
+                        <li>
+                          <strong>Lead pins:</strong> same data as the canvass map (your org visibility rules).
+                          Dots are read-only — they won&apos;t open lead details here.
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-gray-600 mt-2 px-0.5 leading-snug">
-            <strong>Draw:</strong> tap each corner of the work area. <strong>Pan:</strong> use two fingers, or tap the
-            shape tool above the map to switch to pan. <strong>Finish:</strong> tap the first point again or
-            double-tap the last point.
+          <p className="mt-2 hidden px-0.5 text-xs leading-snug text-gray-600 sm:block">
+            Tools also appear on the map on larger screens. Use <strong>Draw area</strong> / <strong>Pan map</strong>{' '}
+            at the bottom for the best touch experience.
           </p>
         </div>
       </div>
