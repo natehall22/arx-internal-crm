@@ -118,23 +118,6 @@ function getNextAction(
     }
   }
 
-  // Collected enough to satisfy threshold but no payment typed as "deposit" — prompt for a deposit line (tracking)
-  if (
-    !isFinanceJob &&
-    depositStatus.satisfied &&
-    depositStatus.reason === 'threshold_met' &&
-    !depositStatus.hasDepositPayment &&
-    saleAmountCents > 0 &&
-    ['sold', 'materials', 'scheduled', 'in_progress'].includes(status)
-  ) {
-    return {
-      message: 'Add a deposit payment for tracking (collected amount already meets the minimum)',
-      buttonText: 'Record Deposit',
-      color: 'blue',
-      action: 'deposit',
-    }
-  }
-
   // Materials not ordered
   if (materialsStatus === 'not_ordered') {
     return {
