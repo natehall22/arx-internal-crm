@@ -100,7 +100,7 @@ export function CanvassTerritoriesEditor({
   const leadPinsIdleListenerRef = useRef<any>(null)
   const leadFetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const leadFetchAbortRef = useRef<AbortController | null>(null)
-  const showLeadPinsRef = useRef(false)
+  const showLeadPinsRef = useRef(true)
 
   const [ready, setReady] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -124,8 +124,8 @@ export function CanvassTerritoriesEditor({
 
   /** Mirrors Google drawing mode for mobile toolbar (default control is hidden — too small to tap). */
   const [mapTool, setMapTool] = useState<'draw' | 'pan'>('draw')
-  /** Reuses `/api/canvass/leads/viewport` — same pins as main canvass map; default off so drawing stays simple. */
-  const [showLeadPins, setShowLeadPins] = useState(false)
+  /** Reuses `/api/canvass/leads/viewport` — same pins as main canvass map. Default on so assigning areas shows context. */
+  const [showLeadPins, setShowLeadPins] = useState(true)
   const [leadPinsHint, setLeadPinsHint] = useState<string | null>(null)
 
   showLeadPinsRef.current = showLeadPins
@@ -148,9 +148,11 @@ export function CanvassTerritoriesEditor({
     const mode = dm.getDrawingMode()
     const allowOneFingerPan = mode == null
     m.setOptions({
-      draggable: allowOneFingerPan,
-      scrollwheel: allowOneFingerPan,
-      gestureHandling: allowOneFingerPan ? 'greedy' : 'none',
+      draggable: true,
+      scrollwheel: true,
+      // Pan: one finger moves map. Draw: "cooperative" = two fingers pan/zoom (one finger = corners).
+      // Never use "none" here — it blocks ALL gestures; map feels frozen on mobile.
+      gestureHandling: allowOneFingerPan ? 'greedy' : 'cooperative',
     })
     setMapTool(mode ? 'draw' : 'pan')
   }, [])
@@ -257,9 +259,8 @@ export function CanvassTerritoriesEditor({
   // Map must mount in the DOM before this runs. Do not gate the map container on API `loading`,
   // or `ready` becomes true while mapRef is null and the map never initializes.
   //
-  // Mobile: default drawingMode was null (pan), so one-finger drags panned the map and never
-  // added polygon vertices. Start in POLYGON mode and disable one-finger pan while drawing;
-  // gestureHandling "none" still allows two-finger pan/zoom per Maps API.
+  // Mobile: start in POLYGON mode. While drawing, use gestureHandling "cooperative" (two fingers
+  // pan/zoom; one finger places vertices). "none" breaks the map — it disables every gesture.
   useEffect(() => {
     if (!ready || !mapRef.current || mapInstanceRef.current) return
 
@@ -410,21 +411,29 @@ export function CanvassTerritoriesEditor({
             position: { lat: pin.lat, lng: pin.lng },
             map,
             optimized: true,
-            zIndex: 30,
+            zIndex: 80,
             icon: {
               path: google.maps.SymbolPath.CIRCLE,
-              scale: 5,
+              scale: 7,
               fillColor: fill,
-              fillOpacity: 0.88,
+              fillOpacity: 0.92,
               strokeColor: '#ffffff',
-              strokeWeight: 1,
+              strokeWeight: 2,
             },
           })
           leadMarkersRef.current.push(marker)
         }
-        setLeadPinsHint(
-          data.truncated ? 'Showing a sample — zoom in for more detail in this area.' : null
-        )
+        if (pins.length === 0) {
+          setLeadPinsHint(
+            data.truncated
+              ? 'Zoom in — sample cap reached; try a smaller area.'
+              : 'No lead pins here. Pan/zoom where your leads are, or ensure leads have map coordinates.'
+          )
+        } else {
+          setLeadPinsHint(
+            data.truncated ? 'Showing a sample of pins — zoom in to load more in this area.' : null
+          )
+        }
       } catch (e: unknown) {
         if (e instanceof Error && e.name === 'AbortError') return
         setLeadPinsHint('Could not load pins')
@@ -920,8 +929,9 @@ export function CanvassTerritoriesEditor({
                 </li>
                 {showLeadPins && (
                   <li>
-                    <strong>Lead pins:</strong> same data as the canvass map (your org visibility rules). Dots are
-                    read-only — they won&apos;t open lead details here.
+                    <strong>Lead pins:</strong> colored <strong>dots</strong> = your leads (not Google&apos;s business
+                    icons on the satellite). Same rules as the main canvass map. Tap{' '}
+                    <span className="font-medium">Lead pins on</span> to hide dots if the map is too busy.
                   </li>
                 )}
               </ul>
