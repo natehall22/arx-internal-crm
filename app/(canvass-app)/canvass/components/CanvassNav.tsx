@@ -6,6 +6,10 @@ interface Props {
   todayCount: number
   /** Managers: draw work areas / assign reps (hidden for field reps). */
   showWorkAreasLink?: boolean
+  /** True while `/canvass?areas=1` work-areas panel is open. */
+  workAreasActive?: boolean
+  /** Opens work areas (sets `?areas=1`); use with main canvass shell. */
+  onWorkAreas?: () => void
 }
 
 export default function CanvassNav({
@@ -13,14 +17,17 @@ export default function CanvassNav({
   onViewModeChange,
   todayCount,
   showWorkAreasLink = false,
+  workAreasActive = false,
+  onWorkAreas,
 }: Props) {
   return (
     <nav className="bg-white border-t px-2 sm:px-4 py-2 safe-area-bottom">
       <div className="flex items-center justify-around gap-0.5 sm:gap-1 max-w-lg mx-auto">
         <button
+          type="button"
           onClick={() => onViewModeChange('map')}
           className={`flex flex-col items-center py-2 px-6 rounded-xl transition-colors ${
-            viewMode === 'map' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-500'
+            viewMode === 'map' && !workAreasActive ? 'text-indigo-600 bg-indigo-50' : 'text-gray-500'
           }`}
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -29,28 +36,49 @@ export default function CanvassNav({
           <span className="text-[10px] sm:text-xs mt-1 font-medium leading-tight text-center">Map</span>
         </button>
 
-        {showWorkAreasLink && (
-          <a
-            href="/canvass/territories"
-            className="flex flex-col items-center py-2 px-2 sm:px-4 rounded-xl text-gray-500 hover:text-indigo-600"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"
-              />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9h6v6H9V9z" />
-            </svg>
-            <span className="text-[10px] sm:text-xs mt-1 font-medium leading-tight text-center">Areas</span>
-          </a>
-        )}
+        {showWorkAreasLink &&
+          (onWorkAreas ? (
+            <button
+              type="button"
+              onClick={onWorkAreas}
+              className={`flex flex-col items-center py-2 px-2 sm:px-4 rounded-xl transition-colors ${
+                workAreasActive ? 'text-indigo-600 bg-indigo-50' : 'text-gray-500 hover:text-indigo-600'
+              }`}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"
+                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9h6v6H9V9z" />
+              </svg>
+              <span className="text-[10px] sm:text-xs mt-1 font-medium leading-tight text-center">Areas</span>
+            </button>
+          ) : (
+            <a
+              href="/canvass?areas=1"
+              className="flex flex-col items-center py-2 px-2 sm:px-4 rounded-xl text-gray-500 hover:text-indigo-600"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"
+                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9h6v6H9V9z" />
+              </svg>
+              <span className="text-[10px] sm:text-xs mt-1 font-medium leading-tight text-center">Areas</span>
+            </a>
+          ))}
 
         <button
+          type="button"
           onClick={() => onViewModeChange('list')}
           className={`flex flex-col items-center py-2 px-6 rounded-xl transition-colors relative ${
-            viewMode === 'list' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-500'
+            viewMode === 'list' && !workAreasActive ? 'text-indigo-600 bg-indigo-50' : 'text-gray-500'
           }`}
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

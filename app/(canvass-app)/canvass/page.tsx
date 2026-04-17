@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { matchesCanvassDispositionFilter } from '@/lib/canvass-pin-filter'
+import { CanvassTerritoriesEditor } from '@/components/canvass-territories/CanvassTerritoriesEditor'
 import CanvassMap from './components/CanvassMap'
 import CanvassNav from './components/CanvassNav'
 import LeadModal from './components/LeadModal'
 import SyncStatus from './components/SyncStatus'
+import { recordSuccessfulInspectionSubmit } from './lib/inspectionSubmitCooldown'
 import { useOfflineStore } from './lib/offlineStore'
 import { useGeolocation } from './lib/useGeolocation'
 import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLeads'
@@ -47,6 +50,10 @@ export type CanvassPin = {
 type DisplayPin = CanvassPin | ViewportPin
 
 export default function CanvassPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const workAreasParam = searchParams.get('areas') === '1'
+
   const [selectedPin, setSelectedPin] = useState<CanvassPin | null>(null)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [newPinLocation, setNewPinLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -109,12 +116,20 @@ export default function CanvassPage() {
 
   useEffect(() => {
     loadData()
-    
+
     // Register service worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/canvass-sw.js').catch(console.error)
     }
   }, [])
+
+  /** Work areas deep-link only for managers; strip ?areas=1 for everyone else. */
+  useEffect(() => {
+    if (loading || !profile) return
+    if (workAreasParam && !profile.canManageCanvassTerritories) {
+      router.replace('/canvass')
+    }
+  }, [loading, profile, workAreasParam, router])
 
   // Sync pending leads when online
   useEffect(() => {
@@ -130,7 +145,11 @@ export default function CanvassPage() {
       
       if (!response.ok) {
         if (response.status === 401) {
-          window.location.href = '/login?next=/canvass'
+          const next =
+            typeof window !== 'undefined'
+              ? `${window.location.pathname}${window.location.search}`
+              : '/canvass'
+          window.location.href = `/login?next=${encodeURIComponent(next)}`
           return
         }
         console.error('Failed to load canvass data:', response.status)
@@ -288,6 +307,9 @@ export default function CanvassPage() {
           if (response.ok) {
             apiSuccess = true
             const data = await response.json()
+            if (leadData.schedule_inspection) {
+              recordSuccessfulInspectionSubmit()
+            }
             console.log('Lead updated successfully:', { 
               lead_id: data.lead_id,
               disposition: leadData.disposition,
@@ -383,6 +405,9 @@ export default function CanvassPage() {
 
           if (response.ok) {
             const data = await response.json()
+            if (leadData.schedule_inspection) {
+              recordSuccessfulInspectionSubmit()
+            }
             if (data.lead_id) {
               newPin.id = data.lead_id
               newPin.synced = true
@@ -444,6 +469,25 @@ export default function CanvassPage() {
     }
   }
 
+  const showWorkAreasPanel =
+    workAreasParam && profile?.canManageCanvassTerritories === true
+
+  const clearWorkAreasQuery = useCallback(() => {
+    router.replace('/canvass')
+  }, [router])
+
+  const handleViewModeChange = useCallback(
+    (mode: 'map' | 'list') => {
+      clearWorkAreasQuery()
+      setViewMode(mode)
+    },
+    [clearWorkAreasQuery]
+  )
+
+  const openWorkAreas = useCallback(() => {
+    router.replace('/canvass?areas=1')
+  }, [router])
+
   const handleDeleteLead = async (pinId: string) => {
     if (!isOnline) {
       alert('Cannot delete pins while offline')
@@ -493,7 +537,9 @@ export default function CanvassPage() {
           </svg>
           <div>
             <h1 className="font-bold text-lg leading-tight">Canvass</h1>
-            <p className="text-xs text-indigo-200">{profile?.full_name}</p>
+            <p className="text-xs text-indigo-200">
+              {showWorkAreasPanel ? 'Work areas — draw polygons & assign reps' : profile?.full_name}
+            </p>
           </div>
         </div>
         <SyncStatus pendingCount={pendingLeads.length} isOnline={isOnline} />
@@ -501,7 +547,11 @@ export default function CanvassPage() {
 
       {/* Main Content */}
       <main className="flex-1 relative overflow-hidden">
-        {viewMode === 'map' ? (
+        {showWorkAreasPanel ? (
+          <div className="h-full overflow-y-auto overflow-x-hidden p-3 pb-28 sm:p-4">
+            <CanvassTerritoriesEditor forbiddenRedirect="/canvass" compact />
+          </div>
+        ) : viewMode === 'map' ? (
           <CanvassMap
             pins={displayPins}
             currentPosition={position}
@@ -583,22 +633,26 @@ export default function CanvassPage() {
           </div>
         )}
 
-        {/* Floating Action Button - Add new lead (right side, above nav bar) */}
-        <button
-          onClick={handleDropPinAtLocation}
-          className="absolute bottom-24 right-4 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform z-10"
-        >
-          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-        </button>
+        {!showWorkAreasPanel && (
+          <button
+            type="button"
+            onClick={handleDropPinAtLocation}
+            className="absolute bottom-24 right-4 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg transition-transform active:scale-95"
+          >
+            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+          </button>
+        )}
       </main>
 
       {/* Bottom Navigation */}
       <CanvassNav
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={handleViewModeChange}
         showWorkAreasLink={profile?.canManageCanvassTerritories === true}
+        workAreasActive={showWorkAreasPanel}
+        onWorkAreas={profile?.canManageCanvassTerritories ? openWorkAreas : undefined}
         todayCount={displayPins.filter(p => {
           const today = new Date()
           today.setHours(0, 0, 0, 0)

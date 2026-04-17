@@ -2,7 +2,6 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { createClientBrowser } from '@/lib/supabase/client'
 import type { CanvassPin } from '../page'
 
 interface OfflineState {
@@ -47,38 +46,33 @@ export const useOfflineStore = create<OfflineState>()(
         const { pendingLeads, removeLead } = get()
         if (pendingLeads.length === 0) return
 
-        const supabase = createClientBrowser()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-
-        const { data: profile } = await supabase
-          .from('users')
-          .select('org_id')
-          .eq('id', user.id)
-          .single()
-
-        if (!profile) return
+        const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
         for (const lead of pendingLeads) {
           try {
-            const { error } = await supabase.from('leads').insert({
-              org_id: profile.org_id,
-              owner_user_id: lead.owner_user_id || user.id,
-              lat: lead.lat,
-              lng: lead.lng,
-              homeowner_name: lead.homeowner_name,
-              address_text: lead.address_text,
-              phone: lead.phone,
-              email: lead.email,
-              status: lead.status || 'new',
-              canvass_disposition: lead.disposition,
-              notes: lead.notes,
-              source: 'canvass',
-              channel: 'outbound',
+            // Same server path as online saves — avoids duplicate rows from raw inserts + retries.
+            const res = await fetch(`${origin}/api/canvass/lead`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                lat: lead.lat,
+                lng: lead.lng,
+                homeowner_name: lead.homeowner_name,
+                address_text: lead.address_text,
+                phone: lead.phone,
+                email: lead.email,
+                canvass_disposition: lead.disposition,
+                canvass_notes: lead.notes,
+                source: 'canvass',
+              }),
             })
 
-            if (!error) {
+            if (res.ok) {
               removeLead(lead.id)
+            } else {
+              const errText = await res.text().catch(() => '')
+              console.error('Failed to sync lead:', res.status, errText)
             }
           } catch (e) {
             console.error('Failed to sync lead:', e)

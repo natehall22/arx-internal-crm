@@ -1192,7 +1192,7 @@ export default function UsersPage() {
                     </p>
                     <p className="mt-2 text-xs text-gray-600">
                       <strong>Work areas:</strong> managers draw polygons and assign reps or teams in the{' '}
-                      <a href="/canvass/territories" className="text-indigo-600 hover:underline">
+                      <a href="/canvass?areas=1" className="text-indigo-600 hover:underline">
                         Canvass app → Work areas
                       </a>
                       , then set visibility to Work areas here.

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { getInspectionSubmitCooldownRemainingMs } from '../lib/inspectionSubmitCooldown'
 import type { CanvassPin } from '../page'
 
 // Disposition config from admin settings
@@ -218,6 +219,14 @@ export default function LeadModal({
     }
 
     if (showScheduling && selectedTime && selectedCloser) {
+      const remaining = getInspectionSubmitCooldownRemainingMs()
+      if (remaining > 0) {
+        const secs = Math.max(1, Math.ceil(remaining / 1000))
+        alert(
+          `Please wait ${secs}s before scheduling another inspection (helps prevent duplicate bookings).`
+        )
+        return
+      }
       saveData.schedule_inspection = true
       saveData.closer_user_id = selectedCloser
       saveData.inspection_scheduled_for = selectedTime

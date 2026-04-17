@@ -459,6 +459,10 @@ export async function POST(request: Request) {
     }
 
     let leadRow: any = null
+    /** True when this request created a new lead row (not an update). Used to roll back on scheduling failure. */
+    const isNewLeadCreate = !leadId
+    /** True only when we inserted a new opportunities row in this request (not reused existing). */
+    let opportunityInsertedThisRequest = false
 
     if (leadId) {
       const { data: updatedLead, error: updateError } = await supabase
@@ -611,6 +615,11 @@ export async function POST(request: Request) {
 
     // Do not allow "scheduled" inspections without an assigned closer (round-robin failure, empty queue, etc.).
     if (scheduleInspection && inspectionScheduledFor && !closerUserId) {
+      // Lead was already inserted; without rollback the user retries and gets duplicate Sheryl Blacks.
+      if (isNewLeadCreate && leadRow?.id) {
+        await supabase.from('leads').delete().eq('id', leadRow.id).eq('org_id', profile.org_id)
+        console.log('Rolled back new lead after NO_CLOSER_ASSIGNED:', leadRow.id)
+      }
       return NextResponse.json(
         {
           error:
@@ -667,6 +676,7 @@ export async function POST(request: Request) {
           opportunityId = fallbackOpportunity?.id ?? null
         } else {
           opportunityId = newOpportunity?.id ?? null
+          if (opportunityId) opportunityInsertedThisRequest = true
         }
       }
 
@@ -682,6 +692,13 @@ export async function POST(request: Request) {
         )
 
         if (!availabilityCheck.available) {
+          if (isNewLeadCreate && leadRow?.id) {
+            if (opportunityInsertedThisRequest && opportunityId) {
+              await supabase.from('opportunities').delete().eq('id', opportunityId).eq('org_id', profile.org_id)
+            }
+            await supabase.from('leads').delete().eq('id', leadRow.id).eq('org_id', profile.org_id)
+            console.log('Rolled back new lead (and new opportunity if any) after SCHEDULING_CONFLICT:', leadRow.id)
+          }
           return NextResponse.json(
             {
               error: availabilityCheck.error || 'Selected closer is not available at that time',
@@ -729,6 +746,13 @@ export async function POST(request: Request) {
             roundRobinGoogleEventId = existingAfterConflict.google_event_id || roundRobinGoogleEventId
             reusedExistingAppointment = true
           } else {
+            if (isNewLeadCreate && leadRow?.id) {
+              if (opportunityInsertedThisRequest && opportunityId) {
+                await supabase.from('opportunities').delete().eq('id', opportunityId).eq('org_id', profile.org_id)
+              }
+              await supabase.from('leads').delete().eq('id', leadRow.id).eq('org_id', profile.org_id)
+              console.log('Rolled back new lead after appointment insert failure:', leadRow.id)
+            }
             return NextResponse.json(
               {
                 error: 'Failed to create appointment',
@@ -752,21 +776,25 @@ export async function POST(request: Request) {
       }
     }
 
-    // Sync to Google Calendar if we have a closer and scheduled time
-    // SKIP if round-robin was used - it already creates calendar events
+    // Google Calendar wiring (closer’s calendar = user_google_tokens for closer_user_id):
+    // 1) Team round-robin: assignNextAvailableCloser creates the event when a token exists; result in roundRobinGoogleEventId.
+    // 2) If RR assigned but event creation failed, roundRobinHandledCalendar is false → backup sync runs (same closer).
+    // 3) Manual closer pick: no RR → syncToGoogleCalendar uses closer’s paired token via getValidAccessToken.
+    // syncToGoogleCalendar returns synced:false + error if the closer has no token (appointment still exists in CRM).
     let calendarSynced = false
     let setterCalendarSynced = false
     let googleEventId: string | null = roundRobinGoogleEventId
     let calendarError: string | null = null
     let setterCalendarError: string | null = null
     
-    // Only skip manual sync if round-robin actually created a calendar event.
-    // If round-robin assigned without creating the event, run backup sync below.
+    // Only treat RR as having handled the calendar if it actually returned a Google event id.
     const roundRobinHandledCalendar = useRoundRobin && Boolean(roundRobinGoogleEventId)
+    // Secondary sync: needs local slot string for Google (same as client sent in inspection_scheduled_for).
     const shouldRunSecondaryCalendarSync = Boolean(
       scheduleInspection &&
       closerUserId &&
       inspectionScheduledFor &&
+      inspectionLocalTime &&
       !roundRobinHandledCalendar &&
       !googleEventId
     )
