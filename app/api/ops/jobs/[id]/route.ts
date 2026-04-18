@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { getJobPaymentSummary } from '@/lib/job-payments'
+import { canAccessJobBoard } from '@/lib/permissions'
 
 const jobSelectWithPaymentMethod = `
   *,
@@ -50,6 +51,10 @@ export async function PATCH(
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (!canAccessJobBoard(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Verify job exists and belongs to user's org

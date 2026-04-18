@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { enqueuePaymentRecorded } from '@/lib/integrations'
 import { canAccessJobBilling } from '@/lib/finance-access'
+import { getJobPaymentSummary } from '@/lib/job-payments'
+import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
 
 // GET - Get all payments for a job with summary
 export async function GET(
@@ -128,7 +130,7 @@ export async function POST(
     // Verify job exists and belongs to user's org
     const { data: job, error: jobError } = await adminClient
       .from('production_jobs')
-      .select('id, customer_id')
+      .select('id, customer_id, job_number, address_text')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -176,6 +178,26 @@ export async function POST(
       method,
       payer,
     }).catch(err => console.error('Failed to enqueue payment event:', err))
+
+    // Email admin + operations (non-blocking)
+    getJobPaymentSummary(adminClient, params.id)
+      .then((summary) => {
+        if (!summary) return
+        return notifyAdminOpsOfJobPayment(adminClient, {
+          orgId: profile.org_id,
+          jobId: params.id,
+          jobNumber: job.job_number || params.id,
+          addressText: job.address_text || '',
+          amountCents: amount_cents,
+          payer: String(payer),
+          method: String(method),
+          paidAt: String(paid_at),
+          collectedCents: summary.collected_cents,
+          remainingCents: summary.remaining_cents,
+          saleAmountCents: summary.sale_amount_cents,
+        })
+      })
+      .catch((err) => console.error('notifyAdminOpsOfJobPayment failed:', err))
 
     return NextResponse.json({ success: true, payment })
 

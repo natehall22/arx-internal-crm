@@ -43,6 +43,8 @@ interface Job {
     install_date?: string | null
     project_review?: unknown
   } | null
+  /** Sum of job_payments (cents); from list API for payment badges */
+  collected_cents?: number
 }
 
 interface Crew {
@@ -89,6 +91,19 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   received: { label: 'Fully Delivered', color: 'text-green-600' },
 }
 
+function paymentStatusChip(job: Job): { label: string; className: string } | null {
+  const saleCents = Math.round((job.sale_amount || 0) * 100)
+  if (saleCents <= 0) return null
+  const collected = job.collected_cents ?? 0
+  if (collected >= saleCents) {
+    return { label: 'Paid in full', className: 'bg-emerald-50 text-emerald-800 border border-emerald-200' }
+  }
+  if (collected > 0) {
+    return { label: 'Partially paid', className: 'bg-amber-50 text-amber-800 border border-amber-200' }
+  }
+  return { label: 'Unpaid', className: 'bg-gray-50 text-gray-700 border border-gray-200' }
+}
+
 export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId, canViewProfitability }: OpsClientProps) {
   const router = useRouter()
   const [jobs, setJobs] = useState<Job[]>(initialJobs)
@@ -104,6 +119,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   }, [])
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleModalMode, setScheduleModalMode] = useState<'schedule' | 'reassign'>('schedule')
   const [snapshotJob, setSnapshotJob] = useState<Job | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -222,7 +238,8 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const filteredActiveJobs = activeJobs.filter(matchesActiveFilters)
   const filteredCompletedJobs = completedJobs.filter((job) => matchesSearch(job, completedSearchQuery))
 
-  const openScheduleModal = (job: Job) => {
+  const openScheduleModal = (job: Job, mode: 'schedule' | 'reassign' = 'schedule') => {
+    setScheduleModalMode(mode)
     setSelectedJob(job)
     setShowScheduleModal(true)
   }
@@ -230,6 +247,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   const handleScheduleSave = async () => {
     setShowScheduleModal(false)
     setSelectedJob(null)
+    setScheduleModalMode('schedule')
     await loadData()
   }
 
@@ -282,6 +300,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     const priority = priorityConfig[job.priority] || priorityConfig.normal
     const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
     const hasOpsSnapshot = hasOperationsSnapshotData(job.project ?? null)
+    const payChip = paymentStatusChip(job)
 
     const needsMaterials = job.materials_status === 'not_ordered'
     const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
@@ -315,6 +334,14 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           )}
           <div className="text-xs text-gray-500 truncate">{job.address_text}</div>
         </div>
+
+        {payChip && (
+          <div className="mb-2.5">
+            <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${payChip.className}`}>
+              {payChip.label}
+            </span>
+          </div>
+        )}
 
         {/* Alert badges — text only, no cryptic dots */}
         {(needsMaterials || needsCrew || isPastDue) && (
@@ -403,11 +430,19 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             </button>
           )}
           <button
-            onClick={(e) => { e.stopPropagation(); openScheduleModal(job) }}
+            onClick={(e) => { e.stopPropagation(); openScheduleModal(job, 'schedule') }}
             className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
           >
             {job.scheduled_date ? 'Reschedule' : 'Schedule'}
           </button>
+          {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); openScheduleModal(job, 'reassign') }}
+              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-white text-gray-800 rounded-lg font-medium hover:bg-gray-50 border border-gray-300"
+            >
+              Reassign
+            </button>
+          )}
           {job.status === 'scheduled' && (
             <button
               onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'in_progress') }}
@@ -584,6 +619,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                 const config = statusConfig[job.status]
                 const isPastDue = job.scheduled_date && new Date(job.scheduled_date + 'T23:59:59') < new Date() && job.status !== 'complete' && job.status !== 'collected'
                 const needsMaterials = job.materials_status === 'not_ordered'
+                const payChip = paymentStatusChip(job)
                 return (
                   <div key={job.id} className="bg-white rounded-xl border shadow-sm p-4">
                     {/* Customer + status */}
@@ -600,7 +636,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                     </div>
 
                     {/* Job number + type */}
-                    <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
                       <span className="text-xs font-mono text-gray-400">{job.job_number}</span>
                       <span className={`text-xs px-1.5 py-0.5 rounded-full ${
                         job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
@@ -608,6 +644,11 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
                         'bg-gray-100 text-gray-700'
                       }`}>{job.job_type}</span>
+                      {payChip && (
+                        <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${payChip.className}`}>
+                          {payChip.label}
+                        </span>
+                      )}
                     </div>
 
                     {/* Alerts */}
@@ -631,16 +672,25 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                     </div>
 
                     {/* Actions */}
-                    <div className="flex gap-2 pt-3 border-t">
+                    <div className="flex flex-wrap gap-2 pt-3 border-t">
                       <button
-                        onClick={() => openScheduleModal(job)}
-                        className="flex-1 min-h-[44px] text-sm py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg font-medium border border-indigo-200 hover:bg-indigo-100"
+                        onClick={() => openScheduleModal(job, 'schedule')}
+                        className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg font-medium border border-indigo-200 hover:bg-indigo-100"
                       >
                         {job.scheduled_date ? 'Reschedule' : 'Schedule'}
                       </button>
+                      {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
+                        <button
+                          type="button"
+                          onClick={() => openScheduleModal(job, 'reassign')}
+                          className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-white text-gray-800 rounded-lg font-medium border border-gray-300 hover:bg-gray-50"
+                        >
+                          Reassign
+                        </button>
+                      )}
                       <Link
                         href={`/ops/jobs/${job.id}`}
-                        className="flex-1 min-h-[44px] flex items-center justify-center text-sm text-indigo-600 font-medium border border-indigo-200 rounded-lg hover:bg-indigo-50"
+                        className="flex-1 min-w-[120px] min-h-[44px] flex items-center justify-center text-sm text-indigo-600 font-medium border border-indigo-200 rounded-lg hover:bg-indigo-50"
                       >
                         View Job →
                       </Link>
@@ -658,6 +708,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material Delivery</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scheduled</th>
@@ -675,6 +726,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                   const priority = priorityConfig[job.priority] || priorityConfig.normal
                   const profitability = getProfitability(job)
                   const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
+                  const payChip = paymentStatusChip(job)
 
                   return (
                     <tr key={job.id} className="hover:bg-gray-50">
@@ -710,6 +762,15 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         <span className={`text-xs px-2 py-1 rounded-full ${config.bgColor} ${config.color}`}>
                           {config.label}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {payChip ? (
+                          <span className={`text-xs px-2 py-1 rounded font-medium ${payChip.className}`}>
+                            {payChip.label}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`text-xs ${materials.color}`}>{materials.label}</span>
@@ -762,13 +823,23 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         </td>
                       )}
                       <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end flex-wrap gap-x-3 gap-y-1">
                           <button
-                            onClick={() => openScheduleModal(job)}
+                            type="button"
+                            onClick={() => openScheduleModal(job, 'schedule')}
                             className="text-xs text-indigo-600 hover:text-indigo-800"
                           >
-                            Schedule
+                            {job.scheduled_date ? 'Reschedule' : 'Schedule'}
                           </button>
+                          {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
+                            <button
+                              type="button"
+                              onClick={() => openScheduleModal(job, 'reassign')}
+                              className="text-xs text-gray-700 hover:text-gray-900"
+                            >
+                              Reassign
+                            </button>
+                          )}
                           <Link
                             href={`/ops/jobs/${job.id}`}
                             className="text-xs text-gray-600 hover:text-gray-800"
@@ -944,10 +1015,19 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
 
       {showScheduleModal && selectedJob && (
         <ScheduleJobModal
-          job={selectedJob}
+          mode={scheduleModalMode}
+          job={{
+            ...selectedJob,
+            assigned_crew_id: selectedJob.assigned_crew?.id ?? null,
+            assigned_sub_id: selectedJob.assigned_sub?.id ?? null,
+          }}
           crews={crews}
           subs={subs}
-          onClose={() => { setShowScheduleModal(false); setSelectedJob(null); }}
+          onClose={() => {
+            setShowScheduleModal(false)
+            setSelectedJob(null)
+            setScheduleModalMode('schedule')
+          }}
           onSave={handleScheduleSave}
         />
       )}

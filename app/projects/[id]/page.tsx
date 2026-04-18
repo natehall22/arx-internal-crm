@@ -18,6 +18,10 @@ import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
 import { parseProjectReviewStored } from '@/lib/project-review'
 import { canAccessJobBoard } from '@/lib/permissions'
+import { canAccessJobBilling } from '@/lib/finance-access'
+import PayrollAttributionEditor, {
+  type PayrollAttributionData,
+} from '@/components/payroll/PayrollAttributionEditor'
 
 /** Label for list/detail — matches `mapJobStatusToProjectStatus` on projects list (job is source of truth). */
 function jobStatusLabel(jobStatus: string | null | undefined): string {
@@ -239,6 +243,47 @@ export default async function ProjectDetailPage({
   const customerName = project.customers?.name || project.leads?.homeowner_name || 'Customer'
   const customerEmail = project.customers?.email || project.leads?.email || null
 
+  const canViewJobBilling = canAccessJobBilling({ role: profile.role })
+  const canEditPayrollAttribution = ['admin', 'owner', 'operations'].includes(profile.role)
+
+  let payrollAttribution: PayrollAttributionData | null = null
+  const linkedOpportunityId = project.opportunity_id as string | null | undefined
+  if (linkedOpportunityId) {
+    const { data: oppRow } = await supabase
+      .from('opportunities')
+      .select('setter_user_id, owner_user_id')
+      .eq('id', linkedOpportunityId)
+      .eq('org_id', profile.org_id)
+      .maybeSingle()
+
+    if (oppRow) {
+      const setterId = oppRow.setter_user_id ?? null
+      const closerId = oppRow.owner_user_id ?? null
+      const ids = [setterId, closerId].filter((x): x is string => typeof x === 'string')
+      const nameById = new Map<string, string>()
+      if (ids.length > 0) {
+        const { data: nameRows } = await supabase
+          .from('users')
+          .select('id, full_name')
+          .eq('org_id', profile.org_id)
+          .in('id', ids)
+        for (const u of nameRows || []) {
+          nameById.set(u.id, u.full_name || u.id)
+        }
+      }
+      payrollAttribution = {
+        opportunity_id: linkedOpportunityId,
+        setter_user_id: setterId,
+        closer_user_id: closerId,
+        setter_name: setterId ? nameById.get(setterId) ?? null : null,
+        closer_name: closerId ? nameById.get(closerId) ?? null : null,
+      }
+    }
+  }
+
+  const showPayrollAttribution =
+    payrollAttribution && (canViewJobBilling || canEditPayrollAttribution)
+
   const projectReviewStored = parseProjectReviewStored(
     (project as { project_review?: unknown }).project_review
   )
@@ -444,6 +489,16 @@ export default async function ProjectDetailPage({
             )}
           </div>
         </div>
+
+        {showPayrollAttribution && payrollAttribution && (
+          <div className="mb-6">
+            <PayrollAttributionEditor
+              opportunityId={payrollAttribution.opportunity_id}
+              initial={payrollAttribution}
+              canEdit={canEditPayrollAttribution}
+            />
+          </div>
+        )}
 
         {/* Installation Agreement - from order_form_contracts */}
         {installationAgreement && (

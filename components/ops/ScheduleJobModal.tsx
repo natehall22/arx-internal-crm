@@ -33,9 +33,12 @@ interface Props {
   subs: SubContractor[]
   onClose: () => void
   onSave: () => void
+  /** `reassign` only updates crew/sub; does not change schedule date or force status. */
+  mode?: 'schedule' | 'reassign'
 }
 
-export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: Props) {
+export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mode = 'schedule' }: Props) {
+  const isReassignOnly = mode === 'reassign'
   const [assigneeType, setAssigneeType] = useState<'crew' | 'sub'>(
     job.assigned_sub_id ? 'sub' : 'crew'
   )
@@ -63,7 +66,7 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
   })
 
   const handleSave = async () => {
-    if (!scheduledDate) {
+    if (!isReassignOnly && !scheduledDate) {
       alert('Please select a date')
       return
     }
@@ -81,19 +84,32 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
     setSaving(true)
 
     try {
-      const updates: any = {
-        scheduled_date: scheduledDate,
-        scheduled_time_start: scheduledTimeStart,
-        estimated_duration_hours: parseFloat(estimatedHours) || 8,
-        status: 'scheduled',
-      }
+      let updates: Record<string, unknown>
 
-      if (assigneeType === 'crew') {
-        updates.assigned_crew_id = selectedCrewId
-        updates.assigned_sub_id = null
+      if (isReassignOnly) {
+        updates = {}
+        if (assigneeType === 'crew') {
+          updates.assigned_crew_id = selectedCrewId
+          updates.assigned_sub_id = null
+        } else {
+          updates.assigned_sub_id = selectedSubId
+          updates.assigned_crew_id = null
+        }
       } else {
-        updates.assigned_sub_id = selectedSubId
-        updates.assigned_crew_id = null
+        updates = {
+          scheduled_date: scheduledDate,
+          scheduled_time_start: scheduledTimeStart,
+          estimated_duration_hours: parseFloat(estimatedHours) || 8,
+          status: 'scheduled',
+        }
+
+        if (assigneeType === 'crew') {
+          updates.assigned_crew_id = selectedCrewId
+          updates.assigned_sub_id = null
+        } else {
+          updates.assigned_sub_id = selectedSubId
+          updates.assigned_crew_id = null
+        }
       }
 
       const response = await fetch(`/api/ops/jobs/${job.id}`, {
@@ -121,7 +137,9 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full">
         {/* Header */}
         <div className="p-6 border-b">
-          <h2 className="text-xl font-bold text-gray-900">Schedule Job</h2>
+          <h2 className="text-xl font-bold text-gray-900">
+            {isReassignOnly ? 'Reassign crew or sub' : 'Schedule Job'}
+          </h2>
           <p className="text-gray-500 text-sm mt-1">
             {job.job_number} • {job.customer?.name || job.address_text}
           </p>
@@ -129,7 +147,21 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
 
         {/* Content */}
         <div className="p-6 space-y-6">
+          {isReassignOnly && job.scheduled_date && (
+            <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700">
+              <span className="font-medium text-gray-900">Current install date: </span>
+              {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                timeZone: 'America/New_York',
+              })}
+              <span className="text-gray-500"> (unchanged)</span>
+            </div>
+          )}
+
           {/* Date Selection */}
+          {!isReassignOnly && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Install Date *
@@ -142,8 +174,10 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
               min={new Date().toISOString().split('T')[0]}
             />
           </div>
+          )}
 
           {/* Time & Duration */}
+          {!isReassignOnly && (
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -185,6 +219,7 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
               </select>
             </div>
           </div>
+          )}
 
           {/* Assignment Type */}
           <div>
@@ -328,7 +363,7 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave }: 
             disabled={saving}
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
           >
-            {saving ? 'Scheduling...' : 'Schedule Job'}
+            {saving ? 'Saving...' : isReassignOnly ? 'Save assignment' : 'Schedule Job'}
           </button>
         </div>
       </div>

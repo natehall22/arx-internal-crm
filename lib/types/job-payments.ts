@@ -21,6 +21,9 @@ export type PaymentPayer =
   | 'financing'
   | 'other'
 
+/** See `lib/weekly-payroll/explicit-rules.ts` — cleared counts toward fully funded; pending does not. */
+export type FundingStatus = 'pending' | 'cleared'
+
 export interface JobPayment {
   id: string
   job_id: string
@@ -32,6 +35,9 @@ export interface JobPayment {
   note: string | null
   created_at: string
   created_by: string | null
+  funding_status?: FundingStatus
+  /** When set, second insert with same (job_id, idempotency_key) is a duplicate and must be rejected. */
+  idempotency_key?: string | null
 }
 
 export interface JobPaymentInsert {
@@ -43,6 +49,8 @@ export interface JobPaymentInsert {
   payer: PaymentPayer
   note?: string | null
   created_by?: string | null
+  funding_status?: FundingStatus
+  idempotency_key?: string | null
 }
 
 export interface JobPaymentSummary {

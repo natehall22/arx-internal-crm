@@ -351,6 +351,53 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
   }
 
+  const projectOppId =
+    rawProject && typeof rawProject === 'object' && 'opportunity_id' in rawProject
+      ? (rawProject as { opportunity_id?: string | null }).opportunity_id
+      : null
+  const resolvedOppId = opportunityId || projectOppId || null
+
+  let payrollAttribution: {
+    opportunity_id: string
+    setter_user_id: string | null
+    closer_user_id: string | null
+    setter_name: string | null
+    closer_name: string | null
+  } | null = null
+
+  if (resolvedOppId) {
+    const { data: opp } = await supabaseService
+      .from('opportunities')
+      .select('setter_user_id, owner_user_id')
+      .eq('id', resolvedOppId)
+      .eq('org_id', profile.org_id)
+      .maybeSingle()
+
+    if (opp) {
+      const setterId = opp.setter_user_id ?? null
+      const closerId = opp.owner_user_id ?? null
+      const ids = [setterId, closerId].filter((x): x is string => typeof x === 'string')
+      const nameById = new Map<string, string>()
+      if (ids.length > 0) {
+        const { data: nameRows } = await supabaseService
+          .from('users')
+          .select('id, full_name')
+          .eq('org_id', profile.org_id)
+          .in('id', ids)
+        for (const u of nameRows || []) {
+          nameById.set(u.id, u.full_name || u.id)
+        }
+      }
+      payrollAttribution = {
+        opportunity_id: resolvedOppId,
+        setter_user_id: setterId,
+        closer_user_id: closerId,
+        setter_name: setterId ? nameById.get(setterId) || null : null,
+        closer_name: closerId ? nameById.get(closerId) || null : null,
+      }
+    }
+  }
+
   const transformedJob = {
     ...jobRes.data,
     dealer_fee_amount: proposalDealerFee?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount,
@@ -361,9 +408,12 @@ export default async function JobDetailPage({ params }: PageProps) {
     customer: customer,
     salesperson: Array.isArray(jobRes.data.salesperson) ? jobRes.data.salesperson[0] : jobRes.data.salesperson,
     project: rawProject,
-    opportunity_id: opportunityId,
+    opportunity_id: resolvedOppId,
     installation_agreement: installationAgreement,
+    payroll_attribution: payrollAttribution,
   }
+
+  const canEditPayrollAttribution = ['admin', 'owner', 'operations'].includes(profile.role)
 
   return (
     <JobDetailClient
@@ -372,6 +422,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       subs={subsRes.data || []}
       userRole={profile.role}
       canViewJobBilling={canViewJobBilling}
+      canEditPayrollAttribution={canEditPayrollAttribution}
       changeOrdersSection={
         showChangeOrdersSection
           ? {

@@ -19,6 +19,7 @@ import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
 import OperationsSnapshotCard from '@/components/ops/OperationsSnapshotCard'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
+import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
 
@@ -79,6 +80,13 @@ interface Job {
   accepted_estimate_id?: string | null
   linked_proposal_id?: string | null
   opportunity_id?: string | null
+  payroll_attribution?: {
+    opportunity_id: string
+    setter_user_id: string | null
+    closer_user_id: string | null
+    setter_name: string | null
+    closer_name: string | null
+  } | null
   special_instructions?: string | null
   assigned_crew?: { id: string; name: string; color: string; phone: string } | null
   assigned_sub?: { id: string; company_name: string; contact_name: string; phone: string } | null
@@ -187,7 +195,7 @@ function renderWorkflowButton(
   isPrimary: boolean,
     opts: {
     saving: boolean
-    setShowScheduleModal: (v: boolean) => void
+    openScheduleModal: (mode?: 'schedule' | 'reassign') => void
     updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
     handleCompleteClick: () => void
     handleCollectedClick: () => void
@@ -206,12 +214,12 @@ function renderWorkflowButton(
   const pc = isPrimary ? primaryIndigo : outline
   const pcGreen = isPrimary ? primaryGreen : outline
   const pcGray = isPrimary ? primaryGray : outline
-  const { saving, setShowScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, canMarkCollected, markCollectedTitle } = opts
+  const { saving, openScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, canMarkCollected, markCollectedTitle } = opts
 
   switch (id) {
     case 'schedule':
       return (
-        <button key={id} type="button" onClick={() => setShowScheduleModal(true)} className={pc}>
+        <button key={id} type="button" onClick={() => openScheduleModal('schedule')} className={pc}>
           {job.scheduled_date ? 'Reschedule' : 'Schedule Job'}
         </button>
       )
@@ -309,6 +317,7 @@ interface JobDetailClientProps {
   subs: SubContractor[]
   userRole: string
   canViewJobBilling: boolean
+  canEditPayrollAttribution: boolean
   changeOrdersSection: JobChangeOrdersSectionProps | null
 }
 
@@ -474,6 +483,7 @@ export default function JobDetailClient({
   subs,
   userRole,
   canViewJobBilling,
+  canEditPayrollAttribution,
   changeOrdersSection,
 }: JobDetailClientProps) {
   const router = useRouter()
@@ -482,6 +492,12 @@ export default function JobDetailClient({
   const [saving, setSaving] = useState(false)
   const [savingLaborCost, setSavingLaborCost] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleModalMode, setScheduleModalMode] = useState<'schedule' | 'reassign'>('schedule')
+
+  const openScheduleModal = useCallback((mode: 'schedule' | 'reassign' = 'schedule') => {
+    setScheduleModalMode(mode)
+    setShowScheduleModal(true)
+  }, [])
   const [newNoteText, setNewNoteText] = useState('')
   const [jobNotes, setJobNotes] = useState<JobNote[]>([])
   const [loadingNotes, setLoadingNotes] = useState(true)
@@ -783,6 +799,9 @@ export default function JobDetailClient({
           salesperson: Array.isArray(data.salesperson) ? data.salesperson[0] : data.salesperson,
           project: rawProject,
           installation_agreement: job.installation_agreement,
+          /** Server job payload does not include opportunity / payroll attribution — preserve from SSR. */
+          payroll_attribution: job.payroll_attribution,
+          opportunity_id: job.opportunity_id,
         }
         setJob(transformedJob)
       }
@@ -1011,7 +1030,7 @@ export default function JobDetailClient({
           assignedSubId={job.assigned_sub?.id || null}
           financeSubmittedAt={job.finance_submitted_at || null}
           refreshKey={paymentsRefreshKey}
-          onSchedule={() => setShowScheduleModal(true)}
+          onSchedule={() => openScheduleModal('schedule')}
           onMarkJobComplete={handleCompleteClick}
           onStartJob={() => updateStatus('in_progress')}
         />
@@ -1045,7 +1064,7 @@ export default function JobDetailClient({
               const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
               const wfOpts = {
                 saving,
-                setShowScheduleModal,
+                openScheduleModal,
                 updateStatus,
                 handleCompleteClick,
                 handleCollectedClick,
@@ -1154,6 +1173,31 @@ export default function JobDetailClient({
                         {job.priority}
                       </span>
                     )}
+                    {canViewJobBilling && paymentSummary && (() => {
+                      const saleCents = Math.round((job.sale_amount || 0) * 100)
+                      if (saleCents <= 0) return null
+                      const collected = paymentSummary.collected_cents
+                      const full = collected >= saleCents
+                      const partial = collected > 0 && !full
+                      const label = full ? 'Paid in full' : partial ? 'Partially paid' : 'Unpaid'
+                      const cls = full
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : partial
+                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                          : 'bg-gray-50 text-gray-700 border-gray-200'
+                      return (
+                        <span
+                          className={`px-2.5 py-1 text-xs font-medium rounded-full border ${cls}`}
+                          title={
+                            full
+                              ? 'Recorded payments cover the contract amount'
+                              : `Collected ${paymentSummary.collected_dollars.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} of ${(job.sale_amount || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}`
+                          }
+                        >
+                          {label}
+                        </span>
+                      )
+                    })()}
                   </div>
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">
                     {job.customer?.name || 'Customer'}
@@ -1283,7 +1327,7 @@ export default function JobDetailClient({
                   const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
                   const wfOpts = {
                     saving,
-                    setShowScheduleModal,
+                    openScheduleModal,
                     updateStatus,
                     handleCompleteClick,
                     handleCollectedClick,
@@ -1514,7 +1558,7 @@ export default function JobDetailClient({
                       <p className="text-xs text-amber-800/90 mt-0.5">Add a date to get this job on the calendar.</p>
                       <button
                         type="button"
-                        onClick={() => setShowScheduleModal(true)}
+                        onClick={() => openScheduleModal('schedule')}
                         className="mt-3 min-h-[44px] w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
                       >
                         Schedule now
@@ -1526,7 +1570,18 @@ export default function JobDetailClient({
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Assignment</h2>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Assignment</h2>
+                {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
+                  <button
+                    type="button"
+                    onClick={() => openScheduleModal('reassign')}
+                    className="min-h-[44px] shrink-0 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-50 w-full sm:w-auto"
+                  >
+                    Reassign crew or sub
+                  </button>
+                )}
+              </div>
               {job.assigned_crew ? (
                 <div className="flex items-center gap-3">
                   <div 
@@ -1564,7 +1619,8 @@ export default function JobDetailClient({
                 <div className="text-center py-4">
                   <p className="text-gray-900 mb-3">Not assigned</p>
                   <button
-                    onClick={() => setShowScheduleModal(true)}
+                    type="button"
+                    onClick={() => openScheduleModal('schedule')}
                     className="min-h-[44px] text-sm text-indigo-600 hover:text-indigo-800"
                   >
                     Assign crew or sub →
@@ -1672,6 +1728,17 @@ export default function JobDetailClient({
                   </div>
                 </div>
               </div>
+            )}
+
+            {job.payroll_attribution && (canViewJobBilling || canEditPayrollAttribution) && (
+              <PayrollAttributionEditor
+                opportunityId={job.payroll_attribution.opportunity_id}
+                initial={job.payroll_attribution}
+                canEdit={canEditPayrollAttribution}
+                onSaved={(next) => {
+                  setJob((j) => ({ ...j, payroll_attribution: next }))
+                }}
+              />
             )}
 
             <div id="payments-section" className="scroll-mt-20">
@@ -1809,6 +1876,7 @@ export default function JobDetailClient({
 
       {showScheduleModal && job && (
         <ScheduleJobModal
+          mode={scheduleModalMode}
           job={{
             id: job.id,
             job_number: job.job_number,
@@ -1821,8 +1889,15 @@ export default function JobDetailClient({
           }}
           crews={crews}
           subs={subs}
-          onClose={() => setShowScheduleModal(false)}
-          onSave={() => { setShowScheduleModal(false); reloadJob(); }}
+          onClose={() => {
+            setShowScheduleModal(false)
+            setScheduleModalMode('schedule')
+          }}
+          onSave={() => {
+            setShowScheduleModal(false)
+            setScheduleModalMode('schedule')
+            reloadJob()
+          }}
         />
       )}
 

@@ -52,6 +52,18 @@ export default async function OpsPage() {
       .order('company_name'),
   ])
 
+  const jobIds = (jobsRes.data || []).map((j: { id: string }) => j.id)
+  const collectedByJob: Record<string, number> = {}
+  if (jobIds.length > 0) {
+    const { data: paymentRows } = await supabase
+      .from('job_payments')
+      .select('job_id, amount_cents')
+      .in('job_id', jobIds)
+    for (const row of paymentRows || []) {
+      collectedByJob[row.job_id] = (collectedByJob[row.job_id] || 0) + row.amount_cents
+    }
+  }
+
   // Transform data to handle Supabase's array returns for joins
   const transformedJobs = (jobsRes.data || []).map((job: any) => {
     const rawProject = Array.isArray(job.project) ? job.project[0] : job.project
@@ -76,6 +88,7 @@ export default async function OpsPage() {
 
     const transformed = {
       ...job,
+      collected_cents: collectedByJob[job.id] || 0,
       assigned_crew: Array.isArray(job.assigned_crew) ? job.assigned_crew[0] : job.assigned_crew,
       assigned_sub: Array.isArray(job.assigned_sub) ? job.assigned_sub[0] : job.assigned_sub,
       customer: customer,

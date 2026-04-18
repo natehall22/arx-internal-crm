@@ -136,7 +136,7 @@ export async function PATCH(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, full_name')
       .eq('id', user.id)
       .single()
 
@@ -146,11 +146,13 @@ export async function PATCH(
 
     const body = await request.json()
 
+    const PAYROLL_ATTR_ROLES = new Set(['admin', 'owner', 'operations'])
+
     // Whitelist updateable fields to prevent mass-assignment of org_id, id, etc.
     const ALLOWED_FIELDS = new Set([
       'status', 'stage', 'outcome', 'notes', 'inspection_outcome', 'inspection_outcome_at',
       'inspection_notes', 'sale_amount', 'contact_name', 'contact_email', 'contact_phone',
-      'address_text', 'assigned_user_id', 'closer_user_id', 'setter_user_id',
+      'address_text', 'assigned_user_id', 'closer_user_id', 'setter_user_id', 'owner_user_id',
       'job_source', 'insurance_stage',
       'insurance_company', 'claim_number', 'adjuster_name', 'adjuster_phone',
       'deductible', 'rcv', 'acv', 'profit_margin', 'contract_signed_at',
@@ -164,6 +166,25 @@ export async function PATCH(
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
+    const touchesPayrollAttribution =
+      Object.prototype.hasOwnProperty.call(updateData, 'setter_user_id') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'owner_user_id')
+
+    if (touchesPayrollAttribution && !PAYROLL_ATTR_ROLES.has(String(profile.role || '').toLowerCase())) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const { data: existingOpp, error: existingErr } = await adminClient
+      .from('opportunities')
+      .select('id, setter_user_id, owner_user_id')
+      .eq('id', params.id)
+      .eq('org_id', profile.org_id)
+      .single()
+
+    if (existingErr || !existingOpp) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
     const { data: opportunity, error } = await adminClient
       .from('opportunities')
       .update(updateData)
@@ -175,6 +196,61 @@ export async function PATCH(
     if (error) {
       console.error('Opportunity update error:', error)
       return NextResponse.json({ error: 'Failed to update opportunity' }, { status: 500 })
+    }
+
+    if (touchesPayrollAttribution && opportunity) {
+      const setterChanged =
+        Object.prototype.hasOwnProperty.call(updateData, 'setter_user_id') &&
+        (existingOpp.setter_user_id ?? null) !== (opportunity.setter_user_id ?? null)
+      const closerChanged =
+        Object.prototype.hasOwnProperty.call(updateData, 'owner_user_id') &&
+        (existingOpp.owner_user_id ?? null) !== (opportunity.owner_user_id ?? null)
+
+      if (setterChanged || closerChanged) {
+        const ids = [
+          existingOpp.setter_user_id,
+          existingOpp.owner_user_id,
+          opportunity.setter_user_id,
+          opportunity.owner_user_id,
+        ].filter((x): x is string => typeof x === 'string')
+
+        const nameById = new Map<string, string>()
+        if (ids.length > 0) {
+          const { data: usersForNames } = await adminClient
+            .from('users')
+            .select('id, full_name')
+            .eq('org_id', profile.org_id)
+            .in('id', Array.from(new Set(ids)))
+
+          for (const u of usersForNames || []) {
+            nameById.set(u.id, u.full_name || u.id)
+          }
+        }
+
+        const fmt = (id: string | null | undefined) =>
+          id ? nameById.get(id) || id : '—'
+
+        const parts: string[] = []
+        parts.push(`Payroll attribution updated by ${profile.full_name || user.id}.`)
+        if (setterChanged) {
+          parts.push(
+            `Setter: ${fmt(existingOpp.setter_user_id)} → ${fmt(opportunity.setter_user_id)}.`
+          )
+        }
+        if (closerChanged) {
+          parts.push(
+            `Closer: ${fmt(existingOpp.owner_user_id)} → ${fmt(opportunity.owner_user_id)}.`
+          )
+        }
+
+        await adminClient.from('activities').insert({
+          org_id: profile.org_id,
+          opportunity_id: params.id,
+          user_id: user.id,
+          type: 'note',
+          body: parts.join(' '),
+        })
+      }
     }
 
     return NextResponse.json({ opportunity })

@@ -215,7 +215,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch jobs' }, { status: 500 })
     }
 
-    return NextResponse.json({ jobs: sanitizeJobsForRole(jobs || [], profile.role) })
+    const jobList = jobs || []
+    const jobIds = jobList.map((j: { id: string }) => j.id)
+    const collectedByJob: Record<string, number> = {}
+    if (jobIds.length > 0) {
+      const { data: paymentRows } = await adminClient
+        .from('job_payments')
+        .select('job_id, amount_cents')
+        .in('job_id', jobIds)
+      for (const row of paymentRows || []) {
+        const jid = row.job_id as string
+        collectedByJob[jid] = (collectedByJob[jid] || 0) + (row.amount_cents as number)
+      }
+    }
+
+    const withPayments = jobList.map((j: { id: string }) => ({
+      ...j,
+      collected_cents: collectedByJob[j.id] || 0,
+    }))
+
+    return NextResponse.json({ jobs: sanitizeJobsForRole(withPayments, profile.role) })
 
   } catch (error) {
     console.error('Error in GET /api/ops/jobs:', error)

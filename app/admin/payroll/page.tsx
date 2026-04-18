@@ -24,6 +24,13 @@ type PayrollRow = {
   note: string | null
 }
 
+function formatParticipantRole(role: string): string {
+  if (role === 'owner') return 'Closer'
+  if (role === 'sales_rep') return 'Sales rep'
+  if (role === 'setter') return 'Setter'
+  return role
+}
+
 function defaultDateRange() {
   const now = new Date()
   const y = now.getFullYear()
@@ -91,13 +98,27 @@ export default function AdminPayrollPage() {
 
         <div className="bg-white rounded-xl shadow-sm border p-6 sm:p-8">
           <h1 className="text-2xl font-semibold text-gray-900">Payroll &amp; commission export</h1>
-          <p className="text-gray-600 mt-2 max-w-3xl">
-            Download commission lines by job for a date range. Amounts use each rep&apos;s{' '}
-            <strong>assigned compensation plan</strong> and <strong>override %</strong> (from user assignments),
-            apply <strong>volume bonuses</strong> using attributed monthly volume, and enforce the org{' '}
-            <strong>18% pool cap</strong> per job (pre-tax minus dealer fee). Use CSV in QuickBooks or payroll
-            tools.
+          <p className="mt-3">
+            <Link
+              href="/admin/payroll/weekly"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+            >
+              Weekly sales payroll (eligibility worksheet) →
+            </Link>
           </p>
+          <p className="text-gray-600 mt-2 max-w-3xl">
+            Preview or download commission lines by job. Each person&apos;s <strong>comp plan</strong> and{' '}
+            <strong>override %</strong> come from their user assignment. Monthly <strong>volume bonuses</strong> use
+            attributed sales volume. The org <strong>18% commission pool cap</strong> applies per job on top of the
+            commissionable base below.
+          </p>
+          <div className="mt-4 max-w-3xl rounded-lg border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-sm text-indigo-950">
+            <p className="font-semibold text-indigo-950">Commissionable base</p>
+            <p className="mt-1 text-indigo-900/90">
+              Shown in the table as <strong>Commissionable base</strong>: pre-tax subtotal <strong>minus dealer fee</strong>{' '}
+              (same number used for the pool cap). If the export used an estimate, a note appears on that row.
+            </p>
+          </div>
 
           <div className="mt-6 flex flex-col sm:flex-row gap-4 sm:items-end">
             <div>
@@ -153,13 +174,14 @@ export default function AdminPayrollPage() {
                     <th className="px-3 py-2 font-medium">Person</th>
                     <th className="px-3 py-2 font-medium">Role</th>
                     <th className="px-3 py-2 font-medium">Plan</th>
-                    <th className="px-3 py-2 font-medium text-right">Comp base</th>
+                    <th className="px-3 py-2 font-medium text-right">Commissionable base</th>
                     <th className="px-3 py-2 font-medium text-right">Pool cap</th>
                     <th className="px-3 py-2 font-medium text-right">Vol (mo.)</th>
                     <th className="px-3 py-2 font-medium text-right">Eff. %</th>
                     <th className="px-3 py-2 font-medium text-right">Raw $</th>
                     <th className="px-3 py-2 font-medium text-right">Paid $</th>
                     <th className="px-3 py-2 font-medium">Cap</th>
+                    <th className="px-3 py-2 font-medium min-w-[160px]">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -168,7 +190,7 @@ export default function AdminPayrollPage() {
                       <td className="px-3 py-2 text-gray-900 whitespace-nowrap">{r.job_number}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{r.sale_date || '—'}</td>
                       <td className="px-3 py-2 text-gray-900">{r.user_name}</td>
-                      <td className="px-3 py-2 text-gray-600">{r.participant_role}</td>
+                      <td className="px-3 py-2 text-gray-600">{formatParticipantRole(r.participant_role)}</td>
                       <td className="px-3 py-2 text-gray-700 max-w-[140px] truncate" title={r.comp_plan_name || ''}>
                         {r.comp_plan_name || '—'}
                       </td>
@@ -183,6 +205,9 @@ export default function AdminPayrollPage() {
                       <td className="px-3 py-2 text-right tabular-nums">{r.raw_commission.toFixed(2)}</td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{r.scaled_commission.toFixed(2)}</td>
                       <td className="px-3 py-2 text-gray-600">{r.pool_cap_enforced ? 'Yes' : ''}</td>
+                      <td className="px-3 py-2 text-gray-600 text-xs max-w-[220px]" title={r.note || undefined}>
+                        {r.note || '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -192,8 +217,8 @@ export default function AdminPayrollPage() {
 
           <div className="mt-8 text-xs text-gray-500 space-y-1">
             <p>
-              <strong>Roles on a job:</strong> sales rep (job salesperson), setter and owner from the linked
-              opportunity when present—deduplicated.
+              <strong>Who appears on a job:</strong> <strong>Sales rep</strong> from the job, plus{' '}
+              <strong>Setter</strong> and <strong>Closer</strong> from the linked opportunity when set (each person once).
             </p>
             <p>
               <strong>Pool cap:</strong> if raw commissions exceed the cap, amounts are scaled down proportionally
