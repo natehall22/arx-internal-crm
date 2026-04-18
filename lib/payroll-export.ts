@@ -113,6 +113,24 @@ export async function loadActiveCompPlanForUser(
   }
 }
 
+/**
+ * True when commission export would resolve a plan for this user on the job sale date
+ * (active `user_comp_plans` row with joined plan, or org default `comp_plans`).
+ */
+export async function hasResolvableCompPlanForUserOnDate(
+  supabase: SupabaseClient,
+  orgId: string,
+  userId: string,
+  saleDate: string | null | undefined
+): Promise<boolean> {
+  const ymd =
+    saleDate && String(saleDate).length >= 10
+      ? String(saleDate).slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
+  const row = await loadActiveCompPlanForUser(supabase, userId, orgId, ymd)
+  return row != null
+}
+
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }

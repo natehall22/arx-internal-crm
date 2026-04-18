@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { importProjectReviewNoteToJob } from '@/lib/project-review'
 import { canAccessJobBoard } from '@/lib/permissions'
+import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 
 function sanitizeJobsForRole(jobs: any[], role: string) {
   if (role === 'admin') return jobs
@@ -181,14 +182,7 @@ export async function GET(request: Request) {
 
     let query = adminClient
       .from('production_jobs')
-      .select(`
-        *,
-        assigned_crew:crews(id, name, color),
-        assigned_sub:sub_contractors(id, company_name),
-        customer:customers(id, name, phone),
-        salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review)
-      `)
+      .select(opsBoardJobsSelectEmbedded())
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
 
@@ -215,8 +209,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch jobs' }, { status: 500 })
     }
 
-    const jobList = jobs || []
-    const jobIds = jobList.map((j: { id: string }) => j.id)
+    const jobList = (jobs ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
+    const jobIds = jobList.map((j) => j.id)
     const collectedByJob: Record<string, number> = {}
     if (jobIds.length > 0) {
       const { data: paymentRows } = await adminClient
@@ -229,7 +223,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const withPayments = jobList.map((j: { id: string }) => ({
+    const withPayments = jobList.map((j) => ({
       ...j,
       collected_cents: collectedByJob[j.id] || 0,
     }))

@@ -8,6 +8,7 @@ import Link from 'next/link'
 type WorksheetRow = {
   jobId: string
   jobNumber: string
+  customerName?: string | null
   bucket: string
   blockReasons: string[]
   payrollEligibleAt: string | null
@@ -109,7 +110,7 @@ export default function WeeklyPayrollWorksheetPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-left text-gray-700">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Job</th>
+                    <th className="px-3 py-2 font-medium min-w-[160px]">Job</th>
                     <th className="px-3 py-2 font-medium">Bucket</th>
                     <th className="px-3 py-2 font-medium">Eligible at</th>
                     <th className="px-3 py-2 font-medium">Next cutoff (ET)</th>
@@ -119,13 +120,23 @@ export default function WeeklyPayrollWorksheetPage() {
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.jobId} className="border-t border-gray-100">
-                      <td className="px-3 py-2 whitespace-nowrap">
+                      <td className="px-3 py-2 align-top">
                         <Link
                           href={`/ops/jobs/${r.jobId}`}
-                          className="font-mono text-indigo-600 hover:text-indigo-800"
+                          className="font-mono text-sm font-medium text-indigo-600 hover:text-indigo-800 whitespace-nowrap"
                         >
                           {r.jobNumber}
                         </Link>
+                        <div
+                          className="text-xs text-gray-700 mt-0.5 max-w-[240px] leading-snug"
+                          title={r.customerName || undefined}
+                        >
+                          {r.customerName?.trim() ? (
+                            r.customerName
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2">{bucketLabel[r.bucket] || r.bucket}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">

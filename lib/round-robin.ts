@@ -102,6 +102,8 @@ export async function assignNextAvailableCloser(
     inspectorName?: string | null
     /** Calendar title + wording: inspection (default) vs close follow-up */
     eventLabel?: 'inspection' | 'close'
+    /** Supabase Auth email when public.users.email is empty — include setter on calendar invite */
+    setterEmailHint?: string | null
   },
   /** Fallback when closer queue has no buffer (Admin → default gap between appointments). */
   defaultSchedulingGapMinutes?: number,
@@ -266,9 +268,14 @@ export async function assignNextAvailableCloser(
               .select('email')
               .eq('id', canvasserUserId)
               .maybeSingle()
-            if (setterUser?.email && setterUser.email.includes('@')) {
-              setterInviteEmail = setterUser.email
-            }
+            const fromDb =
+              setterUser?.email && setterUser.email.includes('@') ? setterUser.email : null
+            const fromHint =
+              customerDetails?.setterEmailHint &&
+              String(customerDetails.setterEmailHint).includes('@')
+                ? String(customerDetails.setterEmailHint).trim()
+                : null
+            setterInviteEmail = fromDb || fromHint || null
           }
 
           const eventKind = customerDetails?.eventLabel === 'close' ? 'close' : 'inspection'

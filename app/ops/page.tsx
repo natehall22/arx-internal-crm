@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import OpsClient from './OpsClient'
 import { canAccessJobBoard } from '@/lib/permissions'
+import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 
 function sanitizeJobForRole(job: any, role: string) {
   const canViewProfitability = role === 'admin' || role === 'owner'
@@ -28,14 +29,7 @@ export default async function OpsPage() {
   const [jobsRes, crewsRes, subsRes] = await Promise.all([
     supabase
       .from('production_jobs')
-      .select(`
-        *,
-        assigned_crew:crews(id, name, color),
-        assigned_sub:sub_contractors(id, company_name),
-        customer:customers(id, name, phone),
-        salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-        project:projects(id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, customers(id, name, phone), leads(id, homeowner_name, phone))
-      `)
+      .select(opsBoardJobsSelectEmbedded())
       .eq('org_id', profile.org_id)
       .order('scheduled_date', { ascending: true, nullsFirst: false }),
     supabase
@@ -52,7 +46,8 @@ export default async function OpsPage() {
       .order('company_name'),
   ])
 
-  const jobIds = (jobsRes.data || []).map((j: { id: string }) => j.id)
+  const rawJobs = (jobsRes.data ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
+  const jobIds = rawJobs.map((j) => j.id)
   const collectedByJob: Record<string, number> = {}
   if (jobIds.length > 0) {
     const { data: paymentRows } = await supabase
@@ -65,7 +60,7 @@ export default async function OpsPage() {
   }
 
   // Transform data to handle Supabase's array returns for joins
-  const transformedJobs = (jobsRes.data || []).map((job: any) => {
+  const transformedJobs = rawJobs.map((job: any) => {
     const rawProject = Array.isArray(job.project) ? job.project[0] : job.project
     const rawCustomer = Array.isArray(job.customer) ? job.customer[0] : job.customer
     

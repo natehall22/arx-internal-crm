@@ -17,6 +17,7 @@ import {
 } from '@/lib/google-calendar'
 import { easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
 import { leadOwnerLabel } from '@/lib/lead-owner-display'
+import { pickValidEmail, sendSetterEmail } from '@/lib/setter-email'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -196,7 +197,7 @@ export default async function LeadDetailPage({
 
   const updateLead = async (formData: FormData) => {
     'use server'
-    const { profile } = await requireAuth()
+    const { profile, authUser } = await requireAuth()
     const supabase = createServiceClient()
     const status = String(formData.get('status') ?? lead.status)
     const source = String(formData.get('source') ?? lead.source ?? '')
@@ -433,6 +434,53 @@ export default async function LeadDetailPage({
             link_url: `/leads/${params.id}`,
           }))
         )
+      }
+
+      // Email the setter (lead owner) when inspection time is first set or changed
+      const closerForNotify = closerUserId || freshLead.closer_user_id
+      if (
+        scheduledForUtcIso &&
+        oldScheduledTime !== scheduledForUtcIso &&
+        freshLead.owner_user_id &&
+        closerForNotify &&
+        freshLead.owner_user_id !== closerForNotify
+      ) {
+        try {
+          let setterTo: string | null = null
+          if (freshLead.owner_user_id === profile.id) {
+            setterTo = pickValidEmail(profile.email, authUser.email)
+          } else {
+            const { data: ownerRow } = await supabase
+              .from('users')
+              .select('email')
+              .eq('id', freshLead.owner_user_id)
+              .maybeSingle()
+            setterTo = pickValidEmail(ownerRow?.email)
+          }
+          if (setterTo) {
+            const [{ data: closerRow }, { data: ownerNameRow }] = await Promise.all([
+              supabase.from('users').select('full_name').eq('id', closerForNotify).maybeSingle(),
+              supabase.from('users').select('full_name').eq('id', freshLead.owner_user_id).maybeSingle(),
+            ])
+            await sendSetterEmail({
+              to: setterTo,
+              setterName: ownerNameRow?.full_name,
+              subject: `🚀 ${freshLead.homeowner_name || 'Customer'} Inspection Set 🚀`,
+              introHtml: `<p style="color:#374151;">Your inspection has been scheduled. Here are the details:</p>`,
+              rows: [
+                { label: 'Customer', value: freshLead.homeowner_name || 'Unknown' },
+                { label: 'Address', value: freshLead.address_text || 'TBD' },
+                {
+                  label: 'Date & Time',
+                  value: `${formatEasternDateTime(scheduledForUtcIso)} ET`,
+                },
+                { label: 'Inspector / Closer', value: closerRow?.full_name || 'Unassigned' },
+              ],
+            })
+          }
+        } catch (e) {
+          console.error('Setter confirmation email failed (lead update):', e)
+        }
       }
     }
 

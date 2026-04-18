@@ -12,10 +12,9 @@ import {
   type PayrollExportRow,
 } from '@/lib/payroll-export'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
+import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 
 export const dynamic = 'force-dynamic'
-
-const PAYROLL_ROLES = new Set(['admin', 'owner', 'operations'])
 
 function padMonthRange(from: string, to: string): { volFrom: string; volTo: string } {
   const volFrom = from.length >= 7 ? `${from.slice(0, 7)}-01` : from
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    if (!PAYROLL_ROLES.has(profile.role)) {
+    if (!isPayrollAdminRole(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

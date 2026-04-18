@@ -17,6 +17,7 @@ import { hasBufferedConflict } from '@/lib/scheduling-buffer'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import nodemailer from 'nodemailer'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
+import { pickValidEmail } from '@/lib/setter-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -316,7 +317,7 @@ async function checkCloserAvailability(
 
 export async function POST(request: Request) {
   try {
-    const { profile } = await requireAuthApi()
+    const { profile, authUser } = await requireAuthApi()
     const supabase = getAdminClient()
     const body = await request.json().catch(() => ({}))
 
@@ -583,6 +584,7 @@ export async function POST(request: Request) {
               phone: leadRow.phone,
               notes: leadRow.canvass_notes || leadRow.notes,
               setterName: profile.full_name,
+              setterEmailHint: pickValidEmail(profile.email, authUser.email),
             },
             orgSchedulingGap,
             inspectionBufferAfter
@@ -881,21 +883,17 @@ export async function POST(request: Request) {
         console.log('Closer calendar sync failed:', calendarError)
       }
 
-      // Send setter a confirmation email (not a calendar invite)
+      // Send setter a confirmation email (not a calendar invite on this path)
       if (profile.id !== resolvedCloserUserId) {
         try {
-          let setterEmail: string | null = null
-          if (typeof profile.email === 'string' && profile.email.includes('@')) {
-            setterEmail = profile.email
-          } else {
+          let setterEmail = pickValidEmail(profile.email, authUser.email)
+          if (!setterEmail) {
             const { data: setterData } = await supabase
               .from('users')
               .select('email')
               .eq('id', profile.id)
               .maybeSingle()
-            if (setterData?.email && setterData.email.includes('@')) {
-              setterEmail = setterData.email
-            }
+            setterEmail = pickValidEmail(setterData?.email)
           }
 
           if (setterEmail) {

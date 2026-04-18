@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -10,42 +10,10 @@ import { handoffPreviewForJobBoard } from '@/lib/project-review'
 import OperationsSnapshotCard, {
   hasOperationsSnapshotData,
 } from '@/components/ops/OperationsSnapshotCard'
+import { OpsBoardJobCard } from '@/components/ops/OpsBoardJobCard'
+import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
 
-type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
-
-interface Job {
-  id: string
-  project_id: string
-  job_number: string
-  status: JobStatus
-  job_type: string
-  address_text: string
-  sale_amount: number | null
-  /** Lender dealer fee from financed sale (COGS). */
-  dealer_fee_amount?: number | null
-  labor_cost?: number | null
-  material_cost?: number | null
-  sale_date: string | null
-  scheduled_date: string | null
-  materials_status: string
-  permit_status: string
-  priority: string
-  assigned_crew?: { id: string; name: string; color: string } | null
-  assigned_sub?: { id: string; company_name: string } | null
-  customer?: { id: string; name: string; phone: string } | null
-  salesperson?: { id: string; full_name: string } | null
-  project?: {
-    id: string
-    scope_of_work: string | null
-    product_summary: string | null
-    ops_notes?: string | null
-    permits_status?: string | null
-    install_date?: string | null
-    project_review?: unknown
-  } | null
-  /** Sum of job_payments (cents); from list API for payment badges */
-  collected_cents?: number
-}
+type BoardColumnStatus = Exclude<JobStatus, 'collected'>
 
 interface Crew {
   id: string
@@ -62,7 +30,7 @@ interface SubContractor {
 }
 
 interface OpsClientProps {
-  initialJobs: Job[]
+  initialJobs: OpsBoardJob[]
   initialCrews: Crew[]
   initialSubs: SubContractor[]
   orgId: string
@@ -91,7 +59,7 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   received: { label: 'Fully Delivered', color: 'text-green-600' },
 }
 
-function paymentStatusChip(job: Job): { label: string; className: string } | null {
+function paymentStatusChip(job: OpsBoardJob): { label: string; className: string } | null {
   const saleCents = Math.round((job.sale_amount || 0) * 100)
   if (saleCents <= 0) return null
   const collected = job.collected_cents ?? 0
@@ -104,9 +72,40 @@ function paymentStatusChip(job: Job): { label: string; className: string } | nul
   return { label: 'Unpaid', className: 'bg-gray-50 text-gray-700 border border-gray-200' }
 }
 
+function matchesActiveSearch(job: OpsBoardJob, query: string): boolean {
+  if (!query) return true
+  const search = query.toLowerCase()
+  const handoff = handoffPreviewForJobBoard(job.project ?? null)
+  return (
+    job.job_number.toLowerCase().includes(search) ||
+    job.address_text.toLowerCase().includes(search) ||
+    !!(job.customer?.name && job.customer.name.toLowerCase().includes(search)) ||
+    (handoff ? handoff.toLowerCase().includes(search) : false)
+  )
+}
+
+function sortSoldColumn(jobs: OpsBoardJob[]): OpsBoardJob[] {
+  const priorityWeight: Record<string, number> = { urgent: 3, high: 2, normal: 1 }
+  return [...jobs].sort((a, b) => {
+    const aNeedsMaterials = a.materials_status === 'not_ordered' ? 1 : 0
+    const bNeedsMaterials = b.materials_status === 'not_ordered' ? 1 : 0
+    if (aNeedsMaterials !== bNeedsMaterials) return bNeedsMaterials - aNeedsMaterials
+
+    const aPriority = priorityWeight[a.priority] ?? 0
+    const bPriority = priorityWeight[b.priority] ?? 0
+    if (aPriority !== bPriority) return bPriority - aPriority
+
+    const aSaleDate = a.sale_date ? new Date(a.sale_date).getTime() : 0
+    const bSaleDate = b.sale_date ? new Date(b.sale_date).getTime() : 0
+    if (aSaleDate !== bSaleDate) return bSaleDate - aSaleDate
+
+    return a.job_number.localeCompare(b.job_number)
+  })
+}
+
 export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId, canViewProfitability }: OpsClientProps) {
   const router = useRouter()
-  const [jobs, setJobs] = useState<Job[]>(initialJobs)
+  const [jobs, setJobs] = useState<OpsBoardJob[]>(initialJobs)
   const [crews] = useState<Crew[]>(initialCrews)
   const [subs] = useState<SubContractor[]>(initialSubs)
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
@@ -117,22 +116,22 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
       setViewMode('list')
     }
   }, [])
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [selectedJob, setSelectedJob] = useState<OpsBoardJob | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [scheduleModalMode, setScheduleModalMode] = useState<'schedule' | 'reassign'>('schedule')
-  const [snapshotJob, setSnapshotJob] = useState<Job | null>(null)
+  const [snapshotJob, setSnapshotJob] = useState<OpsBoardJob | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [completedSearchQuery, setCompletedSearchQuery] = useState('')
 
   const supabase = createClientBrowser()
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const response = await fetch('/api/ops/jobs')
     if (!response.ok) return
     const { jobs: jobsData } = await response.json()
 
-    const transformedJobs = (jobsData || []).map((job: any) => {
+    const transformedJobs = (jobsData || []).map((job: Record<string, unknown>) => {
       const rawProject = Array.isArray(job.project) ? job.project[0] : job.project
       const rawCustomer = Array.isArray(job.customer) ? job.customer[0] : job.customer
       
@@ -160,12 +159,12 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         customer: customer,
         salesperson: Array.isArray(job.salesperson) ? job.salesperson[0] : job.salesperson,
         project: rawProject,
-      }
+      } as OpsBoardJob
     })
     setJobs(transformedJobs)
-  }
+  }, [])
 
-  const getProfitability = (job: Job) => {
+  const getProfitability = (job: OpsBoardJob) => {
     const revenue = job.sale_amount ?? 0
     const hasLabor = typeof job.labor_cost === 'number'
     const hasMaterial = typeof job.material_cost === 'number'
@@ -185,73 +184,86 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     }
   }
 
-  const activeJobs = jobs.filter((job) => job.status !== 'collected')
-  const completedJobs = jobs.filter((job) => job.status === 'collected')
+  const activeJobs = useMemo(
+    () => jobs.filter((job) => job.status !== 'collected'),
+    [jobs]
+  )
+  const completedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'collected'),
+    [jobs]
+  )
 
-  const matchesSearch = (job: Job, query: string) => {
-    if (!query) return true
-    const search = query.toLowerCase()
-    const handoff = handoffPreviewForJobBoard(job.project ?? null)
-    return (
-      job.job_number.toLowerCase().includes(search) ||
-      job.address_text.toLowerCase().includes(search) ||
-      job.customer?.name?.toLowerCase().includes(search) ||
-      (handoff && handoff.toLowerCase().includes(search))
-    )
-  }
+  const filteredActiveJobs = useMemo(
+    () =>
+      activeJobs.filter((job) => {
+        if (filterType !== 'all' && job.job_type !== filterType) return false
+        return matchesActiveSearch(job, searchQuery)
+      }),
+    [activeJobs, filterType, searchQuery]
+  )
 
-  const matchesActiveFilters = (job: Job) => {
-    if (filterType !== 'all' && job.job_type !== filterType) return false
-    return matchesSearch(job, searchQuery)
-  }
-
-  const getJobsByStatus = (status: JobStatus) => {
-    const filtered = activeJobs.filter(job => {
-      if (job.status !== status) return false
-      return matchesActiveFilters(job)
-    })
-
-    const priorityWeight: Record<string, number> = { urgent: 3, high: 2, normal: 1 }
-
-    // Keep "Sold" focused on active work by surfacing highest-action and most-recent accounts first.
-    if (status === 'sold') {
-      return [...filtered].sort((a, b) => {
-        const aNeedsMaterials = a.materials_status === 'not_ordered' ? 1 : 0
-        const bNeedsMaterials = b.materials_status === 'not_ordered' ? 1 : 0
-        if (aNeedsMaterials !== bNeedsMaterials) return bNeedsMaterials - aNeedsMaterials
-
-        const aPriority = priorityWeight[a.priority] ?? 0
-        const bPriority = priorityWeight[b.priority] ?? 0
-        if (aPriority !== bPriority) return bPriority - aPriority
-
-        const aSaleDate = a.sale_date ? new Date(a.sale_date).getTime() : 0
-        const bSaleDate = b.sale_date ? new Date(b.sale_date).getTime() : 0
-        if (aSaleDate !== bSaleDate) return bSaleDate - aSaleDate
-
-        return a.job_number.localeCompare(b.job_number)
-      })
+  const jobsByBoardStatus = useMemo(() => {
+    const base: Record<BoardColumnStatus, OpsBoardJob[]> = {
+      sold: [],
+      materials: [],
+      scheduled: [],
+      in_progress: [],
+      complete: [],
     }
+    for (const job of filteredActiveJobs) {
+      const s = job.status
+      if (s === 'sold' || s === 'materials' || s === 'scheduled' || s === 'in_progress' || s === 'complete') {
+        base[s].push(job)
+      }
+    }
+    base.sold = sortSoldColumn(base.sold)
+    return base
+  }, [filteredActiveJobs])
 
-    return filtered
-  }
+  const filteredCompletedJobs = useMemo(
+    () => completedJobs.filter((job) => matchesActiveSearch(job, completedSearchQuery)),
+    [completedJobs, completedSearchQuery]
+  )
 
-  const filteredActiveJobs = activeJobs.filter(matchesActiveFilters)
-  const filteredCompletedJobs = completedJobs.filter((job) => matchesSearch(job, completedSearchQuery))
+  const stats = useMemo(
+    () => ({
+      sold: jobsByBoardStatus.sold.length,
+      materials: jobsByBoardStatus.materials.length,
+      scheduled: jobsByBoardStatus.scheduled.length,
+      inProgress: jobsByBoardStatus.in_progress.length,
+      complete: jobsByBoardStatus.complete.length,
+      totalValue: activeJobs.reduce((sum, j) => sum + (j.sale_amount || 0), 0),
+    }),
+    [jobsByBoardStatus, activeJobs]
+  )
 
-  const openScheduleModal = (job: Job, mode: 'schedule' | 'reassign' = 'schedule') => {
+  const knownGrossProfit = useMemo(() => {
+    if (!canViewProfitability) return null
+    return jobs
+      .filter((j) => j.status !== 'collected')
+      .filter((j) => typeof j.labor_cost === 'number' && typeof j.material_cost === 'number')
+      .reduce(
+        (sum, j) =>
+          sum +
+          ((j.sale_amount || 0) - ((j.labor_cost || 0) + (j.material_cost || 0) + (j.dealer_fee_amount || 0))),
+        0
+      )
+  }, [jobs, canViewProfitability])
+
+  const openScheduleModal = useCallback((job: OpsBoardJob, mode: 'schedule' | 'reassign' = 'schedule') => {
     setScheduleModalMode(mode)
     setSelectedJob(job)
     setShowScheduleModal(true)
-  }
+  }, [])
 
-  const handleScheduleSave = async () => {
+  const handleScheduleSave = useCallback(async () => {
     setShowScheduleModal(false)
     setSelectedJob(null)
     setScheduleModalMode('schedule')
     await loadData()
-  }
+  }, [loadData])
 
-  const updateJobStatus = async (jobId: string, newStatus: JobStatus) => {
+  const updateJobStatus = useCallback(async (jobId: string, newStatus: JobStatus) => {
     const updates: Record<string, unknown> = { status: newStatus }
     if (newStatus === 'in_progress') {
       updates.started_at = new Date().toISOString()
@@ -277,192 +289,36 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     }
 
     await loadData()
-  }
+  }, [loadData])
 
-  const stats = {
-    sold: getJobsByStatus('sold').length,
-    materials: getJobsByStatus('materials').length,
-    scheduled: getJobsByStatus('scheduled').length,
-    inProgress: getJobsByStatus('in_progress').length,
-    complete: getJobsByStatus('complete').length,
-    totalValue: activeJobs.reduce((sum, j) => sum + (j.sale_amount || 0), 0),
-  }
+  const updateMaterialsStatus = useCallback(
+    async (jobId: string, newStatus: string) => {
+      await supabase.from('production_jobs').update({ materials_status: newStatus }).eq('id', jobId)
+      await loadData()
+    },
+    [supabase, loadData]
+  )
 
-  const updateMaterialsStatus = async (jobId: string, newStatus: string) => {
-    await supabase
-      .from('production_jobs')
-      .update({ materials_status: newStatus })
-      .eq('id', jobId)
-    await loadData()
-  }
+  const navigateToJob = useCallback(
+    (jobId: string) => {
+      router.push(`/ops/jobs/${jobId}`)
+    },
+    [router]
+  )
 
-  const JobCard = ({ job }: { job: Job }) => {
-    const priority = priorityConfig[job.priority] || priorityConfig.normal
-    const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
-    const hasOpsSnapshot = hasOperationsSnapshotData(job.project ?? null)
-    const payChip = paymentStatusChip(job)
+  const onBoardStartMaterials = useCallback(
+    (jobId: string) => {
+      void updateJobStatus(jobId, 'materials')
+    },
+    [updateJobStatus]
+  )
 
-    const needsMaterials = job.materials_status === 'not_ordered'
-    const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
-    const isPastDue = job.scheduled_date && new Date(job.scheduled_date + 'T23:59:59') < new Date() && job.status !== 'complete' && job.status !== 'collected'
-
-    return (
-      <div
-        className="bg-white rounded-lg border shadow-sm p-3.5 hover:shadow-md transition cursor-pointer"
-        onClick={() => router.push(`/ops/jobs/${job.id}`)}
-      >
-        {/* Job number + type badge */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1.5">
-            {priority.icon && <span className="text-sm">{priority.icon}</span>}
-            <span className="text-xs font-mono text-gray-400">{job.job_number}</span>
-          </div>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${
-            job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
-            job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
-            job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
-            'bg-gray-100 text-gray-700'
-          }`}>
-            {job.job_type}
-          </span>
-        </div>
-
-        {/* Customer + address — primary identity */}
-        <div className="mb-2.5">
-          {job.customer?.name && (
-            <div className="font-semibold text-gray-900 truncate">{job.customer.name}</div>
-          )}
-          <div className="text-xs text-gray-500 truncate">{job.address_text}</div>
-        </div>
-
-        {payChip && (
-          <div className="mb-2.5">
-            <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${payChip.className}`}>
-              {payChip.label}
-            </span>
-          </div>
-        )}
-
-        {/* Alert badges — text only, no cryptic dots */}
-        {(needsMaterials || needsCrew || isPastDue) && (
-          <div className="flex flex-wrap gap-1 mb-2.5">
-            {isPastDue && (
-              <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 font-medium">Overdue</span>
-            )}
-            {needsMaterials && (
-              <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">Materials needed</span>
-            )}
-            {needsCrew && (
-              <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 font-medium">No crew</span>
-            )}
-          </div>
-        )}
-
-        {/* Ops snapshot / sales handoff */}
-        {(handoffPreview || hasOpsSnapshot) && (
-          <div className="mb-2.5 rounded-md border border-indigo-100 bg-indigo-50/80 px-2.5 py-2">
-            {handoffPreview && (
-              <p className="text-xs text-gray-700 line-clamp-2 leading-snug">{handoffPreview}</p>
-            )}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setSnapshotJob(job) }}
-              className={`text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-1.5 block' : ''}`}
-            >
-              Operations snapshot
-            </button>
-          </div>
-        )}
-
-        {/* Crew + sale amount */}
-        <div className="flex items-center justify-between mb-2.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            {job.assigned_crew && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full truncate max-w-[120px]"
-                style={{ backgroundColor: `${job.assigned_crew.color}20`, color: job.assigned_crew.color }}
-              >
-                {job.assigned_crew.name}
-              </span>
-            )}
-            {job.assigned_sub && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 truncate max-w-[120px]">
-                Sub: {job.assigned_sub.company_name}
-              </span>
-            )}
-            {!job.assigned_crew && !job.assigned_sub && (
-              <span className="text-xs text-gray-400">No crew assigned</span>
-            )}
-          </div>
-          {job.sale_amount && (
-            <span className="text-xs font-semibold text-gray-700 shrink-0 ml-2">
-              ${job.sale_amount.toLocaleString()}
-            </span>
-          )}
-        </div>
-
-        {/* Scheduled date */}
-        {job.scheduled_date && (
-          <div className={`text-xs font-medium mb-2.5 ${isPastDue ? 'text-orange-600' : 'text-indigo-600'}`}>
-            📅 {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
-              weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York',
-            })}
-            {isPastDue && ' · overdue'}
-          </div>
-        )}
-
-        {/* Action buttons — always visible, touch-friendly, no hover swap */}
-        <div className="flex flex-wrap gap-1.5 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-          {job.status === 'sold' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'materials') }}
-              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-amber-50 text-amber-700 rounded-lg font-medium hover:bg-amber-100 border border-amber-200"
-            >
-              Start Materials
-            </button>
-          )}
-          {needsMaterials && job.status === 'materials' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); updateMaterialsStatus(job.id, 'ordered') }}
-              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-red-50 text-red-700 rounded-lg font-medium hover:bg-red-100 border border-red-200"
-            >
-              Mark Ordered
-            </button>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); openScheduleModal(job, 'schedule') }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
-          >
-            {job.scheduled_date ? 'Reschedule' : 'Schedule'}
-          </button>
-          {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
-            <button
-              onClick={(e) => { e.stopPropagation(); openScheduleModal(job, 'reassign') }}
-              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-white text-gray-800 rounded-lg font-medium hover:bg-gray-50 border border-gray-300"
-            >
-              Reassign
-            </button>
-          )}
-          {job.status === 'scheduled' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'in_progress') }}
-              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
-            >
-              Start Job
-            </button>
-          )}
-          {job.status === 'in_progress' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); updateJobStatus(job.id, 'complete') }}
-              className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
-            >
-              Mark Complete
-            </button>
-          )}
-        </div>
-      </div>
-    )
-  }
+  const onBoardMarkOrdered = useCallback(
+    (jobId: string) => {
+      void updateMaterialsStatus(jobId, 'ordered')
+    },
+    [updateMaterialsStatus]
+  )
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -517,21 +373,9 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             </div>
             <div className="text-xs text-gray-500">Pipeline Value</div>
           </div>
-          {canViewProfitability && (
+          {canViewProfitability && knownGrossProfit !== null && (
             <div className="bg-white rounded-lg border p-4">
-              <div className="text-2xl font-bold text-green-700">
-                ${jobs
-                  .filter((j) => j.status !== 'collected')
-                  .filter((j) => typeof j.labor_cost === 'number' && typeof j.material_cost === 'number')
-                  .reduce(
-                    (sum, j) =>
-                      sum +
-                      ((j.sale_amount || 0) -
-                        ((j.labor_cost || 0) + (j.material_cost || 0) + (j.dealer_fee_amount || 0))),
-                    0
-                  )
-                  .toLocaleString()}
-              </div>
+              <div className="text-2xl font-bold text-green-700">${knownGrossProfit.toLocaleString()}</div>
               <div className="text-xs text-gray-500">Gross Profit (Known)</div>
             </div>
           )}
@@ -580,10 +424,10 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
 
         {viewMode === 'board' && (
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            {(['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as JobStatus[]).map(status => {
+            {(['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as BoardColumnStatus[]).map((status) => {
               const config = statusConfig[status]
-              const statusJobs = getJobsByStatus(status)
-              
+              const statusJobs = jobsByBoardStatus[status]
+
               return (
                 <div key={status} className={`rounded-lg border ${config.bgColor}`}>
                   <div className={`p-3 border-b ${config.bgColor}`}>
@@ -597,13 +441,24 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                       </p>
                     )}
                   </div>
-                  <div className="p-3 space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto">
+                  <div className="p-3 space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto overscroll-contain">
                     {statusJobs.length === 0 ? (
                       <div className="text-center py-8 text-gray-400 text-sm">
                         No jobs in this stage
                       </div>
                     ) : (
-                      statusJobs.map(job => <JobCard key={job.id} job={job} />)
+                      statusJobs.map((job) => (
+                        <OpsBoardJobCard
+                          key={job.id}
+                          job={job}
+                          onNavigateToJob={navigateToJob}
+                          onOpenSnapshot={setSnapshotJob}
+                          onSchedule={openScheduleModal}
+                          onStartMaterials={onBoardStartMaterials}
+                          onMarkOrdered={onBoardMarkOrdered}
+                          onJobStatus={updateJobStatus}
+                        />
+                      ))
                     )}
                   </div>
                 </div>
