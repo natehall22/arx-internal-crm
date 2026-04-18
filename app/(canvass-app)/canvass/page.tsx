@@ -412,7 +412,12 @@ export default function CanvassPage() {
               newPin.id = data.lead_id
               newPin.synced = true
             }
-            if (data.schedule_inspection || data.opportunity_id) {
+            // Match server + existing-pin path: API may omit schedule_inspection; opportunity can be null
+            if (
+              leadData.schedule_inspection ||
+              data.schedule_inspection ||
+              data.opportunity_id
+            ) {
               newPin.status = 'inspection'
               newPin.disposition = 'scheduled'
             }

@@ -1062,6 +1062,9 @@ export async function POST(request: Request) {
 
     const result = {
       lead_id: leadRow.id,
+      /** Echo for canvass map: client uses this when opportunity_id is still null */
+      schedule_inspection: scheduleInspection,
+      status: leadRow.status ?? null,
       opportunity_id: opportunityId,
       assigned_closer: assignedCloserName,
       appointment_id: appointmentId,
