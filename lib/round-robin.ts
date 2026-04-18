@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
-import { refreshAccessToken, getFreeBusy, createCalendarEvent } from './google-calendar'
+import {
+  refreshAccessToken,
+  getFreeBusy,
+  createCalendarEvent,
+  deleteCalendarEvent,
+} from './google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { hasBufferedConflict } from '@/lib/scheduling-buffer'
 import { resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
@@ -332,7 +337,14 @@ export async function assignNextAvailableCloser(
             console.log(`Round-robin: Calendar event created successfully, ID: ${googleEventId}`)
           } catch (calendarError: any) {
             console.error('Failed to create calendar event:', calendarError?.message || calendarError)
-            // Continue anyway - appointment can still be created
+            // Do not create a scheduled_appointments row without the closer's calendar event —
+            // when they're free we need both CRM + Google in sync. Try the next closer in queue.
+            continue
+          }
+
+          if (!googleEventId) {
+            console.log(`Round-robin: Missing calendar event id for ${closer.user?.full_name}, skipping`)
+            continue
           }
 
           const result = await createAppointment(
@@ -353,6 +365,22 @@ export async function assignNextAvailableCloser(
           )
           if (result.success) {
             return result
+          }
+
+          // Calendar was created before DB insert; if insert failed, remove orphan event so
+          // closers/setters don't see a ghost invite when the API returns NO_CLOSER_ASSIGNED.
+          if (googleEventId) {
+            try {
+              await deleteCalendarEvent(accessToken, googleEventId)
+              console.log(
+                `Round-robin: Deleted orphan calendar event ${googleEventId} after failed appointment row`
+              )
+            } catch (delErr: unknown) {
+              console.error(
+                `Round-robin: Failed to delete orphan calendar event ${googleEventId}:`,
+                delErr instanceof Error ? delErr.message : delErr
+              )
+            }
           }
 
           console.log(

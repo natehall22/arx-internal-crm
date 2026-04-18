@@ -7,6 +7,7 @@ import Link from 'next/link'
 
 type PayrollRow = {
   job_number: string
+  customer_name?: string | null
   sale_date: string | null
   address_text: string
   user_name: string
@@ -169,7 +170,7 @@ export default function AdminPayrollPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-left text-gray-700">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Job</th>
+                    <th className="px-3 py-2 font-medium min-w-[140px]">Job</th>
                     <th className="px-3 py-2 font-medium">Date</th>
                     <th className="px-3 py-2 font-medium">Person</th>
                     <th className="px-3 py-2 font-medium">Role</th>
@@ -187,7 +188,17 @@ export default function AdminPayrollPage() {
                 <tbody>
                   {rows.map((r, i) => (
                     <tr key={i} className="border-t border-gray-100">
-                      <td className="px-3 py-2 text-gray-900 whitespace-nowrap">{r.job_number}</td>
+                      <td className="px-3 py-2 text-gray-900 align-top">
+                        <div className="font-mono text-sm font-medium text-gray-900 whitespace-nowrap">
+                          {r.job_number}
+                        </div>
+                        <div
+                          className="text-xs text-gray-700 mt-0.5 max-w-[220px] leading-snug"
+                          title={r.customer_name || undefined}
+                        >
+                          {r.customer_name?.trim() ? r.customer_name : <span className="text-gray-400">—</span>}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{r.sale_date || '—'}</td>
                       <td className="px-3 py-2 text-gray-900">{r.user_name}</td>
                       <td className="px-3 py-2 text-gray-600">{formatParticipantRole(r.participant_role)}</td>

@@ -38,6 +38,8 @@ export function monthKeyFromSaleDate(saleDate: string | null): string | null {
 export type PayrollExportRow = {
   job_id: string
   job_number: string
+  /** From linked customers row when job.customer_id is set */
+  customer_name: string | null
   sale_date: string | null
   address_text: string
   sale_amount: number | null

@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     const { data: exportJobs, error: exErr } = await supabase
       .from('production_jobs')
       .select(
-        'id, job_number, address_text, sale_date, sale_amount, commission_comp_base, commission_pre_tax_subtotal, dealer_fee_amount, salesperson_id, project_id'
+        'id, job_number, address_text, sale_date, sale_amount, commission_comp_base, commission_pre_tax_subtotal, dealer_fee_amount, salesperson_id, project_id, customer_id'
       )
       .eq('org_id', orgId)
       .gte('sale_date', from)
@@ -125,6 +125,46 @@ export async function GET(request: NextRequest) {
     if (exErr) {
       console.error('payroll export jobs', exErr)
       return NextResponse.json({ error: 'Failed to load jobs' }, { status: 500 })
+    }
+
+    const exportProjectIds = Array.from(
+      new Set(
+        (exportJobs || [])
+          .map((j) => j.project_id as string | null | undefined)
+          .filter((id): id is string => typeof id === 'string')
+      )
+    )
+    const customerIdByProjectId = new Map<string, string>()
+    if (exportProjectIds.length > 0) {
+      const { data: projRows } = await supabase
+        .from('projects')
+        .select('id, customer_id')
+        .eq('org_id', orgId)
+        .in('id', exportProjectIds)
+      for (const p of projRows || []) {
+        const cid = p.customer_id as string | null | undefined
+        if (cid) customerIdByProjectId.set(p.id as string, cid)
+      }
+    }
+
+    const customerIds = Array.from(
+      new Set([
+        ...(exportJobs || [])
+          .map((j) => j.customer_id as string | null | undefined)
+          .filter((id): id is string => typeof id === 'string'),
+        ...Array.from(customerIdByProjectId.values()),
+      ])
+    )
+    const customerNameById = new Map<string, string>()
+    if (customerIds.length > 0) {
+      const { data: custRows } = await supabase
+        .from('customers')
+        .select('id, name')
+        .eq('org_id', orgId)
+        .in('id', customerIds)
+      for (const c of custRows || []) {
+        customerNameById.set(c.id as string, (c.name as string) || '')
+      }
     }
 
     const userIds = new Set<string>()
@@ -212,9 +252,16 @@ export async function GET(request: NextRequest) {
           noteParts.push('No active comp plan assignment; default plan not found.')
         }
 
+        const cid =
+          (job.customer_id as string | null | undefined) ||
+          (pid ? customerIdByProjectId.get(pid) : undefined) ||
+          null
+        const customerName = cid ? customerNameById.get(cid) ?? null : null
+
         rows.push({
           job_id: job.id,
           job_number: job.job_number,
+          customer_name: customerName,
           sale_date: job.sale_date,
           address_text: job.address_text,
           sale_amount: job.sale_amount,
@@ -244,6 +291,7 @@ export async function GET(request: NextRequest) {
     if (format === 'csv') {
       const header = [
         'job_number',
+        'customer_name',
         'sale_date',
         'address',
         'sale_amount',
@@ -270,6 +318,7 @@ export async function GET(request: NextRequest) {
         ...rows.map((r) =>
           [
             r.job_number,
+            `"${(r.customer_name || '').replace(/"/g, '""')}"`,
             r.sale_date ?? '',
             `"${(r.address_text || '').replace(/"/g, '""')}"`,
             r.sale_amount ?? '',
