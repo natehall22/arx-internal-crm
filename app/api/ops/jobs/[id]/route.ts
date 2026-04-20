@@ -60,7 +60,7 @@ export async function PATCH(
     // Verify job exists and belongs to user's org
     const { data: existingJob, error: fetchError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id, project_id')
+      .select('id, org_id, project_id, status, payroll_sent_at')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -84,6 +84,7 @@ export async function PATCH(
       'job_source', 'insurance_stage',
       'acv_amount', 'depreciation_amount', 'supplement_amount',
       'claim_number', 'insurance_company',
+      'payroll_sent_at',
     ])
     const updateData: Record<string, unknown> = {}
     for (const key of Object.keys(body)) {
@@ -91,6 +92,21 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    if (updateData.payroll_sent_at !== undefined) {
+      const ts = updateData.payroll_sent_at
+      if (ts !== null && typeof ts === 'string') {
+        if (!['complete', 'collected'].includes(String(existingJob.status))) {
+          return NextResponse.json(
+            { error: 'Mark the job complete or collected before sending to payroll' },
+            { status: 400 }
+          )
+        }
+        if (existingJob.payroll_sent_at) {
+          return NextResponse.json({ error: 'Already marked sent to payroll' }, { status: 400 })
+        }
+      }
     }
 
     // Fail-safe: "collected" is the closed-out state (Completed tab). Do not allow it until

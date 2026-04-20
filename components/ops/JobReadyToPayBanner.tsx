@@ -32,13 +32,8 @@ export default function JobReadyToPayBanner({
 
   const collected = paymentSummary.collected_cents ?? 0
   const fullyPaid = collected >= saleCents
+  /** Hide once job is collected — payroll handoff uses JobPayrollSentBanner */
   if (!fullyPaid || status === 'collected') return null
-
-  const scrollPayroll = () => {
-    const el =
-      document.getElementById('payroll-attribution-section') || document.getElementById('payments-section')
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
 
   const scrollPayments = () => {
     document.getElementById('payments-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -52,9 +47,9 @@ export default function JobReadyToPayBanner({
             💵
           </span>
           <div>
-            <div className="font-semibold text-emerald-900">Ready to pay</div>
+            <div className="font-semibold text-emerald-900">Contract paid in full</div>
             <p className="text-sm text-emerald-900/85 mt-0.5">
-              Contract paid in full ({paymentSummary.collected_dollars.toLocaleString('en-US', {
+              Recorded {paymentSummary.collected_dollars.toLocaleString('en-US', {
                 style: 'currency',
                 currency: 'USD',
               })}{' '}
@@ -63,18 +58,23 @@ export default function JobReadyToPayBanner({
                 style: 'currency',
                 currency: 'USD',
               })}
-              ). Run payroll and close out when work is done.
+              .{' '}
+              {status === 'complete' ? (
+                <>
+                  Mark Collected when ready. Use the <strong className="font-semibold">Payroll</strong> banner
+                  below to send this job to payroll.
+                </>
+              ) : (
+                <>
+                  Mark the job complete when work is done, then mark collected. Use the{' '}
+                  <strong className="font-semibold">Payroll</strong> banner below when you&apos;re ready to send this
+                  job to payroll.
+                </>
+              )}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={scrollPayroll}
-            className="px-3 py-2 rounded-lg text-sm font-medium bg-white border border-emerald-300 text-emerald-900 hover:bg-emerald-50"
-          >
-            Payroll
-          </button>
           <button
             type="button"
             onClick={scrollPayments}

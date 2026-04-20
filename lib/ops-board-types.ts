@@ -33,4 +33,6 @@ export interface OpsBoardJob {
     leads?: unknown
   } | null
   collected_cents?: number
+  /** When set, ops marked this job as sent to payroll */
+  payroll_sent_at?: string | null
 }

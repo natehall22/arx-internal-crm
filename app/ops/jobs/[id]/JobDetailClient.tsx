@@ -10,6 +10,7 @@ import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
+import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import AINextActionBanner from '@/components/jobs/AINextActionBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
@@ -38,6 +39,7 @@ interface Job {
   deposit: number | null
   deposit_required_percent: number | null
   finance_submitted_at: string | null
+  payroll_sent_at?: string | null
   sale_date: string | null
   materials_status: string
   materials_ordered_at: string | null
@@ -1043,6 +1045,15 @@ export default function JobDetailClient({
           canViewBilling={canViewJobBilling}
           onMarkCollected={handleCollectedClick}
           onMarkJobComplete={handleCompleteClick}
+        />
+        <JobPayrollSentBanner
+          jobId={job.id}
+          status={job.status}
+          payrollSentAt={job.payroll_sent_at ?? null}
+          paymentSummary={paymentSummary}
+          saleAmount={job.sale_amount}
+          canViewBilling={canViewJobBilling}
+          onUpdated={reloadJob}
         />
         <AINextActionBanner
           job={{
