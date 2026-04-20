@@ -9,6 +9,7 @@ import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
+import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import AINextActionBanner from '@/components/jobs/AINextActionBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
@@ -538,7 +539,7 @@ export default function JobDetailClient({
       }
     }
     loadPayments()
-  }, [job.id, canViewJobBilling])
+  }, [job.id, canViewJobBilling, paymentsRefreshKey])
 
   // On mobile: deep links / hash → correct tab (initial load + client-side hash changes)
   useEffect(() => {
@@ -1033,6 +1034,15 @@ export default function JobDetailClient({
           onSchedule={() => openScheduleModal('schedule')}
           onMarkJobComplete={handleCompleteClick}
           onStartJob={() => updateStatus('in_progress')}
+          onMarkCollected={handleCollectedClick}
+        />
+        <JobReadyToPayBanner
+          status={job.status}
+          paymentSummary={paymentSummary}
+          saleAmount={job.sale_amount}
+          canViewBilling={canViewJobBilling}
+          onMarkCollected={handleCollectedClick}
+          onMarkJobComplete={handleCompleteClick}
         />
         <AINextActionBanner
           job={{
@@ -1731,14 +1741,16 @@ export default function JobDetailClient({
             )}
 
             {job.payroll_attribution && (canViewJobBilling || canEditPayrollAttribution) && (
-              <PayrollAttributionEditor
-                opportunityId={job.payroll_attribution.opportunity_id}
-                initial={job.payroll_attribution}
-                canEdit={canEditPayrollAttribution}
-                onSaved={(next) => {
-                  setJob((j) => ({ ...j, payroll_attribution: next }))
-                }}
-              />
+              <div id="payroll-attribution-section" className="scroll-mt-20">
+                <PayrollAttributionEditor
+                  opportunityId={job.payroll_attribution.opportunity_id}
+                  initial={job.payroll_attribution}
+                  canEdit={canEditPayrollAttribution}
+                  onSaved={(next) => {
+                    setJob((j) => ({ ...j, payroll_attribution: next }))
+                  }}
+                />
+              </div>
             )}
 
             <div id="payments-section" className="scroll-mt-20">

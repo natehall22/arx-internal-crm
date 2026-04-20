@@ -22,6 +22,7 @@ interface JobNextActionBannerProps {
   onSchedule?: () => void
   onMarkJobComplete?: () => void
   onStartJob?: () => void
+  onMarkCollected?: () => void
 }
 
 interface NextAction {
@@ -37,6 +38,7 @@ interface NextAction {
     | 'finance_submit'
     | 'mark_complete'
     | 'start_job'
+    | 'mark_collected'
     | 'done'
 }
 
@@ -101,10 +103,12 @@ function getNextAction(
       }
     }
     return {
-      message: isFinanceJob ? 'Finance payment submitted' : 'Ready to mark as collected',
-      buttonText: isFinanceJob ? 'Done' : 'Mark as Collected',
+      message: isFinanceJob
+        ? 'Finance payment submitted — ready to mark collected'
+        : 'Ready to mark as collected',
+      buttonText: 'Mark as Collected',
       color: 'green',
-      action: 'done',
+      action: 'mark_collected',
     }
   }
 
@@ -209,6 +213,7 @@ export default function JobNextActionBanner({
   onSchedule,
   onMarkJobComplete,
   onStartJob,
+  onMarkCollected,
 }: JobNextActionBannerProps) {
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -329,6 +334,9 @@ export default function JobNextActionBanner({
         break
       case 'start_job':
         onStartJob?.()
+        break
+      case 'mark_collected':
+        onMarkCollected?.()
         break
       default:
         // No action needed
