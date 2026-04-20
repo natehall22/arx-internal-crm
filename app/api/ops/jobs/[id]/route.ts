@@ -57,10 +57,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Verify job exists and belongs to user's org
+    // Verify job exists and belongs to user's org (do not select payroll_sent_at here — if migration
+    // 124 is not applied, referencing that column makes the whole query fail with a false "not found".)
     const { data: existingJob, error: fetchError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id, project_id, status, payroll_sent_at')
+      .select('id, org_id, project_id, status')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -103,7 +104,23 @@ export async function PATCH(
             { status: 400 }
           )
         }
-        if (existingJob.payroll_sent_at) {
+        const { data: payrollRow, error: payrollFetchError } = await adminClient
+          .from('production_jobs')
+          .select('payroll_sent_at')
+          .eq('id', params.id)
+          .eq('org_id', profile.org_id)
+          .maybeSingle()
+        if (payrollFetchError) {
+          console.error('payroll_sent_at column missing or unreadable:', payrollFetchError)
+          return NextResponse.json(
+            {
+              error:
+                'Payroll tracking is not available until database migration 124 is applied (production_jobs.payroll_sent_at).',
+            },
+            { status: 503 }
+          )
+        }
+        if (payrollRow?.payroll_sent_at) {
           return NextResponse.json({ error: 'Already marked sent to payroll' }, { status: 400 })
         }
       }
