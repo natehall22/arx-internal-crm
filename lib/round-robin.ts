@@ -15,6 +15,8 @@ type CloserWithToken = TeamCloserQueue & {
     id: string
     full_name: string | null
     email: string | null
+    /** false = opted out of round-robin / assignment (must match canvass/data filtering) */
+    can_receive_appointments?: boolean | null
   }
   google_token?: UserGoogleToken | null
 }
@@ -133,7 +135,7 @@ export async function assignNextAvailableCloser(
       .from('team_closer_queue')
       .select(`
         *,
-        user:users(id, full_name, email)
+        user:users(id, full_name, email, can_receive_appointments)
       `)
       .eq('team_id', teamId)
       .eq('active', true)
@@ -145,10 +147,26 @@ export async function assignNextAvailableCloser(
       return { success: false, error: 'No active closers in queue' }
     }
 
-    console.log(`Round-robin: Found ${closers.length} active closers in team ${teamId}:`, 
-      closers.map((c: any) => ({ id: c.user_id, name: c.user?.full_name, priority: c.priority })))
+    // Align with canvass/data + admin team closers: explicit opt-out excludes from assignment.
+    const eligibleClosers = (closers as CloserWithToken[]).filter(
+      (c) => c.user?.can_receive_appointments !== false
+    )
 
-    const orderedClosers = closers as CloserWithToken[]
+    if (eligibleClosers.length === 0) {
+      console.log(
+        'Round-robin: All queue members opted out of receiving appointments (can_receive_appointments = false)',
+        { teamId }
+      )
+      return {
+        success: false,
+        error: 'No closers eligible — everyone in this team queue is set to not receive appointments',
+      }
+    }
+
+    console.log(`Round-robin: Found ${eligibleClosers.length} eligible closers in team ${teamId}:`, 
+      eligibleClosers.map((c) => ({ id: c.user_id, name: c.user?.full_name, priority: c.priority })))
+
+    const orderedClosers = eligibleClosers
 
     const { data: closerUserSettings } = await supabase
       .from('user_settings')

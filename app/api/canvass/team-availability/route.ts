@@ -93,22 +93,27 @@ export async function GET(request: NextRequest) {
       : 15
 
     // Get active closers in the team's queue who have Google Calendar connected
-    const { data: queueClosers, error: queueError } = await adminClient
+    const { data: queueClosersRaw, error: queueError } = await adminClient
       .from('team_closer_queue')
       .select(`
         *,
-        user:users(id, full_name, email)
+        user:users(id, full_name, email, can_receive_appointments)
       `)
       .eq('team_id', teamId)
       .eq('active', true)
       .order('priority', { ascending: true })
+
+    const queueClosers = (queueClosersRaw || []).filter(
+      (c: { user?: { can_receive_appointments?: boolean | null } }) =>
+        c.user?.can_receive_appointments !== false
+    )
 
     // Log buffer values prominently
     const closerBuffers = queueClosers?.map((c: any) => `${c.user?.full_name}:${c.buffer_minutes}min`).join(', ')
     console.log(`BUFFER CHECK: ${closerBuffers}`)
 
     if (queueError || !queueClosers || queueClosers.length === 0) {
-      console.log(`Team availability: No active closers found in queue for team ${teamId}`)
+      console.log(`Team availability: No active eligible closers in queue for team ${teamId}`)
       return NextResponse.json({ 
         error: 'No active closers in team queue',
         slots: [],
