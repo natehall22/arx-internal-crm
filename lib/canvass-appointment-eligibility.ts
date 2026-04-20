@@ -25,3 +25,17 @@ export function canReceiveCanvassAppointment(user: CanvassAppointmentUserFields)
   if (user.can_receive_appointments === true) return true
   return APPOINTMENT_ELIGIBLE_ROLES.has(String(user.role || ''))
 }
+
+/**
+ * Members of `team_closer_queue` are explicitly chosen by admins for round-robin.
+ * Do not apply org-wide role allowlists here — users may be closers with non-sales roles
+ * (e.g. custom titles). Only respect active status and explicit opt-out.
+ */
+export function canReceiveTeamRoundRobinQueueAssignment(user: {
+  active?: boolean | null
+  can_receive_appointments?: boolean | null
+}): boolean {
+  if (user.active === false) return false
+  if (user.can_receive_appointments === false) return false
+  return true
+}

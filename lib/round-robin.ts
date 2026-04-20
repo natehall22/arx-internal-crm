@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   refreshAccessToken,
   getFreeBusy,
@@ -9,14 +9,13 @@ import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { hasBufferedConflict } from '@/lib/scheduling-buffer'
 import { resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import type { TeamCloserQueue, UserGoogleToken, ScheduledAppointment } from './types/database'
-import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
+import { canReceiveTeamRoundRobinQueueAssignment } from '@/lib/canvass-appointment-eligibility'
 
 type CloserWithToken = TeamCloserQueue & {
   user: {
     id: string
     full_name: string | null
     email: string | null
-    role?: string | null
     active?: boolean | null
     can_receive_appointments?: boolean | null
   }
@@ -82,10 +81,11 @@ async function hasDbConflictForCloser(
  * queue rotation, not strict cyclic order.)
  *
  * Requires Google Calendar connected: closers without a token are skipped (no DB-only path).
+ *
+ * @param supabase Service-role or admin client (same as getAdminClient() in API routes).
  */
 export async function assignNextAvailableCloser(
-  supabaseUrl: string,
-  supabaseServiceKey: string,
+  supabase: SupabaseClient,
   teamId: string,
   scheduledFor: Date,
   durationMinutes: number = 60,
@@ -114,8 +114,11 @@ export async function assignNextAvailableCloser(
   /** Stored on scheduled_appointments.buffer_after_minutes (Admin → Scheduling per appointment type). */
   scheduledAppointmentBufferMinutes?: number
 ): Promise<AssignmentResult> {
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
   const orgDefaultGap = defaultSchedulingGapMinutes ?? 15
+
+  if (Number.isNaN(scheduledFor.getTime())) {
+    return { success: false, error: 'Invalid scheduled time' }
+  }
 
   try {
     // Get team timezone if not provided
@@ -137,7 +140,7 @@ export async function assignNextAvailableCloser(
       .from('team_closer_queue')
       .select(`
         *,
-        user:users(id, full_name, email, role, active, can_receive_appointments)
+        user:users(id, full_name, email, active, can_receive_appointments)
       `)
       .eq('team_id', teamId)
       .eq('active', true)
@@ -152,22 +155,21 @@ export async function assignNextAvailableCloser(
     const eligibleClosers = (closers as CloserWithToken[]).filter((c) => {
       const u = c.user
       if (!u) return false
-      return canReceiveCanvassAppointment({
+      return canReceiveTeamRoundRobinQueueAssignment({
         active: u.active,
-        role: u.role,
         can_receive_appointments: u.can_receive_appointments,
       })
     })
 
     if (eligibleClosers.length === 0) {
       console.log(
-        'Round-robin: No queue members pass canvass appointment eligibility (active, role, can_receive_appointments)',
+        'Round-robin: No queue members eligible (inactive or can_receive_appointments = false)',
         { teamId, queueSize: closers.length }
       )
       return {
         success: false,
         error:
-          'No eligible closers in this team queue — users may be inactive, opted out, or not in an appointment-eligible role. Ask an admin to fix the team closer queue or user settings.',
+          'No eligible closers in this team queue — users may be inactive or opted out of receiving appointments. Ask an admin to check the team closer queue.',
       }
     }
 
@@ -198,7 +200,9 @@ export async function assignNextAvailableCloser(
         .from('user_google_tokens')
         .select('*')
         .eq('user_id', closer.user_id)
-        .single()
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
       if (tokenError) {
         console.log(`Round-robin: Token lookup error for ${closer.user?.full_name}:`, tokenError.message)

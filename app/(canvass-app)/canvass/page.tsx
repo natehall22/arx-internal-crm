@@ -430,6 +430,8 @@ export default function CanvassPage() {
               typeof (errorData as { error?: string }).error === 'string'
                 ? (errorData as { error: string }).error
                 : 'Could not save lead. Please try again.'
+            const rrDetail = (errorData as { round_robin_detail?: string }).round_robin_detail
+            if (rrDetail) console.error('Canvass schedule detail:', rrDetail)
             alert(msg)
             createFailed = true
           }

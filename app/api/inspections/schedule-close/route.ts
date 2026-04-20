@@ -312,16 +312,9 @@ export async function POST(request: NextRequest) {
       scheduledForISO = fromZonedTime(wall, 'America/New_York').toISOString()
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
     let closeAppointment: any = null
 
     if (use_round_robin) {
-      if (!serviceKey) {
-        return NextResponse.json({ error: 'Round-robin scheduling is not configured' }, { status: 500 })
-      }
-
       const { data: inspectionCloser } = await admin
         .from('users')
         .select('team_id')
@@ -352,8 +345,7 @@ export async function POST(request: NextRequest) {
 
       const scheduledForDate = new Date(scheduledForISO)
       const assignment = await assignNextAvailableCloser(
-        supabaseUrl,
-        serviceKey,
+        admin,
         teamId,
         scheduledForDate,
         closeDurationMinutes,

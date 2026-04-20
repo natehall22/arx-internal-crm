@@ -6,7 +6,6 @@ import {
   getInspectionBufferAfterFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
 import {
   createCalendarEvent,
   refreshAccessToken,
@@ -19,12 +18,25 @@ import nodemailer from 'nodemailer'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { pickValidEmail } from '@/lib/setter-email'
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
 function formatInspectionTimeEt(iso: string | null | undefined): string {
   if (!iso) return 'TBD'
   return `${formatDateTimeInTimezone(iso)} ET`
+}
+
+/** Map Postgres / trigger errors from scheduled_appointments INSERT to a clearer canvass message. */
+function formatScheduledAppointmentInsertError(dbMessage: string): string {
+  const m = dbMessage.toLowerCase()
+  if (m.includes('scheduling conflict') || m.includes('overlapping appointment')) {
+    return 'That time overlaps another appointment for this closer. Choose a different time.'
+  }
+  if (m.includes('rapid duplicate') || m.includes('duplicate key') || m.includes('unique constraint')) {
+    return 'This time was already booked (duplicate or double-tap). Wait a moment and try again, or pick another slot.'
+  }
+  return `Could not save the appointment (${dbMessage})`
 }
 
 function getAdminClient() {
@@ -56,7 +68,9 @@ async function getValidAccessToken(adminClient: any, userId: string): Promise<st
     .from('user_google_tokens')
     .select('*')
     .eq('user_id', userId)
-    .single()
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (tokenError) {
     console.log(`getValidAccessToken: Error fetching token:`, tokenError.message)
@@ -544,6 +558,8 @@ export async function POST(request: Request) {
     let appointmentId: string | null = null
     let roundRobinGoogleEventId: string | null = null
     let reusedExistingAppointment = false
+    /** Set when team RR runs but does not assign (for support / client debugging). */
+    let roundRobinFailureDetail: string | undefined
 
     const orgSchedulingGap = scheduleInspection
       ? await getOrgDefaultSchedulingGapMinutes(supabase, profile.org_id)
@@ -581,70 +597,64 @@ export async function POST(request: Request) {
       }
     }
 
-    // Round-robin assignment if no closer specified
+    // Round-robin assignment if no closer specified (use same admin Supabase client as the rest
+    // of this route — do not gate on separate env reads; if lead insert worked, RR can run).
     if (useRoundRobin && inspectionScheduledFor && !appointmentId) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+      const teamId =
+        teamIdForRoundRobin || profile.team_id || (await getDefaultTeam(supabase, profile.org_id))
 
-      if (supabaseUrl && supabaseServiceKey) {
-        const serviceClient = createServiceClient(supabaseUrl, supabaseServiceKey)
-        
-        // Use explicitly selected team, or fall back to user's team or default team
-        const teamId = teamIdForRoundRobin || profile.team_id || await getDefaultTeam(serviceClient, profile.org_id)
+      console.log('Round-robin assignment:', {
+        teamIdForRoundRobin,
+        profileTeamId: profile.team_id,
+        resolvedTeamId: teamId,
+        scheduledFor: inspectionScheduledFor,
+      })
 
-        console.log('Round-robin assignment:', {
-          teamIdForRoundRobin,
-          profileTeamId: profile.team_id,
-          resolvedTeamId: teamId,
-          scheduledFor: inspectionScheduledFor,
-        })
+      if (teamId) {
+        const assignment = await assignNextAvailableCloser(
+          supabase,
+          teamId,
+          new Date(inspectionScheduledFor),
+          inspectionDuration,
+          leadRow.id,
+          undefined, // opportunity_id is linked after we resolve/create it below
+          leadRow.address_text,
+          profile.id, // canvasser
+          profile.org_id,
+          undefined, // timezone - will use team default
+          {
+            homeownerName: leadRow.homeowner_name,
+            phone: leadRow.phone,
+            notes: leadRow.canvass_notes || leadRow.notes,
+            setterName: profile.full_name,
+            setterEmailHint: pickValidEmail(profile.email, authUser.email),
+          },
+          orgSchedulingGap,
+          inspectionBufferAfter
+        )
 
-        if (teamId) {
-          const assignment = await assignNextAvailableCloser(
-            supabaseUrl,
-            supabaseServiceKey,
-            teamId,
-            new Date(inspectionScheduledFor),
-            inspectionDuration,
-            leadRow.id,
-            undefined, // opportunity_id is linked after we resolve/create it below
-            leadRow.address_text,
-            profile.id, // canvasser
-            profile.org_id,
-            undefined, // timezone - will use team default
-            {
-              homeownerName: leadRow.homeowner_name,
-              phone: leadRow.phone,
-              notes: leadRow.canvass_notes || leadRow.notes,
-              setterName: profile.full_name,
-              setterEmailHint: pickValidEmail(profile.email, authUser.email),
-            },
-            orgSchedulingGap,
-            inspectionBufferAfter
-          )
+        console.log('Round-robin assignment result:', assignment)
 
-          console.log('Round-robin assignment result:', assignment)
+        if (assignment.success && assignment.closerId) {
+          closerUserId = assignment.closerId
+          assignedCloserName = assignment.closerName || null
+          appointmentId = assignment.appointmentId || null
+          roundRobinGoogleEventId = assignment.googleEventId || null
 
-          if (assignment.success && assignment.closerId) {
-            closerUserId = assignment.closerId
-            assignedCloserName = assignment.closerName || null
-            appointmentId = assignment.appointmentId || null
-            roundRobinGoogleEventId = assignment.googleEventId || null
-
-            // Update lead with assigned closer (but keep owner_user_id as setter)
-            await supabase
-              .from('leads')
-              .update({ 
-                closer_user_id: closerUserId
-                // NOTE: Don't change owner_user_id - setter keeps credit for door knock
-              })
-              .eq('id', leadRow.id)
-          } else {
-            console.log('Round-robin assignment failed:', assignment.error)
-          }
+          await supabase
+            .from('leads')
+            .update({
+              closer_user_id: closerUserId,
+            })
+            .eq('id', leadRow.id)
         } else {
-          console.log('No team found for round-robin assignment')
+          console.log('Round-robin assignment failed:', assignment.error)
+          roundRobinFailureDetail = assignment.error
         }
+      } else {
+        console.log('No team found for round-robin assignment')
+        roundRobinFailureDetail =
+          'No team resolved for round-robin (setter has no team and none was selected).'
       }
     }
 
@@ -694,6 +704,7 @@ export async function POST(request: Request) {
           error:
             'No closer could be assigned for this time. Choose another time, pick an individual closer, or ask an admin to check the team closer queue and calendars.',
           code: 'NO_CLOSER_ASSIGNED',
+          round_robin_detail: roundRobinFailureDetail,
         },
         { status: 409 }
       )
@@ -798,12 +809,13 @@ export async function POST(request: Request) {
 
         if (apptError) {
           console.error('Appointment creation error:', apptError)
+          // Unique index is on (lead_id, scheduled_for) only — recovery must not require closer_user_id,
+          // or we miss races / double-submit / RR+manual edge cases.
           const { data: existingAfterConflict } = await supabase
             .from('scheduled_appointments')
-            .select('id, google_event_id')
+            .select('id, google_event_id, closer_user_id')
             .eq('org_id', profile.org_id)
             .eq('lead_id', leadRow.id)
-            .eq('closer_user_id', closerUserId)
             .eq('scheduled_for', inspectionScheduledFor)
             .in('status', ['scheduled', 'confirmed'])
             .order('created_at', { ascending: false })
@@ -814,6 +826,17 @@ export async function POST(request: Request) {
             appointmentId = existingAfterConflict.id
             roundRobinGoogleEventId = existingAfterConflict.google_event_id || roundRobinGoogleEventId
             reusedExistingAppointment = true
+            if (existingAfterConflict.closer_user_id) {
+              closerUserId = existingAfterConflict.closer_user_id
+              await supabase
+                .from('leads')
+                .update({ closer_user_id: closerUserId })
+                .eq('id', leadRow.id)
+            }
+            console.log('Recovered existing appointment row after insert error:', {
+              appointmentId,
+              reason: apptError.message,
+            })
           } else {
             if (isNewLeadCreate && leadRow?.id) {
               if (opportunityInsertedThisRequest && opportunityId) {
@@ -824,8 +847,9 @@ export async function POST(request: Request) {
             }
             return NextResponse.json(
               {
-                error: 'Failed to create appointment',
+                error: formatScheduledAppointmentInsertError(apptError.message),
                 details: apptError.message,
+                code: 'APPOINTMENT_INSERT_FAILED',
               },
               { status: 400 }
             )

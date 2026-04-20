@@ -7,7 +7,8 @@ import {
   resolveSchedulingBuffers,
   type UserCalendarBufferFields,
 } from '@/lib/org-scheduling-gap'
-import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
+import { canReceiveTeamRoundRobinQueueAssignment } from '@/lib/canvass-appointment-eligibility'
+import { hasBufferedConflict } from '@/lib/scheduling-buffer'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,7 +99,7 @@ export async function GET(request: NextRequest) {
       .from('team_closer_queue')
       .select(`
         *,
-        user:users(id, full_name, email, role, active, can_receive_appointments)
+        user:users(id, full_name, email, active, can_receive_appointments)
       `)
       .eq('team_id', teamId)
       .eq('active', true)
@@ -107,16 +108,14 @@ export async function GET(request: NextRequest) {
     const queueClosers = (queueClosersRaw || []).filter(
       (c: {
         user?: {
-          role?: string | null
           active?: boolean | null
           can_receive_appointments?: boolean | null
         }
       }) => {
         const u = c.user
         if (!u) return false
-        return canReceiveCanvassAppointment({
+        return canReceiveTeamRoundRobinQueueAssignment({
           active: u.active,
-          role: u.role,
           can_receive_appointments: u.can_receive_appointments,
         })
       }
@@ -332,20 +331,18 @@ export async function GET(request: NextRequest) {
         const us = userSettingsByCloserId.get(closer.user_id)
         const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(closer, us, orgDefaultGap)
         
-        // Check for conflicts with separate before/after buffers
-        const hasConflict = busySlots.some(busy => {
+        // Same buffered overlap as lib/round-robin.ts + lib/scheduling-buffer (was looser; showed ghost slots).
+        const hasConflict = busySlots.some((busy) => {
           const busyStart = new Date(busy.start)
           const busyEnd = new Date(busy.end)
-          
-          // Slot would conflict if:
-          // 1. Slot overlaps with busy period directly
-          // 2. Slot ends within buffer_after time before busy period starts (need gap after this appt)
-          // 3. Slot starts within buffer_before time after busy period ends (need gap before this appt)
-          const slotOverlaps = slotStartUTC < busyEnd && slotEndUTC > busyStart
-          const tooCloseBeforeEvent = bufferAfter > 0 && slotEndUTC > new Date(busyStart.getTime() - bufferAfter * 60 * 1000) && slotEndUTC <= busyStart
-          const tooCloseAfterEvent = bufferBefore > 0 && slotStartUTC < new Date(busyEnd.getTime() + bufferBefore * 60 * 1000) && slotStartUTC >= busyEnd
-          
-          return slotOverlaps || tooCloseBeforeEvent || tooCloseAfterEvent
+          return hasBufferedConflict(
+            slotStartUTC,
+            slotEndUTC,
+            busyStart,
+            busyEnd,
+            bufferBefore,
+            bufferAfter
+          )
         })
         
         if (!hasConflict) {
