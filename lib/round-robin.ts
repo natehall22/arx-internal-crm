@@ -9,13 +9,15 @@ import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { hasBufferedConflict } from '@/lib/scheduling-buffer'
 import { resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import type { TeamCloserQueue, UserGoogleToken, ScheduledAppointment } from './types/database'
+import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 
 type CloserWithToken = TeamCloserQueue & {
   user: {
     id: string
     full_name: string | null
     email: string | null
-    /** false = opted out of round-robin / assignment (must match canvass/data filtering) */
+    role?: string | null
+    active?: boolean | null
     can_receive_appointments?: boolean | null
   }
   google_token?: UserGoogleToken | null
@@ -135,7 +137,7 @@ export async function assignNextAvailableCloser(
       .from('team_closer_queue')
       .select(`
         *,
-        user:users(id, full_name, email, can_receive_appointments)
+        user:users(id, full_name, email, role, active, can_receive_appointments)
       `)
       .eq('team_id', teamId)
       .eq('active', true)
@@ -147,19 +149,25 @@ export async function assignNextAvailableCloser(
       return { success: false, error: 'No active closers in queue' }
     }
 
-    // Align with canvass/data + admin team closers: explicit opt-out excludes from assignment.
-    const eligibleClosers = (closers as CloserWithToken[]).filter(
-      (c) => c.user?.can_receive_appointments !== false
-    )
+    const eligibleClosers = (closers as CloserWithToken[]).filter((c) => {
+      const u = c.user
+      if (!u) return false
+      return canReceiveCanvassAppointment({
+        active: u.active,
+        role: u.role,
+        can_receive_appointments: u.can_receive_appointments,
+      })
+    })
 
     if (eligibleClosers.length === 0) {
       console.log(
-        'Round-robin: All queue members opted out of receiving appointments (can_receive_appointments = false)',
-        { teamId }
+        'Round-robin: No queue members pass canvass appointment eligibility (active, role, can_receive_appointments)',
+        { teamId, queueSize: closers.length }
       )
       return {
         success: false,
-        error: 'No closers eligible — everyone in this team queue is set to not receive appointments',
+        error:
+          'No eligible closers in this team queue — users may be inactive, opted out, or not in an appointment-eligible role. Ask an admin to fix the team closer queue or user settings.',
       }
     }
 

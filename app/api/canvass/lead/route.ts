@@ -18,6 +18,7 @@ import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/l
 import nodemailer from 'nodemailer'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { pickValidEmail } from '@/lib/setter-email'
+import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 
 export const dynamic = 'force-dynamic'
 
@@ -418,6 +419,38 @@ export async function POST(request: Request) {
     // Inspection duration: Admin → Scheduling → appointment_types (inspection category)
     const inspectionTypeRows = await fetchOrgAppointmentTypesFromTable(supabase, profile.org_id)
     const inspectionDuration = getInspectionDurationFromTable(inspectionTypeRows, 60)
+
+    if (scheduleInspection && inspectionScheduledFor && closerUserId) {
+      const { data: selectedCloser, error: closerError } = await supabase
+        .from('users')
+        .select('id, role, active, can_receive_appointments')
+        .eq('id', closerUserId)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+
+      if (closerError || !selectedCloser || !canReceiveCanvassAppointment(selectedCloser)) {
+        return NextResponse.json(
+          {
+            error:
+              'That user is not available for inspection appointments. Choose a calendar-connected closer or a round-robin team.',
+            code: 'CLOSER_NOT_ELIGIBLE',
+          },
+          { status: 409 }
+        )
+      }
+
+      const googleAccessToken = await getValidAccessToken(supabase, closerUserId)
+      if (!googleAccessToken) {
+        return NextResponse.json(
+          {
+            error:
+              'That closer does not have Google Calendar connected. Choose another closer or connect their calendar before scheduling.',
+            code: 'CALENDAR_NOT_CONNECTED',
+          },
+          { status: 409 }
+        )
+      }
+    }
 
     // Log incoming data for debugging
     console.log('Canvass lead payload:', {

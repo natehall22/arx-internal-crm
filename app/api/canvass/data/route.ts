@@ -11,6 +11,7 @@ import {
   leadLngLatInRings,
 } from '@/lib/canvass-territories'
 import { canManageCanvassTerritories } from '@/lib/canvass-territory-manager-roles'
+import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 
 export const dynamic = 'force-dynamic'
 
@@ -227,8 +228,8 @@ export async function GET(request: NextRequest) {
     
     console.log('Canvass data: returning', leads?.length || 0, 'leads, visibility:', visibility, 'filter:', visibleUserIds.length > 0 ? visibleUserIds : 'all')
 
-    // Get users for closer selection - only users who can receive appointments
-    // Filter to sales roles and users who have can_receive_appointments = true (or null for backwards compat)
+    // Get users for closer selection - only active users who can receive appointments.
+    // Explicit can_receive_appointments=true wins for custom roles; otherwise keep legacy sales roles.
     const { data: users, error: usersError } = await adminClient
       .from('users')
       .select('id, full_name, role, can_receive_appointments, active')
@@ -237,7 +238,6 @@ export async function GET(request: NextRequest) {
     
     console.log('Users query result:', { count: users?.length, usersError, orgId: profile.org_id, users: users?.map(u => ({ name: u.full_name, active: u.active })) })
 
-    // Show all active users unless they have explicitly opted out via can_receive_appointments = false
     // Debug logging
     console.log('All users before filtering:', users?.map(u => ({ 
       name: u.full_name, 
@@ -245,11 +245,7 @@ export async function GET(request: NextRequest) {
       can_receive: u.can_receive_appointments
     })))
     
-    const filteredUsers = (users || []).filter(u => {
-      // Only exclude if explicitly set to false
-      // Include everyone else (true, null, undefined)
-      return u.can_receive_appointments !== false
-    })
+    const filteredUsers = (users || []).filter(canReceiveCanvassAppointment)
     
     console.log('Filtered users for closer selection:', filteredUsers.map(u => u.full_name))
 
@@ -258,10 +254,13 @@ export async function GET(request: NextRequest) {
       .from('user_google_tokens')
       .select('user_id')
     
-    const usersWithCalendarStatus = filteredUsers.map(user => ({
-      ...user,
-      has_calendar: calendarTokens?.some(t => t.user_id === user.id) || false,
-    }))
+    const calendarUserIds = new Set((calendarTokens || []).map((t) => t.user_id))
+    const usersWithCalendarStatus = filteredUsers
+      .filter((user) => calendarUserIds.has(user.id))
+      .map(user => ({
+        ...user,
+        has_calendar: true,
+      }))
     
     // Get teams for round-robin option
     const { data: teams, error: teamsError } = await adminClient

@@ -7,6 +7,7 @@ import {
   resolveSchedulingBuffers,
   type UserCalendarBufferFields,
 } from '@/lib/org-scheduling-gap'
+import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,15 +98,28 @@ export async function GET(request: NextRequest) {
       .from('team_closer_queue')
       .select(`
         *,
-        user:users(id, full_name, email, can_receive_appointments)
+        user:users(id, full_name, email, role, active, can_receive_appointments)
       `)
       .eq('team_id', teamId)
       .eq('active', true)
       .order('priority', { ascending: true })
 
     const queueClosers = (queueClosersRaw || []).filter(
-      (c: { user?: { can_receive_appointments?: boolean | null } }) =>
-        c.user?.can_receive_appointments !== false
+      (c: {
+        user?: {
+          role?: string | null
+          active?: boolean | null
+          can_receive_appointments?: boolean | null
+        }
+      }) => {
+        const u = c.user
+        if (!u) return false
+        return canReceiveCanvassAppointment({
+          active: u.active,
+          role: u.role,
+          can_receive_appointments: u.can_receive_appointments,
+        })
+      }
     )
 
     // Log buffer values prominently
