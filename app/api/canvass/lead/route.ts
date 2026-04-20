@@ -615,6 +615,40 @@ export async function POST(request: Request) {
       }
     }
 
+    // Race / double-submit: another request may have already round-robin assigned this lead+slot
+    // (calendar invite sent) while this request's RR failed or ran with stale state.
+    if (scheduleInspection && inspectionScheduledFor && !closerUserId && leadRow?.id) {
+      const { data: raceAppt } = await supabase
+        .from('scheduled_appointments')
+        .select('id, closer_user_id, google_event_id')
+        .eq('org_id', profile.org_id)
+        .eq('lead_id', leadRow.id)
+        .eq('scheduled_for', inspectionScheduledFor)
+        .in('status', ['scheduled', 'confirmed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (raceAppt?.closer_user_id) {
+        closerUserId = raceAppt.closer_user_id
+        appointmentId = raceAppt.id
+        roundRobinGoogleEventId = raceAppt.google_event_id || roundRobinGoogleEventId
+        reusedExistingAppointment = true
+        const { data: closerNameRow } = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', closerUserId)
+          .maybeSingle()
+        assignedCloserName = closerNameRow?.full_name ?? assignedCloserName
+        await supabase.from('leads').update({ closer_user_id: closerUserId }).eq('id', leadRow.id)
+        console.log('Recovered closer from existing appointment (concurrent scheduling):', {
+          leadId: leadRow.id,
+          closerUserId,
+          appointmentId,
+        })
+      }
+    }
+
     // Do not allow "scheduled" inspections without an assigned closer (round-robin failure, empty queue, etc.).
     if (scheduleInspection && inspectionScheduledFor && !closerUserId) {
       // Lead was already inserted; without rollback the user retries and gets duplicate Sheryl Blacks.

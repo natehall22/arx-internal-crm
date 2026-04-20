@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getInspectionSubmitCooldownRemainingMs } from '../lib/inspectionSubmitCooldown'
 import type { CanvassPin } from '../page'
 
@@ -97,6 +97,8 @@ export default function LeadModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  /** Synchronous guard — React state can lag one frame and allow double submit. */
+  const submitLockRef = useRef(false)
   
   // Scheduling state
   const [showScheduling, setShowScheduling] = useState(false)
@@ -206,7 +208,7 @@ export default function LeadModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (isSaving) return
+    if (isSaving || submitLockRef.current) return
 
     const homeowner_name = [formData.first_name.trim(), formData.last_name.trim()].filter(Boolean).join(' ').trim() || null
     const saveData: any = {
@@ -232,10 +234,12 @@ export default function LeadModal({
       saveData.inspection_scheduled_for = selectedTime
     }
 
+    submitLockRef.current = true
     setIsSaving(true)
     try {
       await onSave(saveData)
     } finally {
+      submitLockRef.current = false
       setIsSaving(false)
     }
   }
@@ -623,7 +627,7 @@ export default function LeadModal({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     <span className="text-sm text-green-800">
-                      Inspection will be scheduled and synced to calendar
+                      Time selected — tap Schedule Inspection to save (not confirmed until saved)
                     </span>
                   </div>
                 )}
