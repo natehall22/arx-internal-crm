@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { importProjectReviewNoteToJob } from '@/lib/project-review'
 import { canAccessJobBoard } from '@/lib/permissions'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
+import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
 
 function sanitizeJobsForRole(jobs: any[], role: string) {
   if (role === 'admin') return jobs
@@ -210,6 +211,7 @@ export async function GET(request: Request) {
     }
 
     const jobList = (jobs ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
+    await enrichOpsJobsWithPayrollSentAt(adminClient, profile.org_id, jobList)
     const jobIds = jobList.map((j) => j.id)
     const collectedByJob: Record<string, number> = {}
     if (jobIds.length > 0) {
