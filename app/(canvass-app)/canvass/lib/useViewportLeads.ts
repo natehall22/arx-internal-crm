@@ -14,7 +14,6 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { flushSync } from 'react-dom'
 
 // Minimal pin data from viewport API
 export interface ViewportPin {
@@ -143,6 +142,7 @@ export function useViewportLeads(): UseViewportLeadsReturn {
   const [dispositionFilter, setDispositionFilter] = useState<string | null>(null)
   
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
+  const pruneFrameRef = useRef<number | null>(null)
   const fetchedTilesRef = useRef<Set<string>>(new Set())
   const abortControllerRef = useRef<AbortController | null>(null)
   const lastBoundsRef = useRef<string | null>(null)
@@ -185,6 +185,10 @@ export function useViewportLeads(): UseViewportLeadsReturn {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
     }
+    if (pruneFrameRef.current != null) {
+      cancelAnimationFrame(pruneFrameRef.current)
+      pruneFrameRef.current = null
+    }
 
     // Don't fetch at low zoom
     if (zoom < MIN_ZOOM_FOR_FETCH) {
@@ -192,9 +196,10 @@ export function useViewportLeads(): UseViewportLeadsReturn {
       return
     }
 
-    // Drop pins outside the current padded viewport immediately so MarkerClusterer / React
-    // are not stuck updating thousands of markers until the debounced fetch finishes.
-    flushSync(() => {
+    // Prune one frame later instead of synchronously inside the map idle path.
+    // This keeps zoom gestures responsive while still shrinking the marker set quickly.
+    pruneFrameRef.current = requestAnimationFrame(() => {
+      pruneFrameRef.current = null
       setState(prev => {
         const pruned = prunePinsToViewportQuery(prev.pins, bounds)
         if (pruned.size === prev.pins.size) return prev
@@ -395,6 +400,10 @@ export function useViewportLeads(): UseViewportLeadsReturn {
   }, [state.pinDetails])
 
   const clearCache = useCallback(() => {
+    if (pruneFrameRef.current != null) {
+      cancelAnimationFrame(pruneFrameRef.current)
+      pruneFrameRef.current = null
+    }
     loadedPinIdsRef.current = new Set()
     setState({
       pins: new Map(),
@@ -482,6 +491,10 @@ export function useViewportLeads(): UseViewportLeadsReturn {
       clearTimeout(debounceRef.current)
       debounceRef.current = null
     }
+    if (pruneFrameRef.current != null) {
+      cancelAnimationFrame(pruneFrameRef.current)
+      pruneFrameRef.current = null
+    }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
@@ -499,6 +512,20 @@ export function useViewportLeads(): UseViewportLeadsReturn {
       error: null,
     }))
   }, [dispositionFilter])
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+      if (pruneFrameRef.current != null) {
+        cancelAnimationFrame(pruneFrameRef.current)
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
 
   return {
     pins: Array.from(state.pins.values()),

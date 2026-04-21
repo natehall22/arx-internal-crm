@@ -17,6 +17,7 @@ import {
 } from '@/lib/google-calendar'
 import { easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
 import { leadOwnerLabel } from '@/lib/lead-owner-display'
+import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { pickValidEmail, sendSetterEmail } from '@/lib/setter-email'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
@@ -245,12 +246,28 @@ export default async function LeadDetailPage({
       updates.inspection_scheduled_at = new Date().toISOString()
     }
 
+    let ensuredPinCoords: { lat: number; lng: number } | null = null
+    if (status === 'inspection') {
+      ensuredPinCoords = await ensureLeadHasMapPinOrThrow(supabase, {
+        id: freshLead.id,
+        org_id: profile.org_id,
+        address_text: freshLead.address_text,
+        lat: freshLead.lat,
+        lng: freshLead.lng,
+      })
+    }
+
     // NOTE: We no longer change lead.owner_user_id to the closer
     // The lead owner stays as the setter (who knocked the door)
     // The closer is tracked in lead.closer_user_id and opportunity.owner_user_id
     // This ensures the setter gets credit for door knocks in stats
 
     await supabase.from('leads').update(updates).eq('id', params.id)
+
+    if (ensuredPinCoords) {
+      freshLead.lat = ensuredPinCoords.lat
+      freshLead.lng = ensuredPinCoords.lng
+    }
 
     // Check if inspection time changed and sync to Google Calendar
     const oldScheduledTime = freshLead.inspection_scheduled_for

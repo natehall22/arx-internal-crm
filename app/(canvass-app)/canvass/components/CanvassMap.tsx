@@ -110,6 +110,19 @@ function teardropIconAndLabel(pin: AnyPin, dispositionColor: string, synced: boo
   return { icon, label, sale }
 }
 
+function getMarkerVisualSignature(pin: AnyPin, dispositionColor: string, synced: boolean): string {
+  const sale = hasInstallationSalePin(pin)
+  const label = sale ? '$' : ''
+  return [
+    pin.lat,
+    pin.lng,
+    dispositionColor,
+    synced ? '1' : '0',
+    sale ? '1' : '0',
+    label,
+  ].join('|')
+}
+
 // Cluster styles for MarkerClusterer
 const clusterStyles = [
   { textColor: 'white', textSize: 12, width: 30, height: 30, url: '' },
@@ -153,6 +166,7 @@ export default function CanvassMap({
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<Map<string, any>>(new Map())
+  const markerVisualsRef = useRef<Map<string, string>>(new Map())
   const markerClustererRef = useRef<any>(null)
   const clusteredPinIdsRef = useRef<Set<string>>(new Set()) // Track which pins are in clusterer
   const userMarkerRef = useRef<any>(null)
@@ -396,41 +410,59 @@ export default function CanvassMap({
     if (!mapInstanceRef.current || !mapLoaded) return
 
     const currentMarkers = markersRef.current
+    const markerVisuals = markerVisualsRef.current
     const newPinIds = new Set(pins.map(p => p.id))
-    const existingIds = new Set(currentMarkers.keys())
+    const clusterer = markerClustererRef.current
 
     // Remove markers that are no longer in pins
+    const markersToRemove: any[] = []
     currentMarkers.forEach((marker, id) => {
       if (!newPinIds.has(id)) {
-        if (markerClustererRef.current) {
-          try {
-            markerClustererRef.current.removeMarker(marker)
-          } catch {
-            // clusterer may not expose removeMarker in some builds
-          }
-        }
+        markersToRemove.push(marker)
         clusteredPinIdsRef.current.delete(id)
+        markerVisuals.delete(id)
         marker.setMap(null)
         currentMarkers.delete(id)
       }
     })
 
+    if (clusterer && markersToRemove.length > 0) {
+      try {
+        if (typeof clusterer.removeMarkers === 'function') {
+          clusterer.removeMarkers(markersToRemove, true)
+        } else if (typeof clusterer.removeMarker === 'function') {
+          for (const marker of markersToRemove) {
+            clusterer.removeMarker(marker, true)
+          }
+        }
+      } catch {
+        // fall back to marker.setMap(null) above
+      }
+    }
+
     // Add or update markers
     const markersForClusterer: any[] = []
+    const newMarkersToAdd: any[] = []
     
     for (const pin of pins) {
       const disposition = getDisposition(pin)
       const color = pinColors[disposition || ''] || pinColors.default
       const synced = isSynced(pin)
       const { icon, label, sale } = teardropIconAndLabel(pin, color, synced)
+      const visualSignature = getMarkerVisualSignature(pin, color, synced)
 
       if (currentMarkers.has(pin.id)) {
         const marker = currentMarkers.get(pin.id)
         if (marker) {
-          marker.setIcon(icon)
-          if (label) marker.setLabel(label)
-          else marker.setLabel(null)
-          marker.setZIndex(sale ? 700 : 0)
+          const prevSignature = markerVisuals.get(pin.id)
+          if (prevSignature !== visualSignature) {
+            marker.setPosition({ lat: pin.lat, lng: pin.lng })
+            marker.setIcon(icon)
+            if (label) marker.setLabel(label)
+            else marker.setLabel(null)
+            marker.setZIndex(sale ? 700 : 0)
+            markerVisuals.set(pin.id, visualSignature)
+          }
           markersForClusterer.push(marker)
         }
       } else {
@@ -451,27 +483,38 @@ export default function CanvassMap({
         })
 
         currentMarkers.set(pin.id, marker)
+        markerVisuals.set(pin.id, visualSignature)
         markersForClusterer.push(marker)
+        newMarkersToAdd.push(marker)
       }
     }
 
     // Update clusterer if in viewport mode
     if (isViewportMode && clustererLoaded && (window as any).markerClusterer) {
       if (markerClustererRef.current) {
-        // Only add NEW markers that aren't already in the clusterer
-        const newMarkersToAdd: any[] = []
         for (const pin of pins) {
-          if (!clusteredPinIdsRef.current.has(pin.id)) {
-            const marker = currentMarkers.get(pin.id)
-            if (marker) {
-              newMarkersToAdd.push(marker)
-              clusteredPinIdsRef.current.add(pin.id)
-            }
+          if (!clusteredPinIdsRef.current.has(pin.id) && currentMarkers.has(pin.id)) {
+            clusteredPinIdsRef.current.add(pin.id)
           }
         }
-        
+
         if (newMarkersToAdd.length > 0) {
-          markerClustererRef.current.addMarkers(newMarkersToAdd)
+          try {
+            markerClustererRef.current.addMarkers(newMarkersToAdd, true)
+          } catch {
+            markerClustererRef.current.addMarkers(newMarkersToAdd)
+          }
+        }
+
+        if (
+          newMarkersToAdd.length > 0 ||
+          markersToRemove.length > 0
+        ) {
+          try {
+            markerClustererRef.current.render()
+          } catch {
+            // no-op if this build redraws automatically
+          }
         }
       } else if (markersForClusterer.length > 0) {
         // Initialize clusterer

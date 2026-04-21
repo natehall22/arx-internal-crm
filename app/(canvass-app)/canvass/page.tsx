@@ -44,10 +44,35 @@ export type CanvassPin = {
   synced: boolean
   owner_user_id?: string
   owner_name?: string
+  installation_agreement_signed_at?: string | null
 }
 
 // Union type for display
 type DisplayPin = CanvassPin | ViewportPin
+
+function hasInstallationSale(pin: DisplayPin): boolean {
+  if ('ia' in pin && pin.ia) return true
+  return Boolean(
+    'installation_agreement_signed_at' in pin &&
+      pin.installation_agreement_signed_at
+  )
+}
+
+function toViewportPin(pin: Pick<
+  CanvassPin,
+  'id' | 'lat' | 'lng' | 'disposition' | 'status' | 'owner_user_id' | 'created_at' | 'installation_agreement_signed_at'
+>): ViewportPin {
+  return {
+    id: pin.id,
+    lat: pin.lat,
+    lng: pin.lng,
+    d: pin.disposition || null,
+    s: pin.status,
+    o: pin.owner_user_id || null,
+    t: pin.created_at,
+    ia: Boolean(pin.installation_agreement_signed_at),
+  }
+}
 
 export default function CanvassPage() {
   const router = useRouter()
@@ -265,6 +290,7 @@ export default function CanvassPage() {
           synced: true,
           owner_user_id: details.owner_user_id,
           owner_name: details.owner?.full_name,
+          installation_agreement_signed_at: details.installation_agreement_signed_at,
         }
         setSelectedPin(fullPin)
         setShowLeadModal(true)
@@ -350,17 +376,8 @@ export default function CanvassPage() {
         updatedPin.status = 'inspection'
         updatedPin.disposition = 'scheduled'
       }
-      
-      const viewportPin = {
-        id: selectedPin.id,
-        lat: selectedPin.lat,
-        lng: selectedPin.lng,
-        d: updatedPin.disposition || null,
-        s: updatedPin.status,
-        o: selectedPin.owner_user_id || null,
-        t: selectedPin.created_at,
-      }
-      updateViewportPin(viewportPin)
+
+      updateViewportPin(toViewportPin(updatedPin))
     } else if (newPinLocation) {
       let createFailed = false
       // Create new pin
@@ -449,16 +466,7 @@ export default function CanvassPage() {
         return
       }
 
-      const viewportPin = {
-        id: newPin.id,
-        lat: newPin.lat,
-        lng: newPin.lng,
-        d: newPin.disposition || null,
-        s: newPin.status,
-        o: newPin.owner_user_id || null,
-        t: newPin.created_at,
-      }
-      addViewportPin(viewportPin)
+      addViewportPin(toViewportPin(newPin))
     }
 
     setShowLeadModal(false)
@@ -596,6 +604,7 @@ export default function CanvassPage() {
                   const addressText = isViewportPin ? null : (pin as CanvassPin).address_text
                   const phone = isViewportPin ? null : (pin as CanvassPin).phone
                   const synced = isViewportPin ? true : (pin as CanvassPin).synced
+                  const sold = hasInstallationSale(pin)
                   
                   return (
                     <button
@@ -609,6 +618,11 @@ export default function CanvassPage() {
                             <h3 className="font-medium text-gray-900">
                               {homeownerName || 'Tap to view'}
                             </h3>
+                            {sold && (
+                              <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded">
+                                Sold
+                              </span>
+                            )}
                             {!synced && (
                               <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">
                                 Pending
