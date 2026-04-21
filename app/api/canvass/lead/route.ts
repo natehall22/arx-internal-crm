@@ -30,6 +30,9 @@ function formatInspectionTimeEt(iso: string | null | undefined): string {
 /** Map Postgres / trigger errors from scheduled_appointments INSERT to a clearer canvass message. */
 function formatScheduledAppointmentInsertError(dbMessage: string): string {
   const m = dbMessage.toLowerCase()
+  if (m.includes('on conflict') && m.includes('unique or exclusion constraint')) {
+    return 'Database is missing a required index on pending_status_prompts. Apply migration 125_pending_status_prompts_unique_appointment_id.sql (or ask an admin to run Supabase migrations).'
+  }
   if (m.includes('scheduling conflict') || m.includes('overlapping appointment')) {
     return 'That time overlaps another appointment for this closer. Choose a different time.'
   }

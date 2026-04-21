@@ -212,6 +212,20 @@ export default function CanvassPage() {
     fetchForBounds(bounds, zoom)
   }, [fetchForBounds])
 
+  const handleMapClick = useCallback((lat: number, lng: number) => {
+    setNewPinLocation({ lat, lng })
+    setSelectedPin(null)
+    setPrefillAddress('')
+    setShowLeadModal(true)
+  }, [])
+
+  const handleAddressSelect = useCallback((lat: number, lng: number, address: string) => {
+    setNewPinLocation({ lat, lng })
+    setSelectedPin(null)
+    setPrefillAddress(address)
+    setShowLeadModal(true)
+  }, [])
+
   const displayPins: DisplayPin[] = useMemo(() => {
     const merged: DisplayPin[] = [
       ...pendingLeads.map((lead) => ({ ...lead, synced: false } as CanvassPin)),
@@ -223,21 +237,7 @@ export default function CanvassPage() {
     return merged.filter((p) => matchesCanvassDispositionFilter(p, dispositionFilter))
   }, [pendingLeads, viewportPins, dispositionFilter])
 
-  const handleMapClick = (lat: number, lng: number) => {
-    setNewPinLocation({ lat, lng })
-    setSelectedPin(null)
-    setPrefillAddress('')
-    setShowLeadModal(true)
-  }
-
-  const handleAddressSelect = (lat: number, lng: number, address: string) => {
-    setNewPinLocation({ lat, lng })
-    setSelectedPin(null)
-    setPrefillAddress(address)
-    setShowLeadModal(true)
-  }
-
-  const handlePinClick = async (pin: DisplayPin) => {
+  const handlePinClick = useCallback(async (pin: DisplayPin) => {
     setNewPinLocation(null)
     
     // If it's a viewport pin (minimal data), fetch full details
@@ -274,7 +274,7 @@ export default function CanvassPage() {
       setSelectedPin(pin as CanvassPin)
       setShowLeadModal(true)
     }
-  }
+  }, [getPinDetails])
 
   const handleSaveLead = async (leadData: Partial<CanvassPin> & {
     schedule_inspection?: boolean

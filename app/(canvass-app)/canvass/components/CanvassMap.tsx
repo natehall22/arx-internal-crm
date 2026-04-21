@@ -134,6 +134,12 @@ export default function CanvassMap({
   dispositions = [],
   assignedTerritories,
 }: Props) {
+  // Keep latest handlers without re-running marker sync / re-binding map listeners every render.
+  const onMapClickRef = useRef(onMapClick)
+  const onPinClickRef = useRef(onPinClick)
+  onMapClickRef.current = onMapClick
+  onPinClickRef.current = onPinClick
+
   // Build pin colors map from admin dispositions (with fallback to defaults)
   const pinColors = React.useMemo(() => {
     const colors: Record<string, string> = { ...defaultPinColors }
@@ -158,7 +164,6 @@ export default function CanvassMap({
   const [searchExpanded, setSearchExpanded] = useState(false)
   const [searchValue, setSearchValue] = useState('')
   const [showFilterMenu, setShowFilterMenu] = useState(false)
-  const [currentZoom, setCurrentZoom] = useState(17)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>('hybrid')
   const [mapHeading, setMapHeading] = useState(0) // Track map rotation for compass
 
@@ -236,18 +241,10 @@ export default function CanvassMap({
       clickableIcons: false,
     } as google.maps.MapOptions)
 
-    // Click listener
+    // Click listener (ref so we don't recreate the map when the parent passes a new callback each render)
     mapInstanceRef.current.addListener('click', (e: any) => {
       if (e?.latLng) {
-        onMapClick(e.latLng.lat(), e.latLng.lng())
-      }
-    })
-
-    // Zoom change listener
-    mapInstanceRef.current.addListener('zoom_changed', () => {
-      const zoom = mapInstanceRef.current?.getZoom()
-      if (zoom !== undefined) {
-        setCurrentZoom(zoom)
+        onMapClickRef.current(e.latLng.lat(), e.latLng.lng())
       }
     })
 
@@ -450,7 +447,7 @@ export default function CanvassMap({
         })
 
         marker.addListener('click', () => {
-          onPinClick(pin)
+          onPinClickRef.current(pin)
         })
 
         currentMarkers.set(pin.id, marker)
@@ -526,7 +523,7 @@ export default function CanvassMap({
         }
       }
     }
-  }, [pins, onPinClick, mapLoaded, clustererLoaded, isViewportMode])
+  }, [pins, mapLoaded, clustererLoaded, isViewportMode])
 
   const handleCenterOnUser = () => {
     if (mapInstanceRef.current && currentPosition) {
