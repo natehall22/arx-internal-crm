@@ -14,6 +14,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { flushSync } from 'react-dom'
 
 // Minimal pin data from viewport API
 export interface ViewportPin {
@@ -55,8 +56,34 @@ const DEBOUNCE_MS = 400  // Increased to reduce flicker during pan/zoom
 const MIN_ZOOM_FOR_FETCH = 10
 const TILE_PRECISION = 3  // Decimal places for tile keys (lower = larger tiles)
 
+/** Same padding as `/api/canvass/leads/viewport` query — keeps pins we could have just fetched, drops everything else. */
+const FETCH_BOUNDS_PAD_RATIO = 0.1
+
 // Bounds type (google.maps.LatLngBounds at runtime)
 type MapBounds = any
+
+function prunePinsToViewportQuery(pins: Map<string, ViewportPin>, bounds: MapBounds): Map<string, ViewportPin> {
+  const ne = bounds.getNorthEast()
+  const sw = bounds.getSouthWest()
+  const latSpan = ne.lat() - sw.lat()
+  const lngSpan = ne.lng() - sw.lng()
+  if (latSpan <= 0 || lngSpan <= 0) return pins
+
+  const latPad = latSpan * FETCH_BOUNDS_PAD_RATIO
+  const lngPad = lngSpan * FETCH_BOUNDS_PAD_RATIO
+  const minLat = sw.lat() - latPad
+  const maxLat = ne.lat() + latPad
+  const minLng = sw.lng() - lngPad
+  const maxLng = ne.lng() + lngPad
+
+  const next = new Map<string, ViewportPin>()
+  pins.forEach((pin, id) => {
+    if (pin.lat >= minLat && pin.lat <= maxLat && pin.lng >= minLng && pin.lng <= maxLng) {
+      next.set(id, pin)
+    }
+  })
+  return next
+}
 
 // Generate tile key from bounds and zoom
 function getTileKey(bounds: MapBounds, zoom: number): string {
@@ -165,6 +192,23 @@ export function useViewportLeads(): UseViewportLeadsReturn {
       return
     }
 
+    // Drop pins outside the current padded viewport immediately so MarkerClusterer / React
+    // are not stuck updating thousands of markers until the debounced fetch finishes.
+    flushSync(() => {
+      setState(prev => {
+        const pruned = prunePinsToViewportQuery(prev.pins, bounds)
+        if (pruned.size === prev.pins.size) return prev
+        loadedPinIdsRef.current = new Set(pruned.keys())
+        pinsCountRef.current = pruned.size
+        lastBoundsRef.current = null
+        return {
+          ...prev,
+          pins: pruned,
+          totalLoaded: pruned.size,
+        }
+      })
+    })
+
     const tileKey = getTileKey(bounds, zoom)
     
     // Skip if we've already fetched this tile (and no filter change)
@@ -268,14 +312,16 @@ export function useViewportLeads(): UseViewportLeadsReturn {
             newPins.set(pin.id, pin)
           }
 
-          loadedPinIdsRef.current = new Set(newPins.keys())
+          const pruned = prunePinsToViewportQuery(newPins, bounds)
+          loadedPinIdsRef.current = new Set(pruned.keys())
+          pinsCountRef.current = pruned.size
 
           // DEV LOGGING: Diagnostic info for viewport mode
           if (process.env.NODE_ENV === 'development') {
             console.log('[Viewport]', {
               tileKey: fullTileKey,
               returned: data.pins?.length || 0,
-              storeSize: newPins.size,
+              storeSize: pruned.size,
               truncated: data.truncated || false,
               hasMore: data.hasMore || false,
             })
@@ -283,10 +329,10 @@ export function useViewportLeads(): UseViewportLeadsReturn {
 
           return {
             ...prev,
-            pins: newPins,
+            pins: pruned,
             loading: false,
             hasMore: data.hasMore || data.truncated || false,
-            totalLoaded: newPins.size,
+            totalLoaded: pruned.size,
             error: null,
           }
         })
