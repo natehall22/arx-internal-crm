@@ -7,7 +7,10 @@ import OpsClient from './OpsClient'
 import { canAccessJobBoard } from '@/lib/permissions'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
-import { enrichOpsJobsWithSoldSquares } from '@/lib/ops-board-sold-squares'
+import {
+  enrichOpsJobsWithMeasureSoldSquaresFallback,
+  enrichOpsJobsWithSoldSquares,
+} from '@/lib/ops-board-sold-squares'
 
 function sanitizeJobForRole(job: any, role: string) {
   const canViewProfitability = role === 'admin' || role === 'owner'
@@ -51,6 +54,7 @@ export default async function OpsPage() {
   const rawJobs = (jobsRes.data ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
   await enrichOpsJobsWithPayrollSentAt(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithSoldSquares(supabase, profile.org_id, rawJobs)
+  await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)
   const jobIds = rawJobs.map((j) => j.id)
   const collectedByJob: Record<string, number> = {}
   if (jobIds.length > 0) {

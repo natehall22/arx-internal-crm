@@ -59,6 +59,7 @@ function OpsBoardJobCardInner({
     typeof job.measured_squares === 'number' && job.measured_squares > 0 ? job.measured_squares : null
   const soldWastePercent =
     typeof job.sold_waste_percent === 'number' && job.sold_waste_percent > 0 ? job.sold_waste_percent : null
+  const soldSquaresFromMeasure = job.sold_squares_from_measure === true
   // Ridge/valley/flashing LF from the measure tool: job page sold-scope header only, not board cards.
 
   const needsMaterials = job.materials_status === 'not_ordered'
@@ -109,7 +110,14 @@ function OpsBoardJobCardInner({
               {soldWastePercent ? ` + ${soldWastePercent.toFixed(1)}% waste` : ''}
             </div>
           )}
-          {!measuredSquares && !soldWastePercent && enrichedTotal == null && projectLegacyTotal != null && (
+          {!measuredSquares && !soldWastePercent && soldSquaresFromMeasure && (
+            <div className="text-[11px] text-sky-700">From measure</div>
+          )}
+          {!measuredSquares &&
+            !soldWastePercent &&
+            !soldSquaresFromMeasure &&
+            enrichedTotal == null &&
+            projectLegacyTotal != null && (
             <div className="text-[11px] text-sky-700">From project record</div>
           )}
         </div>

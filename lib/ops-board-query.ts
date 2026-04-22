@@ -36,6 +36,7 @@ export const OPS_BOARD_JOB_COLUMNS = `
 /** Nested project fields for handoff preview + OperationsSnapshotCard modal. */
 export const OPS_BOARD_PROJECT_COLUMNS = `
   id,
+  opportunity_id,
   scope_of_work,
   product_summary,
   ops_notes,

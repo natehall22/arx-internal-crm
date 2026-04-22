@@ -128,3 +128,92 @@ export async function enrichOpsJobsWithSoldSquares(
     job.sold_waste_percent = resolveProposalWastePercent(proposal, proposalLineItems)
   }
 }
+
+type JobForMeasureFallback = JobLike & {
+  job_type?: string | null
+  project?: unknown
+}
+
+function boardProjectRow(job: JobForMeasureFallback): {
+  sold_roof_squares?: number | null
+  opportunity_id?: string | null
+} | null {
+  const p = job.project
+  if (p == null) return null
+  const row = Array.isArray(p) ? p[0] : p
+  if (!row || typeof row !== 'object') return null
+  return row as { sold_roof_squares?: number | null; opportunity_id?: string | null }
+}
+
+/**
+ * When proposal enrichment + project.sold_roof_squares both miss, use latest
+ * roof_measurements.total_squares (by project_id or opportunity_id) so board cards match reality.
+ */
+export async function enrichOpsJobsWithMeasureSoldSquaresFallback(
+  supabase: SupabaseClient,
+  orgId: string,
+  jobs: Array<JobForMeasureFallback & Record<string, unknown>>
+) {
+  const needing: JobForMeasureFallback[] = []
+  for (const job of jobs) {
+    if (job.job_type !== 'roofing') continue
+    const enriched = typeof job.sold_squares === 'number' && job.sold_squares > 0
+    const proj = boardProjectRow(job)
+    const legacy =
+      proj &&
+      proj.sold_roof_squares != null &&
+      Number(proj.sold_roof_squares) > 0
+    if (!enriched && !legacy) needing.push(job)
+  }
+  if (needing.length === 0) return
+
+  const projectIds = Array.from(
+    new Set(needing.map((j) => j.project_id).filter(Boolean) as string[])
+  )
+  const opportunityIds = Array.from(
+    new Set(
+      needing
+        .map((j) => boardProjectRow(j)?.opportunity_id)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    )
+  )
+
+  const orParts = [
+    projectIds.length > 0 ? `project_id.in.(${projectIds.join(',')})` : null,
+    opportunityIds.length > 0 ? `opportunity_id.in.(${opportunityIds.join(',')})` : null,
+  ].filter(Boolean)
+  if (orParts.length === 0) return
+
+  const { data: rows, error } = await supabase
+    .from('roof_measurements')
+    .select('project_id, opportunity_id, total_squares, updated_at')
+    .eq('org_id', orgId)
+    .or(orParts.join(','))
+    .not('total_squares', 'is', null)
+    .gt('total_squares', 0)
+    .order('updated_at', { ascending: false })
+
+  if (error || !rows?.length) return
+
+  const byProject = new Map<string, number>()
+  const byOpp = new Map<string, number>()
+  for (const row of rows) {
+    const ts = Number(row.total_squares)
+    if (!Number.isFinite(ts) || ts <= 0) continue
+    const rounded = Math.round(ts * 100) / 100
+    const pid = row.project_id as string | null
+    if (pid && !byProject.has(pid)) byProject.set(pid, rounded)
+    const oid = row.opportunity_id as string | null
+    if (oid && !byOpp.has(oid)) byOpp.set(oid, rounded)
+  }
+
+  for (const job of needing) {
+    const fromProject = job.project_id ? byProject.get(job.project_id) : undefined
+    const oppId = boardProjectRow(job)?.opportunity_id
+    const fromOpp = oppId ? byOpp.get(oppId) : undefined
+    const sq = fromProject ?? fromOpp
+    if (sq == null) continue
+    job.sold_squares = sq
+    ;(job as { sold_squares_from_measure?: boolean }).sold_squares_from_measure = true
+  }
+}

@@ -12,6 +12,8 @@ export interface OpsBoardJob {
   sold_squares?: number | null
   measured_squares?: number | null
   sold_waste_percent?: number | null
+  /** Set when sold_squares came from roof_measurements (proposal + project legacy had nothing). */
+  sold_squares_from_measure?: boolean
   dealer_fee_amount?: number | null
   labor_cost?: number | null
   material_cost?: number | null
@@ -26,6 +28,7 @@ export interface OpsBoardJob {
   salesperson?: { id: string; full_name: string } | null
   project?: {
     id: string
+    opportunity_id?: string | null
     scope_of_work: string | null
     product_summary: string | null
     ops_notes?: string | null
