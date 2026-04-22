@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { hipRidgeCapFromLinearFt } from '@/lib/hip-ridge-cap-squares'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
 export type JobSoldScopeLineItem = {
@@ -162,6 +163,14 @@ export default function JobSoldScopeSummary({
         )
       : null
 
+  const hipRidgeCap =
+    showSquareMetrics && linear != null
+      ? hipRidgeCapFromLinearFt({
+          ridges_lf: linear.ridges_lf,
+          hips_lf: linear.hips_lf,
+        })
+      : null
+
   const linearLfSubline =
     hasRoofMeasureLinear && linear
       ? (() => {
@@ -213,6 +222,16 @@ export default function JobSoldScopeSummary({
           <span className="text-xs font-normal text-sky-800"> sq = </span>
           <span className="font-semibold">{equation.total.toFixed(1)}</span>
           <span className="text-xs font-normal text-sky-800"> sq total</span>
+        </p>
+      )}
+
+      {hipRidgeCap != null && (
+        <p className="text-sm text-sky-950 mt-1 leading-snug tabular-nums">
+          <span className="text-xs font-normal text-sky-800">(Hip + ridge </span>
+          <span className="font-semibold">{hipRidgeCap.combinedLf.toFixed(1)}</span>
+          <span className="text-xs font-normal text-sky-800"> LF total = </span>
+          <span className="font-semibold">{hipRidgeCap.capSq.toFixed(2)}</span>
+          <span className="text-xs font-normal text-sky-800"> sq cap)</span>
         </p>
       )}
 
