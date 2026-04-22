@@ -47,11 +47,19 @@ function OpsBoardJobCardInner({
   const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
   const hasOpsSnapshot = hasOperationsSnapshotData(job.project ?? null)
   const payChip = paymentStatusChip(job)
-  const soldSquares = typeof job.sold_squares === 'number' && job.sold_squares > 0 ? job.sold_squares : null
+  const enrichedTotal =
+    typeof job.sold_squares === 'number' && job.sold_squares > 0 ? job.sold_squares : null
+  const projectLegacyTotal =
+    job.project?.sold_roof_squares != null && Number(job.project.sold_roof_squares) > 0
+      ? Number(job.project.sold_roof_squares)
+      : null
+  const displayTotal = enrichedTotal ?? projectLegacyTotal
+  const roofSoldSquaresTotal = job.job_type === 'roofing' ? displayTotal : null
   const measuredSquares =
     typeof job.measured_squares === 'number' && job.measured_squares > 0 ? job.measured_squares : null
   const soldWastePercent =
     typeof job.sold_waste_percent === 'number' && job.sold_waste_percent > 0 ? job.sold_waste_percent : null
+  // Ridge/valley/flashing LF from the measure tool: job page sold-scope header only, not board cards.
 
   const needsMaterials = job.materials_status === 'not_ordered'
   const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
@@ -89,22 +97,20 @@ function OpsBoardJobCardInner({
       <div className="mb-2.5">
         {job.customer?.name && <div className="font-semibold text-gray-900 truncate">{job.customer.name}</div>}
         <div className="text-xs text-gray-500 truncate">{job.address_text}</div>
-        {!soldSquares && job.project?.sold_roof_squares != null && (
-          <div className="mt-1 text-xs font-medium text-slate-600">
-            Sold: {Number(job.project.sold_roof_squares).toFixed(1)} sq
-          </div>
-        )}
       </div>
 
-      {soldSquares && (
+      {roofSoldSquaresTotal != null && (
         <div className="mb-2.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2">
           <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700">Sold Squares</div>
-          <div className="text-sm font-semibold text-sky-900">{soldSquares.toFixed(1)} sq</div>
+          <div className="text-sm font-semibold text-sky-900">{roofSoldSquaresTotal.toFixed(1)} sq</div>
           {(measuredSquares || soldWastePercent) && (
             <div className="text-[11px] text-sky-700">
               {measuredSquares ? `${measuredSquares.toFixed(1)} measured` : 'Measured unavailable'}
               {soldWastePercent ? ` + ${soldWastePercent.toFixed(1)}% waste` : ''}
             </div>
+          )}
+          {!measuredSquares && !soldWastePercent && enrichedTotal == null && projectLegacyTotal != null && (
+            <div className="text-[11px] text-sky-700">From project record</div>
           )}
         </div>
       )}

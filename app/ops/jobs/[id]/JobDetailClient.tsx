@@ -17,6 +17,7 @@ import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
+import JobSoldScopeSummary, { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
 import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
 import OperationsSnapshotCard from '@/components/ops/OperationsSnapshotCard'
@@ -105,8 +106,10 @@ interface Job {
     /** Latest project review questionnaire JSON (all fields shown in Operations Snapshot) */
     project_review?: unknown
     payment_method?: string | null
+    sold_roof_squares?: number | null
   } | null
   installation_agreement?: { pdf_url: string | null; status: string } | null
+  sold_scope?: JobSoldScope | null
 }
 
 interface Crew {
@@ -805,6 +808,7 @@ export default function JobDetailClient({
           /** Server job payload does not include opportunity / payroll attribution — preserve from SSR. */
           payroll_attribution: job.payroll_attribution,
           opportunity_id: job.opportunity_id,
+          sold_scope: job.sold_scope,
         }
         setJob(transformedJob)
       }
@@ -1239,6 +1243,14 @@ export default function JobDetailClient({
                     <p className="text-gray-500 mt-1 text-sm">No address</p>
                   )}
 
+                  {job.sold_scope ? (
+                    <JobSoldScopeSummary
+                      scope={job.sold_scope}
+                      showSquareMetrics={job.job_type === 'roofing'}
+                      variant="header"
+                    />
+                  ) : null}
+
                   {/** Pipeline — milestones; vertical on small screens, horizontal on lg+ */}
                   {(() => {
                     const pipelineCurrentIdx = getJobPipelineCurrentIndex(job)
@@ -1433,6 +1445,13 @@ export default function JobDetailClient({
 
             {/* MATERIALS TAB */}
             <div id="materials-section" className={mobileTab !== 'materials' ? 'hidden lg:block' : undefined}>
+              {job.sold_scope ? (
+                <JobSoldScopeSummary
+                  scope={job.sold_scope}
+                  showSquareMetrics={job.job_type === 'roofing'}
+                  variant="materials"
+                />
+              ) : null}
               <JobMaterialsCard
                 jobId={job.id}
                 userRole={userRole}

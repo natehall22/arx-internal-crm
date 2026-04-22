@@ -6,6 +6,8 @@ export const OPS_BOARD_JOB_COLUMNS = `
   org_id,
   project_id,
   customer_id,
+  accepted_proposal_id,
+  linked_proposal_id,
   job_number,
   status,
   job_type,
