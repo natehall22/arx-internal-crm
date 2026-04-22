@@ -111,6 +111,23 @@ export async function PATCH(
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
 
+    const { data: signedInstallationContract } = await adminClient
+      .from('order_form_contracts')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('proposal_id', params.id)
+      .eq('agreement_type', 'installation')
+      .eq('status', 'completed')
+      .limit(1)
+      .maybeSingle()
+
+    if (signedInstallationContract) {
+      return NextResponse.json(
+        { error: 'Cannot edit a proposal after a signed Installation Agreement exists' },
+        { status: 400 }
+      )
+    }
+
     const body = await request.json()
 
     // Update the line item

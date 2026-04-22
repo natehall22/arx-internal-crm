@@ -155,6 +155,7 @@ export default function ProposalBuilderPage() {
   const [tearOffOptions, setTearOffOptions] = useState<PricebookItem[]>([])
   const [selectedTearOff, setSelectedTearOff] = useState<PricebookItem | null>(null)
   const [wastePercent, setWastePercent] = useState<number>(10) // Default 10% waste
+  const [savedProposalWastePercent, setSavedProposalWastePercent] = useState<number | null>(null)
   const [quantityModalItem, setQuantityModalItem] = useState<PricebookItem | null>(null)
   const [quantityModalValue, setQuantityModalValue] = useState<number>(1)
   const [editingProposalId, setEditingProposalId] = useState<string | null>(null)
@@ -260,6 +261,7 @@ export default function ProposalBuilderPage() {
           const suggested = Number(data.measurement.suggested_waste_percent)
           if (Number.isFinite(suggested) && suggested > 0) {
             setWastePercent(toHalfPercent(suggested))
+            setSavedProposalWastePercent(null)
           }
         }
         
@@ -309,6 +311,14 @@ export default function ProposalBuilderPage() {
           accent_color: String(p.accent_color || '#4f46e5'),
           roofing_type_id: null,
         })
+        const persistedWastePercent = Number(p.sold_waste_percent)
+        if (Number.isFinite(persistedWastePercent) && persistedWastePercent > 0) {
+          const normalizedWaste = toHalfPercent(persistedWastePercent)
+          setWastePercent(normalizedWaste)
+          setSavedProposalWastePercent(normalizedWaste)
+        } else {
+          setSavedProposalWastePercent(null)
+        }
         const mapped: LineItem[] = (data.existingProposal.lineItems || []).map((row: Record<string, unknown>) => ({
           id: String(row.id ?? crypto.randomUUID()),
           pricebook_item_id: (row.pricebook_item_id as string) || null,
@@ -329,6 +339,7 @@ export default function ProposalBuilderPage() {
         setEditingProposalId(null)
         setInitialProposalStatus(null)
         setResolvedOpportunityId(null)
+        setSavedProposalWastePercent(null)
       }
     } catch (error) {
       console.error('Error loading builder data:', error)
@@ -342,7 +353,9 @@ export default function ProposalBuilderPage() {
   const baseSquares = measurementData?.total_squares || parseFloat(urlSquares || '0')
   const measuredSuggestedWaste = Number(measurementData?.suggested_waste_percent || 0)
   const effectiveWastePercent =
-    measuredSuggestedWaste > 0
+    savedProposalWastePercent != null
+      ? toHalfPercent(savedProposalWastePercent)
+      : measuredSuggestedWaste > 0
       ? Math.max(toHalfPercent(wastePercent), toHalfPercent(measuredSuggestedWaste))
       : toHalfPercent(wastePercent)
   const adjustedByMeasuredFloor = measuredSuggestedWaste > 0 && effectiveWastePercent > toHalfPercent(wastePercent)
@@ -725,6 +738,10 @@ export default function ProposalBuilderPage() {
         scope_of_work: form.scope_of_work,
         materials_description: form.materials_description,
         warranty_info: form.warranty_info,
+        measured_squares: baseSquares > 0 ? Number(baseSquares.toFixed(2)) : null,
+        sold_waste_percent: effectiveWastePercent > 0 ? Number(effectiveWastePercent.toFixed(2)) : null,
+        sold_squares: totalSquaresWithWaste > 0 ? Number(totalSquaresWithWaste.toFixed(2)) : null,
+        recommended_order_squares: recommendedOrderSquares > 0 ? recommendedOrderSquares : null,
         accent_color: form.accent_color,
       }
 
@@ -1064,7 +1081,10 @@ export default function ProposalBuilderPage() {
                 {[5, 10, 12, 15, 20].map((percent) => (
                   <button
                     key={percent}
-                    onClick={() => setWastePercent(percent)}
+                    onClick={() => {
+                      setWastePercent(percent)
+                      setSavedProposalWastePercent(null)
+                    }}
                     className={`py-4 px-3 rounded-xl font-semibold border-2 transition-all ${
                       effectiveWastePercent === percent
                         ? 'bg-indigo-600 text-white border-indigo-600'
@@ -1087,7 +1107,10 @@ export default function ProposalBuilderPage() {
                   max="50"
                   step="0.5"
                   value={wastePercent}
-                  onChange={(e) => setWastePercent(parseFloat(e.target.value) || 0)}
+                  onChange={(e) => {
+                    setWastePercent(parseFloat(e.target.value) || 0)
+                    setSavedProposalWastePercent(null)
+                  }}
                   className="w-32 px-4 py-3 border border-gray-300 rounded-xl text-center text-lg font-semibold"
                 />
                 <span className="text-gray-500 font-medium">%</span>

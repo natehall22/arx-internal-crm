@@ -6,6 +6,11 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import GenerateJobPacketButton from './GenerateJobPacketButton'
 import AIJobPacketModal from '@/components/jobs/AIJobPacketModal'
 import type { JobNoteWithAuthor } from '@/lib/types/job-notes'
+import {
+  resolveProposalMeasuredSquares,
+  resolveProposalSoldRoofSquares,
+  resolveProposalWastePercent,
+} from '@/lib/sold-roof-squares'
 
 interface LineItem {
   id: string
@@ -33,6 +38,9 @@ interface AvailableProposal {
   total: number
   scope_of_work?: string | null
   accepted_at: string | null
+  sold_squares?: number | null
+  measured_squares?: number | null
+  sold_waste_percent?: number | null
 }
 
 interface JobCostLine {
@@ -78,6 +86,9 @@ export default function SoldScopeCard({
     total: number
     scope_of_work: string | null
     accepted_at: string | null
+    sold_squares?: number | null
+    measured_squares?: number | null
+    sold_waste_percent?: number | null
   } | null>(null)
   const [estimateInfo, setEstimateInfo] = useState<{ id: string; total: number } | null>(null)
   
@@ -96,6 +107,9 @@ export default function SoldScopeCard({
 
   const loadSoldScope = useCallback(async () => {
     const supabase = createClientBrowser()
+    const proposalSelectWithSquares =
+      'id, proposal_number, total, scope_of_work, accepted_at, sold_squares, measured_squares, sold_waste_percent'
+    const proposalSelectFallback = 'id, proposal_number, total, scope_of_work, accepted_at'
 
     try {
       // Use linkedProposalId first (manual override)
@@ -103,11 +117,23 @@ export default function SoldScopeCard({
 
       // Strategy 1: Use effectiveProposalId if provided
       if (effectiveProposalId) {
-        const { data: proposal } = await supabase
+        let proposal: any = null
+        const proposalWithSquares = await supabase
           .from('proposals')
-          .select('id, proposal_number, total, scope_of_work, accepted_at')
+          .select(proposalSelectWithSquares)
           .eq('id', effectiveProposalId)
           .single()
+
+        if (proposalWithSquares.error) {
+          const fallbackProposal = await supabase
+            .from('proposals')
+            .select(proposalSelectFallback)
+            .eq('id', effectiveProposalId)
+            .single()
+          proposal = fallbackProposal.data
+        } else {
+          proposal = proposalWithSquares.data
+        }
 
         if (proposal) {
           setProposalInfo({ 
@@ -115,7 +141,10 @@ export default function SoldScopeCard({
             proposal_number: proposal.proposal_number, 
             total: proposal.total,
             scope_of_work: proposal.scope_of_work,
-            accepted_at: proposal.accepted_at
+            accepted_at: proposal.accepted_at,
+            sold_squares: proposal.sold_squares ?? null,
+            measured_squares: proposal.measured_squares ?? null,
+            sold_waste_percent: proposal.sold_waste_percent ?? null,
           })
           setScopeText(proposal.scope_of_work)
 
@@ -166,13 +195,27 @@ export default function SoldScopeCard({
 
       // Strategy 3: Find accepted proposal by opportunity_id
       if (opportunityId) {
-        const { data: proposals } = await supabase
+        let proposals: any[] | null = null
+        const proposalsWithSquares = await supabase
           .from('proposals')
-          .select('id, proposal_number, total, scope_of_work, accepted_at')
+          .select(proposalSelectWithSquares)
           .eq('opportunity_id', opportunityId)
           .not('accepted_at', 'is', null)
           .order('accepted_at', { ascending: false })
           .limit(1)
+
+        if (proposalsWithSquares.error) {
+          const fallbackProposals = await supabase
+            .from('proposals')
+            .select(proposalSelectFallback)
+            .eq('opportunity_id', opportunityId)
+            .not('accepted_at', 'is', null)
+            .order('accepted_at', { ascending: false })
+            .limit(1)
+          proposals = fallbackProposals.data
+        } else {
+          proposals = proposalsWithSquares.data
+        }
 
         if (proposals && proposals.length > 0) {
           const proposal = proposals[0]
@@ -181,7 +224,10 @@ export default function SoldScopeCard({
             proposal_number: proposal.proposal_number, 
             total: proposal.total,
             scope_of_work: proposal.scope_of_work,
-            accepted_at: proposal.accepted_at
+            accepted_at: proposal.accepted_at,
+            sold_squares: proposal.sold_squares ?? null,
+            measured_squares: proposal.measured_squares ?? null,
+            sold_waste_percent: proposal.sold_waste_percent ?? null,
           })
           setScopeText(proposal.scope_of_work)
 
@@ -199,13 +245,27 @@ export default function SoldScopeCard({
 
       // Strategy 4: Fallback - find accepted proposal by project_id
       if (projectId) {
-        const { data: proposals } = await supabase
+        let proposals: any[] | null = null
+        const proposalsWithSquares = await supabase
           .from('proposals')
-          .select('id, proposal_number, total, scope_of_work, accepted_at')
+          .select(proposalSelectWithSquares)
           .eq('project_id', projectId)
           .not('accepted_at', 'is', null)
           .order('accepted_at', { ascending: false })
           .limit(1)
+
+        if (proposalsWithSquares.error) {
+          const fallbackProposals = await supabase
+            .from('proposals')
+            .select(proposalSelectFallback)
+            .eq('project_id', projectId)
+            .not('accepted_at', 'is', null)
+            .order('accepted_at', { ascending: false })
+            .limit(1)
+          proposals = fallbackProposals.data
+        } else {
+          proposals = proposalsWithSquares.data
+        }
 
         if (proposals && proposals.length > 0) {
           const proposal = proposals[0]
@@ -214,7 +274,10 @@ export default function SoldScopeCard({
             proposal_number: proposal.proposal_number, 
             total: proposal.total,
             scope_of_work: proposal.scope_of_work,
-            accepted_at: proposal.accepted_at
+            accepted_at: proposal.accepted_at,
+            sold_squares: proposal.sold_squares ?? null,
+            measured_squares: proposal.measured_squares ?? null,
+            sold_waste_percent: proposal.sold_waste_percent ?? null,
           })
           setScopeText(proposal.scope_of_work)
 
@@ -289,7 +352,7 @@ export default function SoldScopeCard({
       // Find accepted proposals from the same opportunity or org
       let query = supabase
         .from('proposals')
-        .select('id, proposal_number, total, scope_of_work, accepted_at')
+        .select('id, proposal_number, total, scope_of_work, accepted_at, sold_squares, measured_squares, sold_waste_percent')
         .not('accepted_at', 'is', null)
         .order('accepted_at', { ascending: false })
         .limit(20)
@@ -429,6 +492,9 @@ export default function SoldScopeCard({
   }, {} as Record<string, LineItem[]>)
 
   const hasNoProposal = !proposalInfo && !estimateInfo && lineItems.length === 0
+  const soldRoofSquares = resolveProposalSoldRoofSquares(proposalInfo, lineItems)
+  const measuredSquares = resolveProposalMeasuredSquares(proposalInfo, lineItems)
+  const soldWastePercent = resolveProposalWastePercent(proposalInfo, lineItems)
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -470,6 +536,24 @@ export default function SoldScopeCard({
           )}
         </div>
       </div>
+
+      {proposalInfo && soldRoofSquares != null && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+            Sold {soldRoofSquares.toFixed(1)} sq
+          </span>
+          {measuredSquares != null && (
+            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
+              Measured {measuredSquares.toFixed(1)} sq
+            </span>
+          )}
+          {soldWastePercent != null && (
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
+              Waste {soldWastePercent.toFixed(1)}%
+            </span>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="animate-pulse space-y-2">
@@ -545,6 +629,26 @@ export default function SoldScopeCard({
                   ${proposalInfo.total.toLocaleString()}
                 </span>
               </div>
+              {soldRoofSquares != null && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-md bg-white/70 px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-wide text-green-700">Sold</div>
+                    <div className="text-sm font-semibold text-green-900">{soldRoofSquares.toFixed(1)} sq</div>
+                  </div>
+                  <div className="rounded-md bg-white/70 px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-wide text-green-700">Measured</div>
+                    <div className="text-sm font-semibold text-green-900">
+                      {measuredSquares != null ? `${measuredSquares.toFixed(1)} sq` : 'Not available'}
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-white/70 px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-wide text-green-700">Waste</div>
+                    <div className="text-sm font-semibold text-green-900">
+                      {soldWastePercent != null ? `${soldWastePercent.toFixed(1)}%` : 'Not available'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

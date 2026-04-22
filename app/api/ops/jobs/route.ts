@@ -5,6 +5,7 @@ import { importProjectReviewNoteToJob } from '@/lib/project-review'
 import { canAccessJobBoard } from '@/lib/permissions'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import { enrichOpsJobsWithSoldSquares } from '@/lib/ops-board-sold-squares'
 
 function sanitizeJobsForRole(jobs: any[], role: string) {
   if (role === 'admin') return jobs
@@ -86,6 +87,64 @@ export async function POST(request: Request) {
           .maybeSingle()
       : { data: null }
 
+    let acceptedProposalId = project.project_type === 'roofing'
+      ? (
+          (
+            await adminClient
+              .from('proposals')
+              .select('id')
+              .eq('org_id', profile.org_id)
+              .or(`project_id.eq.${project.id}${project.opportunity_id ? `,opportunity_id.eq.${project.opportunity_id}` : ''}`)
+              .not('accepted_at', 'is', null)
+              .order('accepted_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          ).data?.id ?? null
+        )
+      : null
+
+    const installationContractFilter =
+      acceptedProposalId && project.opportunity_id
+        ? `proposal_id.eq.${acceptedProposalId},opportunity_id.eq.${project.opportunity_id}`
+        : acceptedProposalId
+          ? `proposal_id.eq.${acceptedProposalId}`
+          : project.opportunity_id
+            ? `opportunity_id.eq.${project.opportunity_id}`
+            : null
+
+    const hasLegacySignedContract = Boolean(project.contract_uploaded_at || project.contract_pdf_path)
+
+    if (!installationContractFilter && !hasLegacySignedContract) {
+      return NextResponse.json(
+        { error: 'Jobs can only be pushed to the job board after a signed Installation Agreement.' },
+        { status: 400 }
+      )
+    }
+
+    const signedInstallationContract = installationContractFilter
+      ? await adminClient
+          .from('order_form_contracts')
+          .select('id, proposal_id')
+          .eq('org_id', profile.org_id)
+          .eq('agreement_type', 'installation')
+          .eq('status', 'completed')
+          .or(installationContractFilter)
+          .limit(1)
+          .maybeSingle()
+      : { data: null }
+
+    if (!signedInstallationContract.data && !hasLegacySignedContract) {
+      return NextResponse.json(
+        { error: 'Jobs can only be pushed to the job board after a signed Installation Agreement.' },
+        { status: 400 }
+      )
+    }
+
+    const signedInstallationProposalId = signedInstallationContract.data?.proposal_id || null
+    if (signedInstallationProposalId) {
+      acceptedProposalId = signedInstallationProposalId
+    }
+
     // Create the production job
     const { data: newJob, error: createError } = await adminClient
       .from('production_jobs')
@@ -97,6 +156,7 @@ export async function POST(request: Request) {
         address_text: project.address_text || '',
         lat: project.lat,
         lng: project.lng,
+        accepted_proposal_id: acceptedProposalId,
         salesperson_id: project.owner_user_id,
         sale_date: new Date().toISOString().split('T')[0],
         sale_amount: sale_amount || null,
@@ -212,6 +272,7 @@ export async function GET(request: Request) {
 
     const jobList = (jobs ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
     await enrichOpsJobsWithPayrollSentAt(adminClient, profile.org_id, jobList)
+    await enrichOpsJobsWithSoldSquares(adminClient, profile.org_id, jobList)
     const jobIds = jobList.map((j) => j.id)
     const collectedByJob: Record<string, number> = {}
     if (jobIds.length > 0) {

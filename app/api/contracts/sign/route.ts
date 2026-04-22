@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
 import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
+import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 
 function getAdminClient() {
   return createClient(
@@ -78,6 +79,30 @@ async function ensureDealerFeeCostLine(
   } catch (error) {
     console.error('[Contract Sign] Dealer fee cost-line sync failed:', error)
   }
+}
+
+async function getProposalSoldRoofSquares(
+  supabase: AdminSupabaseClient,
+  proposalId: string | null | undefined
+): Promise<number | null> {
+  if (!proposalId) return null
+
+  const { data: proposal } = await supabase
+    .from('proposals')
+    .select('sold_squares')
+    .eq('id', proposalId)
+    .maybeSingle()
+
+  if (proposal?.sold_squares != null) {
+    return Number(proposal.sold_squares)
+  }
+
+  const { data: lineItems } = await supabase
+    .from('proposal_line_items')
+    .select('category, name, description, unit, quantity, is_adder')
+    .eq('proposal_id', proposalId)
+
+  return resolveProposalSoldRoofSquares(proposal, lineItems || [])
 }
 
 async function sendEmail(
@@ -492,6 +517,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        const soldRoofSquares = (await getProposalSoldRoofSquares(supabase, contract.proposal_id)) ?? contract.total_squares
+
         const { data: project, error: projectInsertError } = await supabase
           .from('projects')
           .insert({
@@ -505,6 +532,7 @@ export async function POST(request: NextRequest) {
                          contract.scope_siding ? 'siding' : 'mixed',
             address_text: contract.project_address,
             roof_squares: contract.total_squares,
+            sold_roof_squares: soldRoofSquares,
             notes: `Contract signed on ${new Date(customerSignedAt).toLocaleDateString()}`,
             scope_of_work: [
               contract.scope_roof_replacement && 'Roof Replacement',
@@ -606,6 +634,7 @@ export async function POST(request: NextRequest) {
                   customer_id: customerId,
                   job_type: jobType,
                   address_text: contract.project_address || '',
+                  accepted_proposal_id: contract.proposal_id || null,
                   salesperson_id: opportunity?.owner_user_id ?? contract.created_by,
                   sale_date: new Date().toISOString().split('T')[0],
                   sale_amount: contract.project_cost || null,
@@ -653,10 +682,13 @@ export async function POST(request: NextRequest) {
               }
             } else {
               console.log('[Contract Sign] Production job already exists:', existingJob.job_number)
-              if (proposalFinancing.dealer_fee_amount != null) {
+              if (proposalFinancing.dealer_fee_amount != null || contract.proposal_id) {
                 await supabase
                   .from('production_jobs')
-                  .update(proposalFinancing)
+                  .update({
+                    ...proposalFinancing,
+                    accepted_proposal_id: contract.proposal_id || null,
+                  })
                   .eq('id', existingJob.id)
                   .eq('org_id', contract.org_id)
               }
@@ -673,6 +705,7 @@ export async function POST(request: NextRequest) {
         }
       } else {
         projectId = existingProject.id
+        const soldRoofSquares = (await getProposalSoldRoofSquares(supabase, contract.proposal_id)) ?? contract.total_squares
 
         if (contract.opportunity_id) {
           await supabase
@@ -680,6 +713,13 @@ export async function POST(request: NextRequest) {
             .update({ opportunity_id: contract.opportunity_id })
             .eq('id', existingProject.id)
             .is('opportunity_id', null)
+        }
+
+        if (soldRoofSquares != null) {
+          await supabase
+            .from('projects')
+            .update({ sold_roof_squares: soldRoofSquares })
+            .eq('id', existingProject.id)
         }
 
         // Ensure customer exists when signing (project may have been created without one).
@@ -770,6 +810,12 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          const { data: projectData } = await supabase
+            .from('projects')
+            .select('customer_id, owner_user_id')
+            .eq('id', projectId)
+            .single()
+
           const { data: existingJob } = await supabase
             .from('production_jobs')
             .select('id, job_number')
@@ -777,13 +823,6 @@ export async function POST(request: NextRequest) {
             .maybeSingle()
 
           if (!existingJob) {
-            // Get customer_id from existing project
-            const { data: projectData } = await supabase
-              .from('projects')
-              .select('customer_id')
-              .eq('id', projectId)
-              .single()
-
             const jobType = contract.scope_roof_replacement || contract.scope_roof_repair ? 'roofing' : 
                            contract.scope_siding ? 'siding' : 
                            contract.scope_gutters ? 'gutters' : 'mixed'
@@ -796,7 +835,8 @@ export async function POST(request: NextRequest) {
                 customer_id: projectData?.customer_id || null,
                 job_type: jobType,
                 address_text: contract.project_address || '',
-                salesperson_id: contract.created_by,
+                accepted_proposal_id: contract.proposal_id || null,
+                salesperson_id: projectData?.owner_user_id || contract.created_by,
                 sale_date: new Date().toISOString().split('T')[0],
                 sale_amount: contract.project_cost || null,
                 deposit_required_percent: contract.deposit_amount && contract.project_cost 
@@ -835,10 +875,20 @@ export async function POST(request: NextRequest) {
               })
             }
           } else {
-            if (proposalFinancingExisting.dealer_fee_amount != null) {
+            if (
+              proposalFinancingExisting.dealer_fee_amount != null ||
+              contract.proposal_id ||
+              projectData?.customer_id ||
+              projectData?.owner_user_id
+            ) {
               await supabase
                 .from('production_jobs')
-                .update(proposalFinancingExisting)
+                .update({
+                  ...proposalFinancingExisting,
+                  accepted_proposal_id: contract.proposal_id || null,
+                  customer_id: projectData?.customer_id || null,
+                  salesperson_id: projectData?.owner_user_id || contract.created_by,
+                })
                 .eq('id', existingJob.id)
                 .eq('org_id', contract.org_id)
             }

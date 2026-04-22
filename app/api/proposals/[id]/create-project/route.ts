@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 
 export const dynamic = 'force-dynamic'
 
@@ -110,6 +111,13 @@ export async function POST(
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
 
+    const { data: proposalLineItems } = await adminClient
+      .from('proposal_line_items')
+      .select('category, name, description, unit, quantity, is_adder')
+      .eq('proposal_id', proposal.id)
+
+    const soldRoofSquares = resolveProposalSoldRoofSquares(proposal, proposalLineItems || [])
+
     // Check if proposal is accepted
     if (proposal.status !== 'accepted') {
       return NextResponse.json({ error: 'Only accepted proposals can be converted to projects' }, { status: 400 })
@@ -198,6 +206,7 @@ export async function POST(
       lat: opportunityData?.lat,
       lng: opportunityData?.lng,
       roof_squares: opportunityData?.roof_squares,
+      sold_roof_squares: soldRoofSquares,
       notes: `Created from accepted proposal "${proposal.title || proposal.proposal_number}". Total: $${proposal.total?.toLocaleString() || 0}`,
       lead_id: leadId,
       customer_id: customerId,

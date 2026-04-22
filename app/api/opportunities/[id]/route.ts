@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -249,6 +250,14 @@ export async function PATCH(
           user_id: user.id,
           type: 'note',
           body: parts.join(' '),
+        })
+      }
+
+      if (closerChanged) {
+        await syncCloserAttributionDownstream(adminClient, {
+          orgId: profile.org_id,
+          closerUserId: (opportunity.owner_user_id as string | null) ?? null,
+          opportunityId: params.id,
         })
       }
     }

@@ -37,6 +37,7 @@ export const OPS_BOARD_PROJECT_COLUMNS = `
   scope_of_work,
   product_summary,
   ops_notes,
+  sold_roof_squares,
   permits_status,
   install_date,
   project_review,

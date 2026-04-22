@@ -10,7 +10,7 @@ const jobSelectWithPaymentMethod = `
   assigned_sub:sub_contractors(id, company_name, contact_name, phone),
   customer:customers(id, name, phone, email),
   salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-  project:projects(id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+  project:projects(id, scope_of_work, product_summary, ops_notes, sold_roof_squares, permits_status, install_date, project_review, payment_method, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
 `
 
 const jobSelectWithoutPaymentMethod = `
@@ -19,7 +19,7 @@ const jobSelectWithoutPaymentMethod = `
   assigned_sub:sub_contractors(id, company_name, contact_name, phone),
   customer:customers(id, name, phone, email),
   salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
-  project:projects(id, scope_of_work, product_summary, ops_notes, permits_status, install_date, project_review, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
+  project:projects(id, scope_of_work, product_summary, ops_notes, sold_roof_squares, permits_status, install_date, project_review, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
 `
 
 function mapJobStatusToProjectStatus(jobStatus: string) {

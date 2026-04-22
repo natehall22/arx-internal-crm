@@ -9,6 +9,9 @@ export interface OpsBoardJob {
   job_type: string
   address_text: string
   sale_amount: number | null
+  sold_squares?: number | null
+  measured_squares?: number | null
+  sold_waste_percent?: number | null
   dealer_fee_amount?: number | null
   labor_cost?: number | null
   material_cost?: number | null
@@ -26,6 +29,7 @@ export interface OpsBoardJob {
     scope_of_work: string | null
     product_summary: string | null
     ops_notes?: string | null
+    sold_roof_squares?: number | null
     permits_status?: string | null
     install_date?: string | null
     project_review?: unknown

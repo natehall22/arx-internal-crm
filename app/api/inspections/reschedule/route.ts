@@ -474,7 +474,8 @@ export async function POST(request: NextRequest) {
         for (const manager of teamManagers || []) {
           await supabase.from('notifications').insert({
             org_id: profile.org_id,
-            user_id: manager.id,
+            recipient_user_id: manager.id,
+            actor_user_id: userId,
             type: 'reschedule',
             title: 'Team Appointment Rescheduled',
             body: rescheduleMessage,
@@ -503,7 +504,8 @@ export async function POST(request: NextRequest) {
         for (const manager of closerManagers || []) {
           await supabase.from('notifications').insert({
             org_id: profile.org_id,
-            user_id: manager.id,
+            recipient_user_id: manager.id,
+            actor_user_id: userId,
             type: 'reschedule',
             title: 'Team Appointment Rescheduled',
             body: rescheduleMessage,

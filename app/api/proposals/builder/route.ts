@@ -5,6 +5,25 @@ import { computeFinancedContractTotal } from '@/lib/financing'
 export const dynamic = 'force-dynamic'
 
 const roundMoney = (value: number) => Math.round((Number(value) || 0) * 100) / 100
+const SOLD_SQUARE_FIELDS = [
+  'measured_squares',
+  'sold_waste_percent',
+  'sold_squares',
+  'recommended_order_squares',
+] as const
+
+function stripSoldSquareFields<T extends Record<string, unknown>>(proposal: T): T {
+  const next = { ...proposal }
+  for (const field of SOLD_SQUARE_FIELDS) {
+    delete next[field]
+  }
+  return next as T
+}
+
+function missingSoldSquareColumn(error: { message?: string } | null | undefined): boolean {
+  const message = String(error?.message || '').toLowerCase()
+  return SOLD_SQUARE_FIELDS.some((field) => message.includes(field))
+}
 
 async function mergeFinancingIntoProposal(
   adminClient: SupabaseClient,
@@ -468,6 +487,11 @@ export async function POST(request: NextRequest) {
       scope_of_work: proposal.scope_of_work || null,
       materials_description: proposal.materials_description || null,
       warranty_info: proposal.warranty_info || null,
+      measured_squares: proposal.measured_squares != null ? Number(proposal.measured_squares) : null,
+      sold_waste_percent: proposal.sold_waste_percent != null ? Number(proposal.sold_waste_percent) : null,
+      sold_squares: proposal.sold_squares != null ? Number(proposal.sold_squares) : null,
+      recommended_order_squares:
+        proposal.recommended_order_squares != null ? Number(proposal.recommended_order_squares) : null,
       accent_color: proposal.accent_color || '#4f46e5',
     }
 
@@ -480,11 +504,19 @@ export async function POST(request: NextRequest) {
     console.log('Creating proposal with data:', JSON.stringify(cleanProposal, null, 2))
 
     // Create the proposal
-    const { data: newProposal, error: proposalError } = await adminClient
+    let { data: newProposal, error: proposalError } = await adminClient
       .from('proposals')
       .insert(cleanProposal)
       .select()
       .single()
+
+    if (proposalError && missingSoldSquareColumn(proposalError)) {
+      ;({ data: newProposal, error: proposalError } = await adminClient
+        .from('proposals')
+        .insert(stripSoldSquareFields(cleanProposal))
+        .select()
+        .single())
+    }
 
     if (proposalError) {
       console.error('Proposal creation error:', proposalError)
@@ -592,6 +624,23 @@ export async function PUT(request: NextRequest) {
       )
     }
 
+    const { data: signedInstallationContract } = await adminClient
+      .from('order_form_contracts')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('proposal_id', proposal_id)
+      .eq('agreement_type', 'installation')
+      .eq('status', 'completed')
+      .limit(1)
+      .maybeSingle()
+
+    if (signedInstallationContract) {
+      return NextResponse.json(
+        { error: 'Cannot edit a proposal after a signed Installation Agreement exists' },
+        { status: 400 }
+      )
+    }
+
     if (!proposal?.customer_name || !String(proposal.customer_name).trim()) {
       return NextResponse.json({ error: 'Customer name is required' }, { status: 400 })
     }
@@ -621,6 +670,11 @@ export async function PUT(request: NextRequest) {
       scope_of_work: proposal.scope_of_work != null ? String(proposal.scope_of_work) : null,
       materials_description: proposal.materials_description != null ? String(proposal.materials_description) : null,
       warranty_info: proposal.warranty_info != null ? String(proposal.warranty_info) : null,
+      measured_squares: proposal.measured_squares != null ? Number(proposal.measured_squares) : null,
+      sold_waste_percent: proposal.sold_waste_percent != null ? Number(proposal.sold_waste_percent) : null,
+      sold_squares: proposal.sold_squares != null ? Number(proposal.sold_squares) : null,
+      recommended_order_squares:
+        proposal.recommended_order_squares != null ? Number(proposal.recommended_order_squares) : null,
       accent_color: proposal.accent_color ? String(proposal.accent_color) : '#4f46e5',
       updated_at: new Date().toISOString(),
     }
@@ -631,13 +685,23 @@ export async function PUT(request: NextRequest) {
     })
     Object.assign(cleanProposal, financingMerged)
 
-    const { data: updated, error: updateError } = await adminClient
+    let { data: updated, error: updateError } = await adminClient
       .from('proposals')
       .update(cleanProposal)
       .eq('id', proposal_id)
       .eq('org_id', profile.org_id)
       .select()
       .single()
+
+    if (updateError && missingSoldSquareColumn(updateError)) {
+      ;({ data: updated, error: updateError } = await adminClient
+        .from('proposals')
+        .update(stripSoldSquareFields(cleanProposal))
+        .eq('id', proposal_id)
+        .eq('org_id', profile.org_id)
+        .select()
+        .single())
+    }
 
     if (updateError) {
       console.error('Proposal update error:', updateError)

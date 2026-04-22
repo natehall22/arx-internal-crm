@@ -127,6 +127,7 @@ export default function ProposalDetailPage() {
   const [showImageModal, setShowImageModal] = useState(false)
   const [imageUrlInput, setImageUrlInput] = useState('')
   const [showSatelliteEditor, setShowSatelliteEditor] = useState(false)
+  const [hasCompletedInstallationContract, setHasCompletedInstallationContract] = useState(false)
   
   // PDF options
   const [showPdfOptions, setShowPdfOptions] = useState(false)
@@ -182,6 +183,7 @@ export default function ProposalDetailPage() {
       setCompany(data.company)
       setRep(data.rep)
       setMeasurement(data.measurement)
+      setHasCompletedInstallationContract(Boolean(data.has_completed_installation_contract))
       setUserRole(data.role || '')
       setCurrentUserId(typeof data.current_user_id === 'string' ? data.current_user_id : '')
       // Restore inspection notes from proposal (persisted in DB)
@@ -579,7 +581,7 @@ export default function ProposalDetailPage() {
 
   const displayPricing = getDisplayPricing(proposal)
   const quotedTotal = getQuotedTotal(proposal, displayPricing.total)
-  const canEditProposal = !['accepted', 'declined'].includes(proposal.status)
+  const canEditProposal = !['accepted', 'declined'].includes(proposal.status) && !hasCompletedInstallationContract
   const canDeleteProposal =
     !!currentUserId &&
     userCanDeleteProposal({
@@ -1167,7 +1169,11 @@ export default function ProposalDetailPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
-                    <span>Toggle visibility for customer proposal</span>
+                    <span>
+                      {hasCompletedInstallationContract
+                        ? 'Locked after signed Installation Agreement'
+                        : 'Toggle visibility for customer proposal'}
+                    </span>
                   </div>
                 </div>
                 <div className="border rounded-xl overflow-hidden">
@@ -1194,10 +1200,10 @@ export default function ProposalDetailPage() {
                           <td className="px-4 py-3 text-center">
                             <button
                               onClick={() => toggleItemVisibility(item.id, !item.show_to_customer)}
-                              disabled={savingVisibility === item.id}
+                              disabled={savingVisibility === item.id || hasCompletedInstallationContract}
                               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                                 item.show_to_customer ? 'bg-indigo-600' : 'bg-gray-300'
-                              } ${savingVisibility === item.id ? 'opacity-50' : ''}`}
+                              } ${savingVisibility === item.id || hasCompletedInstallationContract ? 'opacity-50' : ''}`}
                             >
                               <span
                                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${

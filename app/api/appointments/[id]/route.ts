@@ -2,6 +2,7 @@ import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { getMailTransport } from '@/lib/setter-email'
 import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
+import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
@@ -345,7 +346,8 @@ export async function PATCH(
       if (appointment.closer_user_id) {
         await adminClient.from('notifications').insert({
           org_id: profile.org_id,
-          user_id: appointment.closer_user_id,
+          recipient_user_id: appointment.closer_user_id,
+          actor_user_id: user.id,
           type: 'appointment_reassigned',
           title: 'Appointment Reassigned',
           body: `Your appointment with ${homeownerLabel} has been reassigned to ${newCloser.full_name}`,
@@ -356,7 +358,8 @@ export async function PATCH(
       // Notify new closer
       await adminClient.from('notifications').insert({
         org_id: profile.org_id,
-        user_id: new_closer_id,
+        recipient_user_id: new_closer_id,
+        actor_user_id: user.id,
         type: 'new_appointment',
         title: 'New Appointment Assigned',
         body: `You have been assigned an appointment with ${homeownerLabel} on ${formatDateTimeInTimezone(appointment.scheduled_for)} ET`,
@@ -371,7 +374,8 @@ export async function PATCH(
       ) {
         await adminClient.from('notifications').insert({
           org_id: profile.org_id,
-          user_id: appointment.canvasser_user_id,
+          recipient_user_id: appointment.canvasser_user_id,
+          actor_user_id: user.id,
           type: 'appointment_reassigned',
           title: 'Appointment reassigned',
           body: `${appointment.appointment_type === 'close' ? 'Close' : 'Inspection'} for ${homeownerLabel} was reassigned to ${newCloser.full_name} by ${profile.full_name}.`,
@@ -596,6 +600,13 @@ export async function PATCH(
       if (promptRedirectError) {
         console.error('pending_status_prompts redirect on reassignment:', promptRedirectError)
       }
+
+      await syncCloserAttributionDownstream(adminClient, {
+        orgId: profile.org_id,
+        closerUserId: new_closer_id,
+        opportunityId: (appointment.opportunity_id as string | null) ?? null,
+        leadId: (appointment.lead_id as string | null) ?? null,
+      })
     }
 
     // Best-effort Google Calendar sync — non-fatal, DB update already committed

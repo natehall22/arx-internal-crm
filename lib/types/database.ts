@@ -363,6 +363,7 @@ export interface Project {
   lat: number | null
   lng: number | null
   roof_squares: number | null
+  sold_roof_squares?: number | null
   siding_squares: number | null
   vents_count: number
   layers: number

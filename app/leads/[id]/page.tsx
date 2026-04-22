@@ -18,6 +18,7 @@ import {
 import { easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
 import { leadOwnerLabel } from '@/lib/lead-owner-display'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
+import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { pickValidEmail, sendSetterEmail } from '@/lib/setter-email'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
@@ -141,6 +142,11 @@ export default async function LeadDetailPage({
     (lead as { closer_display_name?: string | null }).closer_display_name ||
     null
 
+  /** Setter / closer on the lead are synced to opportunities (setter_user_id / owner_user_id) for payroll. */
+  const canEditLeadAttribution = ['admin', 'owner', 'operations', 'regional_manager', 'sales_manager', 'manager'].includes(
+    profile.role
+  )
+
   const canvassDispositions = [
     { id: 'not_home', label: 'Not home (no contact)' },
     { id: 'bad_roof', label: 'Bad roof (no contact)' },
@@ -203,9 +209,14 @@ export default async function LeadDetailPage({
     const status = String(formData.get('status') ?? lead.status)
     const source = String(formData.get('source') ?? lead.source ?? '')
     const canvassDisposition = String(formData.get('canvass_disposition') ?? '')
-    const closerUserId = String(formData.get('closer_user_id') ?? '')
+    const closerUserIdRaw = String(formData.get('closer_user_id') ?? '')
+    const ownerUserIdFromForm = String(formData.get('owner_user_id') ?? '')
     const inspectionScheduledFor = String(formData.get('inspection_scheduled_for') ?? '')
     const canvassNotes = String(formData.get('canvass_notes') ?? '')
+
+    const canEditAttribution = ['admin', 'owner', 'operations', 'regional_manager', 'sales_manager', 'manager'].includes(
+      profile.role
+    )
 
     let leadQuery = supabase
       .from('leads')
@@ -218,6 +229,9 @@ export default async function LeadDetailPage({
     const { data: freshLead } = await leadQuery.single()
 
     if (!freshLead) return
+
+    const effectiveSetterId = canEditAttribution ? (ownerUserIdFromForm.trim() || null) : freshLead.owner_user_id
+    const effectiveCloserId = canEditAttribution ? (closerUserIdRaw.trim() || null) : freshLead.closer_user_id
 
     // When converting to opportunity (status = inspection), require name, phone, and address
     if (status === 'inspection') {
@@ -237,9 +251,12 @@ export default async function LeadDetailPage({
       status,
       source: source || null,
       canvass_disposition: canvassDisposition || null,
-      closer_user_id: closerUserId || null,
+      closer_user_id: effectiveCloserId,
       canvass_notes: canvassNotes || null,
       inspection_scheduled_for: scheduledForUtcIso,
+    }
+    if (canEditAttribution) {
+      updates.owner_user_id = effectiveSetterId
     }
 
     if (status === 'inspection' && !freshLead.inspection_scheduled_at) {
@@ -257,12 +274,102 @@ export default async function LeadDetailPage({
       })
     }
 
-    // NOTE: We no longer change lead.owner_user_id to the closer
-    // The lead owner stays as the setter (who knocked the door)
-    // The closer is tracked in lead.closer_user_id and opportunity.owner_user_id
-    // This ensures the setter gets credit for door knocks in stats
+    const prevSetterId = freshLead.owner_user_id ?? null
+    const prevCloserId = freshLead.closer_user_id ?? null
 
     await supabase.from('leads').update(updates).eq('id', params.id)
+
+    const setterAttributionChanged = canEditAttribution && prevSetterId !== (effectiveSetterId ?? null)
+    const closerAttributionChanged = prevCloserId !== (effectiveCloserId ?? null)
+
+    // Keep opportunity payroll attribution aligned with the lead (source of truth).
+    const { data: linkedOpps } = await supabase
+      .from('opportunities')
+      .select('id')
+      .eq('lead_id', params.id)
+      .eq('org_id', profile.org_id)
+      .order('created_at', { ascending: false })
+
+    if ((linkedOpps || []).length > 0) {
+      await supabase
+        .from('opportunities')
+        .update({
+          setter_user_id: effectiveSetterId,
+          owner_user_id: effectiveCloserId,
+        })
+        .eq('lead_id', params.id)
+        .eq('org_id', profile.org_id)
+    }
+
+    if (closerAttributionChanged) {
+      // Scope by lead so every project on this lead gets salesperson_id (not only the first opp).
+      await syncCloserAttributionDownstream(supabase, {
+        orgId: profile.org_id,
+        closerUserId: effectiveCloserId,
+        leadId: params.id,
+      })
+    }
+
+    // Active inspections: keep canvasser (setter) and closer on scheduled_appointments in sync.
+    const { data: activeAppointments } = await supabase
+      .from('scheduled_appointments')
+      .select('id, appointment_type')
+      .eq('lead_id', params.id)
+      .eq('org_id', profile.org_id)
+      .eq('status', 'scheduled')
+
+    for (const appt of activeAppointments || []) {
+      if (appt.appointment_type && appt.appointment_type !== 'inspection') {
+        continue
+      }
+      const apptPatch: Record<string, string | null> = {
+        canvasser_user_id: effectiveSetterId,
+      }
+      if (closerAttributionChanged) {
+        apptPatch.closer_user_id = effectiveCloserId
+      }
+      await supabase.from('scheduled_appointments').update(apptPatch).eq('id', appt.id).eq('org_id', profile.org_id)
+
+      if (closerAttributionChanged && effectiveCloserId) {
+        await supabase
+          .from('pending_status_prompts')
+          .update({ closer_user_id: effectiveCloserId, dismissed: false })
+          .eq('appointment_id', appt.id)
+          .eq('completed', false)
+      }
+    }
+
+    if (setterAttributionChanged || closerAttributionChanged) {
+      const ids = [prevSetterId, prevCloserId, effectiveSetterId, effectiveCloserId].filter(
+        (x): x is string => typeof x === 'string'
+      )
+      const nameById = new Map<string, string>()
+      if (ids.length > 0) {
+        const { data: nameRows } = await supabase
+          .from('users')
+          .select('id, full_name')
+          .eq('org_id', profile.org_id)
+          .in('id', Array.from(new Set(ids)))
+        for (const u of nameRows || []) {
+          nameById.set(u.id, u.full_name || u.id)
+        }
+      }
+      const fmt = (id: string | null) => (id ? nameById.get(id) || id : '—')
+      const parts: string[] = [`Lead attribution updated by ${profile.full_name || profile.id}.`]
+      if (setterAttributionChanged) {
+        parts.push(`Setter: ${fmt(prevSetterId)} → ${fmt(effectiveSetterId)}.`)
+      }
+      if (closerAttributionChanged) {
+        parts.push(`Closer: ${fmt(prevCloserId)} → ${fmt(effectiveCloserId)}.`)
+      }
+      await supabase.from('activities').insert({
+        org_id: profile.org_id,
+        lead_id: params.id,
+        user_id: profile.id,
+        type: 'note',
+        body: parts.join(' '),
+      })
+    }
 
     if (ensuredPinCoords) {
       freshLead.lat = ensuredPinCoords.lat
@@ -273,19 +380,22 @@ export default async function LeadDetailPage({
     const oldScheduledTime = freshLead.inspection_scheduled_for
     const newScheduledTime = scheduledForUtcIso
     
-    if (newScheduledTime && oldScheduledTime !== newScheduledTime) {
+    if (
+      (newScheduledTime && oldScheduledTime !== newScheduledTime) ||
+      (closerAttributionChanged && !!effectiveCloserId)
+    ) {
       // Find existing appointment for this lead
       const { data: existingAppointment } = await supabase
         .from('scheduled_appointments')
-        .select('id, google_event_id, closer_user_id, duration_minutes')
+        .select('id, google_event_id, closer_user_id, duration_minutes, scheduled_for')
         .eq('lead_id', params.id)
         .eq('status', 'scheduled')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
       
-      const targetCloserId = closerUserId || freshLead.closer_user_id
-      
+      const targetCloserId = effectiveCloserId || prevCloserId
+
       if (targetCloserId) {
         // Get closer's Google token
         const { data: tokenData } = await supabase
@@ -358,8 +468,9 @@ export default async function LeadDetailPage({
           
           const endDateTime = `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
           
+          const isRescheduled = !!newScheduledTime && oldScheduledTime !== newScheduledTime
           const event: CalendarEvent = {
-            summary: `Inspection: ${freshLead.homeowner_name || 'Customer'}${oldScheduledTime ? ' (Rescheduled)' : ''}`,
+            summary: `Inspection: ${freshLead.homeowner_name || 'Customer'}${isRescheduled ? ' (Rescheduled)' : ''}`,
             description: [
               `Customer: ${freshLead.homeowner_name || 'N/A'}`,
               freshLead.phone ? `Phone: ${freshLead.phone}` : '',
@@ -386,8 +497,10 @@ export default async function LeadDetailPage({
               await supabase
                 .from('scheduled_appointments')
                 .update({
-                  scheduled_for: newScheduledTime,
+                  scheduled_for: newScheduledTime || existingAppointment.scheduled_for,
                   google_event_id: createdEvent.id,
+                  closer_user_id: targetCloserId,
+                  canvasser_user_id: effectiveSetterId,
                 })
                 .eq('id', existingAppointment.id)
             } else {
@@ -398,7 +511,7 @@ export default async function LeadDetailPage({
                   org_id: profile.org_id,
                   lead_id: params.id,
                   closer_user_id: targetCloserId,
-                  canvasser_user_id: freshLead.owner_user_id,
+                  canvasser_user_id: effectiveSetterId,
                   scheduled_for: newScheduledTime,
                   duration_minutes: 60,
                   status: 'scheduled',
@@ -453,31 +566,31 @@ export default async function LeadDetailPage({
         )
       }
 
-      // Email the setter (lead owner) when inspection time is first set or changed
-      const closerForNotify = closerUserId || freshLead.closer_user_id
+      // Email the setter when inspection time is first set or changed
+      const closerForNotify = effectiveCloserId || prevCloserId
       if (
         scheduledForUtcIso &&
         oldScheduledTime !== scheduledForUtcIso &&
-        freshLead.owner_user_id &&
+        effectiveSetterId &&
         closerForNotify &&
-        freshLead.owner_user_id !== closerForNotify
+        effectiveSetterId !== closerForNotify
       ) {
         try {
           let setterTo: string | null = null
-          if (freshLead.owner_user_id === profile.id) {
+          if (effectiveSetterId === profile.id) {
             setterTo = pickValidEmail(profile.email, authUser.email)
           } else {
             const { data: ownerRow } = await supabase
               .from('users')
               .select('email')
-              .eq('id', freshLead.owner_user_id)
+              .eq('id', effectiveSetterId)
               .maybeSingle()
             setterTo = pickValidEmail(ownerRow?.email)
           }
           if (setterTo) {
             const [{ data: closerRow }, { data: ownerNameRow }] = await Promise.all([
               supabase.from('users').select('full_name').eq('id', closerForNotify).maybeSingle(),
-              supabase.from('users').select('full_name').eq('id', freshLead.owner_user_id).maybeSingle(),
+              supabase.from('users').select('full_name').eq('id', effectiveSetterId).maybeSingle(),
             ])
             await sendSetterEmail({
               to: setterTo,
@@ -503,6 +616,9 @@ export default async function LeadDetailPage({
 
     revalidatePath(`/leads/${params.id}`)
     revalidatePath('/dashboard')
+    for (const opportunity of linkedOpps || []) {
+      revalidatePath(`/opportunities/${opportunity.id}`)
+    }
   }
 
   // Check if user can delete this lead
@@ -601,7 +717,7 @@ export default async function LeadDetailPage({
                 <span className="ml-2 text-gray-900 capitalize">{lead.status.replace('_', ' ')}</span>
               </div>
               <div>
-                <span className="text-gray-500">Owner:</span>
+                <span className="text-gray-500">Setter:</span>
                 <span className="ml-2 text-gray-900">{leadOwnerLabel(lead)}</span>
               </div>
               <div>
@@ -687,19 +803,45 @@ export default async function LeadDetailPage({
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Assigned closer</label>
+              <label className="text-sm font-medium text-gray-500">
+                Setter {!canEditLeadAttribution && <span className="text-gray-400 font-normal">(ask a manager to change)</span>}
+              </label>
+              <select
+                name="owner_user_id"
+                defaultValue={lead.owner_user_id || ''}
+                disabled={!canEditLeadAttribution}
+                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+              >
+                <option value="">Unassigned</option>
+                {(closers || []).map((u: any) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name || u.id} ({u.role})
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                Door-knock / canvass attribution. Synced to payroll as opportunity setter when linked.
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Closer</label>
               <select
                 name="closer_user_id"
                 defaultValue={lead.closer_user_id || ''}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                disabled={!canEditLeadAttribution}
+                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
               >
-                <option value="">Select closer</option>
+                <option value="">Unassigned</option>
                 {(closers || []).map((closer: any) => (
                   <option key={closer.id} value={closer.id}>
                     {closer.full_name || closer.id} ({closer.role})
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-gray-500">
+                Inspection closer. Synced to payroll as opportunity owner (not the CRM record “owner” field).
+                {!canEditLeadAttribution ? ' Ask a manager to change payroll attribution.' : ''}
+              </p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-500">Inspection scheduled for (ET)</label>

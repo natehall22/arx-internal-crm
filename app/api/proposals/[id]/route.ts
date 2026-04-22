@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { PROPOSAL_DELETE_PRIVILEGED_ROLES } from '@/lib/proposal-delete-access'
+import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 
 export const dynamic = 'force-dynamic'
 
@@ -157,12 +158,23 @@ export async function GET(
       measurement = measurementData
     }
 
+    const { data: signedInstallationContract } = await adminClient
+      .from('order_form_contracts')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('proposal_id', params.id)
+      .eq('agreement_type', 'installation')
+      .eq('status', 'completed')
+      .limit(1)
+      .maybeSingle()
+
     return NextResponse.json({
       proposal: proposalForClient,
       lineItems: lineItems || [],
       company,
       rep: proposalForClient.users,
       measurement,
+      has_completed_installation_contract: Boolean(signedInstallationContract),
       role: profile.role,
       current_user_id: user.id,
     })
@@ -226,6 +238,23 @@ export async function PATCH(
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
+    const { data: signedInstallationContract } = await adminClient
+      .from('order_form_contracts')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('proposal_id', params.id)
+      .eq('agreement_type', 'installation')
+      .eq('status', 'completed')
+      .limit(1)
+      .maybeSingle()
+
+    if (signedInstallationContract) {
+      return NextResponse.json(
+        { error: 'Cannot edit a proposal after a signed Installation Agreement exists' },
+        { status: 400 }
+      )
+    }
+
     // Get current proposal state before update
     const { data: currentProposal } = await adminClient
       .from('proposals')
@@ -257,6 +286,11 @@ export async function PATCH(
     let projectId: string | null = null
     if (body.status === 'accepted' && proposalSnapshot.status !== 'accepted') {
       console.log('Proposal accepted, creating project...')
+      const { data: proposalLineItems } = await adminClient
+        .from('proposal_line_items')
+        .select('category, name, description, unit, quantity, is_adder')
+        .eq('proposal_id', params.id)
+      const soldRoofSquares = resolveProposalSoldRoofSquares(proposal as Record<string, unknown>, proposalLineItems || [])
       
       // Get opportunity details if available
       let opportunityData: any = null
@@ -336,6 +370,7 @@ export async function PATCH(
         lat: opportunityData?.lat,
         lng: opportunityData?.lng,
         roof_squares: opportunityData?.roof_squares,
+        sold_roof_squares: soldRoofSquares,
         notes: `Created from accepted proposal. Total: $${proposalSnapshot.total?.toLocaleString() || 0}`,
         lead_id: leadId,
         customer_id: customerId,

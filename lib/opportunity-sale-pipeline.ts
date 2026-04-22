@@ -1,6 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { importProjectReviewNoteToJob } from '@/lib/project-review'
-import { createServiceClient } from '@/lib/supabase/service'
 
 /**
  * Business rule: a `customers` row exists only after a **signed contract**.
@@ -29,16 +27,6 @@ export function isSaleOutcome(
   return false
 }
 
-function mapProjectTypeToJobType(
-  projectType: string | null | undefined
-): 'roofing' | 'siding' | 'windows' | 'mixed' {
-  const t = String(projectType || 'roofing').toLowerCase()
-  if (t === 'roofing') return 'roofing'
-  if (t === 'siding') return 'siding'
-  if (t === 'windows') return 'windows'
-  return 'mixed'
-}
-
 export type SalePipelineResult = {
   /** Only set if already linked (e.g. after a signed contract); never created here. */
   customer_id: string | null
@@ -48,8 +36,9 @@ export type SalePipelineResult = {
 
 /**
  * After an inspection is marked Sale (opportunity status won), ensure:
- * project(opportunity_id) + production_jobs — without creating a `customers` row.
+ * project(opportunity_id) — without creating a `customers` row or production job.
  * Customer records are created when a contract is signed (`/api/contracts/sign`).
+ * Jobs should not exist before a signed Installation Agreement.
  * Idempotent: skips steps when rows already exist.
  */
 export async function materializeSaleFromInspectionOutcome(
@@ -151,46 +140,6 @@ export async function materializeSaleFromInspectionOutcome(
     }
   }
 
-  const jobType = mapProjectTypeToJobType(opp.project_type)
-  const addr =
-    (options.lead.address_text || opp.address_text || '').trim() || 'Address pending'
-
-  const { data: job, error: jobErr } = await supabase
-    .from('production_jobs')
-    .insert({
-      org_id: orgId,
-      project_id: projectId,
-      customer_id: customerId,
-      job_type: jobType,
-      address_text: addr,
-      lat: opp.lat,
-      lng: opp.lng,
-      salesperson_id: opp.owner_user_id || actingUserId,
-      sale_date: new Date().toISOString().split('T')[0],
-      created_by: actingUserId,
-      internal_notes: 'Auto-created from inspection sale outcome.',
-      job_source: opp.job_source || 'retail',
-      insurance_stage: opp.job_source === 'insurance' ? (opp.insurance_stage || 'contingency_signed') : null,
-    })
-    .select('id')
-    .single()
-
-  if (jobErr) {
-    console.error('materializeSaleFromInspectionOutcome: production_jobs insert', jobErr)
-    return { customer_id: customerId, project_id: projectId, production_job_id: null }
-  }
-
-  const importResult = await importProjectReviewNoteToJob(createServiceClient(), {
-    jobId: job.id,
-    projectId,
-    actorUserId: actingUserId,
-  })
-  if (!importResult.ok) {
-    console.warn('materializeSaleFromInspectionOutcome: project review → job note', importResult.error)
-  }
-
-  await supabase.from('projects').update({ status: 'in_progress' }).eq('id', projectId)
-
   await supabase.from('activities').insert({
     org_id: orgId,
     project_id: projectId,
@@ -198,12 +147,12 @@ export async function materializeSaleFromInspectionOutcome(
     lead_id: options.leadId,
     user_id: actingUserId,
     type: 'status_change',
-    body: 'Project and production job linked from inspection sale (customer record only after signed contract).',
+    body: 'Project linked from inspection sale. Production job waits for signed Installation Agreement.',
   })
 
   return {
     customer_id: customerId,
     project_id: projectId,
-    production_job_id: job?.id ?? null,
+    production_job_id: null,
   }
 }
