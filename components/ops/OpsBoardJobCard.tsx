@@ -4,6 +4,7 @@ import { memo } from 'react'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
 import { hasOperationsSnapshotData } from '@/components/ops/OperationsSnapshotCard'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
+import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
   urgent: { icon: '🔴', color: 'text-red-600' },
@@ -61,6 +62,27 @@ function OpsBoardJobCardInner({
     typeof job.sold_waste_percent === 'number' && job.sold_waste_percent > 0 ? job.sold_waste_percent : null
   const soldSquaresFromMeasure = job.sold_squares_from_measure === true
 
+  const boardEquation =
+    roofSoldSquaresTotal != null
+      ? enrichedTotal != null
+        ? computeRoofSquaresEquation({
+            totalSquares: roofSoldSquaresTotal,
+            measuredSquares: measuredSquares,
+            wastePercent: soldWastePercent,
+          })
+        : computeRoofSquaresEquation({
+            totalSquares: roofSoldSquaresTotal,
+            measuredSquares: null,
+            wastePercent: null,
+          })
+      : null
+
+  const showBoardNoWasteFlag =
+    job.job_type === 'roofing' &&
+    roofSoldSquaresTotal != null &&
+    enrichedTotal != null &&
+    soldWastePercent == null
+
   const needsMaterials = job.materials_status === 'not_ordered'
   const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
   const isPastDue =
@@ -99,31 +121,28 @@ function OpsBoardJobCardInner({
         <div className="text-xs text-gray-500 truncate">{job.address_text}</div>
       </div>
 
-      {roofSoldSquaresTotal != null && (
+      {boardEquation != null && (
         <div className="mb-2.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700">
-            Total squares with waste
-          </div>
-          <div className="text-sm font-semibold text-sky-900">{roofSoldSquaresTotal.toFixed(1)} sq</div>
-          {(measuredSquares || soldWastePercent) && (
-            <div className="text-[11px] text-sky-700 leading-snug mt-0.5">
-              {measuredSquares
-                ? `${measuredSquares.toFixed(1)} measured squares`
-                : 'Measured squares unavailable'}
-              {soldWastePercent
-                ? ` + ${soldWastePercent.toFixed(1)}% waste from proposal design`
-                : ''}
+          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700">Sold roof squares</div>
+          <p className="text-sm text-sky-900 leading-snug tabular-nums mt-0.5">
+            <span className="text-[11px] font-normal text-sky-700">Measure </span>
+            <span className="font-semibold">{formatSqPart(boardEquation.measure)}</span>
+            <span className="text-[11px] font-normal text-sky-700"> sq + waste </span>
+            <span className="font-semibold">{formatSqPart(boardEquation.waste)}</span>
+            <span className="text-[11px] font-normal text-sky-700"> sq = </span>
+            <span className="font-semibold">{boardEquation.total.toFixed(1)}</span>
+            <span className="text-[11px] font-normal text-sky-700"> sq</span>
+          </p>
+          {showBoardNoWasteFlag && (
+            <div className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-1.5 py-1 text-[10px] font-medium text-amber-950">
+              No waste % on file — confirm before materials.
             </div>
           )}
-          {!measuredSquares && !soldWastePercent && soldSquaresFromMeasure && (
-            <div className="text-[11px] text-sky-700 mt-0.5">From measure</div>
+          {soldSquaresFromMeasure && (
+            <div className="text-[10px] text-sky-700 mt-1">Sold total from roof measure</div>
           )}
-          {!measuredSquares &&
-            !soldWastePercent &&
-            !soldSquaresFromMeasure &&
-            enrichedTotal == null &&
-            projectLegacyTotal != null && (
-            <div className="text-[11px] text-sky-700 mt-0.5">From project record</div>
+          {!soldSquaresFromMeasure && enrichedTotal == null && projectLegacyTotal != null && (
+            <div className="text-[10px] text-sky-700 mt-1">From project record</div>
           )}
         </div>
       )}
