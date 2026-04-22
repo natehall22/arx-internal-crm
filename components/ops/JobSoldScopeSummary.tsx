@@ -42,23 +42,8 @@ export type JobSoldScope = {
 
 const SOLD_SCOPE_LINE_PREVIEW = 14
 
-const ROOF_MEASURE_SOURCE_LABEL: Record<string, string> = {
-  manual: 'Manual',
-  in_house: 'ARX Measure',
-  eagleview: 'EagleView',
-  roofr: 'Roofr',
-  solo: 'Solo',
-  aurora: 'Aurora',
-}
-
 function safeLines(scope: JobSoldScope): JobSoldScopeLineItem[] {
   return Array.isArray(scope.line_items) ? scope.line_items : []
-}
-
-function safeLinear(scope: JobSoldScope): JobSoldScopeRoofMeasureLf | null {
-  const m = scope.roof_measurement_linear
-  if (!m || typeof m !== 'object') return null
-  return m
 }
 
 export default function JobSoldScopeSummary({
@@ -76,13 +61,6 @@ export default function JobSoldScopeSummary({
   const showLines = variant === 'header' ? lines.slice(0, SOLD_SCOPE_LINE_PREVIEW) : []
   const lineCount = lines.length
 
-  const totalCaption =
-    scope.total_squares_source === 'proposal_enriched'
-      ? 'total (with waste)'
-      : scope.total_squares_source === 'project_legacy'
-        ? 'on project'
-        : null
-
   const measureWaste =
     scope.measure_suggested_waste_percent != null && scope.measure_suggested_waste_percent > 0
       ? scope.measure_suggested_waste_percent
@@ -96,20 +74,16 @@ export default function JobSoldScopeSummary({
       measureWaste != null ||
       scope.total_squares_source === 'project_legacy')
 
-  const linear = safeLinear(scope)
-  const hasRoofMeasureLinear = showSquareMetrics && linear != null
-
   const materialsLineItemsOnly =
     variant === 'materials' &&
     lineCount > 0 &&
     !hasSquareBlock &&
-    !hasRoofMeasureLinear &&
     Boolean(proposalHref)
 
   const hideEntirely =
     variant === 'header'
-      ? !proposalHref && showLines.length === 0 && !hasSquareBlock && !hasRoofMeasureLinear
-      : !hasSquareBlock && !hasRoofMeasureLinear && !materialsLineItemsOnly
+      ? !proposalHref && showLines.length === 0 && !hasSquareBlock
+      : !hasSquareBlock && !materialsLineItemsOnly
 
   if (hideEntirely) {
     return null
@@ -140,16 +114,11 @@ export default function JobSoldScopeSummary({
         scope.total_squares != null &&
         scope.total_squares > 0 &&
         Number.isFinite(Number(scope.total_squares)) && (
-        <div className="text-sm font-semibold text-sky-950 tabular-nums">
-          {Number(scope.total_squares).toFixed(1)} sq
-          {totalCaption ? (
-            <>
-              {' '}
-              <span className="text-xs font-normal text-sky-800">{totalCaption}</span>
-            </>
-          ) : null}
-        </div>
-      )}
+          <div className="text-sm text-sky-950 mt-0.5">
+            <span className="text-xs font-normal text-sky-800">Total squares with waste: </span>
+            <span className="font-semibold tabular-nums">{Number(scope.total_squares).toFixed(1)} sq</span>
+          </div>
+        )}
 
       {hasSquareBlock &&
         (() => {
@@ -164,18 +133,21 @@ export default function JobSoldScopeSummary({
             proposalWaste != null ||
             measureWaste != null
           if (hasMeasuredOrWaste) {
+            const measuredPart =
+              scope.measured_squares != null &&
+              scope.measured_squares > 0 &&
+              Number.isFinite(Number(scope.measured_squares))
+                ? `${Number(scope.measured_squares).toFixed(1)} measured squares`
+                : 'Measured squares unavailable'
+            const wastePart =
+              proposalWaste != null
+                ? `${proposalWaste.toFixed(1)}% waste from proposal design`
+                : measureWaste != null
+                  ? `${measureWaste.toFixed(1)}% waste (measure estimate)`
+                  : ''
             return (
-              <div className="text-[11px] text-sky-800 mt-0.5">
-                {scope.measured_squares != null &&
-                scope.measured_squares > 0 &&
-                Number.isFinite(Number(scope.measured_squares))
-                  ? `${Number(scope.measured_squares).toFixed(1)} measured`
-                  : 'Measured unavailable'}
-                {proposalWaste != null
-                  ? ` · ${proposalWaste.toFixed(1)}% waste`
-                  : measureWaste != null
-                    ? ` · ${measureWaste.toFixed(1)}% waste (measure estimate)`
-                    : ''}
+              <div className="text-[11px] text-sky-800 mt-1 leading-snug">
+                {wastePart ? `${measuredPart} + ${wastePart}` : measuredPart}
               </div>
             )
           }
@@ -188,35 +160,6 @@ export default function JobSoldScopeSummary({
           }
           return null
         })()}
-
-      {hasRoofMeasureLinear && linear && (() => {
-        const m = linear
-        const srcLabel = m.source
-          ? ROOF_MEASURE_SOURCE_LABEL[m.source] || m.source.replace(/_/g, ' ')
-          : 'Roof measure'
-        const parts: string[] = []
-        if (m.ridges_lf != null) parts.push(`Ridge ${m.ridges_lf} LF`)
-        if (m.valleys_lf != null) parts.push(`Valley ${m.valleys_lf} LF`)
-        if (m.hips_lf != null) parts.push(`Hip ${m.hips_lf} LF`)
-        if (m.eaves_lf != null) parts.push(`Eave ${m.eaves_lf} LF`)
-        if (m.rakes_lf != null) parts.push(`Rake ${m.rakes_lf} LF`)
-        if (m.flashing_lf != null) parts.push(`Flashing ${m.flashing_lf} LF`)
-        if (m.step_flashing_lf != null) parts.push(`Step flashing ${m.step_flashing_lf} LF`)
-        if (m.wall_flashing_lf != null) parts.push(`Wall flashing ${m.wall_flashing_lf} LF`)
-        if (parts.length === 0) return null
-        return (
-          <div className="mt-2 pt-2 border-t border-sky-200/80">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-sky-800 mb-1">
-              {variant === 'materials' ? 'Roof measure (LF)' : 'Measure tool (linear)'}
-            </div>
-            <p className="text-[11px] text-sky-900 leading-snug">
-              <span className="font-medium text-sky-800">{srcLabel}</span>
-              <span className="text-sky-700"> — </span>
-              <span className="tabular-nums">{parts.join(' · ')}</span>
-            </p>
-          </div>
-        )
-      })()}
 
       {variant === 'materials' && materialsLineItemsOnly && proposalHref && (
         <p className="text-[11px] text-sky-900 mt-1">

@@ -60,7 +60,6 @@ function OpsBoardJobCardInner({
   const soldWastePercent =
     typeof job.sold_waste_percent === 'number' && job.sold_waste_percent > 0 ? job.sold_waste_percent : null
   const soldSquaresFromMeasure = job.sold_squares_from_measure === true
-  // Ridge/valley/flashing LF from the measure tool: job page sold-scope header only, not board cards.
 
   const needsMaterials = job.materials_status === 'not_ordered'
   const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
@@ -102,23 +101,29 @@ function OpsBoardJobCardInner({
 
       {roofSoldSquaresTotal != null && (
         <div className="mb-2.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700">Sold Squares</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700">
+            Total squares with waste
+          </div>
           <div className="text-sm font-semibold text-sky-900">{roofSoldSquaresTotal.toFixed(1)} sq</div>
           {(measuredSquares || soldWastePercent) && (
-            <div className="text-[11px] text-sky-700">
-              {measuredSquares ? `${measuredSquares.toFixed(1)} measured` : 'Measured unavailable'}
-              {soldWastePercent ? ` + ${soldWastePercent.toFixed(1)}% waste` : ''}
+            <div className="text-[11px] text-sky-700 leading-snug mt-0.5">
+              {measuredSquares
+                ? `${measuredSquares.toFixed(1)} measured squares`
+                : 'Measured squares unavailable'}
+              {soldWastePercent
+                ? ` + ${soldWastePercent.toFixed(1)}% waste from proposal design`
+                : ''}
             </div>
           )}
           {!measuredSquares && !soldWastePercent && soldSquaresFromMeasure && (
-            <div className="text-[11px] text-sky-700">From measure</div>
+            <div className="text-[11px] text-sky-700 mt-0.5">From measure</div>
           )}
           {!measuredSquares &&
             !soldWastePercent &&
             !soldSquaresFromMeasure &&
             enrichedTotal == null &&
             projectLegacyTotal != null && (
-            <div className="text-[11px] text-sky-700">From project record</div>
+            <div className="text-[11px] text-sky-700 mt-0.5">From project record</div>
           )}
         </div>
       )}
