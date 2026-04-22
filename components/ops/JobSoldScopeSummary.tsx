@@ -29,7 +29,7 @@ export type JobSoldScopeRoofMeasureLf = {
 
 export type JobSoldScope = {
   total_squares: number | null
-  total_squares_source: 'proposal_enriched' | 'project_legacy' | null
+  total_squares_source: 'proposal_enriched' | 'project_legacy' | 'roof_measure_total' | null
   measured_squares: number | null
   waste_percent: number | null
   /** Fallback when proposal has no waste — roof_measurements.suggested_waste_percent */
@@ -119,7 +119,7 @@ export default function JobSoldScopeSummary({
   const showNoWasteFlag =
     showSquareMetrics &&
     Boolean(proposalHref) &&
-    scope.source === 'proposal' &&
+    (scope.source === 'proposal' || scope.total_squares_source === 'roof_measure_total') &&
     !hasAnyWastePercent
 
   const materialsLineItemsOnly =
@@ -162,6 +162,27 @@ export default function JobSoldScopeSummary({
         )
       : null
 
+  const linearLfSubline =
+    hasRoofMeasureLinear && linear
+      ? (() => {
+          const m = linear
+          const srcLabel = m.source
+            ? ROOF_MEASURE_SOURCE_LABEL[m.source] || m.source.replace(/_/g, ' ')
+            : 'Roof measure'
+          const parts: string[] = []
+          if (m.ridges_lf != null) parts.push(`Ridge ${m.ridges_lf} LF`)
+          if (m.valleys_lf != null) parts.push(`Valley ${m.valleys_lf} LF`)
+          if (m.hips_lf != null) parts.push(`Hip ${m.hips_lf} LF`)
+          if (m.eaves_lf != null) parts.push(`Eave ${m.eaves_lf} LF`)
+          if (m.rakes_lf != null) parts.push(`Rake ${m.rakes_lf} LF`)
+          if (m.flashing_lf != null) parts.push(`Flashing ${m.flashing_lf} LF`)
+          if (m.step_flashing_lf != null) parts.push(`Step flashing ${m.step_flashing_lf} LF`)
+          if (m.wall_flashing_lf != null) parts.push(`Wall flashing ${m.wall_flashing_lf} LF`)
+          if (parts.length === 0) return null
+          return { srcLabel, parts }
+        })()
+      : null
+
   const wrapperClass =
     variant === 'header'
       ? 'mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2.5'
@@ -195,47 +216,31 @@ export default function JobSoldScopeSummary({
         </p>
       )}
 
+      {linearLfSubline != null && (
+        <p className="text-[11px] text-sky-800 mt-1 leading-snug tabular-nums">
+          <span className="text-sky-700">Linear: </span>
+          <span className="font-medium text-sky-900">{linearLfSubline.srcLabel}</span>
+          <span className="text-sky-700"> — </span>
+          <span>{linearLfSubline.parts.join(' · ')}</span>
+        </p>
+      )}
+
       {showNoWasteFlag && (
         <div
           className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-950"
           role="status"
         >
-          No waste % on this job — confirm with sales before materials.
+          No waste % on file — confirm before materials.
         </div>
+      )}
+
+      {scope.total_squares_source === 'roof_measure_total' && (
+        <p className="text-[11px] text-sky-700 mt-1">Sold total from roof measure</p>
       )}
 
       {hasSquareBlock && scope.total_squares_source === 'project_legacy' && (
         <div className="text-[11px] text-sky-800 mt-1">Squares stored on the project (not from a linked proposal).</div>
       )}
-
-      {hasRoofMeasureLinear && linear && (() => {
-        const m = linear
-        const srcLabel = m.source
-          ? ROOF_MEASURE_SOURCE_LABEL[m.source] || m.source.replace(/_/g, ' ')
-          : 'Roof measure'
-        const parts: string[] = []
-        if (m.ridges_lf != null) parts.push(`Ridge ${m.ridges_lf} LF`)
-        if (m.valleys_lf != null) parts.push(`Valley ${m.valleys_lf} LF`)
-        if (m.hips_lf != null) parts.push(`Hip ${m.hips_lf} LF`)
-        if (m.eaves_lf != null) parts.push(`Eave ${m.eaves_lf} LF`)
-        if (m.rakes_lf != null) parts.push(`Rake ${m.rakes_lf} LF`)
-        if (m.flashing_lf != null) parts.push(`Flashing ${m.flashing_lf} LF`)
-        if (m.step_flashing_lf != null) parts.push(`Step flashing ${m.step_flashing_lf} LF`)
-        if (m.wall_flashing_lf != null) parts.push(`Wall flashing ${m.wall_flashing_lf} LF`)
-        if (parts.length === 0) return null
-        return (
-          <div className="mt-2 pt-2 border-t border-sky-200/80">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-sky-800 mb-1">
-              {variant === 'materials' ? 'Roof measure (LF)' : 'Measure tool (linear)'}
-            </div>
-            <p className="text-[11px] text-sky-900 leading-snug">
-              <span className="font-medium text-sky-800">{srcLabel}</span>
-              <span className="text-sky-700"> — </span>
-              <span className="tabular-nums">{parts.join(' · ')}</span>
-            </p>
-          </div>
-        )
-      })()}
 
       {variant === 'materials' && materialsLineItemsOnly && proposalHref && (
         <p className="text-[11px] text-sky-900 mt-1">

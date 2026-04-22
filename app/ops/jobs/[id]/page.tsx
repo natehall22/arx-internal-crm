@@ -7,7 +7,10 @@ import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { canAccessJobBilling } from '@/lib/finance-access'
 import { canAccessJobBoard } from '@/lib/permissions'
-import { enrichOpsJobsWithSoldSquares } from '@/lib/ops-board-sold-squares'
+import {
+  enrichOpsJobsWithMeasureSoldSquaresFallback,
+  enrichOpsJobsWithSoldSquares,
+} from '@/lib/ops-board-sold-squares'
 
 interface PageProps {
   params: { id: string }
@@ -40,7 +43,7 @@ type JobSoldScopeRoofMeasureLf = {
 type JobSoldScope = {
   total_squares: number | null
   /** Proposal-derived total includes waste factor; legacy project field does not claim that. */
-  total_squares_source: 'proposal_enriched' | 'project_legacy' | null
+  total_squares_source: 'proposal_enriched' | 'project_legacy' | 'roof_measure_total' | null
   measured_squares: number | null
   waste_percent: number | null
   /** When proposal has no waste %, ARX / roof_measurements.suggested_waste_percent (estimate only). */
@@ -288,6 +291,7 @@ export default async function JobDetailPage({ params }: PageProps) {
 
   const jobRowForSquares = { ...jobRes.data }
   await enrichOpsJobsWithSoldSquares(supabaseService, profile.org_id, [jobRowForSquares])
+  await enrichOpsJobsWithMeasureSoldSquaresFallback(supabaseService, profile.org_id, [jobRowForSquares])
 
   // Original contract + change orders (same sources as /projects/[id])
   let originalContract: {
@@ -512,17 +516,22 @@ export default async function JobDetailPage({ params }: PageProps) {
         : null
     const legacyPositive = projectLegacySq != null && !Number.isNaN(projectLegacySq) && projectLegacySq > 0
 
-    const fromProposalTotal =
+    const soldSqPositive =
       typeof jobRowForSquares.sold_squares === 'number' && jobRowForSquares.sold_squares > 0
-        ? jobRowForSquares.sold_squares
+        ? Number(jobRowForSquares.sold_squares)
         : null
-    const totalSquares = fromProposalTotal ?? (legacyPositive ? projectLegacySq : null)
-    const totalSquaresSource: 'proposal_enriched' | 'project_legacy' | null =
-      fromProposalTotal != null
-        ? 'proposal_enriched'
-        : legacyPositive && projectLegacySq != null
-          ? 'project_legacy'
-          : null
+    const soldSquaresFromMeasureRow =
+      (jobRowForSquares as { sold_squares_from_measure?: boolean }).sold_squares_from_measure === true
+
+    const totalSquares = soldSqPositive ?? (legacyPositive ? projectLegacySq : null)
+    const totalSquaresSource: JobSoldScope['total_squares_source'] =
+      soldSqPositive != null && soldSquaresFromMeasureRow
+        ? 'roof_measure_total'
+        : soldSqPositive != null
+          ? 'proposal_enriched'
+          : legacyPositive && projectLegacySq != null
+            ? 'project_legacy'
+            : null
 
     let proposalId: string | null =
       jr.linked_proposal_id || jr.accepted_proposal_id || null
@@ -627,7 +636,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
 
     const fromProposal =
-      fromProposalTotal != null ||
+      soldSqPositive != null ||
       (typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0) ||
       (typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0) ||
       line_items.length > 0
