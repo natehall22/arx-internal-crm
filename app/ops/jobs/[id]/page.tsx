@@ -43,6 +43,8 @@ type JobSoldScope = {
   total_squares_source: 'proposal_enriched' | 'project_legacy' | null
   measured_squares: number | null
   waste_percent: number | null
+  /** When proposal has no waste %, ARX / roof_measurements.suggested_waste_percent (estimate only). */
+  measure_suggested_waste_percent: number | null
   source: 'proposal' | 'project_legacy' | null
   proposal_id: string | null
   proposal_number: string | null
@@ -52,6 +54,12 @@ type JobSoldScope = {
 }
 
 function positiveLinearFt(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n) || n <= 0) return null
+  return Math.round(n * 10) / 10
+}
+
+function positiveWastePercent(value: unknown): number | null {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n) || n <= 0) return null
   return Math.round(n * 10) / 10
@@ -566,7 +574,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
 
     const measureSelect =
-      'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, source, raw_data'
+      'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, source, raw_data, suggested_waste_percent'
     let measurementRow: Parameters<typeof buildRoofMeasurementLinear>[0] = null
 
     if (proposalId) {
@@ -604,6 +612,19 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
 
     const roofMeasurementLinear = buildRoofMeasurementLinear(measurementRow)
+    const proposalHasWaste =
+      typeof jobRowForSquares.sold_waste_percent === 'number' &&
+      Number(jobRowForSquares.sold_waste_percent) > 0
+    let measureSuggestedWasteOnly: number | null = null
+    if (measurementRow && !proposalHasWaste) {
+      measureSuggestedWasteOnly = positiveWastePercent(
+        (measurementRow as { suggested_waste_percent?: unknown }).suggested_waste_percent
+      )
+      if (measureSuggestedWasteOnly == null && measurementRow.raw_data && typeof measurementRow.raw_data === 'object') {
+        const raw = measurementRow.raw_data as Record<string, unknown>
+        measureSuggestedWasteOnly = positiveWastePercent(raw.suggested_waste)
+      }
+    }
 
     const fromProposal =
       fromProposalTotal != null ||
@@ -625,7 +646,8 @@ export default async function JobDetailPage({ params }: PageProps) {
       totalSquares != null ||
       line_items.length > 0 ||
       hasMeasurementsOnly ||
-      roofMeasurementLinear
+      roofMeasurementLinear ||
+      measureSuggestedWasteOnly != null
     ) {
       soldScope = {
         total_squares: totalSquares,
@@ -638,6 +660,7 @@ export default async function JobDetailPage({ params }: PageProps) {
           typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0
             ? jobRowForSquares.sold_waste_percent
             : null,
+        measure_suggested_waste_percent: measureSuggestedWasteOnly,
         source,
         proposal_id: proposalId,
         proposal_number,

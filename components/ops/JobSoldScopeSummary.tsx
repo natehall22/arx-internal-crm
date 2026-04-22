@@ -31,6 +31,8 @@ export type JobSoldScope = {
   total_squares_source: 'proposal_enriched' | 'project_legacy' | null
   measured_squares: number | null
   waste_percent: number | null
+  /** Fallback when proposal has no waste — roof_measurements.suggested_waste_percent */
+  measure_suggested_waste_percent?: number | null
   source: 'proposal' | 'project_legacy' | null
   proposal_id: string | null
   proposal_number: string | null
@@ -81,11 +83,17 @@ export default function JobSoldScopeSummary({
         ? 'on project'
         : null
 
+  const measureWaste =
+    scope.measure_suggested_waste_percent != null && scope.measure_suggested_waste_percent > 0
+      ? scope.measure_suggested_waste_percent
+      : null
+
   const hasSquareBlock =
     showSquareMetrics &&
     ((scope.total_squares != null && scope.total_squares > 0) ||
       (scope.measured_squares != null && scope.measured_squares > 0) ||
       (scope.waste_percent != null && scope.waste_percent > 0) ||
+      measureWaste != null ||
       scope.total_squares_source === 'project_legacy')
 
   const linear = safeLinear(scope)
@@ -145,9 +153,16 @@ export default function JobSoldScopeSummary({
 
       {hasSquareBlock &&
         (() => {
+          const proposalWaste =
+            scope.waste_percent != null &&
+            scope.waste_percent > 0 &&
+            Number.isFinite(Number(scope.waste_percent))
+              ? Number(scope.waste_percent)
+              : null
           const hasMeasuredOrWaste =
             (scope.measured_squares != null && scope.measured_squares > 0) ||
-            (scope.waste_percent != null && scope.waste_percent > 0)
+            proposalWaste != null ||
+            measureWaste != null
           if (hasMeasuredOrWaste) {
             return (
               <div className="text-[11px] text-sky-800 mt-0.5">
@@ -156,11 +171,11 @@ export default function JobSoldScopeSummary({
                 Number.isFinite(Number(scope.measured_squares))
                   ? `${Number(scope.measured_squares).toFixed(1)} measured`
                   : 'Measured unavailable'}
-                {scope.waste_percent != null &&
-                scope.waste_percent > 0 &&
-                Number.isFinite(Number(scope.waste_percent))
-                  ? ` · ${Number(scope.waste_percent).toFixed(1)}% waste`
-                  : ''}
+                {proposalWaste != null
+                  ? ` · ${proposalWaste.toFixed(1)}% waste`
+                  : measureWaste != null
+                    ? ` · ${measureWaste.toFixed(1)}% waste (measure estimate)`
+                    : ''}
               </div>
             )
           }
