@@ -437,6 +437,7 @@ export async function POST(request: NextRequest) {
             })
             await sendSetterEmail({
               to: setterUser.email,
+              recipientUserId: originalAppointment.canvasser_user_id,
               setterName: setterUser.full_name,
               subject: `Close appointment scheduled: ${customerName}`,
               introHtml: `<p style="color: #374151;">${profile.full_name || 'Your rep'} scheduled a close appointment. <strong>Assigned closer: ${assignedCloserName}</strong>.</p>`,
@@ -616,6 +617,7 @@ export async function POST(request: NextRequest) {
           })
           await sendSetterEmail({
             to: setterUser.email,
+            recipientUserId: originalAppointment.canvasser_user_id,
             setterName: setterUser.full_name,
             subject: `Close appointment scheduled: ${customerName}`,
             introHtml: `<p style="color: #374151;"><strong>${assignedCloserName}</strong> is assigned for the close appointment (scheduled by ${profile.full_name || 'your team'}).</p>`,

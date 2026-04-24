@@ -1,6 +1,7 @@
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { getMailTransport } from '@/lib/setter-email'
+import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { NextRequest, NextResponse } from 'next/server'
@@ -404,7 +405,10 @@ export async function PATCH(
           if (oc?.full_name?.trim()) previousCloserName = oc.full_name.trim()
         }
 
-        if (newCloser.email?.includes('@')) {
+        if (
+          newCloser.email?.includes('@') &&
+          (await isUserActiveForTransactionalEmail(adminClient, new_closer_id))
+        ) {
           // Match canvass "You were assigned an inspection" for non-close; close keeps explicit Close copy
           const isClose = appointment.appointment_type === 'close'
           const subject = isClose
@@ -454,7 +458,11 @@ export async function PATCH(
             .eq('id', appointment.closer_user_id)
             .maybeSingle()
 
-          if (prevUser?.email?.includes('@')) {
+          if (
+            prevUser?.email?.includes('@') &&
+            appointment.closer_user_id &&
+            (await isUserActiveForTransactionalEmail(adminClient, appointment.closer_user_id))
+          ) {
             await transporter.sendMail({
               from: 'info@arxroofing.com',
               to: prevUser.email,
@@ -484,7 +492,10 @@ export async function PATCH(
             .eq('id', setterId)
             .maybeSingle()
 
-          if (setterUser?.email?.includes('@')) {
+          if (
+            setterUser?.email?.includes('@') &&
+            (await isUserActiveForTransactionalEmail(adminClient, setterId))
+          ) {
             await transporter.sendMail({
               from: 'info@arxroofing.com',
               to: setterUser.email,

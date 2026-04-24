@@ -19,6 +19,7 @@ import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { pickValidEmail } from '@/lib/setter-email'
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 
 export const dynamic = 'force-dynamic'
 
@@ -1004,6 +1005,7 @@ export async function POST(request: Request) {
             const { sendSetterEmail } = await import('@/lib/setter-email')
             await sendSetterEmail({
               to: setterEmail,
+              recipientUserId: profile.id,
               setterName,
               subject: `🚀 ${leadRow.homeowner_name || 'Customer'} Inspection Set 🚀`,
               introHtml: `<p style="color:#374151;">Your inspection has been scheduled. Here are the details:</p>`,
@@ -1119,7 +1121,10 @@ export async function POST(request: Request) {
             .eq('id', closerUserId)
             .single()
 
-          if (closerProfile?.email) {
+          if (
+            closerProfile?.email &&
+            (await isUserActiveForTransactionalEmail(getAdminClient(), closerUserId))
+          ) {
             const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
             const recordUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/leads/${leadRow.id}`
             const closerName = closerProfile.full_name || 'Closer'

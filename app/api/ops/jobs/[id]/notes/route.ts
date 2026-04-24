@@ -182,12 +182,17 @@ export async function POST(
     try {
       const { data: orgUsers } = await adminClient
         .from('users')
-        .select('id, full_name, email')
+        .select('id, full_name, email, active')
         .eq('org_id', profile.org_id)
         .not('email', 'is', null)
 
       const allUsers = (orgUsers || []).filter(
-        (u: any) => u?.id && typeof u.full_name === 'string' && typeof u.email === 'string' && u.email.trim()
+        (u: any) =>
+          u?.active !== false &&
+          u?.id &&
+          typeof u.full_name === 'string' &&
+          typeof u.email === 'string' &&
+          u.email.trim()
       )
       const explicitMentionIds = Array.isArray(mentioned_user_ids)
         ? mentioned_user_ids.filter((id: any) => typeof id === 'string')

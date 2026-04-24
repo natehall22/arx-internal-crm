@@ -1,4 +1,6 @@
 import { getMailTransport } from '@/lib/setter-email'
+import { createServiceClient } from '@/lib/supabase/service'
+import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 
 type InspectionResult = {
   outcome: string
@@ -123,6 +125,8 @@ export function formatBriefingText(params: {
 
 export async function sendCloserBriefingEmail(params: {
   to: string
+  /** When set, email is skipped if this CRM user is disabled. */
+  recipientUserId?: string | null
   closerName: string | null
   customerName: string
   address: string
@@ -131,6 +135,13 @@ export async function sendCloserBriefingEmail(params: {
   photos?: BriefingPhoto[]
 }): Promise<void> {
   if (!process.env.SMTP_HOST || !params.to?.includes('@')) return
+  if (params.recipientUserId) {
+    const admin = createServiceClient()
+    if (!(await isUserActiveForTransactionalEmail(admin, params.recipientUserId))) {
+      console.warn('sendCloserBriefingEmail: skipped inactive recipient', params.recipientUserId)
+      return
+    }
+  }
 
   const { result } = params
   const closerName = params.closerName || 'Closer'

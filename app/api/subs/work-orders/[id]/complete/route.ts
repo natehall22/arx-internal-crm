@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import nodemailer from 'nodemailer'
 
 export async function POST(
@@ -232,7 +233,10 @@ export async function POST(
         .eq('id', pmUserId)
         .single()
 
-      if (pmUser?.email) {
+      if (
+        pmUser?.email &&
+        (await isUserActiveForTransactionalEmail(serviceClient, pmUserId))
+      ) {
         try {
           const transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,

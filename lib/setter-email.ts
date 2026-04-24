@@ -1,4 +1,6 @@
 import nodemailer from 'nodemailer'
+import { createServiceClient } from '@/lib/supabase/service'
+import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 
 export function getMailTransport() {
   return nodemailer.createTransport({
@@ -32,6 +34,8 @@ export function pickValidEmail(
  */
 export async function sendSetterEmail(params: {
   to: string
+  /** When set, email is skipped if this CRM user is disabled. */
+  recipientUserId?: string | null
   setterName?: string | null
   subject: string
   introHtml: string
@@ -39,6 +43,13 @@ export async function sendSetterEmail(params: {
 }): Promise<void> {
   if (!process.env.SMTP_HOST || !params.to?.includes('@')) {
     return
+  }
+  if (params.recipientUserId) {
+    const admin = createServiceClient()
+    if (!(await isUserActiveForTransactionalEmail(admin, params.recipientUserId))) {
+      console.warn('sendSetterEmail: skipped inactive recipient', params.recipientUserId)
+      return
+    }
   }
   const transporter = getMailTransport()
   const name = params.setterName || 'Setter'

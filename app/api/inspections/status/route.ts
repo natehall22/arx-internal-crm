@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer'
 import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { sendSetterEmail } from '@/lib/setter-email'
+import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import {
   fetchOrgAppointmentTypesFromTable,
   getCloseSlotBufferAfterFromTable,
@@ -714,7 +715,10 @@ export async function POST(request: NextRequest) {
           .eq('id', setterUserId)
           .single()
 
-        if (setterUser?.email) {
+        if (
+          setterUser?.email &&
+          (await isUserActiveForTransactionalEmail(getAdminClient(), setterUserId))
+        ) {
           const transporter = getMailTransport()
           const setterName = setterUser.full_name || 'Setter'
           const submittedAt = new Date().toLocaleString('en-US', {
@@ -987,6 +991,7 @@ export async function POST(request: NextRequest) {
               })
               await sendSetterEmail({
                 to: setterUser.email,
+                recipientUserId: setterUid,
                 setterName: setterUser.full_name,
                 subject: `Follow-up scheduled: ${customerName}`,
                 introHtml: `<p style="color: #374151;">${profile.full_name || 'A closer'} scheduled a follow-up appointment for your lead.</p>`,

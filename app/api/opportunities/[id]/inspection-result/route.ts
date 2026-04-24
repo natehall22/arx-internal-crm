@@ -127,6 +127,7 @@ export async function POST(
 
             await sendCloserBriefingEmail({
               to: closer.email,
+              recipientUserId: opp.owner_user_id,
               closerName: closer.full_name,
               customerName,
               address: opp.address_text || '',

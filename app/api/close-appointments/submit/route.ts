@@ -369,6 +369,7 @@ export async function POST(request: NextRequest) {
             })
             await sendSetterEmail({
               to: setterUser.email,
+              recipientUserId: setterId,
               setterName: setterUser.full_name,
               subject: `Insurance follow-up scheduled: ${customerName}`,
               introHtml: `<p style="color: #374151;">A closer scheduled an insurance follow-up after a close visit.</p>`,
