@@ -217,7 +217,15 @@ export default function JobSoldScopeSummary({
         <p className="text-sm text-sky-950 mt-0.5 leading-snug tabular-nums">
           <span className="text-xs font-normal text-sky-800">Measure </span>
           <span className="font-semibold">{formatSqPart(equation.measure)}</span>
-          <span className="text-xs font-normal text-sky-800"> sq + waste </span>
+          <span className="text-xs font-normal text-sky-800"> sq + </span>
+          {effectiveWastePercent != null ? (
+            <>
+              <span className="font-semibold tabular-nums">{effectiveWastePercent.toFixed(1)}</span>
+              <span className="text-xs font-normal text-sky-800">% waste </span>
+            </>
+          ) : (
+            <span className="text-xs font-normal text-sky-800">waste </span>
+          )}
           <span className="font-semibold">{formatSqPart(equation.waste)}</span>
           <span className="text-xs font-normal text-sky-800"> sq = </span>
           <span className="font-semibold">{equation.total.toFixed(1)}</span>

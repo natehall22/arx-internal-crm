@@ -127,7 +127,15 @@ function OpsBoardJobCardInner({
           <p className="text-sm text-sky-900 leading-snug tabular-nums mt-0.5">
             <span className="text-[11px] font-normal text-sky-700">Measure </span>
             <span className="font-semibold">{formatSqPart(boardEquation.measure)}</span>
-            <span className="text-[11px] font-normal text-sky-700"> sq + waste </span>
+            <span className="text-[11px] font-normal text-sky-700"> sq + </span>
+            {soldWastePercent != null ? (
+              <>
+                <span className="font-semibold tabular-nums">{soldWastePercent.toFixed(1)}</span>
+                <span className="text-[11px] font-normal text-sky-700">% waste </span>
+              </>
+            ) : (
+              <span className="text-[11px] font-normal text-sky-700">waste </span>
+            )}
             <span className="font-semibold">{formatSqPart(boardEquation.waste)}</span>
             <span className="text-[11px] font-normal text-sky-700"> sq = </span>
             <span className="font-semibold">{boardEquation.total.toFixed(1)}</span>
