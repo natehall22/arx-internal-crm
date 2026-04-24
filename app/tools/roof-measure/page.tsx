@@ -32,6 +32,8 @@ interface RoofFacet {
   perimeter_ft: number        // Perimeter of this facet
   orientation: string         // Compass direction
   section_type?: SectionType  // Optional classification for multi-level roofs
+  suggested_pitch?: string | null
+  suggested_pitch_degrees?: number | null
   color: string
 }
 
@@ -84,6 +86,9 @@ interface AIDraftSection {
   points?: [number, number][]
   confidence: number
   estimated_sq_ft?: number
+  suggested_pitch?: string | null
+  suggested_pitch_degrees?: number | null
+  solar_segment_index?: number | null
   status: 'pending' | 'accepted' | 'rejected'
 }
 
@@ -198,6 +203,15 @@ const FACET_COLORS = [
   '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1',
 ]
 
+const getClosestPitchOption = (degrees: number | null | undefined) => {
+  if (typeof degrees !== 'number' || Number.isNaN(degrees)) return null
+
+  return PITCH_OPTIONS.reduce((closest, option) => {
+    if (!closest) return option
+    return Math.abs(option.degrees - degrees) < Math.abs(closest.degrees - degrees) ? option : closest
+  }, null as (typeof PITCH_OPTIONS)[number] | null)
+}
+
 export default function RoofMeasurePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -211,6 +225,10 @@ export default function RoofMeasurePage() {
   const aiDraftPolygonsRef = useRef<Map<string, any>>(new Map())
   const aiDraftBoundaryRef = useRef<Map<string, any>>(new Map())
   const aiDraftLinesRef = useRef<Map<string, any>>(new Map())
+  const autoDetectRequestKeyRef = useRef<string | null>(null)
+  /** After auto-detect fails, skip effect-driven retries until the user searches again or runs manual AI Detect (avoids infinite loops). */
+  const skipAutoDetectAfterFailureRef = useRef(false)
+  const isDetectingRef = useRef(false)
   
   const [loading, setLoading] = useState(true)
   const [address, setAddress] = useState('')
@@ -231,6 +249,10 @@ export default function RoofMeasurePage() {
   const [mapReady, setMapReady] = useState(false)
   const [googleLoaded, setGoogleLoaded] = useState(false)
   const [isDetecting, setIsDetecting] = useState(false)
+
+  useEffect(() => {
+    isDetectingRef.current = isDetecting
+  }, [isDetecting])
   const [aiDraftSections, setAiDraftSections] = useState<AIDraftSection[]>([])
   const [aiNotes, setAiNotes] = useState('')
   const [showEstimateConfigModal, setShowEstimateConfigModal] = useState(false)
@@ -263,6 +285,16 @@ export default function RoofMeasurePage() {
   useEffect(() => {
     linearFeaturesRef.current = linearFeatures
   }, [linearFeatures])
+
+  const commitFacets = (nextFacets: RoofFacet[]) => {
+    facetsRef.current = nextFacets
+    setFacets(nextFacets)
+  }
+
+  const commitLinearFeatures = (nextFeatures: LinearFeature[]) => {
+    linearFeaturesRef.current = nextFeatures
+    setLinearFeatures(nextFeatures)
+  }
 
   useEffect(() => {
     const oppId = searchParams.get('opportunity_id') || searchParams.get('opportunity')
@@ -334,6 +366,38 @@ export default function RoofMeasurePage() {
       searchAddress(address)
     }
   }, [mapsLoaded, address])
+
+  // New search → allow auto-detect to run again
+  useEffect(() => {
+    if (!searchedAddress) return
+    skipAutoDetectAfterFailureRef.current = false
+  }, [searchedAddress])
+
+  useEffect(() => {
+    if (!searchedAddress || !googleMapRef.current || isDetecting) return
+    if (facets.length > 0 || linearFeatures.length > 0 || aiDraftSections.length > 0) return
+    if (skipAutoDetectAfterFailureRef.current) return
+
+    const map = googleMapRef.current
+    // Defer so geocode setCenter/setZoom can apply before we read center/zoom for the API.
+    const timeoutId = window.setTimeout(() => {
+      if (!googleMapRef.current || isDetectingRef.current) return
+      if (facets.length > 0 || linearFeatures.length > 0 || aiDraftSections.length > 0) return
+      if (skipAutoDetectAfterFailureRef.current) return
+
+      const center = googleMapRef.current.getCenter()
+      const zoom = googleMapRef.current.getZoom()
+      if (!center || typeof zoom !== 'number') return
+
+      const requestKey = `${searchedAddress}:${center.lat().toFixed(6)}:${center.lng().toFixed(6)}:${zoom}`
+      if (autoDetectRequestKeyRef.current === requestKey) return
+
+      autoDetectRequestKeyRef.current = requestKey
+      detectRoofWithAI(true)
+    }, 300)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [searchedAddress, facets.length, linearFeatures.length, aiDraftSections.length, isDetecting])
 
   const loadOpportunityAddress = async (oppId: string) => {
     try {
@@ -606,8 +670,142 @@ export default function RoofMeasurePage() {
     aiDraftLinesRef.current.clear()
   }
 
-  const detectRoofWithAI = async () => {
+  const pointsFromPolygon = (polygon: any): Point[] => {
+    const path = polygon.getPath()
+    const points: Point[] = []
+
+    for (let i = 0; i < path.getLength(); i++) {
+      const point = path.getAt(i)
+      points.push({ lat: point.lat(), lng: point.lng() })
+    }
+
+    return points
+  }
+
+  const pointsFromPolyline = (polyline: any): Point[] => {
+    const path = polyline.getPath()
+    const points: Point[] = []
+
+    for (let i = 0; i < path.getLength(); i++) {
+      const point = path.getAt(i)
+      points.push({ lat: point.lat(), lng: point.lng() })
+    }
+
+    return points
+  }
+
+  const waitForMapToSettle = async (map: any) => {
+    await new Promise<void>((resolve) => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        resolve()
+      }
+
+      const timeoutId = window.setTimeout(finish, 500)
+      google.maps.event.addListenerOnce(map, 'idle', () => {
+        window.clearTimeout(timeoutId)
+        finish()
+      })
+    })
+  }
+
+  const updateLabelMarkerPosition = (facetId: string, points: Point[]) => {
+    const label = labelsRef.current.get(facetId)
+    if (!label || points.length === 0) return
+    label.setPosition(
+      points.reduce(
+        (acc, p) => ({ lat: acc.lat + p.lat / points.length, lng: acc.lng + p.lng / points.length }),
+        { lat: 0, lng: 0 }
+      )
+    )
+  }
+
+  const recalculateFacetFromPoints = (facet: RoofFacet, points: Point[]): RoofFacet => {
+    const areaMeters = google.maps.geometry.spherical.computeArea(
+      points.map((point) => new google.maps.LatLng(point.lat, point.lng))
+    )
+    const flatAreaSqft = Math.max(0, Math.round(areaMeters * 10.7639))
+    const perimeterFt = calculatePerimeter(points)
+
+    return {
+      ...facet,
+      points,
+      flat_area_sqft: flatAreaSqft,
+      area_sqft: Math.round(flatAreaSqft * (facet.pitch_multiplier || 1)),
+      perimeter_ft: Math.round(perimeterFt),
+      orientation: calculateOrientation(points),
+    }
+  }
+
+  const recalculateLinearFeature = (feature: LinearFeature, points: Point[]): LinearFeature => {
+    let lengthMeters = 0
+    for (let i = 0; i < points.length - 1; i++) {
+      lengthMeters += google.maps.geometry.spherical.computeDistanceBetween(
+        new google.maps.LatLng(points[i].lat, points[i].lng),
+        new google.maps.LatLng(points[i + 1].lat, points[i + 1].lng)
+      )
+    }
+
+    return {
+      ...feature,
+      points,
+      length_ft: Math.round(lengthMeters * 3.28084),
+    }
+  }
+
+  const syncFacetFromOverlay = (facetId: string, polygon: any) => {
+    const currentFacet = facetsRef.current.find((facet) => facet.id === facetId)
+    if (!currentFacet) return
+
+    const points = pointsFromPolygon(polygon)
+    if (points.length < 3) return
+
+    const nextFacet = recalculateFacetFromPoints(currentFacet, points)
+    const nextFacets = facetsRef.current.map((facet) => (facet.id === facetId ? nextFacet : facet))
+    commitFacets(nextFacets)
+    updateLabelMarkerPosition(facetId, points)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
+  }
+
+  const syncLinearFeatureFromOverlay = (featureId: string, polyline: any) => {
+    const currentFeature = linearFeaturesRef.current.find((feature) => feature.id === featureId)
+    if (!currentFeature) return
+
+    const points = pointsFromPolyline(polyline)
+    if (points.length < 2) return
+
+    const nextFeature = recalculateLinearFeature(currentFeature, points)
+    const nextFeatures = linearFeaturesRef.current.map((feature) => (feature.id === featureId ? nextFeature : feature))
+    commitLinearFeatures(nextFeatures)
+    updateMeasurements(facetsRef.current, nextFeatures)
+  }
+
+  const attachPolygonEditListeners = (facetId: string, polygon: any) => {
+    const path = polygon.getPath()
+    const sync = () => syncFacetFromOverlay(facetId, polygon)
+
+    google.maps.event.addListener(path, 'set_at', sync)
+    google.maps.event.addListener(path, 'insert_at', sync)
+    google.maps.event.addListener(path, 'remove_at', sync)
+  }
+
+  const attachPolylineEditListeners = (featureId: string, polyline: any) => {
+    const path = polyline.getPath()
+    const sync = () => syncLinearFeatureFromOverlay(featureId, polyline)
+
+    google.maps.event.addListener(path, 'set_at', sync)
+    google.maps.event.addListener(path, 'insert_at', sync)
+    google.maps.event.addListener(path, 'remove_at', sync)
+  }
+
+  const detectRoofWithAI = async (autoAcceptFacets = false) => {
     if (!googleMapRef.current) return
+
+    if (!autoAcceptFacets) {
+      skipAutoDetectAfterFailureRef.current = false
+    }
 
     try {
       setIsDetecting(true)
@@ -615,14 +813,18 @@ export default function RoofMeasurePage() {
       setAiNotes('')
       clearAIDraftOverlays()
 
-      const center = googleMapRef.current.getCenter()
-      const zoom = googleMapRef.current.getZoom()
+      const map = googleMapRef.current
+      await waitForMapToSettle(map)
+
+      const center = map.getCenter()
+      const zoom = map.getZoom()
       if (!center || typeof zoom !== 'number') {
         throw new Error('Map not ready')
       }
 
       const lat = center.lat()
       const lng = center.lng()
+      const normalizedZoom = Math.round(zoom)
 
       const response = await fetch('/api/ai/detect-roof', {
         method: 'POST',
@@ -630,7 +832,7 @@ export default function RoofMeasurePage() {
         body: JSON.stringify({
           lat,
           lng,
-          zoom,
+          zoom: normalizedZoom,
           opportunityId: opportunityId || '',
         }),
       })
@@ -643,6 +845,10 @@ export default function RoofMeasurePage() {
       const data = await response.json()
 
       const draftFacets: AIDraftSection[] = (data.facets || []).map((facet: any, idx: number) => ({
+        suggested_pitch: getClosestPitchOption(facet.suggested_pitch_degrees)?.value || null,
+        suggested_pitch_degrees:
+          typeof facet.suggested_pitch_degrees === 'number' ? Number(facet.suggested_pitch_degrees) : null,
+        solar_segment_index: typeof facet.solar_segment_index === 'number' ? facet.solar_segment_index : null,
         id: facet.id || `ai_facet_${idx + 1}`,
         type: 'facet',
         points: (facet.lat_lng_vertices || []).map((p: any) => [Number(p.lat), Number(p.lng)] as [number, number]),
@@ -668,10 +874,16 @@ export default function RoofMeasurePage() {
         ...mapLines(data.wall_flashing, 'wall_flash', 'ai_wall'),
       ]
 
-      setAiDraftSections(allDrafts)
+      setAiDraftSections(autoAcceptFacets ? allDrafts.filter((item) => item.type !== 'facet') : allDrafts)
       setAiNotes(data.notes || '')
+
+      if (autoAcceptFacets) {
+        draftFacets.forEach((facet) => acceptDraftItem(facet.id, facet))
+      }
     } catch (error) {
       console.error('AI detect error:', error)
+      autoDetectRequestKeyRef.current = null
+      skipAutoDetectAfterFailureRef.current = true
       const message = error instanceof Error ? error.message : 'AI roof detection failed. Please try again.'
       alert(message)
     } finally {
@@ -736,32 +948,50 @@ export default function RoofMeasurePage() {
     }
   }, [aiDraftSections])
 
-  const acceptDraftItem = (itemId: string) => {
-    const draft = aiDraftSections.find((item) => item.id === itemId)
+  const acceptDraftItem = (itemId: string, draftOverride?: AIDraftSection) => {
+    const draft = draftOverride || aiDraftSections.find((item) => item.id === itemId)
     if (!draft || draft.status !== 'pending') return
 
     if (draft.type === 'facet' && draft.points && draft.points.length >= 3) {
-      const areaMeters = google.maps.geometry.spherical.computeArea(
-        draft.points.map(([lat, lng]) => new google.maps.LatLng(lat, lng))
+      const validPoints = draft.points.filter(
+        ([lat, lng]) =>
+          Number.isFinite(lat) &&
+          Number.isFinite(lng) &&
+          Math.abs(lat) <= 90 &&
+          Math.abs(lng) <= 180
       )
-      const flatAreaSqft = Math.max(Math.round(areaMeters * 10.7639), draft.estimated_sq_ft || 0)
-      const defaultPitch = PITCH_OPTIONS.find((p) => p.value === '6/12') || PITCH_OPTIONS[6]
-      const areaSqft = Math.round(flatAreaSqft * defaultPitch.multiplier)
-      const perimeterFt = calculatePerimeter(draft.points.map(([lat, lng]) => ({ lat, lng })))
+      if (validPoints.length < 3) {
+        console.warn('acceptDraftItem: skipped facet with invalid coordinates', itemId)
+        return
+      }
+
+      const areaMeters = google.maps.geometry.spherical.computeArea(
+        validPoints.map(([lat, lng]) => new google.maps.LatLng(lat, lng))
+      )
+      const computedFlatAreaSqft = Math.round(areaMeters * 10.7639)
+      const estimatedFlatAreaSqft = typeof draft.estimated_sq_ft === 'number' ? Math.round(draft.estimated_sq_ft) : 0
+      const flatAreaSqft = computedFlatAreaSqft > 0 ? computedFlatAreaSqft : estimatedFlatAreaSqft
+      if (!flatAreaSqft || flatAreaSqft < 10) {
+        console.warn('acceptDraftItem: skipped facet with invalid area', { itemId, computedFlatAreaSqft, estimatedFlatAreaSqft })
+        return
+      }
+      const perimeterFt = calculatePerimeter(validPoints.map(([lat, lng]) => ({ lat, lng })))
       const colorIndex = facetsRef.current.length % FACET_COLORS.length
 
       const newFacet: RoofFacet = {
         id: `facet-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        points: draft.points.map(([lat, lng]) => ({ lat, lng })),
+        points: validPoints.map(([lat, lng]) => ({ lat, lng })),
         flat_area_sqft: flatAreaSqft,
-        area_sqft: areaSqft,
-        pitch: defaultPitch.value,
-        pitch_rise: defaultPitch.rise,
-        pitch_degrees: defaultPitch.degrees,
-        pitch_multiplier: defaultPitch.multiplier,
+        area_sqft: flatAreaSqft,
+        pitch: 'Unset',
+        pitch_rise: 0,
+        pitch_degrees: 0,
+        pitch_multiplier: 1,
         perimeter_ft: Math.round(perimeterFt),
-        orientation: calculateOrientation(draft.points.map(([lat, lng]) => ({ lat, lng }))),
+        orientation: calculateOrientation(validPoints.map(([lat, lng]) => ({ lat, lng }))),
         section_type: 'main_roof',
+        suggested_pitch: draft.suggested_pitch || null,
+        suggested_pitch_degrees: draft.suggested_pitch_degrees ?? null,
         color: FACET_COLORS[colorIndex],
       }
 
@@ -777,6 +1007,7 @@ export default function RoofMeasurePage() {
 
       polygonsRef.current.set(newFacet.id, polygon)
       polygon.addListener('click', () => setSelectedFacet(newFacet.id))
+      attachPolygonEditListeners(newFacet.id, polygon)
 
       const facetIndex = facetsRef.current.length + 1
       const centroid = newFacet.points.reduce(
@@ -805,7 +1036,7 @@ export default function RoofMeasurePage() {
       labelsRef.current.set(newFacet.id, labelMarker)
 
       const nextFacets = [...facetsRef.current, newFacet]
-      setFacets(nextFacets)
+      commitFacets(nextFacets)
       updateMeasurements(nextFacets, linearFeaturesRef.current)
     } else if (draft.points && draft.points.length >= 2) {
       const points: Point[] = draft.points.map(([lat, lng]) => ({ lat, lng }))
@@ -842,9 +1073,10 @@ export default function RoofMeasurePage() {
         map: googleMapRef.current,
       })
       polylinesRef.current.set(newFeature.id, polyline)
+      attachPolylineEditListeners(newFeature.id, polyline)
 
       const nextFeatures = [...linearFeaturesRef.current, newFeature]
-      setLinearFeatures(nextFeatures)
+      commitLinearFeatures(nextFeatures)
       updateMeasurements(facetsRef.current, nextFeatures)
     }
 
@@ -870,6 +1102,10 @@ export default function RoofMeasurePage() {
   const generateSmartEstimate = async () => {
     if (!opportunityId) {
       alert('Opportunity is required to generate an estimate.')
+      return
+    }
+    if (unresolvedPitchCount > 0) {
+      alert(`Confirm slope on all roof sections before generating an estimate. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need pitch.`)
       return
     }
 
@@ -976,13 +1212,7 @@ export default function RoofMeasurePage() {
   const handlePolylineComplete = (polyline: any) => {
     stopDrawing()
     
-    const path = polyline.getPath()
-    const points: Point[] = []
-    
-    for (let i = 0; i < path.getLength(); i++) {
-      const point = path.getAt(i)
-      points.push({ lat: point.lat(), lng: point.lng() })
-    }
+    const points = pointsFromPolyline(polyline)
     
     // Calculate length
     let lengthMeters = 0
@@ -1005,6 +1235,7 @@ export default function RoofMeasurePage() {
     
     // Store polyline reference
     polylinesRef.current.set(newFeature.id, polyline)
+    attachPolylineEditListeners(newFeature.id, polyline)
     
     // Add click listener to select
     polyline.addListener('click', () => {
@@ -1014,7 +1245,7 @@ export default function RoofMeasurePage() {
     const currentFacets = facetsRef.current
     const updatedFeatures = [...linearFeaturesRef.current, newFeature]
 
-    setLinearFeatures(updatedFeatures)
+    commitLinearFeatures(updatedFeatures)
     updateMeasurements(currentFacets, updatedFeatures)
   }
 
@@ -1027,20 +1258,15 @@ export default function RoofMeasurePage() {
     }
     
     const newFeatures = linearFeatures.filter(f => f.id !== featureId)
-    setLinearFeatures(newFeatures)
-    updateMeasurements(facets, newFeatures)
+    commitLinearFeatures(newFeatures)
+    updateMeasurements(facetsRef.current, newFeatures)
   }
 
   const handlePolygonComplete = (polygon: any) => {
     stopDrawing()
     
     const path = polygon.getPath()
-    const points: Point[] = []
-    
-    for (let i = 0; i < path.getLength(); i++) {
-      const point = path.getAt(i)
-      points.push({ lat: point.lat(), lng: point.lng() })
-    }
+    const points = pointsFromPolygon(polygon)
     
     // Validate polygon has at least 3 points
     if (points.length < 3) {
@@ -1158,6 +1384,7 @@ export default function RoofMeasurePage() {
       polygon.addListener('click', () => {
         setSelectedFacet(newFacet.id)
       })
+      attachPolygonEditListeners(newFacet.id, polygon)
       
       // Add label marker at the center of the facet
       const facetIndex = facets.length + 1
@@ -1190,12 +1417,13 @@ export default function RoofMeasurePage() {
       labelsRef.current.set(newFacet.id, labelMarker)
     }
     
-    setFacets(prev => [...prev, newFacet])
+    const nextFacets = [...facetsRef.current, newFacet]
+    commitFacets(nextFacets)
     setPendingFacet(null)
     setShowPitchModal(false)
     
     // Update measurements
-    updateMeasurements([...facets, newFacet], linearFeatures)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
   }
 
   const cancelFacet = () => {
@@ -1223,9 +1451,9 @@ export default function RoofMeasurePage() {
     }
     
     const newFacets = facets.filter(f => f.id !== facetId)
-    setFacets(newFacets)
+    commitFacets(newFacets)
     setSelectedFacet(null)
-    updateMeasurements(newFacets, linearFeatures)
+    updateMeasurements(newFacets, linearFeaturesRef.current)
     
     // Update remaining labels to reflect new numbering
     newFacets.forEach((facet, idx) => {
@@ -1245,8 +1473,31 @@ export default function RoofMeasurePage() {
     const newFacets = facets.map((facet) =>
       facet.id === facetId ? { ...facet, section_type: sectionType } : facet
     )
-    setFacets(newFacets)
-    updateMeasurements(newFacets, linearFeatures)
+    commitFacets(newFacets)
+    updateMeasurements(newFacets, linearFeaturesRef.current)
+  }
+
+  const updateFacetPitch = (facetId: string, pitchValue: string) => {
+    const option = PITCH_OPTIONS.find((item) => item.value === pitchValue)
+    if (!option) return
+
+    const nextFacets = facets.map((facet) => {
+      if (facet.id !== facetId) return facet
+      const areaSqft = Math.round((facet.flat_area_sqft || 0) * option.multiplier)
+      return {
+        ...facet,
+        pitch: option.value,
+        pitch_rise: option.rise,
+        pitch_degrees: option.degrees,
+        pitch_multiplier: option.multiplier,
+        area_sqft: areaSqft,
+        suggested_pitch: facet.suggested_pitch,
+        suggested_pitch_degrees: facet.suggested_pitch_degrees,
+      }
+    })
+
+    commitFacets(nextFacets)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
   }
 
   const getFacetCentroid = (points: Point[]): Point => {
@@ -1312,6 +1563,7 @@ export default function RoofMeasurePage() {
     }
     
     const validationNotes: string[] = []
+    const unsetPitchFacets = currentFacets.filter((facet) => !facet.pitch || facet.pitch === 'Unset')
     
     // Calculate area totals
     // Fall back to area_sqft / pitch_multiplier if flat_area_sqft not set (legacy data)
@@ -1405,9 +1657,18 @@ export default function RoofMeasurePage() {
     // ---- RAKES CALCULATION ----
     // Rakes are the sloped edges on gable ends
     // Must account for pitch - rakes are longer than horizontal measurement
-    const avgPitchMultiplier = currentFacets.length > 0
-      ? currentFacets.reduce((sum, f) => sum + (f.pitch_multiplier || 1.118), 0) / currentFacets.length
-      : 1.118
+    // Until a section has confirmed pitch, use 1× (horizontal projection) so auto linear
+    // estimates stay consistent with footprint-based area_sqft for Unset facets — not Solar "suggestions".
+    const estimatedPitchMultipliers = currentFacets
+      .map((facet) => {
+        if (facet.pitch && facet.pitch !== 'Unset') return facet.pitch_multiplier || 1.118
+        return 1
+      })
+      .filter((value) => typeof value === 'number' && isFinite(value))
+
+    const avgPitchMultiplier = estimatedPitchMultipliers.length > 0
+      ? estimatedPitchMultipliers.reduce((sum, value) => sum + value, 0) / estimatedPitchMultipliers.length
+      : 1
     
     let rakes: number
     if (facetCount <= 2) {
@@ -1480,10 +1741,12 @@ export default function RoofMeasurePage() {
     
     // Find predominant pitch (weighted by area)
     const pitchCounts: Record<string, number> = {}
-    currentFacets.forEach(f => {
-      pitchCounts[f.pitch] = (pitchCounts[f.pitch] || 0) + f.area_sqft
-    })
-    const predominantPitch = Object.entries(pitchCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '6/12'
+    currentFacets
+      .filter((facet) => facet.pitch && facet.pitch !== 'Unset')
+      .forEach((f) => {
+        pitchCounts[f.pitch] = (pitchCounts[f.pitch] || 0) + f.area_sqft
+      })
+    const predominantPitch = Object.entries(pitchCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unset'
     
     // Calculate waste factor based on complexity (industry standards)
     const { wastePercent, category } = calculateWasteFactorDetailed(currentFacets, valleys, hips)
@@ -1508,6 +1771,10 @@ export default function RoofMeasurePage() {
     if (facetCount === 1) {
       confidence = 'medium'
       validationNotes.push('Single facet - consider adding more sections for accuracy')
+    }
+    if (unsetPitchFacets.length > 0) {
+      confidence = 'low'
+      validationNotes.push(`Assign pitch to ${unsetPitchFacets.length} roof section${unsetPitchFacets.length === 1 ? '' : 's'} before quoting.`)
     }
     
     // Verify linear footage totals are reasonable
@@ -1534,6 +1801,7 @@ export default function RoofMeasurePage() {
         const first = currentFacets[i]
         const second = currentFacets[j]
         if (!first.area_sqft || !second.area_sqft) continue
+        if (!first.pitch || !second.pitch || first.pitch === 'Unset' || second.pitch === 'Unset') continue
         if (first.pitch !== second.pitch) continue
 
         const firstSectionType = first.section_type || 'main_roof'
@@ -1583,7 +1851,7 @@ export default function RoofMeasurePage() {
       step_flashing_lf: safeNum(stepFlashing),
       wall_flashing_lf: safeNum(wallFlashing),
       predominant_pitch: predominantPitch,
-      avg_pitch_multiplier: safeNum(Math.round(avgPitchMultiplier * 1000) / 1000, 1.118),
+      avg_pitch_multiplier: safeNum(Math.round(avgPitchMultiplier * 1000) / 1000, 1),
       suggested_waste: safeNum(wastePercent, 10),
       waste_category: category,
       linear_features: features,
@@ -1679,6 +1947,11 @@ export default function RoofMeasurePage() {
 
   const saveMeasurement = async () => {
     if (!measurements) return
+    const unresolvedPitchCount = facets.filter((facet) => !facet.pitch || facet.pitch === 'Unset').length
+    if (unresolvedPitchCount > 0) {
+      alert(`Assign pitch to all roof sections before saving. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need slope confirmation.`)
+      return
+    }
 
     setSaving(true)
 
@@ -1736,13 +2009,17 @@ export default function RoofMeasurePage() {
     polylinesRef.current.clear()
     clearAIDraftOverlays()
     
-    setFacets([])
-    setLinearFeatures([])
+    commitFacets([])
+    commitLinearFeatures([])
     setMeasurements(null)
     setSelectedFacet(null)
     setAiDraftSections([])
     setAiNotes('')
+    autoDetectRequestKeyRef.current = null
+    skipAutoDetectAfterFailureRef.current = false
   }
+
+  const unresolvedPitchCount = facets.filter((facet) => !facet.pitch || facet.pitch === 'Unset').length
 
   // Show error page only for configuration errors (like missing API key)
   if (mapError && mapError.includes('API key')) {
@@ -1822,7 +2099,7 @@ export default function RoofMeasurePage() {
           <div className="p-4 border-b border-gray-700">
             <h3 className="text-sm font-medium text-gray-300 mb-3">Drawing Tools</h3>
             <button
-              onClick={detectRoofWithAI}
+              onClick={() => detectRoofWithAI()}
               disabled={isDetecting || !googleMapRef.current}
               className="w-full mb-3 min-h-[44px] px-3 py-2 rounded-lg font-medium text-sm bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
             >
@@ -1860,6 +2137,9 @@ export default function RoofMeasurePage() {
                           {(item.confidence * 100).toFixed(0)}%
                         </span>
                         {item.confidence < 0.75 && <span className="text-amber-300">low confidence</span>}
+                        {item.type === 'facet' && item.suggested_pitch && (
+                          <span className="text-sky-300">pitch {item.suggested_pitch}</span>
+                        )}
                         <span className="text-gray-400">({item.status})</span>
                       </div>
                       {item.status === 'pending' && (
@@ -1881,7 +2161,7 @@ export default function RoofMeasurePage() {
                     </div>
                   ))}
                 </div>
-                <p className="text-[11px] text-gray-400 mt-2">Edit individually by accepting items, then adjust with existing tools.</p>
+                <p className="text-[11px] text-gray-400 mt-2">Auto-added roof faces can be edited on the map. Review any remaining draft lines here.</p>
               </div>
             )}
             
@@ -2015,7 +2295,9 @@ export default function RoofMeasurePage() {
                     className={`p-3 rounded-lg cursor-pointer transition ${
                       selectedFacet === facet.id 
                         ? 'bg-indigo-600/20 border border-indigo-500' 
-                        : 'bg-gray-700/50 hover:bg-gray-700 border border-transparent'
+                        : facet.pitch === 'Unset'
+                          ? 'bg-amber-900/15 hover:bg-amber-900/25 border border-amber-700/40'
+                          : 'bg-gray-700/50 hover:bg-gray-700 border border-transparent'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -2040,12 +2322,17 @@ export default function RoofMeasurePage() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <span className="text-gray-500">Actual:</span>
+                        <span className="text-gray-500">
+                          {facet.pitch === 'Unset' ? 'Surface (pitch TBD):' : 'Actual surface:'}
+                        </span>
                         <span className="text-gray-300 ml-1">{(facet.area_sqft || 0).toLocaleString()} sqft</span>
                       </div>
                       <div>
                         <span className="text-gray-500">Pitch:</span>
-                        <span className="text-gray-300 ml-1">{facet.pitch} (×{facet.pitch_multiplier?.toFixed(2) || '1.00'})</span>
+                        <span className="text-gray-300 ml-1">
+                          {facet.pitch}
+                          {facet.pitch !== 'Unset' ? ` (×${facet.pitch_multiplier?.toFixed(2) || '1.00'})` : ''}
+                        </span>
                       </div>
                       <div>
                         <span className="text-gray-500">Flat:</span>
@@ -2055,6 +2342,33 @@ export default function RoofMeasurePage() {
                         <span className="text-gray-500">Squares:</span>
                         <span className="text-gray-300 ml-1">{(facet.area_sqft / 100).toFixed(2)}</span>
                       </div>
+                    </div>
+                    <div className="mt-2">
+                      <label className="text-[11px] text-gray-500">Pitch</label>
+                      <select
+                        value={PITCH_OPTIONS.some((option) => option.value === facet.pitch) ? facet.pitch : ''}
+                        onChange={(e) => updateFacetPitch(facet.id, e.target.value)}
+                        className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-200"
+                      >
+                        <option value="" disabled>
+                          {facet.suggested_pitch
+                            ? `Set pitch (Google Solar suggests ${facet.suggested_pitch})`
+                            : 'Set pitch'}
+                        </option>
+                        {PITCH_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      {facet.suggested_pitch && facet.pitch === 'Unset' && (
+                        <p className="mt-1 text-[11px] text-sky-300">
+                          Suggested by Google Solar: {facet.suggested_pitch}
+                          {typeof facet.suggested_pitch_degrees === 'number'
+                            ? ` (${facet.suggested_pitch_degrees.toFixed(1)}°)`
+                            : ''}
+                        </p>
+                      )}
                     </div>
                     <div className="mt-2">
                       <label className="text-[11px] text-gray-500">Section Type</label>
@@ -2145,6 +2459,16 @@ export default function RoofMeasurePage() {
                   {measurements.measurement_confidence} confidence
                 </span>
               </div>
+              {unresolvedPitchCount > 0 && (
+                <div className="mb-3 rounded-lg border border-amber-700/40 bg-amber-900/20 p-2">
+                  <p className="text-xs text-amber-300 font-medium">
+                    {unresolvedPitchCount} roof section{unresolvedPitchCount === 1 ? '' : 's'} still need slope confirmation.
+                  </p>
+                  <p className="text-[11px] text-amber-200/80 mt-1">
+                    Draft geometry is drawn, but quote-ready totals stay blocked until every face has a confirmed pitch.
+                  </p>
+                </div>
+              )}
               
               {/* Main totals */}
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -2152,13 +2476,17 @@ export default function RoofMeasurePage() {
                   <div className="text-2xl font-bold text-white">
                     {measurements.total_squares.toFixed(2)}
                   </div>
-                  <div className="text-xs text-indigo-300">Squares (actual)</div>
+                  <div className="text-xs text-indigo-300">
+                    {unresolvedPitchCount > 0 ? 'Squares (draft until slope confirmed)' : 'Squares (actual)'}
+                  </div>
                 </div>
                 <div className="bg-gray-700/50 rounded-lg p-3">
                   <div className="text-xl font-bold text-white">
                     {(measurements.total_area_sqft || 0).toLocaleString()}
                   </div>
-                  <div className="text-xs text-gray-400">Sq Ft (actual)</div>
+                  <div className="text-xs text-gray-400">
+                    {unresolvedPitchCount > 0 ? 'Sq Ft (draft until slope confirmed)' : 'Sq Ft (actual)'}
+                  </div>
                 </div>
               </div>
               
@@ -2237,17 +2565,23 @@ export default function RoofMeasurePage() {
               
               <button
                 onClick={() => setShowSaveModal(true)}
-                className="w-full mt-4 px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
+                disabled={unresolvedPitchCount > 0}
+                className="w-full mt-4 px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
               >
                 Save Measurement
               </button>
               <button
                 onClick={() => setShowEstimateConfigModal(true)}
-                disabled={!opportunityId}
+                disabled={!opportunityId || unresolvedPitchCount > 0}
                 className="w-full mt-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
               >
                 Generate Estimate
               </button>
+              {unresolvedPitchCount > 0 && (
+                <p className="text-xs text-amber-300 mt-2">
+                  Save and estimate stay disabled until every auto-drawn face has a confirmed pitch.
+                </p>
+              )}
               {!opportunityId && (
                 <p className="text-xs text-amber-300 mt-2">
                   Generate Estimate requires an opportunity context.
@@ -2693,13 +3027,20 @@ export default function RoofMeasurePage() {
               >
                 Back to Edit
               </button>
-              <button
-                onClick={saveMeasurement}
-                disabled={saving}
-                className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
-              >
-                {saving ? 'Saving...' : 'Save & Create Proposal →'}
-              </button>
+              <div className="text-right">
+                {unresolvedPitchCount > 0 && (
+                  <p className="mb-2 text-xs text-amber-700">
+                    Confirm slope on all roof faces before saving this measurement.
+                  </p>
+                )}
+                <button
+                  onClick={saveMeasurement}
+                  disabled={saving || unresolvedPitchCount > 0}
+                  className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
+                >
+                  {saving ? 'Saving...' : 'Save & Create Proposal →'}
+                </button>
+              </div>
             </div>
           </div>
           </div>

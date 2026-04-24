@@ -254,6 +254,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'config is required' }, { status: 400 })
     }
 
+    const facetSections = roofSections.filter((s) => (s.type || '').toLowerCase() === 'facet')
+    if (
+      facetSections.length > 0 &&
+      facetSections.some((s) => !Number(s.area_sqft) || Number(s.area_sqft) <= 0)
+    ) {
+      return NextResponse.json(
+        { error: 'Each roof facet must have a positive area (sq ft) before generating an estimate.' },
+        { status: 400 }
+      )
+    }
+
     const math = deterministicMath(roofSections, Number(config.wasteFactor) || 12)
 
     const { data: opportunity } = await supabase

@@ -69,6 +69,20 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { measurements, opportunityId } = body
 
+    const facetRows = measurements?.facets
+    if (Array.isArray(facetRows) && facetRows.length > 0) {
+      const hasUnresolvedPitch = facetRows.some(
+        (f: { pitch?: string }) =>
+          !f?.pitch || String(f.pitch).trim() === '' || f.pitch === 'Unset'
+      )
+      if (hasUnresolvedPitch) {
+        return NextResponse.json(
+          { error: 'All roof sections must have a confirmed pitch before saving.' },
+          { status: 400 }
+        )
+      }
+    }
+
     // Save main measurement
     const { data: measurement, error: measurementError } = await adminClient
       .from('roof_measurements')
