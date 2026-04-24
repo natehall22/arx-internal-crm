@@ -388,6 +388,24 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: updateError.message }, { status: 500 })
   }
 
+  if (active !== undefined) {
+    try {
+      if (active === false) {
+        const { error: banErr } = await adminClient.auth.admin.updateUserById(id, {
+          ban_duration: '876000h',
+        })
+        if (banErr) console.error('Disable user: auth ban', banErr)
+      } else {
+        const { error: unbanErr } = await adminClient.auth.admin.updateUserById(id, {
+          ban_duration: 'none',
+        })
+        if (unbanErr) console.error('Enable user: auth unban', unbanErr)
+      }
+    } catch (authSyncErr) {
+      console.error('Auth ban sync for user', id, authSyncErr)
+    }
+  }
+
   return NextResponse.json({ success: true })
 }
 

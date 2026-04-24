@@ -12,11 +12,13 @@ export const metadata: Metadata = {
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams?: { next?: string; error?: string }
+  searchParams?: { next?: string; error?: string; inactive?: string }
 }) {
   const nextParam = searchParams?.next || '/dashboard'
   const nextPath = nextParam.startsWith('/') ? nextParam : '/dashboard'
   const errorMessage = searchParams?.error || ''
+  const inactiveSession =
+    searchParams?.inactive === '1' || searchParams?.inactive === 'true'
 
   return (
     <div className="login-dark min-h-screen bg-slate-950 text-white">
@@ -33,6 +35,12 @@ export default function LoginPage({
           </div>
 
           <form method="POST" action="/api/auth/login" className="space-y-4">
+            {inactiveSession && !errorMessage ? (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+                Your account has been disabled. You cannot access the CRM. Contact your administrator if this is a
+                mistake.
+              </div>
+            ) : null}
             {errorMessage ? (
               <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
                 {errorMessage}

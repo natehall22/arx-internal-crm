@@ -12,11 +12,19 @@ export type AuthContext = {
   profile: User
 }
 
+type AuthResolution =
+  | { status: 'ok'; context: AuthContext }
+  | { status: 'no_session' }
+  | { status: 'invalid_token' }
+  | { status: 'no_profile' }
+  | { status: 'inactive' }
+  | { status: 'config_error' }
+
 function getSessionFromCookies() {
   return getSupabaseSessionFromCookieStore(cookies())
 }
 
-async function getAuthContext(options?: { throwOnError?: boolean }): Promise<AuthContext | null> {
+async function resolveAuth(): Promise<AuthResolution> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -25,8 +33,7 @@ async function getAuthContext(options?: { throwOnError?: boolean }): Promise<Aut
 
   if (!sessionData?.access_token) {
     console.log('requireAuth: No session cookie found')
-    if (options?.throwOnError) throw new Error('No session')
-    return null
+    return { status: 'no_session' }
   }
 
   const supabase = createSupabaseClient(supabaseUrl, supabaseKey, {
@@ -36,18 +43,19 @@ async function getAuthContext(options?: { throwOnError?: boolean }): Promise<Aut
     },
   })
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser(sessionData.access_token)
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser(sessionData.access_token)
 
   if (authError || !user) {
     console.log('requireAuth: Token invalid or expired', authError?.message)
-    if (options?.throwOnError) throw new Error('Token invalid or expired')
-    return null
+    return { status: 'invalid_token' }
   }
 
   if (!serviceRoleKey) {
     console.error('requireAuth: SUPABASE_SERVICE_ROLE_KEY is not set!')
-    if (options?.throwOnError) throw new Error('Server config error')
-    return null
+    return { status: 'config_error' }
   }
 
   const adminClient = createSupabaseClient(supabaseUrl, serviceRoleKey, {
@@ -66,25 +74,42 @@ async function getAuthContext(options?: { throwOnError?: boolean }): Promise<Aut
 
   if (profileError || !profile) {
     console.error('User profile missing for auth user:', user.id, profileError)
-    if (options?.throwOnError) throw new Error('Profile missing')
-    return null
+    return { status: 'no_profile' }
+  }
+
+  const row = profile as User
+  if (row.active === false) {
+    console.log('requireAuth: user disabled in users.active', user.id)
+    return { status: 'inactive' }
   }
 
   return {
-    authUser: { id: user.id, email: user.email ?? null },
-    profile: profile as User,
+    status: 'ok',
+    context: {
+      authUser: { id: user.id, email: user.email ?? null },
+      profile: row,
+    },
   }
+}
+
+/**
+ * Optional auth for layouts — returns null if not signed in or disabled.
+ */
+export async function getAuthContext(): Promise<AuthContext | null> {
+  const r = await resolveAuth()
+  return r.status === 'ok' ? r.context : null
 }
 
 /**
  * Use in Server Components and pages - redirects to login on failure
  */
 export async function requireAuth(): Promise<AuthContext> {
-  const context = await getAuthContext()
-  if (!context) {
-    redirect('/login')
+  const r = await resolveAuth()
+  if (r.status === 'ok') return r.context
+  if (r.status === 'inactive') {
+    redirect('/login?inactive=1')
   }
-  return context
+  redirect('/login')
 }
 
 /**
@@ -92,9 +117,10 @@ export async function requireAuth(): Promise<AuthContext> {
  * Catch the error and return appropriate JSON response
  */
 export async function requireAuthApi(): Promise<AuthContext> {
-  const context = await getAuthContext({ throwOnError: true })
-  if (!context) {
-    throw new Error('Unauthorized')
+  const r = await resolveAuth()
+  if (r.status === 'ok') return r.context
+  if (r.status === 'inactive') {
+    throw new Error('Account disabled')
   }
-  return context
+  throw new Error('Unauthorized')
 }

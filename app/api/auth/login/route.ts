@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -51,6 +52,27 @@ export async function POST(req: NextRequest) {
     errorUrl.searchParams.set('error', error?.message || 'Authentication failed')
     errorUrl.searchParams.set('next', nextPath)
     return NextResponse.redirect(errorUrl, { status: 303 })
+  }
+
+  try {
+    const admin = createServiceClient()
+    const { data: profileRow } = await admin
+      .from('users')
+      .select('active')
+      .eq('id', data.session.user.id)
+      .maybeSingle()
+    if (profileRow && profileRow.active === false) {
+      const errorUrl = new URL(req.url)
+      errorUrl.pathname = '/login'
+      errorUrl.searchParams.set(
+        'error',
+        'This account has been disabled. Contact your administrator.'
+      )
+      errorUrl.searchParams.set('next', nextPath)
+      return NextResponse.redirect(errorUrl, { status: 303 })
+    }
+  } catch (e) {
+    console.error('LOGIN active check:', e)
   }
 
   // Build redirect URL
