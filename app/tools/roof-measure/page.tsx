@@ -845,6 +845,19 @@ export default function RoofMeasurePage() {
       const lng = center.lng()
       const normalizedZoom = Math.round(zoom)
 
+      const bounds = map.getBounds()
+      const mapDiv = map.getDiv?.() as HTMLElement | undefined
+      const mapWidthPx = mapDiv?.clientWidth || 640
+      const mapHeightPx = mapDiv?.clientHeight || 640
+      const mapBounds = bounds
+        ? {
+            north: bounds.getNorthEast().lat(),
+            east: bounds.getNorthEast().lng(),
+            south: bounds.getSouthWest().lat(),
+            west: bounds.getSouthWest().lng(),
+          }
+        : undefined
+
       const response = await fetch('/api/ai/detect-roof', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -853,6 +866,9 @@ export default function RoofMeasurePage() {
           lng,
           zoom: normalizedZoom,
           opportunityId: opportunityId || '',
+          mapBounds,
+          mapWidthPx,
+          mapHeightPx,
         }),
       })
 

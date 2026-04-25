@@ -85,6 +85,29 @@ function pixelToLatLng(
   return worldPixelToLatLng(worldX, worldY, zoom)
 }
 
+type MapBounds = { north: number; south: number; east: number; west: number }
+
+function expandBounds(b: MapBounds, padFraction: number): MapBounds {
+  const latPad = (b.north - b.south) * padFraction
+  const lngPad = (b.east - b.west) * padFraction
+  return {
+    north: Math.min(90, b.north + latPad),
+    south: Math.max(-90, b.south - latPad),
+    east: b.east + lngPad,
+    west: b.west - lngPad,
+  }
+}
+
+function centroidInExpandedBounds(
+  lat: number,
+  lng: number,
+  b: MapBounds,
+  padFraction: number
+): boolean {
+  const e = expandBounds(b, padFraction)
+  return lat <= e.north && lat >= e.south && lng <= e.east && lng >= e.west
+}
+
 function safeJsonParse<T>(value: string): T | null {
   try {
     return JSON.parse(value) as T
@@ -109,17 +132,25 @@ function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng:
   return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff)
 }
 
-async function fetchStaticMapBase64(lat: number, lng: number, zoom: number): Promise<string> {
+async function fetchStaticMapBase64(
+  lat: number,
+  lng: number,
+  zoom: number,
+  sizeW = 640,
+  sizeH = 640
+): Promise<string> {
   const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
   if (!mapsKey) {
     throw new Error('Google Maps API key missing on server')
   }
 
   const normalizedZoom = Math.round(zoom)
+  const w = Math.max(100, Math.min(640, Math.round(sizeW)))
+  const h = Math.max(100, Math.min(640, Math.round(sizeH)))
 
   const url =
     `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}` +
-    `&zoom=${normalizedZoom}&size=640x640&scale=2&maptype=satellite&key=${mapsKey}`
+    `&zoom=${normalizedZoom}&size=${w}x${h}&scale=2&maptype=satellite&key=${mapsKey}`
 
   const response = await fetch(url)
   if (!response.ok) {
@@ -227,7 +258,11 @@ Solar segments:
 ${JSON.stringify(simplified)}`
 }
 
-async function callDetectionModel(imageBase64: string, solarSegments: SolarRoofSegment[]): Promise<RawDetection> {
+async function callDetectionModel(
+  imageBase64: string,
+  solarSegments: SolarRoofSegment[],
+  imagePixelDesc: string
+): Promise<RawDetection> {
   const systemPrompt = `You are a roofing measurement AI.
 Analyze a satellite image and identify:
 - roof facets (polygons)
@@ -253,10 +288,11 @@ Return ONLY JSON:
 }
 
 Rules:
-- The image is exactly 1280×1280 pixels (high-DPI satellite). All x and y must be in 0–1279 with (0,0) at the top-left.
+- The image is high-DPI satellite (logical size given in the user message). x is 0..width-1, y is 0..height-1, (0,0) top-left.
+- Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, squares on lawns, or “default” shapes in empty areas.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
-- Include low confidence items (<0.65) when you still see a plausible roof edge.`
+- Include low confidence items (<0.65) only when you still see a plausible roof edge.`
 
   const dataUrl = toDataUrl(imageBase64)
   const openai = getOpenAI()
@@ -274,8 +310,8 @@ Rules:
             {
               type: 'text',
               text: retry
-                ? `Return strictly valid JSON only.\n\n${buildSolarPrompt(solarSegments)}`
-                : `Analyze this roof image.\n\n${buildSolarPrompt(solarSegments)}`,
+                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}.\n\n${buildSolarPrompt(solarSegments)}`
+                : `Analyze this roof satellite image. Image pixel dimensions: ${imagePixelDesc}.\n\n${buildSolarPrompt(solarSegments)}`,
             },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
@@ -306,12 +342,15 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}))
-    const { imageBase64, lat, lng, zoom, opportunityId } = body as {
+    const { imageBase64, lat, lng, zoom, opportunityId, mapBounds, mapWidthPx, mapHeightPx } = body as {
       imageBase64?: string
       lat?: number
       lng?: number
       zoom?: number
       opportunityId?: string
+      mapBounds?: { north: number; south: number; east: number; west: number }
+      mapWidthPx?: number
+      mapHeightPx?: number
     }
 
     if (typeof lat !== 'number' || typeof lng !== 'number' || typeof zoom !== 'number') {
@@ -325,21 +364,37 @@ export async function POST(request: Request) {
 
     const requestedCenter = { lat, lng }
     const solarContext = await fetchGoogleSolarContext(lat, lng)
-    // Always use the client map center for the static image so polygons align with what the rep sees.
-    // (Biasing toward Solar's building center was shifting crops and placing geometry on the wrong ground.)
     const captureCenter = requestedCenter
-    const detectionZoom = Math.min(21, normalizedZoom + 1)
+    const detectionZoom = Math.min(22, Math.max(0, normalizedZoom))
+
+    const validBounds =
+      mapBounds &&
+      typeof mapBounds.north === 'number' &&
+      typeof mapBounds.south === 'number' &&
+      typeof mapBounds.east === 'number' &&
+      typeof mapBounds.west === 'number' &&
+      mapBounds.north > mapBounds.south
+        ? (mapBounds as MapBounds)
+        : null
+
+    const mw = typeof mapWidthPx === 'number' && mapWidthPx > 0 ? mapWidthPx : 640
+    const mh = typeof mapHeightPx === 'number' && mapHeightPx > 0 ? mapHeightPx : 640
+    const mMax = Math.max(mw, mh)
+    let sizeW = Math.round((640 * mw) / mMax)
+    let sizeH = Math.round((640 * mh) / mMax)
+    sizeW = Math.max(100, Math.min(640, sizeW))
+    sizeH = Math.max(100, Math.min(640, sizeH))
 
     const resolvedImageBase64 =
       typeof imageBase64 === 'string' && imageBase64.trim().length > 0
         ? imageBase64
-        : await fetchStaticMapBase64(captureCenter.lat, captureCenter.lng, detectionZoom)
+        : await fetchStaticMapBase64(captureCenter.lat, captureCenter.lng, detectionZoom, sizeW, sizeH)
 
     const solarSegments = solarContext.segments
-    const raw = await callDetectionModel(resolvedImageBase64, solarSegments)
-
-    const imageWidth = 1280
-    const imageHeight = 1280
+    const imageWidth = sizeW * 2
+    const imageHeight = sizeH * 2
+    const imagePixelDesc = `${imageWidth}×${imageHeight} (x: 0–${imageWidth - 1}, y: 0–${imageHeight - 1})`
+    const raw = await callDetectionModel(resolvedImageBase64, solarSegments, imagePixelDesc)
 
     const facets = (raw.facets || []).map((facet, idx) => {
       const vertices = Array.isArray(facet.vertices) ? facet.vertices : []
@@ -389,6 +444,16 @@ export async function POST(request: Request) {
       }
     })
 
+    const facetsFiltered = validBounds
+      ? facets.filter((facet) => {
+          const vs = facet.lat_lng_vertices
+          if (!vs || vs.length === 0) return false
+          const cLat = vs.reduce((s, p) => s + p.lat, 0) / vs.length
+          const cLng = vs.reduce((s, p) => s + p.lng, 0) / vs.length
+          return centroidInExpandedBounds(cLat, cLng, validBounds, 0.12)
+        })
+      : facets
+
     const normalizeLineGroup = (lines: RawLine[] | undefined, prefix: string) =>
       (lines || []).map((line, idx) => {
         const points = Array.isArray(line.points) ? line.points : []
@@ -411,18 +476,34 @@ export async function POST(request: Request) {
         }
       })
 
+    const lineInBounds = (latLngs: { lat: number; lng: number }[]) => {
+      if (!validBounds || latLngs.length === 0) return true
+      const cLat = latLngs.reduce((s, p) => s + p.lat, 0) / latLngs.length
+      const cLng = latLngs.reduce((s, p) => s + p.lng, 0) / latLngs.length
+      return centroidInExpandedBounds(cLat, cLng, validBounds, 0.12)
+    }
+
+    const filterLines = (lines: ReturnType<typeof normalizeLineGroup>) =>
+      validBounds ? lines.filter((line) => lineInBounds(line.lat_lng_points)) : lines
+
+    const ridges = filterLines(normalizeLineGroup(raw.ridges, 'ridge'))
+    const valleys = filterLines(normalizeLineGroup(raw.valleys, 'valley'))
+    const stepFlashing = filterLines(normalizeLineGroup(raw.step_flashing, 'step_flash'))
+    const wallFlashing = filterLines(normalizeLineGroup(raw.wall_flashing, 'wall_flash'))
+
     return NextResponse.json({
-      facets,
-      ridges: normalizeLineGroup(raw.ridges, 'ridge'),
-      valleys: normalizeLineGroup(raw.valleys, 'valley'),
-      step_flashing: normalizeLineGroup(raw.step_flashing, 'step_flash'),
-      wall_flashing: normalizeLineGroup(raw.wall_flashing, 'wall_flash'),
+      facets: facetsFiltered,
+      ridges,
+      valleys,
+      step_flashing: stepFlashing,
+      wall_flashing: wallFlashing,
       notes: raw.notes || '',
       solar_segments: solarSegments,
       requested_center: requestedCenter,
       capture_center: captureCenter,
       capture_center_source: 'requested_center',
       detection_zoom: detectionZoom,
+      static_map_size: { width: imageWidth, height: imageHeight, logical: `${sizeW}x${sizeH}` },
     })
   } catch (error) {
     console.error('AI roof detect error:', error)
