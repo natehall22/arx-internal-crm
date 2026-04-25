@@ -174,6 +174,181 @@ function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: 
   return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
 }
 
+function distanceFeet(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  return distanceMeters(a, b) * 3.28084
+}
+
+/** Planar m² at mean latitude → sq ft (adequate for small roof polygons). */
+function planarPolygonAreaSqFt(vertices: { lat: number; lng: number }[]): number {
+  if (vertices.length < 3) return 0
+  const lat0 = vertices.reduce((s, p) => s + p.lat, 0) / vertices.length
+  const mPerDegLat = 111320
+  const mPerDegLng = 111320 * Math.cos((lat0 * Math.PI) / 180)
+  let sum = 0
+  const n = vertices.length
+  for (let i = 0; i < n; i++) {
+    const a = vertices[i]
+    const b = vertices[(i + 1) % n]
+    const x1 = a.lng * mPerDegLng
+    const y1 = a.lat * mPerDegLat
+    const x2 = b.lng * mPerDegLng
+    const y2 = b.lat * mPerDegLat
+    sum += x1 * y2 - x2 * y1
+  }
+  return Math.abs(sum / 2) * 10.7639
+}
+
+function polygonCentroid(vertices: { lat: number; lng: number }[]): { lat: number; lng: number } {
+  const n = vertices.length
+  return {
+    lat: vertices.reduce((s, p) => s + p.lat, 0) / n,
+    lng: vertices.reduce((s, p) => s + p.lng, 0) / n,
+  }
+}
+
+function pointInPolygonLngLat(pt: { lat: number; lng: number }, ring: { lat: number; lng: number }[]): boolean {
+  if (ring.length < 3) return false
+  const py = pt.lat
+  const px = pt.lng
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i].lng
+    const yi = ring[i].lat
+    const xj = ring[j].lng
+    const yj = ring[j].lat
+    const denom = yj - yi
+    if (Math.abs(denom) < 1e-14) continue
+    if ((yi > py) !== (yj > py)) {
+      const xInt = ((xj - xi) * (py - yi)) / denom + xi
+      if (px < xInt) inside = !inside
+    }
+  }
+  return inside
+}
+
+function mapBoundsMaxFootprintSqFt(bounds: MapBounds): number {
+  const midLat = (bounds.north + bounds.south) / 2
+  const wM = distanceMeters({ lat: midLat, lng: bounds.west }, { lat: midLat, lng: bounds.east })
+  const hM = distanceMeters({ lat: bounds.south, lng: midLat }, { lat: bounds.north, lng: midLat })
+  return Math.abs(wM * hM * 10.7639)
+}
+
+type FacetResponsePayload = {
+  id: string
+  vertices: PixelPoint[]
+  lat_lng_vertices: { lat: number; lng: number }[]
+  confidence: number
+  estimated_sq_ft: number | null
+  solar_segment_index: number | null
+  suggested_pitch_degrees: number | null
+  suggested_azimuth_degrees: number | null
+  suggested_ground_area_sqft: number | null
+  facet_source?: string
+}
+
+const MIN_FACET_SQFT = 35
+const MAX_FACET_SQFT = 4000
+/** Drop facets whose centroid falls inside a higher-confidence facet, or duplicates within ~14 ft with similar area. */
+const DUPLICATE_CENTROID_FT = 14
+const DUPLICATE_AREA_RATIO = 0.38
+/** Sum of facet footprint areas should not exceed ~1.32× visible map footprint (guards stacked overlaps). */
+const SUM_AREA_VS_VIEWPORT_FACTOR = 1.32
+/**
+ * When Solar reports per-segment ground area, summed footprint is a strong anchor for typical homes (~20–30 squares).
+ * Allow modest vision overshoot but block 3–5× inflation from overlapping facets.
+ */
+const SUM_AREA_VS_SOLAR_GROUND_FACTOR = 1.32
+
+/** Sum of segment ground_area_m² → sq ft (roof footprint; comparable to flat facet totals before pitch). */
+function solarGroundFootprintTotalSqFt(segments: SolarRoofSegment[]): number | null {
+  let sumM2 = 0
+  let n = 0
+  for (const s of segments) {
+    if (typeof s.ground_area_m2 === 'number' && s.ground_area_m2 > 0) {
+      sumM2 += s.ground_area_m2
+      n++
+    }
+  }
+  if (n === 0) return null
+  return sumM2 * 10.7639
+}
+
+function dedupeAndCapFacetFootprints(
+  facets: FacetResponsePayload[],
+  validBounds: MapBounds | null,
+  solarGroundFootprintSqFt: number | null
+): { facets: FacetResponsePayload[]; dropped_note: string | null } {
+  const withArea = facets
+    .map((f) => ({
+      facet: f,
+      area: planarPolygonAreaSqFt(f.lat_lng_vertices),
+      centroid: polygonCentroid(f.lat_lng_vertices),
+    }))
+    .filter((x) => x.facet.lat_lng_vertices.length >= 3 && x.area >= MIN_FACET_SQFT && x.area <= MAX_FACET_SQFT)
+
+  const sorted = [...withArea].sort((a, b) => (b.facet.confidence || 0) - (a.facet.confidence || 0))
+  const kept: typeof withArea = []
+
+  for (const item of sorted) {
+    const { facet, area, centroid } = item
+    const insideLarger = kept.some((k) => pointInPolygonLngLat(centroid, k.facet.lat_lng_vertices))
+    if (insideLarger) continue
+
+    const nearDuplicate = kept.some((k) => {
+      const d = distanceFeet(centroid, k.centroid)
+      if (d > DUPLICATE_CENTROID_FT) return false
+      const ratio = Math.min(area, k.area) / Math.max(area, k.area)
+      return ratio >= DUPLICATE_AREA_RATIO
+    })
+    if (nearDuplicate) continue
+
+    kept.push(item)
+  }
+
+  let result = kept.map((k) => k.facet)
+
+  let footprintCap: number | null = null
+  if (validBounds) {
+    const viewportCap = mapBoundsMaxFootprintSqFt(validBounds) * SUM_AREA_VS_VIEWPORT_FACTOR
+    if (viewportCap > 500) footprintCap = viewportCap
+  }
+  if (
+    solarGroundFootprintSqFt != null &&
+    solarGroundFootprintSqFt >= 350 &&
+    Number.isFinite(solarGroundFootprintSqFt)
+  ) {
+    const solarCap = solarGroundFootprintSqFt * SUM_AREA_VS_SOLAR_GROUND_FACTOR
+    footprintCap = footprintCap == null ? solarCap : Math.min(footprintCap, solarCap)
+  }
+
+  if (footprintCap != null && footprintCap > 400 && result.length > 0) {
+    let sum = result.reduce((s, f) => s + planarPolygonAreaSqFt(f.lat_lng_vertices), 0)
+    if (sum > footprintCap) {
+      const again = [...kept].sort((a, b) => (b.facet.confidence || 0) - (a.facet.confidence || 0))
+      const trimmed: FacetResponsePayload[] = []
+      sum = 0
+      for (const item of again) {
+        const a = planarPolygonAreaSqFt(item.facet.lat_lng_vertices)
+        if (sum + a <= footprintCap) {
+          trimmed.push(item.facet)
+          sum += a
+        }
+      }
+      if (trimmed.length < result.length) {
+        result = trimmed
+      }
+    }
+  }
+
+  const dropped = facets.length - result.length
+  const dropped_note =
+    dropped > 0
+      ? `${dropped} overlapping or out-of-range facet(s) removed so totals are not inflated. Review remaining planes and draw any missing faces manually.`
+      : null
+
+  return { facets: result, dropped_note }
+}
+
 async function fetchStaticMapBase64(
   lat: number,
   lng: number,
@@ -387,6 +562,7 @@ FACET GEOMETRY (critical):
 - Do NOT output axis-aligned rectangles, squares, or the pixel_region border as the polygon. The region is only a search hint.
 - Rotate and shear polygons to match the roof in the photo; do not force edges parallel to the image frame unless the roof truly appears that way.
 - Where two planes meet, align shared boundaries; avoid large overlaps between facets. Do not cover trees, driveways, or lawn with roof facets.
+- Do not emit one rectangle per Solar hint if those regions describe the same roof — merge into non-overlapping planes only.
 
 Plane hints:
 ${JSON.stringify(hints)}`
@@ -440,7 +616,9 @@ Rules:
 - Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, axis-aligned boxes on lawns, or “default” shapes in empty areas.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
-- Include low confidence items (<0.65) only when you still see a plausible roof edge.`
+- Include low confidence items (<0.65) only when you still see a plausible roof edge.
+- NON-OVERLAP: Each facet is one physical roof plane. Do not stack multiple polygons on the same face. Prefer 3–8 facets on a typical home; merge adjacent coplanar areas instead of duplicating.
+- Avoid 9+ separate facets unless you clearly see distinct structures (e.g. main house + detached garage).`
 
   const dataUrl = toDataUrl(imageBase64)
   const openai = getOpenAI()
@@ -612,7 +790,7 @@ export async function POST(request: Request) {
 
     const imageCenterX = imageWidth / 2
     const imageCenterY = imageHeight / 2
-    const centerRadiusPx = Math.min(imageWidth, imageHeight) * 0.32
+    const centerRadiusPx = Math.min(imageWidth, imageHeight) * 0.42
     const isNearImageCenter = (points: PixelPoint[]) => {
       if (!points.length) return false
       const centroid = points.reduce(
@@ -731,7 +909,7 @@ export async function POST(request: Request) {
       solarFacetPrompt
     )
 
-    const facets = (raw.facets || [])
+    const facetsMapped: FacetResponsePayload[] = (raw.facets || [])
       .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
       .map((facet, idx) => {
         const vertices = Array.isArray(facet.vertices) ? facet.vertices : []
@@ -788,15 +966,24 @@ export async function POST(request: Request) {
         }
       })
 
+    const solarGroundFootprintSqFt = solarGroundFootprintTotalSqFt(solarSegments)
+    const { facets: facetsDeduped, dropped_note } = dedupeAndCapFacetFootprints(
+      facetsMapped,
+      validBounds,
+      solarGroundFootprintSqFt
+    )
+
     const facetsFiltered = validBounds
-      ? facets.filter((facet) => {
+      ? facetsDeduped.filter((facet) => {
           const vs = facet.lat_lng_vertices
           if (!vs || vs.length === 0) return false
           const cLat = vs.reduce((s, p) => s + p.lat, 0) / vs.length
           const cLng = vs.reduce((s, p) => s + p.lng, 0) / vs.length
           return centroidInExpandedBounds(cLat, cLng, validBounds, 0.12)
         })
-      : facets
+      : facetsDeduped
+
+    const combinedNotes = [raw.notes || '', dropped_note || ''].filter(Boolean).join(' ')
 
     const normalizeLineGroup = (lines: RawLine[] | undefined, prefix: string) =>
       (lines || [])
@@ -836,8 +1023,9 @@ export async function POST(request: Request) {
       valleys,
       step_flashing: stepFlashing,
       wall_flashing: wallFlashing,
-      notes: raw.notes || '',
+      notes: combinedNotes.trim(),
       solar_segments: solarSegments,
+      solar_ground_footprint_sqft: solarGroundFootprintSqFt,
       requested_center: requestedCenter,
       capture_center: localizedCenter,
       capture_center_source: alignWithClientMap
