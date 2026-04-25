@@ -39,6 +39,11 @@ type SolarRoofSegment = {
   } | null
 }
 
+type SolarContext = {
+  anchor: { lat: number; lng: number } | null
+  segments: SolarRoofSegment[]
+}
+
 function getOpenAI() {
   return new OpenAI({
     apiKey: process.env.OPENAI_API_KEY || '',
@@ -104,6 +109,21 @@ function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng:
   return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff)
 }
 
+function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const toRadians = (value: number) => (value * Math.PI) / 180
+  const earthRadiusMeters = 6371000
+  const dLat = toRadians(b.lat - a.lat)
+  const dLng = toRadians(b.lng - a.lng)
+  const lat1 = toRadians(a.lat)
+  const lat2 = toRadians(b.lat)
+
+  const haversine =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+}
+
 async function fetchStaticMapBase64(lat: number, lng: number, zoom: number): Promise<string> {
   const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
   if (!mapsKey) {
@@ -114,7 +134,7 @@ async function fetchStaticMapBase64(lat: number, lng: number, zoom: number): Pro
 
   const url =
     `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}` +
-    `&zoom=${normalizedZoom}&size=640x640&maptype=satellite&key=${mapsKey}`
+    `&zoom=${normalizedZoom}&size=640x640&scale=2&maptype=satellite&key=${mapsKey}`
 
   const response = await fetch(url)
   if (!response.ok) {
@@ -132,9 +152,25 @@ async function fetchStaticMapBase64(lat: number, lng: number, zoom: number): Pro
   return buffer.toString('base64')
 }
 
-async function fetchGoogleSolarSegments(lat: number, lng: number): Promise<SolarRoofSegment[]> {
+function getSolarAnchor(segments: SolarRoofSegment[]): { lat: number; lng: number } | null {
+  const centers = segments
+    .map((segment) => segment.center)
+    .filter((center): center is { lat: number; lng: number } => Boolean(center))
+
+  if (centers.length === 0) return null
+
+  return centers.reduce(
+    (acc, center) => ({
+      lat: acc.lat + center.lat / centers.length,
+      lng: acc.lng + center.lng / centers.length,
+    }),
+    { lat: 0, lng: 0 }
+  )
+}
+
+async function fetchGoogleSolarContext(lat: number, lng: number): Promise<SolarContext> {
   const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-  if (!mapsKey) return []
+  if (!mapsKey) return { anchor: null, segments: [] }
 
   const url =
     `https://solar.googleapis.com/v1/buildingInsights:findClosest` +
@@ -148,7 +184,7 @@ async function fetchGoogleSolarSegments(lat: number, lng: number): Promise<Solar
       response.status,
       detail?.slice(0, 200) || ''
     )
-    return []
+    return { anchor: null, segments: [] }
   }
 
   const data = await response.json().catch(() => null)
@@ -156,7 +192,7 @@ async function fetchGoogleSolarSegments(lat: number, lng: number): Promise<Solar
     ? data.solarPotential.roofSegmentStats
     : []
 
-  return roofSegments.map((segment: any, index: number) => ({
+  const segments = roofSegments.map((segment: any, index: number) => ({
     segment_index: index,
     pitch_degrees: typeof segment.pitchDegrees === 'number' ? segment.pitchDegrees : null,
     azimuth_degrees: typeof segment.azimuthDegrees === 'number' ? segment.azimuthDegrees : null,
@@ -174,10 +210,17 @@ async function fetchGoogleSolarSegments(lat: number, lng: number): Promise<Solar
           }
         : null,
   }))
+
+  return {
+    anchor: getSolarAnchor(segments),
+    segments,
+  }
 }
 
 function buildSolarPrompt(segments: SolarRoofSegment[]): string {
-  if (segments.length === 0) return 'No Google Solar roof-segment data available.'
+  if (segments.length === 0) {
+    return 'No Google Solar roof-segment data available. Infer polygons only from the visible roof edges in the image.'
+  }
 
   const simplified = segments.slice(0, 20).map((segment) => ({
     segment_index: segment.segment_index,
@@ -189,11 +232,11 @@ function buildSolarPrompt(segments: SolarRoofSegment[]): string {
     bounding_box: segment.bounding_box,
   }))
 
-  return `Google Solar roof segment metadata is available. Use it as a geometry prior and consistency check, but still infer polygon edges from imagery.
-Prioritize:
-- similar segment count when imagery supports it
-- pitch/orientation consistency with Solar segments
-- roof planes that align with Solar segment centers/bounds
+  return `Google Solar roof segment metadata is available.
+Use Solar only as a secondary hint for pitch/orientation and rough segment count.
+Do NOT place polygons from Solar centers or bounding boxes alone.
+Polygon coordinates must follow the visible roof edges in the satellite image first.
+If Solar and imagery disagree, trust the visible roof edges.
 Solar segments:
 ${JSON.stringify(simplified)}`
 }
@@ -293,21 +336,38 @@ export async function POST(request: Request) {
 
     const normalizedZoom = Math.round(zoom)
 
+    const requestedCenter = { lat, lng }
+    const solarContext = await fetchGoogleSolarContext(lat, lng)
+    const solarAnchorDistance =
+      solarContext.anchor ? distanceMeters(requestedCenter, solarContext.anchor) : null
+    const captureCenter =
+      solarContext.anchor && solarAnchorDistance !== null && solarAnchorDistance <= 15
+        ? solarContext.anchor
+        : requestedCenter
+
     const resolvedImageBase64 =
       typeof imageBase64 === 'string' && imageBase64.trim().length > 0
         ? imageBase64
-        : await fetchStaticMapBase64(lat, lng, normalizedZoom)
+        : await fetchStaticMapBase64(captureCenter.lat, captureCenter.lng, normalizedZoom)
 
-    const solarSegments = await fetchGoogleSolarSegments(lat, lng)
+    const solarSegments = solarContext.segments
     const raw = await callDetectionModel(resolvedImageBase64, solarSegments)
 
-    const imageWidth = 640
-    const imageHeight = 640
+    const imageWidth = 1280
+    const imageHeight = 1280
 
     const facets = (raw.facets || []).map((facet, idx) => {
       const vertices = Array.isArray(facet.vertices) ? facet.vertices : []
       const latLngVertices = vertices.map(([x, y]) =>
-        pixelToLatLng(Number(x), Number(y), lat, lng, normalizedZoom, imageWidth, imageHeight)
+        pixelToLatLng(
+          Number(x),
+          Number(y),
+          captureCenter.lat,
+          captureCenter.lng,
+          normalizedZoom,
+          imageWidth,
+          imageHeight
+        )
       )
       const center =
         latLngVertices.length > 0
@@ -348,7 +408,15 @@ export async function POST(request: Request) {
       (lines || []).map((line, idx) => {
         const points = Array.isArray(line.points) ? line.points : []
         const latLngPoints = points.map(([x, y]) =>
-          pixelToLatLng(Number(x), Number(y), lat, lng, normalizedZoom, imageWidth, imageHeight)
+          pixelToLatLng(
+            Number(x),
+            Number(y),
+            captureCenter.lat,
+            captureCenter.lng,
+            normalizedZoom,
+            imageWidth,
+            imageHeight
+          )
         )
         return {
           id: line.id || `${prefix}_${idx + 1}`,
@@ -366,6 +434,9 @@ export async function POST(request: Request) {
       wall_flashing: normalizeLineGroup(raw.wall_flashing, 'wall_flash'),
       notes: raw.notes || '',
       solar_segments: solarSegments,
+      requested_center: requestedCenter,
+      capture_center: captureCenter,
+      capture_center_source: captureCenter === requestedCenter ? 'requested_center' : 'solar_anchor',
     })
   } catch (error) {
     console.error('AI roof detect error:', error)
