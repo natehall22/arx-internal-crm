@@ -277,6 +277,8 @@ export default function RoofMeasurePage() {
   const facetsRef = useRef<RoofFacet[]>([])
   const linearFeaturesRef = useRef<LinearFeature[]>([])
   const polylinesRef = useRef<Map<string, any>>(new Map())
+  /** Summed Solar `ground_area` (sq ft). Overlapping segment quads sum above this — we scale totals to match. */
+  const solarGroundFootprintReferenceRef = useRef<number | null>(null)
 
   useEffect(() => {
     facetsRef.current = facets
@@ -881,6 +883,14 @@ export default function RoofMeasurePage() {
       }
 
       const data = await response.json()
+
+      if (
+        typeof data.solar_ground_footprint_sqft === 'number' &&
+        Number.isFinite(data.solar_ground_footprint_sqft) &&
+        data.solar_ground_footprint_sqft > 0
+      ) {
+        solarGroundFootprintReferenceRef.current = data.solar_ground_footprint_sqft
+      }
 
       const draftFacets: AIDraftSection[] = (data.facets || []).map((facet: any, idx: number) => ({
         suggested_pitch: getClosestPitchOption(facet.suggested_pitch_degrees)?.value || null,
@@ -1596,24 +1606,41 @@ export default function RoofMeasurePage() {
     const features = currentLinearFeatures ?? linearFeatures
     
     if (currentFacets.length === 0 && features.length === 0) {
+      solarGroundFootprintReferenceRef.current = null
       setMeasurements(null)
       return
     }
     
     const validationNotes: string[] = []
     const unsetPitchFacets = currentFacets.filter((facet) => !facet.pitch || facet.pitch === 'Unset')
-    
-    // Calculate area totals
-    // Fall back to area_sqft / pitch_multiplier if flat_area_sqft not set (legacy data)
-    const flatArea = currentFacets.reduce((sum, f) => {
-      if (f.flat_area_sqft && f.flat_area_sqft > 0) {
-        return sum + f.flat_area_sqft
-      }
-      // Estimate flat area from actual area if not set
+
+    const facetFlatSqft = (f: RoofFacet) => {
+      if (f.flat_area_sqft && f.flat_area_sqft > 0) return f.flat_area_sqft
       const multiplier = f.pitch_multiplier || 1.118
-      return sum + (f.area_sqft / multiplier)
+      return (f.area_sqft || 0) / multiplier
+    }
+
+    const flatAreaRaw = currentFacets.reduce((sum, f) => sum + facetFlatSqft(f), 0)
+    const solarRef = solarGroundFootprintReferenceRef.current
+    const SOLAR_OVERLAP_THRESHOLD = 1.08
+    let flatScale = 1
+    if (
+      solarRef != null &&
+      solarRef >= 350 &&
+      flatAreaRaw > solarRef * SOLAR_OVERLAP_THRESHOLD
+    ) {
+      flatScale = solarRef / flatAreaRaw
+      validationNotes.push(
+        `Overlapping planes were inflating area; totals scaled to Google Solar footprint (~${Math.round(solarRef).toLocaleString()} sq ft). Drag vertices to reduce overlap if sections should be larger.`
+      )
+    }
+
+    const flatArea = flatAreaRaw * flatScale
+    const totalArea = currentFacets.reduce((sum, f) => {
+      const scaledFlat = facetFlatSqft(f) * flatScale
+      const mult = f.pitch_multiplier || 1
+      return sum + Math.round(scaledFlat * mult)
     }, 0)
-    const totalArea = currentFacets.reduce((sum, f) => sum + (f.area_sqft || 0), 0)
     const facetCount = currentFacets.length
     
     // Calculate total perimeter from stored facet perimeters, or estimate from area
@@ -1622,8 +1649,8 @@ export default function RoofMeasurePage() {
     // If no perimeter data, estimate from area (perimeter ≈ 4 * √area for square-ish shapes)
     if (totalPerimeter === 0 && flatArea > 0) {
       totalPerimeter = currentFacets.reduce((sum, f) => {
-        const facetFlatArea = f.flat_area_sqft || (f.area_sqft / (f.pitch_multiplier || 1.118))
-        return sum + (4 * Math.sqrt(facetFlatArea))
+        const facetFlatArea = Math.max(1, facetFlatSqft(f) * flatScale)
+        return sum + 4 * Math.sqrt(facetFlatArea)
       }, 0)
     }
     
@@ -1787,7 +1814,7 @@ export default function RoofMeasurePage() {
     const predominantPitch = Object.entries(pitchCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unset'
     
     // Calculate waste factor based on complexity (industry standards)
-    const { wastePercent, category } = calculateWasteFactorDetailed(currentFacets, valleys, hips)
+    const { wastePercent, category } = calculateWasteFactorDetailed(currentFacets, valleys, hips, totalArea)
     
     // ============================================================
     // VALIDATION AND CONFIDENCE
@@ -1917,16 +1944,20 @@ export default function RoofMeasurePage() {
   // Detailed waste factor calculation based on industry standards
   // EagleView and GAF QuickMeasure use similar methodology
   const calculateWasteFactorDetailed = (
-    currentFacets: RoofFacet[], 
-    valleyLength: number, 
-    hipLength: number
+    currentFacets: RoofFacet[],
+    valleyLength: number,
+    hipLength: number,
+    effectiveTotalSqft?: number
   ): { wastePercent: number; category: string } => {
     if (currentFacets.length === 0) {
       return { wastePercent: 10, category: 'simple' }
     }
     
     const facetCount = currentFacets.length
-    const totalArea = currentFacets.reduce((sum, f) => sum + f.area_sqft, 0)
+    const totalArea =
+      typeof effectiveTotalSqft === 'number' && effectiveTotalSqft > 0
+        ? effectiveTotalSqft
+        : currentFacets.reduce((sum, f) => sum + f.area_sqft, 0)
     
     // Base waste by complexity category
     let baseWaste: number
