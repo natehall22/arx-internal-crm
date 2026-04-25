@@ -597,17 +597,7 @@ export default function RoofMeasurePage() {
           setMapCenter({ lat, lng })
 
           if (googleMapRef.current) {
-            const map = googleMapRef.current
-            if (place.geometry.viewport) {
-              map.fitBounds(place.geometry.viewport, { top: 56, right: 56, bottom: 56, left: 56 })
-              google.maps.event.addListenerOnce(map, 'idle', () => {
-                const c = map.getCenter()
-                if (c) setMapCenter({ lat: c.lat(), lng: c.lng() })
-              })
-            } else {
-              map.setCenter({ lat, lng })
-              map.setZoom(20)
-            }
+            focusMapOnProperty(googleMapRef.current, lat, lng)
           }
 
           console.log('Place selected:', place.formatted_address, 'at', lat, lng)
@@ -654,17 +644,7 @@ export default function RoofMeasurePage() {
         setSearchedAddress(results[0].formatted_address)
 
         if (googleMapRef.current) {
-          const map = googleMapRef.current
-          if (geometry.viewport) {
-            map.fitBounds(geometry.viewport, { top: 56, right: 56, bottom: 56, left: 56 })
-            google.maps.event.addListenerOnce(map, 'idle', () => {
-              const c = map.getCenter()
-              if (c) setMapCenter({ lat: c.lat(), lng: c.lng() })
-            })
-          } else {
-            map.setCenter({ lat, lng })
-            map.setZoom(20)
-          }
+          focusMapOnProperty(googleMapRef.current, lat, lng)
         }
       } else if (status === google.maps.GeocoderStatus.ZERO_RESULTS) {
         alert('Address not found. Please try a more specific address.')
@@ -687,6 +667,25 @@ export default function RoofMeasurePage() {
     aiDraftPolygonsRef.current.clear()
     aiDraftBoundaryRef.current.clear()
     aiDraftLinesRef.current.clear()
+  }
+
+  const focusMapOnProperty = (map: any, lat: number, lng: number) => {
+    map.setCenter({ lat, lng })
+    map.setZoom(Math.max(20, Math.round(map.getZoom?.() ?? 20)))
+
+    google.maps.event.addListenerOnce(map, 'idle', () => {
+      const center = map.getCenter()
+      const zoom = map.getZoom()
+
+      if (center) {
+        setMapCenter({ lat: center.lat(), lng: center.lng() })
+      }
+
+      if (typeof zoom === 'number' && zoom < 20) {
+        map.setCenter({ lat, lng })
+        map.setZoom(20)
+      }
+    })
   }
 
   const pointsFromPolygon = (polygon: any): Point[] => {

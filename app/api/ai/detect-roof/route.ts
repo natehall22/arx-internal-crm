@@ -365,7 +365,7 @@ export async function POST(request: Request) {
     const requestedCenter = { lat, lng }
     const solarContext = await fetchGoogleSolarContext(lat, lng)
     const captureCenter = requestedCenter
-    const detectionZoom = Math.min(22, Math.max(0, normalizedZoom))
+    const detectionZoom = Math.min(22, Math.max(20, normalizedZoom))
 
     const validBounds =
       mapBounds &&
