@@ -379,7 +379,7 @@ export default function RoofMeasurePage() {
     if (skipAutoDetectAfterFailureRef.current) return
 
     const map = googleMapRef.current
-    // Defer so geocode setCenter/setZoom can apply before we read center/zoom for the API.
+    // Defer so fitBounds / idle can finish (viewport framing) before we read center+zoom for the API.
     const timeoutId = window.setTimeout(() => {
       if (!googleMapRef.current || isDetectingRef.current) return
       if (facets.length > 0 || linearFeatures.length > 0 || aiDraftSections.length > 0) return
@@ -394,7 +394,7 @@ export default function RoofMeasurePage() {
 
       autoDetectRequestKeyRef.current = requestKey
       detectRoofWithAI(true)
-    }, 300)
+    }, 550)
 
     return () => window.clearTimeout(timeoutId)
   }, [searchedAddress, facets.length, linearFeatures.length, aiDraftSections.length, isDetecting])
@@ -591,16 +591,25 @@ export default function RoofMeasurePage() {
         if (place.geometry?.location) {
           const lat = place.geometry.location.lat()
           const lng = place.geometry.location.lng()
-          
+
           setAddress(place.formatted_address || '')
           setSearchedAddress(place.formatted_address || '')
           setMapCenter({ lat, lng })
-          
+
           if (googleMapRef.current) {
-            googleMapRef.current.setCenter({ lat, lng })
-            googleMapRef.current.setZoom(20)
+            const map = googleMapRef.current
+            if (place.geometry.viewport) {
+              map.fitBounds(place.geometry.viewport, { top: 56, right: 56, bottom: 56, left: 56 })
+              google.maps.event.addListenerOnce(map, 'idle', () => {
+                const c = map.getCenter()
+                if (c) setMapCenter({ lat: c.lat(), lng: c.lng() })
+              })
+            } else {
+              map.setCenter({ lat, lng })
+              map.setZoom(20)
+            }
           }
-          
+
           console.log('Place selected:', place.formatted_address, 'at', lat, lng)
         }
       })
@@ -634,18 +643,28 @@ export default function RoofMeasurePage() {
       console.log('Geocode response - Status:', status, 'Results:', results)
       
       if (status === google.maps.GeocoderStatus.OK && results && results[0]) {
-        const location = results[0].geometry.location
+        const geometry = results[0].geometry
+        const location = geometry.location
         const lat = location.lat()
         const lng = location.lng()
-        
+
         console.log('Geocoded address:', results[0].formatted_address, 'at', lat, lng)
-        
+
         setMapCenter({ lat, lng })
         setSearchedAddress(results[0].formatted_address)
-        
+
         if (googleMapRef.current) {
-          googleMapRef.current.setCenter({ lat, lng })
-          googleMapRef.current.setZoom(20)
+          const map = googleMapRef.current
+          if (geometry.viewport) {
+            map.fitBounds(geometry.viewport, { top: 56, right: 56, bottom: 56, left: 56 })
+            google.maps.event.addListenerOnce(map, 'idle', () => {
+              const c = map.getCenter()
+              if (c) setMapCenter({ lat: c.lat(), lng: c.lng() })
+            })
+          } else {
+            map.setCenter({ lat, lng })
+            map.setZoom(20)
+          }
         }
       } else if (status === google.maps.GeocoderStatus.ZERO_RESULTS) {
         alert('Address not found. Please try a more specific address.')

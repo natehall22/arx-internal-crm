@@ -109,21 +109,6 @@ function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng:
   return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff)
 }
 
-function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const toRadians = (value: number) => (value * Math.PI) / 180
-  const earthRadiusMeters = 6371000
-  const dLat = toRadians(b.lat - a.lat)
-  const dLng = toRadians(b.lng - a.lng)
-  const lat1 = toRadians(a.lat)
-  const lat2 = toRadians(b.lat)
-
-  const haversine =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
-
-  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
-}
-
 async function fetchStaticMapBase64(lat: number, lng: number, zoom: number): Promise<string> {
   const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
   if (!mapsKey) {
@@ -268,9 +253,10 @@ Return ONLY JSON:
 }
 
 Rules:
-- Coordinates are pixels (0,0 top-left)
-- Focus on primary structure only
-- Include low confidence items (<0.65)`
+- The image is exactly 1280×1280 pixels (high-DPI satellite). All x and y must be in 0–1279 with (0,0) at the top-left.
+- Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
+- Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
+- Include low confidence items (<0.65) when you still see a plausible roof edge.`
 
   const dataUrl = toDataUrl(imageBase64)
   const openai = getOpenAI()
@@ -339,16 +325,10 @@ export async function POST(request: Request) {
 
     const requestedCenter = { lat, lng }
     const solarContext = await fetchGoogleSolarContext(lat, lng)
-    const solarAnchorDistance =
-      solarContext.anchor ? distanceMeters(requestedCenter, solarContext.anchor) : null
-    const captureCenter =
-      solarContext.anchor && solarAnchorDistance !== null && solarAnchorDistance <= 15
-        ? solarContext.anchor
-        : requestedCenter
-    const detectionZoom = Math.min(
-      21,
-      captureCenter === requestedCenter ? normalizedZoom + 1 : normalizedZoom + 2
-    )
+    // Always use the client map center for the static image so polygons align with what the rep sees.
+    // (Biasing toward Solar's building center was shifting crops and placing geometry on the wrong ground.)
+    const captureCenter = requestedCenter
+    const detectionZoom = Math.min(21, normalizedZoom + 1)
 
     const resolvedImageBase64 =
       typeof imageBase64 === 'string' && imageBase64.trim().length > 0
@@ -441,7 +421,7 @@ export async function POST(request: Request) {
       solar_segments: solarSegments,
       requested_center: requestedCenter,
       capture_center: captureCenter,
-      capture_center_source: captureCenter === requestedCenter ? 'requested_center' : 'solar_anchor',
+      capture_center_source: 'requested_center',
       detection_zoom: detectionZoom,
     })
   } catch (error) {
