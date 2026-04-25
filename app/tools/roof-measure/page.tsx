@@ -818,7 +818,10 @@ export default function RoofMeasurePage() {
     google.maps.event.addListener(path, 'remove_at', sync)
   }
 
-  const detectRoofWithAI = async (autoAcceptFacets = false) => {
+  /**
+   * @param detectionMode `solar` (default): Google Solar segment boxes, no OpenAI. `vision`: GPT-4o on satellite (token cost).
+   */
+  const detectRoofWithAI = async (autoAcceptFacets = false, detectionMode: 'solar' | 'vision' = 'solar') => {
     if (!googleMapRef.current) return
 
     if (!autoAcceptFacets) {
@@ -868,12 +871,13 @@ export default function RoofMeasurePage() {
           mapBounds,
           mapWidthPx,
           mapHeightPx,
+          detectionMode,
         }),
       })
 
       if (!response.ok) {
         const errorPayload = await response.json().catch(() => ({}))
-        throw new Error(errorPayload?.error || 'AI roof detection failed')
+        throw new Error(errorPayload?.error || 'Roof load failed')
       }
 
       const data = await response.json()
@@ -2133,11 +2137,21 @@ export default function RoofMeasurePage() {
           <div className="p-4 border-b border-gray-700">
             <h3 className="text-sm font-medium text-gray-300 mb-3">Drawing Tools</h3>
             <button
-              onClick={() => detectRoofWithAI()}
+              onClick={() => detectRoofWithAI(false, 'solar')}
               disabled={isDetecting || !googleMapRef.current}
-              className="w-full mb-3 min-h-[44px] px-3 py-2 rounded-lg font-medium text-sm bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
+              className="w-full mb-2 min-h-[44px] px-3 py-2 rounded-lg font-medium text-sm bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
             >
-              {isDetecting ? 'Detecting Roof...' : 'AI Detect Roof'}
+              {isDetecting ? 'Loading…' : 'Load roof (Google Solar)'}
+            </button>
+            <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+              Free: one plane per Solar segment (~correct squares). Drag corners to match the roof.
+            </p>
+            <button
+              onClick={() => detectRoofWithAI(false, 'vision')}
+              disabled={isDetecting || !googleMapRef.current}
+              className="w-full mb-3 min-h-[40px] px-3 py-2 rounded-lg font-medium text-xs bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 disabled:opacity-50"
+            >
+              AI trace roof (OpenAI — uses credits)
             </button>
 
             {aiDraftSections.length > 0 && (

@@ -246,6 +246,50 @@ type FacetResponsePayload = {
   facet_source?: string
 }
 
+/** One lat/lng quad per Google Solar segment (engineering footprint). No OpenAI. */
+function buildSolarPlaneFacetPayloads(
+  segments: SolarRoofSegment[],
+  validBounds: MapBounds | null
+): FacetResponsePayload[] {
+  const out: FacetResponsePayload[] = []
+  for (const seg of segments) {
+    const box = seg.bounding_box
+    if (!box) continue
+    const { ne, sw } = box
+    if (!(ne.lat > sw.lat) || !(ne.lng > sw.lng)) continue
+
+    const nw = { lat: ne.lat, lng: sw.lng }
+    const se = { lat: sw.lat, lng: ne.lng }
+    const latLngVertices = [nw, ne, se, sw]
+
+    const cLat = latLngVertices.reduce((s, p) => s + p.lat, 0) / 4
+    const cLng = latLngVertices.reduce((s, p) => s + p.lng, 0) / 4
+    if (validBounds && !centroidInExpandedBounds(cLat, cLng, validBounds, 0.18)) continue
+
+    const estSqFt =
+      typeof seg.ground_area_m2 === 'number'
+        ? Math.round(seg.ground_area_m2 * 10.7639)
+        : typeof seg.area_m2 === 'number'
+          ? Math.round(seg.area_m2 * 10.7639)
+          : null
+
+    out.push({
+      id: `solar_plane_${seg.segment_index}`,
+      vertices: [],
+      lat_lng_vertices: latLngVertices,
+      confidence: 0.88,
+      estimated_sq_ft: estSqFt,
+      solar_segment_index: seg.segment_index,
+      suggested_pitch_degrees: seg.pitch_degrees,
+      suggested_azimuth_degrees: seg.azimuth_degrees,
+      suggested_ground_area_sqft:
+        typeof seg.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
+      facet_source: 'solar_bbox',
+    })
+  }
+  return out
+}
+
 const MIN_FACET_SQFT = 35
 const MAX_FACET_SQFT = 4000
 /** Drop facets whose centroid falls inside a higher-confidence facet, or duplicates within ~14 ft with similar area. */
@@ -725,12 +769,18 @@ export async function POST(request: Request) {
   try {
     await requireAuthApi()
 
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY missing' }, { status: 500 })
-    }
-
     const body = await request.json().catch(() => ({}))
-    const { imageBase64, lat, lng, zoom, opportunityId, mapBounds, mapWidthPx, mapHeightPx } = body as {
+    const {
+      imageBase64,
+      lat,
+      lng,
+      zoom,
+      opportunityId,
+      mapBounds,
+      mapWidthPx,
+      mapHeightPx,
+      detectionMode,
+    } = body as {
       imageBase64?: string
       lat?: number
       lng?: number
@@ -739,6 +789,8 @@ export async function POST(request: Request) {
       mapBounds?: { north: number; south: number; east: number; west: number }
       mapWidthPx?: number
       mapHeightPx?: number
+      /** Default `solar`: Google Solar segment boxes only (no OpenAI). `vision`: satellite + GPT-4o (costs tokens). */
+      detectionMode?: 'solar' | 'vision'
     }
 
     if (typeof lat !== 'number' || typeof lng !== 'number' || typeof zoom !== 'number') {
@@ -784,6 +836,80 @@ export async function POST(request: Request) {
     const imageWidth = logicalSizeW * 2
     const imageHeight = logicalSizeH * 2
     const imagePixelDesc = `${imageWidth}×${imageHeight} (x: 0–${imageWidth - 1}, y: 0–${imageHeight - 1})`
+
+    const useVision = detectionMode === 'vision'
+    const solarGroundFootprintSqFtEarly = solarGroundFootprintTotalSqFt(solarSegments)
+
+    /** Default path: Solar segment quads — full coverage, ~correct squares, $0 LLM. */
+    if (!useVision) {
+      const solarFacets = buildSolarPlaneFacetPayloads(solarSegments, validBounds)
+      if (solarFacets.length > 0) {
+        const facetsFiltered = validBounds
+          ? solarFacets.filter((facet) => {
+              const vs = facet.lat_lng_vertices
+              if (!vs || vs.length === 0) return false
+              const cLat = vs.reduce((s, p) => s + p.lat, 0) / vs.length
+              const cLng = vs.reduce((s, p) => s + p.lng, 0) / vs.length
+              return centroidInExpandedBounds(cLat, cLng, validBounds, 0.12)
+            })
+          : solarFacets
+
+        const facetsOut =
+          facetsFiltered.length > 0 ? facetsFiltered : solarFacets
+
+        return NextResponse.json({
+          facets: facetsOut,
+          ridges: [],
+          valleys: [],
+          step_flashing: [],
+          wall_flashing: [],
+          notes:
+            'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).',
+          solar_segments: solarSegments,
+          solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
+          requested_center: requestedCenter,
+          capture_center: requestedCenter,
+          capture_center_source: alignWithClientMap ? 'requested_center' : 'requested_center',
+          detection_zoom: normalizedZoom,
+          localization: null,
+          facet_source: 'solar_bbox',
+          detection_mode: 'solar',
+          openai_calls: 0,
+          static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+        })
+      }
+
+      return NextResponse.json({
+        facets: [],
+        ridges: [],
+        valleys: [],
+        step_flashing: [],
+        wall_flashing: [],
+        notes:
+          'No Google Solar roof boxes for this pin (or API unavailable). Center the map on the house and try again, use “AI trace roof” if OpenAI is configured, or draw facets manually.',
+        solar_segments: solarSegments,
+        solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
+        requested_center: requestedCenter,
+        capture_center: requestedCenter,
+        capture_center_source: alignWithClientMap ? 'requested_center' : 'requested_center',
+        detection_zoom: normalizedZoom,
+        localization: null,
+        facet_source: 'none',
+        detection_mode: 'solar',
+        openai_calls: 0,
+        static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+      })
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            'OPENAI_API_KEY missing. Choose “Load roof (Solar)” when Google Solar has data, or add a key for AI trace mode.',
+        },
+        { status: 500 }
+      )
+    }
 
     const targetingNote =
       'The target house roof should be centered in this image. Trace only the centered residence roof and ignore neighboring roofs, roads, trees, and detached structures.'
@@ -1036,6 +1162,8 @@ export async function POST(request: Request) {
       detection_zoom: finalZoom,
       localization,
       facet_source: solarHintCount > 0 ? 'vision_solar_guided' : 'vision',
+      detection_mode: 'vision',
+      openai_calls: 2,
       solar_pixel_hints: solarHintCount,
       static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
     })
