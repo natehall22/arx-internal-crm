@@ -474,7 +474,7 @@ export async function POST(request: Request) {
     const captureCenter = shouldUseSolarAnchor && solarContext.anchor ? solarContext.anchor : requestedCenter
     const detectionZoom = shouldUseSolarAnchor
       ? Math.min(22, Math.max(21, normalizedZoom + 1))
-      : Math.min(22, Math.max(20, normalizedZoom))
+      : Math.min(22, Math.max(21, normalizedZoom))
 
     const solarSegments = solarContext.segments
     const logicalImageSize = 640
@@ -530,10 +530,12 @@ export async function POST(request: Request) {
       )
 
       const structureFillRatio = Math.max(localizedWidth, localizedHeight) / Math.min(imageWidth, imageHeight)
-      if (structureFillRatio < 0.42) {
+      if (structureFillRatio < 0.24) {
+        finalZoom = Math.min(22, detectionZoom + 2)
+      } else if (structureFillRatio < 0.42) {
         finalZoom = Math.min(22, detectionZoom + 1)
       } else if (structureFillRatio > 0.8) {
-        finalZoom = Math.max(20, detectionZoom - 1)
+        finalZoom = Math.max(21, detectionZoom - 1)
       }
     }
 
