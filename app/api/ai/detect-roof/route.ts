@@ -114,47 +114,6 @@ function latLngToPixel(
   return [px, py]
 }
 
-/**
- * Pixels from the same static-map frame the model sees → lat/lng aligned with the **interactive** map when
- * `bounds` comes from `map.getBounds()` on the client (same viewport the user traces on). Pure Web-Mercator
- * center math can sit a few meters off vs JS Maps + Static Maps, which reads as a shifted overlay.
- */
-function pixelToLatLngUsingViewportBounds(
-  px: number,
-  py: number,
-  bounds: MapBounds,
-  imageWidth: number,
-  imageHeight: number
-): { lat: number; lng: number } {
-  const iw = Math.max(1, imageWidth - 1)
-  const ih = Math.max(1, imageHeight - 1)
-  const tx = clamp(px, 0, imageWidth - 1) / iw
-  const ty = clamp(py, 0, imageHeight - 1) / ih
-  const lngSpan = bounds.east - bounds.west
-  const latSpan = bounds.north - bounds.south
-  const lng = bounds.west + tx * lngSpan
-  const lat = bounds.north - ty * latSpan
-  return { lat, lng }
-}
-
-function latLngToPixelUsingViewportBounds(
-  lat: number,
-  lng: number,
-  bounds: MapBounds,
-  imageWidth: number,
-  imageHeight: number
-): PixelPoint {
-  const lngSpan = bounds.east - bounds.west
-  const latSpan = bounds.north - bounds.south
-  const safeLng = Math.abs(lngSpan) < 1e-12 ? (lngSpan >= 0 ? 1e-12 : -1e-12) : lngSpan
-  const safeLat = Math.abs(latSpan) < 1e-12 ? (latSpan >= 0 ? 1e-12 : -1e-12) : latSpan
-  const iw = Math.max(1, imageWidth - 1)
-  const ih = Math.max(1, imageHeight - 1)
-  const tx = (lng - bounds.west) / safeLng
-  const ty = (bounds.north - lat) / safeLat
-  return [tx * iw, ty * ih]
-}
-
 type MapBounds = { north: number; south: number; east: number; west: number }
 
 function expandBounds(b: MapBounds, padFraction: number): MapBounds {
@@ -622,10 +581,7 @@ function buildSolarPixelPlaneHints(
     let xMax = -Infinity
     let yMax = -Infinity
     for (const c of corners) {
-      const [px, py] =
-        validBounds != null
-          ? latLngToPixelUsingViewportBounds(c.lat, c.lng, validBounds, imageWidth, imageHeight)
-          : latLngToPixel(c.lat, c.lng, centerLat, centerLng, zoom, imageWidth, imageHeight)
+      const [px, py] = latLngToPixel(c.lat, c.lng, centerLat, centerLng, zoom, imageWidth, imageHeight)
       xMin = Math.min(xMin, px)
       yMin = Math.min(yMin, py)
       xMax = Math.max(xMax, px)
@@ -1350,10 +1306,9 @@ export async function POST(request: Request) {
       solarFacetPrompt
     )
 
+    /** Static satellite tiles use Web Mercator — must match center/zoom of the bitmap (same as `/api/maps/static-satellite`). */
     const pixelToGeoForVision = (x: number, y: number) =>
-      validBounds
-        ? pixelToLatLngUsingViewportBounds(x, y, validBounds, imageWidth, imageHeight)
-        : pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, imageWidth, imageHeight)
+      pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, imageWidth, imageHeight)
 
     const facetsMapped: FacetResponsePayload[] = (raw.facets || [])
       .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
