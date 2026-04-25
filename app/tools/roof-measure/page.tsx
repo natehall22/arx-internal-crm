@@ -258,6 +258,8 @@ export default function RoofMeasurePage() {
   }, [isDetecting])
   const [aiDraftSections, setAiDraftSections] = useState<AIDraftSection[]>([])
   const [aiNotes, setAiNotes] = useState('')
+  /** Last /api/ai/detect-roof `facet_source` (solar_mask | solar_bbox | vision | …). */
+  const [aiGeometrySource, setAiGeometrySource] = useState<string | null>(null)
   const [showEstimateConfigModal, setShowEstimateConfigModal] = useState(false)
   const [isGeneratingEstimate, setIsGeneratingEstimate] = useState(false)
   const [generatedEstimate, setGeneratedEstimate] = useState<GeneratedEstimateResult | null>(null)
@@ -837,6 +839,7 @@ export default function RoofMeasurePage() {
       setIsDetecting(true)
       setAiDraftSections([])
       setAiNotes('')
+      setAiGeometrySource(null)
       clearAIDraftOverlays()
 
       const map = googleMapRef.current
@@ -927,6 +930,7 @@ export default function RoofMeasurePage() {
 
       setAiDraftSections(autoAcceptFacets ? allDrafts.filter((item) => item.type !== 'facet') : allDrafts)
       setAiNotes(data.notes || '')
+      setAiGeometrySource(typeof data.facet_source === 'string' ? data.facet_source : null)
 
       if (autoAcceptFacets) {
         draftFacets.forEach((facet) => acceptDraftItem(facet.id, facet))
@@ -1149,6 +1153,7 @@ export default function RoofMeasurePage() {
   const discardAIDrafts = () => {
     setAiDraftSections([])
     setAiNotes('')
+    setAiGeometrySource(null)
     clearAIDraftOverlays()
   }
 
@@ -2096,6 +2101,7 @@ export default function RoofMeasurePage() {
     setSelectedFacet(null)
     setAiDraftSections([])
     setAiNotes('')
+    setAiGeometrySource(null)
     autoDetectRequestKeyRef.current = null
     skipAutoDetectAfterFailureRef.current = false
   }
@@ -2187,7 +2193,8 @@ export default function RoofMeasurePage() {
               {isDetecting ? 'Loading…' : 'Load roof (Google Solar)'}
             </button>
             <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-              Free: one plane per Solar segment (~correct squares). Drag corners to match the roof. Sections list shows{' '}
+              Free: uses Solar roof mask when Data Layers are enabled (polygon outlines per plane); otherwise segment
+              bounding boxes. Drag vertices to match imagery. Sections list shows{' '}
               <span className="text-cyan-600/90">AI</span> vs <span className="text-gray-400">Drawn</span> when you mix
               loads and manual edits.
             </p>
@@ -2198,6 +2205,9 @@ export default function RoofMeasurePage() {
             >
               AI trace roof (OpenAI — uses credits)
             </button>
+            <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+              Traces visible roof edges in the satellite view (min. 5 vertices per facet when structured output works).
+            </p>
 
             {aiDraftSections.length > 0 && (
               <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-900/20 p-3">
@@ -2219,6 +2229,20 @@ export default function RoofMeasurePage() {
                   </div>
                 </div>
 
+                {aiGeometrySource && (
+                  <p className="text-[10px] text-gray-500 mb-1">
+                    Geometry source:{' '}
+                    <span className="text-gray-400">
+                      {aiGeometrySource === 'solar_mask'
+                        ? 'Solar mask (GeoTIFF)'
+                        : aiGeometrySource === 'solar_bbox'
+                          ? 'Solar segment boxes (fallback)'
+                          : aiGeometrySource === 'vision' || aiGeometrySource === 'vision_solar_guided'
+                            ? 'OpenAI vision trace'
+                            : aiGeometrySource}
+                    </span>
+                  </p>
+                )}
                 {aiNotes && <p className="text-xs text-sky-200 mb-2">{aiNotes}</p>}
 
                 <div className="space-y-1 max-h-40 overflow-y-auto">

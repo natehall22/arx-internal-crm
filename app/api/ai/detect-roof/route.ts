@@ -668,6 +668,160 @@ function computeStaticLogicalSize(mapWidthPx?: number, mapHeightPx?: number): { 
   return { sizeW, sizeH }
 }
 
+/** OpenAI strict JSON schema for roof trace (enforces ≥5 vertices per facet). */
+const ROOF_DETECTION_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['facets', 'ridges', 'valleys', 'step_flashing', 'wall_flashing', 'notes'],
+  properties: {
+    facets: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'vertices', 'confidence', 'estimated_sq_ft', 'solar_segment_index'],
+        properties: {
+          id: { type: 'string' },
+          vertices: {
+            type: 'array',
+            minItems: 5,
+            maxItems: 28,
+            items: {
+              type: 'array',
+              items: { type: 'number' },
+              minItems: 2,
+              maxItems: 2,
+            },
+          },
+          confidence: { type: 'number' },
+          estimated_sq_ft: {
+            type: 'number',
+            description: 'Footprint-style sq ft estimate for this plane, or 0 if unknown.',
+          },
+          solar_segment_index: {
+            type: 'integer',
+            description: 'Google Solar roofSegmentStats index from the user message, or -1 if unknown / not applicable.',
+          },
+        },
+      },
+    },
+    ridges: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'points', 'confidence'],
+        properties: {
+          id: { type: 'string' },
+          points: {
+            type: 'array',
+            minItems: 2,
+            items: {
+              type: 'array',
+              items: { type: 'number' },
+              minItems: 2,
+              maxItems: 2,
+            },
+          },
+          confidence: { type: 'number' },
+        },
+      },
+    },
+    valleys: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'points', 'confidence'],
+        properties: {
+          id: { type: 'string' },
+          points: {
+            type: 'array',
+            minItems: 2,
+            items: {
+              type: 'array',
+              items: { type: 'number' },
+              minItems: 2,
+              maxItems: 2,
+            },
+          },
+          confidence: { type: 'number' },
+        },
+      },
+    },
+    step_flashing: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'points', 'confidence'],
+        properties: {
+          id: { type: 'string' },
+          points: {
+            type: 'array',
+            minItems: 2,
+            items: {
+              type: 'array',
+              items: { type: 'number' },
+              minItems: 2,
+              maxItems: 2,
+            },
+          },
+          confidence: { type: 'number' },
+        },
+      },
+    },
+    wall_flashing: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'points', 'confidence'],
+        properties: {
+          id: { type: 'string' },
+          points: {
+            type: 'array',
+            minItems: 2,
+            items: {
+              type: 'array',
+              items: { type: 'number' },
+              minItems: 2,
+              maxItems: 2,
+            },
+          },
+          confidence: { type: 'number' },
+        },
+      },
+    },
+    notes: { type: 'string' },
+  },
+}
+
+function normalizeStructuredRoofDetection(parsed: RawDetection): RawDetection {
+  const facets = (parsed.facets ?? []).map((f) => {
+    const out: RawFacet = {
+      id: f.id,
+      vertices: Array.isArray(f.vertices) ? f.vertices : [],
+      confidence: f.confidence,
+    }
+    if (typeof f.estimated_sq_ft === 'number' && f.estimated_sq_ft > 0) {
+      out.estimated_sq_ft = f.estimated_sq_ft
+    }
+    if (typeof f.solar_segment_index === 'number' && f.solar_segment_index >= 0) {
+      out.solar_segment_index = f.solar_segment_index
+    }
+    return out
+  })
+  return {
+    facets,
+    ridges: parsed.ridges ?? [],
+    valleys: parsed.valleys ?? [],
+    step_flashing: parsed.step_flashing ?? [],
+    wall_flashing: parsed.wall_flashing ?? [],
+    notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+  }
+}
+
 async function callDetectionModel(
   imageBase64: string,
   imagePixelDesc: string,
@@ -681,28 +835,13 @@ Analyze a satellite image and identify:
 - valleys (lines)
 - flashing where visible
 
-Return ONLY JSON:
-{
-  "facets": [
-    {
-      "id": "facet_1",
-      "vertices": [[x,y],[x,y],[x,y],[x,y],[x,y],[x,y],[x,y]],
-      "confidence": 0.92,
-      "estimated_sq_ft": 310,
-      "solar_segment_index": 0
-    }
-  ],
-  "ridges": [{ "id": "r1", "points": [[x,y],[x,y]], "confidence": 0.9 }],
-  "valleys": [{ "id": "v1", "points": [[x,y],[x,y]], "confidence": 0.85 }],
-  "step_flashing": [],
-  "wall_flashing": [],
-  "notes": ""
-}
+Output must conform to the response JSON schema (strict). Every facet MUST have at least 5 vertices (the schema enforces this). Place vertices along visible eaves, rakes, hips, and valleys—not axis-aligned bounding boxes.
+
+Use solar_segment_index from the user message when a facet matches a listed Solar plane; otherwise use -1. Use estimated_sq_ft 0 when unknown.
 
 Rules:
 - The image is high-DPI satellite (logical size given in the user message). x is 0..width-1, y is 0..height-1, (0,0) top-left.
-- Facets: closed polygons tracing **visible** roof edges (eaves, rakes, hips, valleys, ridges). Use **at least 5 vertices per facet** for typical planes (6–14 is common on hips/gables). **Do not** output plain quadrilaterals or axis-aligned rectangles unless the roof in the image is genuinely a single untextured rectangle with no diagonal hips—almost never on residential.
-- Include solar_segment_index when the user message maps planes to Solar segment indices, otherwise omit it.
+- Facets: closed polygons tracing **visible** roof edges. Typical planes need 6–14 vertices on hips/gables. Never use only 4 corners unless the roof is literally a featureless rectangle (rare).
 - Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, axis-aligned boxes on lawns, or “default” shapes in empty areas.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
@@ -713,39 +852,73 @@ Rules:
   const dataUrl = toDataUrl(imageBase64)
   const openai = getOpenAI()
 
-  const attempt = async (retry = false) => {
+  const userText = (retry: boolean) =>
+    retry
+      ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${solarFacetPrompt}`
+      : `Analyze this roof satellite image. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${solarFacetPrompt}`
+
+  const messages = (retry: boolean) => [
+    { role: 'system' as const, content: systemPrompt },
+    {
+      role: 'user' as const,
+      content: [
+        { type: 'text' as const, text: userText(retry) },
+        { type: 'image_url' as const, image_url: { url: dataUrl } },
+      ],
+    },
+  ]
+
+  const parseCompletion = (content: string): RawDetection => {
+    const parsed = safeJsonParse<RawDetection>(content)
+    if (!parsed) throw new Error('Invalid JSON from model')
+    return normalizeStructuredRoofDetection(parsed)
+  }
+
+  const attemptStructured = async (retry: boolean) => {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'roof_detection',
+          strict: true,
+          schema: ROOF_DETECTION_JSON_SCHEMA,
+        },
+      },
+      temperature: 0,
+      messages: messages(retry),
+      max_tokens: 3600,
+    })
+    const content = completion.choices?.[0]?.message?.content || ''
+    return parseCompletion(content)
+  }
+
+  const attemptLoose = async (retry: boolean) => {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       response_format: { type: 'json_object' },
       temperature: 0.1,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: retry
-                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${solarFacetPrompt}`
-                : `Analyze this roof satellite image. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${solarFacetPrompt}`,
-            },
-            { type: 'image_url', image_url: { url: dataUrl } },
-          ],
-        },
-      ],
+      messages: messages(retry),
       max_tokens: 3600,
     })
-
     const content = completion.choices?.[0]?.message?.content || ''
-    const parsed = safeJsonParse<RawDetection>(content)
-    if (!parsed) throw new Error('Invalid JSON from model')
-    return parsed
+    return parseCompletion(content)
   }
 
   try {
-    return await attempt(false)
+    return await attemptStructured(false)
+  } catch (e) {
+    console.warn('[detect-roof] structured roof_detection failed, retry structured:', e)
+  }
+  try {
+    return await attemptStructured(true)
+  } catch (e) {
+    console.warn('[detect-roof] structured roof_detection retry failed, fallback json_object:', e)
+  }
+  try {
+    return await attemptLoose(false)
   } catch {
-    return await attempt(true)
+    return await attemptLoose(true)
   }
 }
 
