@@ -58,6 +58,8 @@ type SolarContext = {
   segments: SolarRoofSegment[]
 }
 
+type MapBounds = { north: number; south: number; east: number; west: number }
+
 function getOpenAI() {
   return new OpenAI({
     apiKey: process.env.OPENAI_API_KEY || '',
@@ -115,7 +117,43 @@ function latLngToPixel(
   return [px, py]
 }
 
-type MapBounds = { north: number; south: number; east: number; west: number }
+/**
+ * Pixel → lat/lng by spanning `map.getBounds()` (client-sent `mapBounds`). Aligns vision output with the
+ * **interactive** map; Mercator-from-Static-Maps-center can be a few meters off vs the same center/zoom in JS.
+ */
+function pixelToLatLngViewportSpan(
+  px: number,
+  py: number,
+  bounds: MapBounds,
+  imageWidth: number,
+  imageHeight: number
+): { lat: number; lng: number } {
+  const iw = Math.max(1, imageWidth - 1)
+  const ih = Math.max(1, imageHeight - 1)
+  const tx = clamp(px, 0, imageWidth - 1) / iw
+  const ty = clamp(py, 0, imageHeight - 1) / ih
+  const lng = bounds.west + tx * (bounds.east - bounds.west)
+  const lat = bounds.north - ty * (bounds.north - bounds.south)
+  return { lat, lng }
+}
+
+function latLngToPixelViewportSpan(
+  lat: number,
+  lng: number,
+  bounds: MapBounds,
+  imageWidth: number,
+  imageHeight: number
+): PixelPoint {
+  const lngSpan = bounds.east - bounds.west
+  const latSpan = bounds.north - bounds.south
+  const safeLng = Math.abs(lngSpan) < 1e-12 ? (lngSpan >= 0 ? 1e-12 : -1e-12) : lngSpan
+  const safeLat = Math.abs(latSpan) < 1e-12 ? (latSpan >= 0 ? 1e-12 : -1e-12) : latSpan
+  const iw = Math.max(1, imageWidth - 1)
+  const ih = Math.max(1, imageHeight - 1)
+  const tx = (lng - bounds.west) / safeLng
+  const ty = (bounds.north - lat) / safeLat
+  return [tx * iw, ty * ih]
+}
 
 function expandBounds(b: MapBounds, padFraction: number): MapBounds {
   const latPad = (b.north - b.south) * padFraction
@@ -582,7 +620,10 @@ function buildSolarPixelPlaneHints(
     let xMax = -Infinity
     let yMax = -Infinity
     for (const c of corners) {
-      const [px, py] = latLngToPixel(c.lat, c.lng, centerLat, centerLng, zoom, imageWidth, imageHeight)
+      const [px, py] =
+        validBounds != null
+          ? latLngToPixelViewportSpan(c.lat, c.lng, validBounds, imageWidth, imageHeight)
+          : latLngToPixel(c.lat, c.lng, centerLat, centerLng, zoom, imageWidth, imageHeight)
       xMin = Math.min(xMin, px)
       yMin = Math.min(yMin, py)
       xMax = Math.max(xMax, px)
@@ -1308,9 +1349,14 @@ export async function POST(request: Request) {
       solarFacetPrompt
     )
 
-    /** Static satellite tiles use Web Mercator — must match center/zoom and pixel size of the bitmap. */
+    /**
+     * With client `mapBounds`, span the visible viewport linearly so overlays match the JS map. Without
+     * bounds (legacy callers), keep Web Mercator from center + zoom.
+     */
     const pixelToGeoForVision = (x: number, y: number) =>
-      pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, visionW, visionH)
+      validBounds
+        ? pixelToLatLngViewportSpan(x, y, validBounds, visionW, visionH)
+        : pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, visionW, visionH)
 
     const facetsMapped: FacetResponsePayload[] = (raw.facets || [])
       .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
