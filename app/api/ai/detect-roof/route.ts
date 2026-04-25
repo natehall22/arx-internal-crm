@@ -26,6 +26,15 @@ type RawDetection = {
   notes: string
 }
 
+type RawLocalization = {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  confidence: number
+  notes?: string
+}
+
 type SolarRoofSegment = {
   segment_index: number
   pitch_degrees: number | null
@@ -349,6 +358,68 @@ Rules:
   }
 }
 
+async function callLocalizationModel(
+  imageBase64: string,
+  solarSegments: SolarRoofSegment[],
+  imagePixelDesc: string,
+  targetingNote: string
+): Promise<RawLocalization | null> {
+  const systemPrompt = `You are a roofing measurement AI.
+Find the single target residential structure in a satellite image before roof measurement begins.
+
+Return ONLY JSON:
+{
+  "x1": 100,
+  "y1": 120,
+  "x2": 340,
+  "y2": 360,
+  "confidence": 0.93,
+  "notes": ""
+}
+
+Rules:
+- Return one bounding box for the full target house roof footprint only.
+- The target should be the main residential structure nearest the image center unless the user guidance says it is centered already.
+- Ignore roads, lawns, trees, detached sheds, neighboring homes, and commercial buildings.
+- Coordinates are pixels in the image.`
+
+  const dataUrl = toDataUrl(imageBase64)
+  const openai = getOpenAI()
+
+  const attempt = async (retry = false) => {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      response_format: { type: 'json_object' },
+      temperature: 0,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: retry
+                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPrompt(solarSegments)}`
+                : `Find the target house in this satellite image. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPrompt(solarSegments)}`,
+            },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+      max_tokens: 400,
+    })
+
+    const content = completion.choices?.[0]?.message?.content || ''
+    return safeJsonParse<RawLocalization>(content)
+  }
+
+  try {
+    return await attempt(false)
+  } catch {
+    return await attempt(true)
+  }
+}
+
 export async function POST(request: Request) {
   try {
     await requireAuthApi()
@@ -405,27 +476,80 @@ export async function POST(request: Request) {
       ? Math.min(22, Math.max(21, normalizedZoom + 1))
       : Math.min(22, Math.max(20, normalizedZoom))
 
-    const mw = typeof mapWidthPx === 'number' && mapWidthPx > 0 ? mapWidthPx : 640
-    const mh = typeof mapHeightPx === 'number' && mapHeightPx > 0 ? mapHeightPx : 640
-    const mMax = Math.max(mw, mh)
-    let sizeW = Math.round((640 * mw) / mMax)
-    let sizeH = Math.round((640 * mh) / mMax)
-    sizeW = Math.max(100, Math.min(640, sizeW))
-    sizeH = Math.max(100, Math.min(640, sizeH))
+    const solarSegments = solarContext.segments
+    const logicalImageSize = 640
+    const imageWidth = logicalImageSize * 2
+    const imageHeight = logicalImageSize * 2
+    const imagePixelDesc = `${imageWidth}×${imageHeight} (x: 0–${imageWidth - 1}, y: 0–${imageHeight - 1})`
+    const localizationNote = shouldUseSolarAnchor
+      ? 'The target house should already be close to the image center. Prefer the centered residence and ignore neighboring structures.'
+      : 'Choose the main residence nearest the image center and ignore neighboring structures.'
 
-    const resolvedImageBase64 =
+    const localizationImageBase64 =
       typeof imageBase64 === 'string' && imageBase64.trim().length > 0
         ? imageBase64
-        : await fetchStaticMapBase64(captureCenter.lat, captureCenter.lng, detectionZoom, sizeW, sizeH)
+        : await fetchStaticMapBase64(
+            captureCenter.lat,
+            captureCenter.lng,
+            detectionZoom,
+            logicalImageSize,
+            logicalImageSize
+          )
 
-    const solarSegments = solarContext.segments
-    const imageWidth = sizeW * 2
-    const imageHeight = sizeH * 2
-    const imagePixelDesc = `${imageWidth}×${imageHeight} (x: 0–${imageWidth - 1}, y: 0–${imageHeight - 1})`
-    const targetingNote = shouldUseSolarAnchor
-      ? 'The target house is centered in this image. Prioritize the centered structure and ignore neighboring roofs near the edges.'
-      : 'Prioritize the roof structure nearest the center of the image and ignore neighboring roofs near the edges.'
-    const raw = await callDetectionModel(resolvedImageBase64, solarSegments, imagePixelDesc, targetingNote)
+    const localization = await callLocalizationModel(
+      localizationImageBase64,
+      solarSegments,
+      imagePixelDesc,
+      localizationNote
+    )
+
+    let localizedCenter = captureCenter
+    let finalZoom = detectionZoom
+
+    if (
+      localization &&
+      [localization.x1, localization.y1, localization.x2, localization.y2].every((value) => typeof value === 'number')
+    ) {
+      const x1 = clamp(Math.min(localization.x1, localization.x2), 0, imageWidth)
+      const y1 = clamp(Math.min(localization.y1, localization.y2), 0, imageHeight)
+      const x2 = clamp(Math.max(localization.x1, localization.x2), 0, imageWidth)
+      const y2 = clamp(Math.max(localization.y1, localization.y2), 0, imageHeight)
+      const localizedPixelCenterX = (x1 + x2) / 2
+      const localizedPixelCenterY = (y1 + y2) / 2
+      const localizedWidth = Math.max(1, x2 - x1)
+      const localizedHeight = Math.max(1, y2 - y1)
+
+      localizedCenter = pixelToLatLng(
+        localizedPixelCenterX,
+        localizedPixelCenterY,
+        captureCenter.lat,
+        captureCenter.lng,
+        detectionZoom,
+        imageWidth,
+        imageHeight
+      )
+
+      const structureFillRatio = Math.max(localizedWidth, localizedHeight) / Math.min(imageWidth, imageHeight)
+      if (structureFillRatio < 0.42) {
+        finalZoom = Math.min(22, detectionZoom + 1)
+      } else if (structureFillRatio > 0.8) {
+        finalZoom = Math.max(20, detectionZoom - 1)
+      }
+    }
+
+    const targetingNote =
+      'The target house roof should be centered in this image. Trace only the centered residence roof and ignore neighboring roofs, roads, trees, and detached structures.'
+    const detectionImageBase64 =
+      typeof imageBase64 === 'string' && imageBase64.trim().length > 0
+        ? localizationImageBase64
+        : await fetchStaticMapBase64(
+            localizedCenter.lat,
+            localizedCenter.lng,
+            finalZoom,
+            logicalImageSize,
+            logicalImageSize
+          )
+    const raw = await callDetectionModel(detectionImageBase64, solarSegments, imagePixelDesc, targetingNote)
 
     const imageCenterX = imageWidth / 2
     const imageCenterY = imageHeight / 2
@@ -449,9 +573,9 @@ export async function POST(request: Request) {
         pixelToLatLng(
           Number(x),
           Number(y),
-          captureCenter.lat,
-          captureCenter.lng,
-          detectionZoom,
+          localizedCenter.lat,
+          localizedCenter.lng,
+          finalZoom,
           imageWidth,
           imageHeight
         )
@@ -510,9 +634,9 @@ export async function POST(request: Request) {
           pixelToLatLng(
             Number(x),
             Number(y),
-            captureCenter.lat,
-            captureCenter.lng,
-            detectionZoom,
+            localizedCenter.lat,
+            localizedCenter.lng,
+            finalZoom,
             imageWidth,
             imageHeight
           )
@@ -549,10 +673,11 @@ export async function POST(request: Request) {
       notes: raw.notes || '',
       solar_segments: solarSegments,
       requested_center: requestedCenter,
-      capture_center: captureCenter,
+      capture_center: localizedCenter,
       capture_center_source: shouldUseSolarAnchor ? 'solar_anchor' : 'requested_center',
-      detection_zoom: detectionZoom,
-      static_map_size: { width: imageWidth, height: imageHeight, logical: `${sizeW}x${sizeH}` },
+      detection_zoom: finalZoom,
+      localization,
+      static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalImageSize}x${logicalImageSize}` },
     })
   } catch (error) {
     console.error('AI roof detect error:', error)

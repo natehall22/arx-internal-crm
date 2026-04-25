@@ -671,7 +671,7 @@ export default function RoofMeasurePage() {
 
   const focusMapOnProperty = (map: any, lat: number, lng: number) => {
     map.setCenter({ lat, lng })
-    map.setZoom(Math.max(20, Math.round(map.getZoom?.() ?? 20)))
+    map.setZoom(Math.max(21, Math.round(map.getZoom?.() ?? 21)))
 
     google.maps.event.addListenerOnce(map, 'idle', () => {
       const center = map.getCenter()
@@ -681,9 +681,9 @@ export default function RoofMeasurePage() {
         setMapCenter({ lat: center.lat(), lng: center.lng() })
       }
 
-      if (typeof zoom === 'number' && zoom < 20) {
+      if (typeof zoom === 'number' && zoom < 21) {
         map.setCenter({ lat, lng })
-        map.setZoom(20)
+        map.setZoom(21)
       }
     })
   }
