@@ -339,8 +339,11 @@ function buildSolarPlaneFacetPayloads(
 
 const MIN_FACET_SQFT = 35
 const MAX_FACET_SQFT = 4000
-/** Drop tiny facets whose centroid falls inside a larger facet (nested duplicate), near-duplicates within ~14 ft with similar area, or trim when summed area exceeds caps. */
-const DUPLICATE_CENTROID_FT = 14
+/**
+ * Near-duplicate: same real plane traced twice (centroids almost on top of each other).
+ * Keep this tight: adjacent roof-strip centroids are often under 15 ft apart; 14 ft was merging distinct planes.
+ */
+const DUPLICATE_CENTROID_FT = 6.5
 const DUPLICATE_AREA_RATIO = 0.38
 /** Sum of facet footprint areas should not exceed ~1.32× visible map footprint (guards stacked overlaps). */
 const SUM_AREA_VS_VIEWPORT_FACTOR = 1.32
@@ -353,10 +356,10 @@ const SUM_AREA_VS_SOLAR_GROUND_FACTOR = 1.32
 const SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION = 1.48
 
 /**
- * If facet A's centroid lies inside facet B, we usually drop A as a duplicate — but when B is an oversized
- * vision hull, a real third plane can sit "inside" B in 2D. Only drop when A is tiny vs B (true nested duplicate).
+ * If facet A's centroid lies inside facet B, drop A only when A is a **small** sliver vs B. Middle roof strips
+ * can sit inside a loose vision hull; 0.26 was high enough to drop a real face (~15–20% of the hull).
  */
-const NESTED_CENTROID_DUPLICATE_MAX_FRAC = 0.26
+const NESTED_CENTROID_DUPLICATE_MAX_FRAC = 0.1
 
 /** Sum of segment ground_area_m² → sq ft (roof footprint; comparable to flat facet totals before pitch). */
 function solarGroundFootprintTotalSqFt(segments: SolarRoofSegment[]): number | null {
