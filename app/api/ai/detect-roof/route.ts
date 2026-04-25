@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
+import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
 
 type PixelPoint = [number, number]
 
@@ -840,9 +841,30 @@ export async function POST(request: Request) {
     const useVision = detectionMode === 'vision'
     const solarGroundFootprintSqFtEarly = solarGroundFootprintTotalSqFt(solarSegments)
 
-    /** Default path: Solar segment quads — full coverage, ~correct squares, $0 LLM. */
+    /** Default path: Solar roof mask GeoTIFF when available, else segment quads — $0 LLM. */
     if (!useVision) {
-      const solarFacets = buildSolarPlaneFacetPayloads(solarSegments, validBounds)
+      const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+
+      let solarFacets: FacetResponsePayload[] = []
+      if (mapsKey) {
+        const maskFacets = await tryFacetPayloadsFromSolarRoofMask({
+          lat: captureCenter.lat,
+          lng: captureCenter.lng,
+          apiKey: mapsKey,
+          /** Prefer outlines enclosing the pin the user actually placed (may differ slightly from Solar anchor). */
+          referenceLat: requestedCenter.lat,
+          referenceLng: requestedCenter.lng,
+          segments: solarSegments,
+        })
+        if (maskFacets && maskFacets.length > 0) {
+          solarFacets = maskFacets as FacetResponsePayload[]
+        }
+      }
+
+      if (solarFacets.length === 0) {
+        solarFacets = buildSolarPlaneFacetPayloads(solarSegments, validBounds)
+      }
+
       if (solarFacets.length > 0) {
         const facetsFiltered = validBounds
           ? solarFacets.filter((facet) => {
@@ -857,22 +879,32 @@ export async function POST(request: Request) {
         const facetsOut =
           facetsFiltered.length > 0 ? facetsFiltered : solarFacets
 
+        const facetSource =
+          facetsOut[0]?.facet_source === 'solar_mask' ? 'solar_mask' : 'solar_bbox'
+        const solarNotes =
+          facetSource === 'solar_mask'
+            ? 'Roof outline from Google Solar roof mask (GeoTIFF)—follows the analysis footprint more closely than segment boxes. Drag corners to match satellite imagery. Pitch/azimuth use the nearest Solar segment when available. Use “AI trace roof” only if you need GPT from a static map (OpenAI cost).'
+            : 'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).'
+
         return NextResponse.json({
           facets: facetsOut,
           ridges: [],
           valleys: [],
           step_flashing: [],
           wall_flashing: [],
-          notes:
-            'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).',
+          notes: solarNotes,
           solar_segments: solarSegments,
           solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
           requested_center: requestedCenter,
-          capture_center: requestedCenter,
-          capture_center_source: alignWithClientMap ? 'requested_center' : 'requested_center',
+          capture_center: captureCenter,
+          capture_center_source: alignWithClientMap
+            ? 'requested_center'
+            : shouldUseSolarAnchor
+              ? 'solar_anchor'
+              : 'requested_center',
           detection_zoom: normalizedZoom,
           localization: null,
-          facet_source: 'solar_bbox',
+          facet_source: facetSource,
           detection_mode: 'solar',
           openai_calls: 0,
           static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
@@ -890,8 +922,12 @@ export async function POST(request: Request) {
         solar_segments: solarSegments,
         solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
         requested_center: requestedCenter,
-        capture_center: requestedCenter,
-        capture_center_source: alignWithClientMap ? 'requested_center' : 'requested_center',
+        capture_center: captureCenter,
+        capture_center_source: alignWithClientMap
+          ? 'requested_center'
+          : shouldUseSolarAnchor
+            ? 'solar_anchor'
+            : 'requested_center',
         detection_zoom: normalizedZoom,
         localization: null,
         facet_source: 'none',
