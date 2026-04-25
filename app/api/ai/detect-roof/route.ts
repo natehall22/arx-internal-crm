@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
-import { getPngDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
+import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
 import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
 import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
 
@@ -1264,9 +1264,9 @@ export async function POST(request: Request) {
             sizeH: logicalSizeH,
           })
 
-    const pngDims = getPngDimensionsFromBase64(detectionImageBase64)
-    const visionW = pngDims?.width && pngDims.width > 0 ? pngDims.width : imageWidth
-    const visionH = pngDims?.height && pngDims.height > 0 ? pngDims.height : imageHeight
+    const decodedDims = getBitmapDimensionsFromBase64(detectionImageBase64)
+    const visionW = decodedDims?.width && decodedDims.width > 0 ? decodedDims.width : imageWidth
+    const visionH = decodedDims?.height && decodedDims.height > 0 ? decodedDims.height : imageHeight
     const visionPixelDesc = `${visionW}×${visionH} (x: 0–${visionW - 1}, y: 0–${visionH - 1})`
 
     const imageCenterX = visionW / 2

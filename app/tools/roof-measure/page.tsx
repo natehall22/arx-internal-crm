@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { shouldShowRoofMeasureDrawingHintsForUser } from '@/lib/permissions'
+import { clampVisionAlignStaticZoom } from '@/lib/static-satellite-map'
 
 declare const google: any
 
@@ -905,6 +906,22 @@ export default function RoofMeasurePage() {
 
       const map = googleMapRef.current
       await waitForMapToSettle(map)
+
+      /**
+       * Static Maps + vision pipeline use integer zoom (see clampVisionAlignStaticZoom). The JS map often
+       * sits on a fractional zoom (e.g. 19.7); Mercator pixel→lat/lng for the snapshot then disagrees with
+       * what’s on screen → overlays look shifted. Snap before snapshot + detect.
+       */
+      if (detectionMode === 'vision') {
+        const z0 = map.getZoom()
+        if (typeof z0 === 'number') {
+          const zAligned = clampVisionAlignStaticZoom(Math.round(z0))
+          if (Math.abs(z0 - zAligned) > 0.02) {
+            map.setZoom(zAligned)
+            await waitForMapToSettle(map)
+          }
+        }
+      }
 
       const center = map.getCenter()
       const zoom = map.getZoom()
