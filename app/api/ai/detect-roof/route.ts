@@ -819,6 +819,7 @@ Rules:
 - Facets: closed polygons tracing **visible** roof edges. Typical planes need 6–14 vertices on hips/gables. Never use only 4 corners unless the roof is literally a featureless rectangle (rare).
 - Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, axis-aligned boxes on lawns, or “default” shapes in empty areas.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
+- Clip each facet to the **roof deck only**: never extend a polygon onto driveway, walkway, porch floor, pool deck, or lawn—even if a Solar pixel_region is loose.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
 - Include low confidence items (<0.65) only when you still see a plausible roof edge.
 - NON-OVERLAP: Each facet is one physical roof plane. Do not stack multiple polygons on the same **visible** face. Merge only when two polygons are clearly the **same** shingle plane; keep **separate** facets for distinct pitches, cross gables, porches, and shed roofs even if one polygon is smaller.

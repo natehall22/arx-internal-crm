@@ -315,6 +315,11 @@ export default function RoofMeasurePage() {
   const polylinesRef = useRef<Map<string, any>>(new Map())
   /** Summed Solar `ground_area` (sq ft). Overlapping segment quads sum above this — we scale totals to match. */
   const solarGroundFootprintReferenceRef = useRef<number | null>(null)
+  /**
+   * Last `/api/ai/detect-roof` `facet_source` (updated synchronously). React `aiGeometrySource` can lag one
+   * tick behind `setState`, so auto-accept + `updateMeasurements` was applying Solar scaling to vision traces.
+   */
+  const facetGeometrySourceRef = useRef<string | null>(null)
 
   useEffect(() => {
     facetsRef.current = facets
@@ -894,6 +899,7 @@ export default function RoofMeasurePage() {
       setIsDetecting(true)
       setAiDraftSections([])
       setAiNotes('')
+      facetGeometrySourceRef.current = null
       setAiGeometrySource(null)
       clearAIDraftOverlays()
 
@@ -998,7 +1004,9 @@ export default function RoofMeasurePage() {
 
       setAiDraftSections(autoAcceptFacets ? allDrafts.filter((item) => item.type !== 'facet') : allDrafts)
       setAiNotes(data.notes || '')
-      setAiGeometrySource(typeof data.facet_source === 'string' ? data.facet_source : null)
+      const facetSrc = typeof data.facet_source === 'string' ? data.facet_source : null
+      facetGeometrySourceRef.current = facetSrc
+      setAiGeometrySource(facetSrc)
 
       if (autoAcceptFacets) {
         draftFacets.forEach((facet) => acceptDraftItem(facet.id, facet))
@@ -1221,6 +1229,7 @@ export default function RoofMeasurePage() {
   const discardAIDrafts = () => {
     setAiDraftSections([])
     setAiNotes('')
+    facetGeometrySourceRef.current = null
     setAiGeometrySource(null)
     clearAIDraftOverlays()
   }
@@ -1687,6 +1696,7 @@ export default function RoofMeasurePage() {
     
     if (currentFacets.length === 0 && features.length === 0) {
       solarGroundFootprintReferenceRef.current = null
+      facetGeometrySourceRef.current = null
       setMeasurements(null)
       return
     }
@@ -1704,8 +1714,8 @@ export default function RoofMeasurePage() {
     const solarRef = solarGroundFootprintReferenceRef.current
     const SOLAR_OVERLAP_THRESHOLD = 1.08
     /** OpenAI traces use drawn geometry; Solar summed ground_area often disagrees with field / merged segments. */
-    const fromOpenAiVision =
-      aiGeometrySource === 'vision' || aiGeometrySource === 'vision_solar_guided'
+    const src = facetGeometrySourceRef.current
+    const fromOpenAiVision = src === 'vision' || src === 'vision_solar_guided'
     let flatScale = 1
     if (
       !fromOpenAiVision &&
@@ -1716,6 +1726,16 @@ export default function RoofMeasurePage() {
       flatScale = solarRef / flatAreaRaw
       validationNotes.push(
         `Overlapping planes were inflating area; totals scaled to Google Solar footprint (~${Math.round(solarRef).toLocaleString()} sq ft). Drag vertices to reduce overlap if sections should be larger.`
+      )
+    }
+
+    if (
+      !fromOpenAiVision &&
+      (src === 'solar_bbox' || src === 'solar_mask') &&
+      currentFacets.length > 0
+    ) {
+      validationNotes.push(
+        'Shapes are from Google Solar (segment boxes or mask split)—approximate, often rectangular. Use “AI trace roof” for outlines that follow eaves, ridges, and rakes; then drag vertices.',
       )
     }
 
@@ -2173,6 +2193,7 @@ export default function RoofMeasurePage() {
     setSelectedFacet(null)
     setAiDraftSections([])
     setAiNotes('')
+    facetGeometrySourceRef.current = null
     setAiGeometrySource(null)
     autoDetectRequestKeyRef.current = null
     skipAutoDetectAfterFailureRef.current = false
