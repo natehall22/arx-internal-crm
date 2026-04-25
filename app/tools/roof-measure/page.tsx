@@ -59,6 +59,8 @@ interface MeasurementData {
   flat_area_sqft: number      // Total footprint area
   total_area_sqft: number     // Total actual roof surface area
   total_squares: number       // Roofing squares (area / 100)
+  /** 1, or below 1 when raw facet footprints are scaled to the Google Solar total (overlapping planes). */
+  footprint_scale: number
   // Facet data
   facets: RoofFacet[]
   facet_count: number
@@ -2030,6 +2032,7 @@ export default function RoofMeasurePage() {
       flat_area_sqft: safeNum(flatArea),
       total_area_sqft: safeNum(totalArea),
       total_squares: safeNum(Math.round(totalArea / 100 * 100) / 100),
+      footprint_scale: flatScale,
       facets: currentFacets,
       facet_count: facetCount,
       total_perimeter_lf: safeNum(Math.round(totalPerimeter)),
@@ -2519,7 +2522,14 @@ export default function RoofMeasurePage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {facets.map((facet, idx) => (
+                {facets.map((facet, idx) => {
+                  const fpScale = measurements?.footprint_scale ?? 1
+                  const rawFlat = facet.flat_area_sqft || 0
+                  const displayFlat = Math.round(rawFlat * fpScale)
+                  const mult = facet.pitch_multiplier || 1
+                  const displaySurface =
+                    facet.pitch === 'Unset' ? displayFlat : Math.round(displayFlat * mult)
+                  return (
                   <div
                     key={facet.id}
                     onClick={() => setSelectedFacet(facet.id)}
@@ -2565,7 +2575,7 @@ export default function RoofMeasurePage() {
                         <span className="text-gray-500">
                           {facet.pitch === 'Unset' ? 'Surface (pitch TBD):' : 'Actual surface:'}
                         </span>
-                        <span className="text-gray-300 ml-1">{(facet.area_sqft || 0).toLocaleString()} sqft</span>
+                        <span className="text-gray-300 ml-1">{displaySurface.toLocaleString()} sqft</span>
                       </div>
                       <div>
                         <span className="text-gray-500">Pitch:</span>
@@ -2576,11 +2586,11 @@ export default function RoofMeasurePage() {
                       </div>
                       <div>
                         <span className="text-gray-500">Flat:</span>
-                        <span className="text-gray-400 ml-1">{(facet.flat_area_sqft || 0).toLocaleString()} sqft</span>
+                        <span className="text-gray-400 ml-1">{displayFlat.toLocaleString()} sqft</span>
                       </div>
                       <div>
                         <span className="text-gray-500">Squares:</span>
-                        <span className="text-gray-300 ml-1">{(facet.area_sqft / 100).toFixed(2)}</span>
+                        <span className="text-gray-300 ml-1">{(displaySurface / 100).toFixed(2)}</span>
                       </div>
                     </div>
                     <div className="mt-2">
@@ -2625,7 +2635,8 @@ export default function RoofMeasurePage() {
                       </select>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             
