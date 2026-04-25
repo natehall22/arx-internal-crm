@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
+import { getPngDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
 import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
 import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
 
@@ -1180,25 +1181,6 @@ export async function POST(request: Request) {
     const targetingNote =
       'The target house roof should be centered in this image. Trace only the centered residence roof and ignore neighboring roofs, roads, trees, and detached structures.'
 
-    const imageCenterX = imageWidth / 2
-    const imageCenterY = imageHeight / 2
-    /**
-     * Old: 0.42 * min(w,h) — on wide short static maps (typical CRM layout), min is small and this discards
-     * real roof planes toward the top/bottom of the frame (~half the squares). Use ~85% of center→corner
-     * distance so the whole centered structure stays included; only extreme corners (neighbors) clip out.
-     */
-    const centerRadiusPx = Math.hypot(imageWidth / 2, imageHeight / 2) * 0.85
-    const isNearImageCenter = (points: PixelPoint[]) => {
-      if (!points.length) return false
-      const centroid = points.reduce(
-        (acc, [x, y]) => ({ x: acc.x + Number(x) / points.length, y: acc.y + Number(y) / points.length }),
-        { x: 0, y: 0 }
-      )
-      const dx = centroid.x - imageCenterX
-      const dy = centroid.y - imageCenterY
-      return Math.sqrt(dx * dx + dy * dy) <= centerRadiusPx
-    }
-
     const lineInBounds = (latLngs: { lat: number; lng: number }[]) => {
       if (!validBounds || latLngs.length === 0) return true
       const cLat = latLngs.reduce((s, p) => s + p.lat, 0) / latLngs.length
@@ -1281,6 +1263,25 @@ export async function POST(request: Request) {
             sizeH: logicalSizeH,
           })
 
+    const pngDims = getPngDimensionsFromBase64(detectionImageBase64)
+    const visionW = pngDims?.width && pngDims.width > 0 ? pngDims.width : imageWidth
+    const visionH = pngDims?.height && pngDims.height > 0 ? pngDims.height : imageHeight
+    const visionPixelDesc = `${visionW}×${visionH} (x: 0–${visionW - 1}, y: 0–${visionH - 1})`
+
+    const imageCenterX = visionW / 2
+    const imageCenterY = visionH / 2
+    const centerRadiusPx = Math.hypot(visionW / 2, visionH / 2) * 0.85
+    const isNearImageCenter = (points: PixelPoint[]) => {
+      if (!points.length) return false
+      const centroid = points.reduce(
+        (acc, [x, y]) => ({ x: acc.x + Number(x) / points.length, y: acc.y + Number(y) / points.length }),
+        { x: 0, y: 0 }
+      )
+      const dx = centroid.x - imageCenterX
+      const dy = centroid.y - imageCenterY
+      return Math.sqrt(dx * dx + dy * dy) <= centerRadiusPx
+    }
+
     /** Bitmap center/zoom for pixel ↔ lat/lng (must match the image passed to the vision model). */
     const usingClientImage = typeof imageBase64 === 'string' && imageBase64.trim().length > 0
     const geoCenterForPixels =
@@ -1292,8 +1293,8 @@ export async function POST(request: Request) {
       geoCenterForPixels.lat,
       geoCenterForPixels.lng,
       geoZoomForPixels,
-      imageWidth,
-      imageHeight,
+      visionW,
+      visionH,
       validBounds
     )
     const solarFacetPrompt = buildSolarFacetDetectionPromptText(solarSegments, solarPixelHints)
@@ -1301,14 +1302,14 @@ export async function POST(request: Request) {
 
     const raw = await callDetectionModel(
       detectionImageBase64,
-      imagePixelDesc,
+      visionPixelDesc,
       targetingNote,
       solarFacetPrompt
     )
 
-    /** Static satellite tiles use Web Mercator — must match center/zoom of the bitmap (same as `/api/maps/static-satellite`). */
+    /** Static satellite tiles use Web Mercator — must match center/zoom and pixel size of the bitmap. */
     const pixelToGeoForVision = (x: number, y: number) =>
-      pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, imageWidth, imageHeight)
+      pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, visionW, visionH)
 
     const facetsMapped: FacetResponsePayload[] = (raw.facets || [])
       .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
@@ -1432,7 +1433,7 @@ export async function POST(request: Request) {
       detection_mode: 'vision',
       openai_calls: 2,
       solar_pixel_hints: solarHintCount,
-      static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+      static_map_size: { width: visionW, height: visionH, logical: `${logicalSizeW}x${logicalSizeH}` },
     })
   } catch (error) {
     console.error('AI roof detect error:', error)

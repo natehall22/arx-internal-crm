@@ -1703,8 +1703,12 @@ export default function RoofMeasurePage() {
     const flatAreaRaw = currentFacets.reduce((sum, f) => sum + facetFlatSqft(f), 0)
     const solarRef = solarGroundFootprintReferenceRef.current
     const SOLAR_OVERLAP_THRESHOLD = 1.08
+    /** OpenAI traces use drawn geometry; Solar summed ground_area often disagrees with field / merged segments. */
+    const fromOpenAiVision =
+      aiGeometrySource === 'vision' || aiGeometrySource === 'vision_solar_guided'
     let flatScale = 1
     if (
+      !fromOpenAiVision &&
       solarRef != null &&
       solarRef >= 350 &&
       flatAreaRaw > solarRef * SOLAR_OVERLAP_THRESHOLD
