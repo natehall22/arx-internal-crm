@@ -10,6 +10,11 @@ export type SolarMaskSegment = {
   area_m2: number | null
   ground_area_m2: number | null
   center: { lat: number; lng: number } | null
+  /** When present, limits Voronoi labeling so distant planes do not steal edge pixels. */
+  bounding_box: {
+    sw: { lat: number; lng: number }
+    ne: { lat: number; lng: number }
+  } | null
 }
 
 export type SolarMaskFacetPayload = {
@@ -26,9 +31,24 @@ export type SolarMaskFacetPayload = {
 }
 
 const MAX_MASK_PIXELS = 4_000_000
+/** Skip expensive per-pixel labeling above this (width×height×segments). */
+const MAX_LABEL_OPS = 35_000_000
 const MIN_RING_AREA_PX = 80
+const MIN_SPLIT_RING_AREA_PX = 55
 const MAX_FACETS = 6
+const MAX_SEGMENTS_FOR_SPLIT = 22
+const MAX_SPLIT_FACETS_OUTPUT = 16
 const MAX_VERTICES_PER_RING = 48
+
+type SegPx = {
+  segment_index: number
+  col: number
+  row: number
+  minC: number
+  maxC: number
+  minR: number
+  maxR: number
+}
 
 function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const toRadians = (value: number) => (value * Math.PI) / 180
@@ -243,6 +263,27 @@ async function loadMaskRasterAndProjector(
   return { band0, width, height, pixelToLngLat, lngLatToColRow }
 }
 
+function pointInPolygonLngLat(pt: { lat: number; lng: number }, ring: { lat: number; lng: number }[]): boolean {
+  if (ring.length < 3) return false
+  const py = pt.lat
+  const px = pt.lng
+  let inside = false
+  const n = ring.length
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[i].lng
+    const yi = ring[i].lat
+    const xj = ring[j].lng
+    const yj = ring[j].lat
+    const denom = yj - yi
+    if (Math.abs(denom) < 1e-14) continue
+    if ((yi > py) !== (yj > py)) {
+      const xInt = ((xj - xi) * (py - yi)) / denom + xi
+      if (px < xInt) inside = !inside
+    }
+  }
+  return inside
+}
+
 function pointInPolygonColRow(px: number, py: number, ring: [number, number][]): boolean {
   if (ring.length < 3) return false
   let inside = false
@@ -275,6 +316,197 @@ function nearestSegment(
     if (!best || d < best.dist) best = { segment: seg, dist: d }
   }
   return best
+}
+
+function segmentByIndex(segments: SolarMaskSegment[], idx: number): SolarMaskSegment | null {
+  return segments.find((s) => s.segment_index === idx) ?? null
+}
+
+function buildSegmentPxList(
+  segments: SolarMaskSegment[],
+  lngLatToColRow: (lat: number, lng: number) => { col: number; row: number } | null
+): SegPx[] {
+  const out: SegPx[] = []
+  const pad = 4
+  for (const s of segments) {
+    if (!s.center) continue
+    const c0 = lngLatToColRow(s.center.lat, s.center.lng)
+    if (!c0) continue
+    let minC = c0.col - 8
+    let maxC = c0.col + 8
+    let minR = c0.row - 8
+    let maxR = c0.row + 8
+    if (s.bounding_box) {
+      const { ne, sw } = s.bounding_box
+      const pts = [
+        lngLatToColRow(ne.lat, sw.lng),
+        lngLatToColRow(ne.lat, ne.lng),
+        lngLatToColRow(sw.lat, ne.lng),
+        lngLatToColRow(sw.lat, sw.lng),
+      ].filter((p): p is { col: number; row: number } => Boolean(p))
+      if (pts.length >= 2) {
+        const cs = pts.map((p) => p.col)
+        const rs = pts.map((p) => p.row)
+        minC = Math.min(...cs) - pad
+        maxC = Math.max(...cs) + pad
+        minR = Math.min(...rs) - pad
+        maxR = Math.max(...rs) + pad
+      }
+    }
+    out.push({
+      segment_index: s.segment_index,
+      col: c0.col,
+      row: c0.row,
+      minC,
+      maxC,
+      minR,
+      maxR,
+    })
+  }
+  return out
+}
+
+/** Assign each roof-mask pixel to the nearest Solar segment center (Voronoi on-mask). */
+function labelRoofMaskBySegments(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  segsPx: SegPx[]
+): Int32Array {
+  const labels = new Int32Array(width * height)
+  labels.fill(-1)
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      const i = row * width + col
+      if (bin[i] === 0) continue
+      let bestIdx = -1
+      let bestD = Infinity
+      const candidates: SegPx[] = []
+      for (const s of segsPx) {
+        if (col >= s.minC && col <= s.maxC && row >= s.minR && row <= s.maxR) candidates.push(s)
+      }
+      const pool = candidates.length > 0 ? candidates : segsPx
+      for (const s of pool) {
+        const dc = col - s.col
+        const dr = row - s.row
+        const d = dc * dc + dr * dr
+        if (d < bestD) {
+          bestD = d
+          bestIdx = s.segment_index
+        }
+      }
+      labels[i] = bestIdx
+    }
+  }
+  return labels
+}
+
+function largestRing(rings: [number, number][][]): [number, number][] | null {
+  let best: [number, number][] | null = null
+  let bestA = 0
+  for (const r of rings) {
+    const a = polygonAreaPx(r)
+    if (a > bestA) {
+      bestA = a
+      best = r
+    }
+  }
+  return best
+}
+
+function facetsFromSplitMask(options: {
+  bin: Uint8Array
+  labels: Int32Array
+  width: number
+  height: number
+  segsPx: SegPx[]
+  segments: SolarMaskSegment[]
+  pixelToLngLat: (col: number, row: number) => { lat: number; lng: number }
+}): SolarMaskFacetPayload[] {
+  const { bin, labels, width, height, segsPx, segments, pixelToLngLat } = options
+  const scratch = new Float64Array(width * height)
+  const out: SolarMaskFacetPayload[] = []
+
+  const ordered = [...segsPx].sort((a, b) => a.segment_index - b.segment_index)
+  for (const meta of ordered) {
+    scratch.fill(0)
+    for (let i = 0; i < labels.length; i++) {
+      if (labels[i] === meta.segment_index && bin[i] === 1) scratch[i] = 1
+    }
+    const rings = contourRingsFromMask(scratch, width, height).filter(
+      (r) => polygonAreaPx(r) >= MIN_SPLIT_RING_AREA_PX
+    )
+    const ring = largestRing(rings)
+    if (!ring) continue
+
+    const simplified = decimateClosedRing(ring, MAX_VERTICES_PER_RING)
+    if (simplified.length < 4) continue
+
+    const latLngVertices: { lat: number; lng: number }[] = []
+    for (let i = 0; i < simplified.length - 1; i++) {
+      const [x, y] = simplified[i]
+      latLngVertices.push(pixelToLngLat(x, y))
+    }
+    if (latLngVertices.length < 3) continue
+
+    const seg = segmentByIndex(segments, meta.segment_index)
+    const estSqFt = Math.round(planarPolygonAreaSqFt(latLngVertices))
+
+    out.push({
+      id: `solar_mask_plane_${meta.segment_index}`,
+      vertices: [],
+      lat_lng_vertices: latLngVertices,
+      confidence: 0.9,
+      estimated_sq_ft: estSqFt > 0 ? estSqFt : null,
+      solar_segment_index: meta.segment_index,
+      suggested_pitch_degrees: seg?.pitch_degrees ?? null,
+      suggested_azimuth_degrees: seg?.azimuth_degrees ?? null,
+      suggested_ground_area_sqft:
+        typeof seg?.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
+      facet_source: 'solar_mask',
+    })
+  }
+
+  return out
+}
+
+const PIN_MATCH_MAX_METERS = 24
+const HOUSE_CLUSTER_MAX_METERS = 22
+
+/** Keep only facets that plausibly belong to the user’s pin; otherwise fail closed. */
+function filterSplitFacetsByPin(
+  facets: SolarMaskFacetPayload[],
+  ref: { lat: number; lng: number }
+): SolarMaskFacetPayload[] {
+  if (facets.length === 0) return facets
+  const scored = facets.map((f) => {
+    const vs = f.lat_lng_vertices
+    const cLat = vs.reduce((s, p) => s + p.lat, 0) / vs.length
+    const cLng = vs.reduce((s, p) => s + p.lng, 0) / vs.length
+    const inside = pointInPolygonLngLat(ref, vs)
+    const dist = distanceMeters(ref, { lat: cLat, lng: cLng })
+    return { f, inside, dist, area: planarPolygonAreaSqFt(vs), centroid: { lat: cLat, lng: cLng } }
+  })
+
+  const primary =
+    scored
+      .filter((x) => x.inside || x.dist <= PIN_MATCH_MAX_METERS)
+      .sort((a, b) => {
+        if (a.inside !== b.inside) return a.inside ? -1 : 1
+        return a.dist - b.dist
+      })[0] ?? null
+
+  if (!primary) return []
+
+  const pool = scored.filter((x) => {
+    if (x.inside || x.dist <= PIN_MATCH_MAX_METERS) return true
+    return distanceMeters(x.centroid, primary.centroid) <= HOUSE_CLUSTER_MAX_METERS
+  })
+
+  return pool
+    .sort((a, b) => b.area - a.area)
+    .slice(0, MAX_SPLIT_FACETS_OUTPUT)
+    .map((x) => x.f)
 }
 
 /** Exported for unit tests — converts a roof-mask raster band to pixel-space rings (column, row). */
@@ -334,13 +566,46 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
 
     const { band0, width, height, pixelToLngLat, lngLatToColRow } = loaded
 
+    const bin = new Uint8Array(width * height)
+    for (let i = 0; i < band0.length; i++) {
+      const v = band0[i]
+      bin[i] = v !== 0 && Number(v) > 0 ? 1 : 0
+    }
+
+    const segsPx = buildSegmentPxList(
+      segments.filter((s) => s.center).slice(0, MAX_SEGMENTS_FOR_SPLIT),
+      lngLatToColRow
+    )
+
+    const ref = { lat: referenceLat, lng: referenceLng }
+    const refPx = lngLatToColRow(referenceLat, referenceLng)
+
+    const labelBudget = width * height * Math.max(1, segsPx.length)
+    if (
+      segsPx.length >= 1 &&
+      labelBudget <= MAX_LABEL_OPS &&
+      bin.some((v) => v === 1)
+    ) {
+      const labels = labelRoofMaskBySegments(bin, width, height, segsPx)
+      const splitFacets = facetsFromSplitMask({
+        bin,
+        labels,
+        width,
+        height,
+        segsPx,
+        segments,
+        pixelToLngLat,
+      })
+      const splitFiltered = filterSplitFacetsByPin(splitFacets, ref)
+      if (splitFiltered.length > 0) {
+        return splitFiltered
+      }
+    }
+
     let rings = contourRingsFromMask(band0, width, height)
     rings = rings.filter((r) => polygonAreaPx(r) >= MIN_RING_AREA_PX)
 
     if (rings.length === 0) return null
-
-    const ref = { lat: referenceLat, lng: referenceLng }
-    const refPx = lngLatToColRow(referenceLat, referenceLng)
 
     const scoreRing = (ring: [number, number][]) => {
       const [cx, cy] = ringCentroid(ring)

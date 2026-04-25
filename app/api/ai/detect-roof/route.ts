@@ -247,6 +247,50 @@ type FacetResponsePayload = {
   facet_source?: string
 }
 
+/** Bbox quads are not pin-filtered in `lib/solar-roof-mask-facets`; mask split facets already are. */
+const TARGET_PIN_MAX_METERS = 24
+const TARGET_CLUSTER_MAX_METERS = 22
+
+function filterFacetsToRequestedStructure(
+  facets: FacetResponsePayload[],
+  requestedCenter: { lat: number; lng: number }
+): FacetResponsePayload[] {
+  if (facets.length === 0) return facets
+
+  const scored = facets
+    .map((facet) => {
+      const vertices = facet.lat_lng_vertices
+      if (!vertices || vertices.length < 3) return null
+      const centroid = polygonCentroid(vertices)
+      return {
+        facet,
+        centroid,
+        inside: pointInPolygonLngLat(requestedCenter, vertices),
+        dist: distanceMeters(requestedCenter, centroid),
+        area: planarPolygonAreaSqFt(vertices),
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+  const primary =
+    scored
+      .filter((item) => item.inside || item.dist <= TARGET_PIN_MAX_METERS)
+      .sort((a, b) => {
+        if (a.inside !== b.inside) return a.inside ? -1 : 1
+        return a.dist - b.dist
+      })[0] ?? null
+
+  if (!primary) return []
+
+  return scored
+    .filter((item) => {
+      if (item.inside || item.dist <= TARGET_PIN_MAX_METERS) return true
+      return distanceMeters(item.centroid, primary.centroid) <= TARGET_CLUSTER_MAX_METERS
+    })
+    .sort((a, b) => b.area - a.area)
+    .map((item) => item.facet)
+}
+
 /** One lat/lng quad per Google Solar segment (engineering footprint). No OpenAI. */
 function buildSolarPlaneFacetPayloads(
   segments: SolarRoofSegment[],
@@ -841,7 +885,7 @@ export async function POST(request: Request) {
     const useVision = detectionMode === 'vision'
     const solarGroundFootprintSqFtEarly = solarGroundFootprintTotalSqFt(solarSegments)
 
-    /** Default path: Solar roof mask GeoTIFF when available, else segment quads — $0 LLM. */
+    /** Default path: Solar roof mask GeoTIFF when available — $0 LLM. */
     if (!useVision) {
       const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 
@@ -876,15 +920,53 @@ export async function POST(request: Request) {
             })
           : solarFacets
 
-        const facetsOut =
-          facetsFiltered.length > 0 ? facetsFiltered : solarFacets
+        const mapCandidates = facetsFiltered.length > 0 ? facetsFiltered : solarFacets
+        const maskAlreadyPinFiltered =
+          mapCandidates.length > 0 &&
+          mapCandidates.every((f) => f.facet_source === 'solar_mask')
+        const targetFacets = maskAlreadyPinFiltered
+          ? mapCandidates
+          : filterFacetsToRequestedStructure(mapCandidates, requestedCenter)
+        const { facets: facetsOut, dropped_note } = dedupeAndCapFacetFootprints(
+          targetFacets,
+          validBounds,
+          solarGroundFootprintSqFtEarly
+        )
+
+        if (facetsOut.length === 0) {
+          return NextResponse.json({
+            facets: [],
+            ridges: [],
+            valleys: [],
+            step_flashing: [],
+            wall_flashing: [],
+            notes:
+              'Google Solar returned geometry for this area, but nothing passed the map-pin / overlap filters. Center the pin on the house and try again, use AI trace roof, or draw facets manually.',
+            solar_segments: solarSegments,
+            solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
+            requested_center: requestedCenter,
+            capture_center: captureCenter,
+            capture_center_source: alignWithClientMap
+              ? 'requested_center'
+              : shouldUseSolarAnchor
+                ? 'solar_anchor'
+                : 'requested_center',
+            detection_zoom: normalizedZoom,
+            localization: null,
+            facet_source: 'none',
+            detection_mode: 'solar',
+            openai_calls: 0,
+            static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+          })
+        }
 
         const facetSource =
           facetsOut[0]?.facet_source === 'solar_mask' ? 'solar_mask' : 'solar_bbox'
         const solarNotes =
           facetSource === 'solar_mask'
-            ? 'Roof outline from Google Solar roof mask (GeoTIFF)—follows the analysis footprint more closely than segment boxes. Drag corners to match satellite imagery. Pitch/azimuth use the nearest Solar segment when available. Use “AI trace roof” only if you need GPT from a static map (OpenAI cost).'
+            ? 'Roof planes from Google Solar mask (GeoTIFF), split by Solar segment centers so outlines follow real edges instead of axis-aligned boxes. Drag corners to fine-tune. Use “AI trace roof” only if you need GPT from a static map (OpenAI cost).'
             : 'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).'
+        const notes = dropped_note ? `${dropped_note} ${solarNotes}` : solarNotes
 
         return NextResponse.json({
           facets: facetsOut,
@@ -892,7 +974,7 @@ export async function POST(request: Request) {
           valleys: [],
           step_flashing: [],
           wall_flashing: [],
-          notes: solarNotes,
+          notes,
           solar_segments: solarSegments,
           solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
           requested_center: requestedCenter,
