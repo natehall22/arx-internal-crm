@@ -9,6 +9,8 @@ type RawFacet = {
   vertices: PixelPoint[]
   confidence: number
   estimated_sq_ft?: number
+  /** When present, ties this facet to a Google Solar roofSegmentStats index. */
+  solar_segment_index?: number
 }
 
 type RawLine = {
@@ -92,6 +94,22 @@ function pixelToLatLng(
   const worldX = centerWorld.x + (px - imageWidth / 2)
   const worldY = centerWorld.y + (py - imageHeight / 2)
   return worldPixelToLatLng(worldX, worldY, zoom)
+}
+
+function latLngToPixel(
+  lat: number,
+  lng: number,
+  centerLat: number,
+  centerLng: number,
+  zoom: number,
+  imageWidth: number,
+  imageHeight: number
+): PixelPoint {
+  const centerWorld = latLngToWorldPixel(centerLat, centerLng, zoom)
+  const world = latLngToWorldPixel(lat, lng, zoom)
+  const px = world.x - centerWorld.x + imageWidth / 2
+  const py = world.y - centerWorld.y + imageHeight / 2
+  return [px, py]
 }
 
 type MapBounds = { north: number; south: number; east: number; west: number }
@@ -282,41 +300,25 @@ Solar segments:
 ${JSON.stringify(simplified)}`
 }
 
-function buildSolarPromptLinesOnly(segments: SolarRoofSegment[]): string {
-  if (segments.length === 0) {
-    return 'Roof facet polygons are not from Solar. Trace ridges and valleys from imagery.'
-  }
-  const simplified = segments.slice(0, 20).map((s) => ({
-    segment_index: s.segment_index,
-    pitch_degrees: s.pitch_degrees,
-    azimuth_degrees: s.azimuth_degrees,
-    plane_center: s.center,
-  }))
-  return `Roof planes are already defined by Google Solar (engineering-grade segmentation).
-Your job is ONLY polylines: ridges along visible peaks, valleys along internal intersections,
-and step/wall flashing lines if clearly visible. Do NOT output facet polygons (use empty array).
-Solar plane hints (orientation):
-${JSON.stringify(simplified)}`
+type SolarPixelPlaneHint = {
+  segment_index: number
+  pitch_degrees: number | null
+  azimuth_degrees: number | null
+  pixel_region: { x_min: number; y_min: number; x_max: number; y_max: number }
 }
 
-type FacetApiPayload = {
-  id: string
-  vertices: PixelPoint[]
-  lat_lng_vertices: { lat: number; lng: number }[]
-  confidence: number
-  estimated_sq_ft: number | null
-  solar_segment_index: number | null
-  suggested_pitch_degrees: number | null
-  suggested_azimuth_degrees: number | null
-  suggested_ground_area_sqft: number | null
-  facet_source?: string
-}
-
-function buildSolarPlaneFacets(
+function buildSolarPixelPlaneHints(
   segments: SolarRoofSegment[],
+  centerLat: number,
+  centerLng: number,
+  zoom: number,
+  imageWidth: number,
+  imageHeight: number,
   validBounds: MapBounds | null
-): FacetApiPayload[] {
-  const out: FacetApiPayload[] = []
+): SolarPixelPlaneHint[] {
+  const hints: SolarPixelPlaneHint[] = []
+  const pad = 10
+
   for (const seg of segments) {
     const box = seg.bounding_box
     if (!box) continue
@@ -325,34 +327,69 @@ function buildSolarPlaneFacets(
 
     const nw = { lat: ne.lat, lng: sw.lng }
     const se = { lat: sw.lat, lng: ne.lng }
-    const latLngVertices = [nw, ne, se, sw]
+    const corners = [nw, ne, se, sw]
 
-    const cLat = latLngVertices.reduce((s, p) => s + p.lat, 0) / 4
-    const cLng = latLngVertices.reduce((s, p) => s + p.lng, 0) / 4
+    let xMin = Infinity
+    let yMin = Infinity
+    let xMax = -Infinity
+    let yMax = -Infinity
+    for (const c of corners) {
+      const [px, py] = latLngToPixel(c.lat, c.lng, centerLat, centerLng, zoom, imageWidth, imageHeight)
+      xMin = Math.min(xMin, px)
+      yMin = Math.min(yMin, py)
+      xMax = Math.max(xMax, px)
+      yMax = Math.max(yMax, py)
+    }
+
+    const rx0 = clamp(Math.floor(xMin - pad), 0, imageWidth - 1)
+    const ry0 = clamp(Math.floor(yMin - pad), 0, imageHeight - 1)
+    const rx1 = clamp(Math.ceil(xMax + pad), 0, imageWidth - 1)
+    const ry1 = clamp(Math.ceil(yMax + pad), 0, imageHeight - 1)
+    if (rx1 - rx0 < 12 || ry1 - ry0 < 12) continue
+
+    const cLat = corners.reduce((s, p) => s + p.lat, 0) / 4
+    const cLng = corners.reduce((s, p) => s + p.lng, 0) / 4
     if (validBounds && !centroidInExpandedBounds(cLat, cLng, validBounds, 0.18)) continue
 
-    const estSqFt =
-      typeof seg.ground_area_m2 === 'number'
-        ? Math.round(seg.ground_area_m2 * 10.7639)
-        : typeof seg.area_m2 === 'number'
-          ? Math.round(seg.area_m2 * 10.7639)
-          : null
-
-    out.push({
-      id: `solar_plane_${seg.segment_index}`,
-      vertices: [],
-      lat_lng_vertices: latLngVertices,
-      confidence: 0.9,
-      estimated_sq_ft: estSqFt,
-      solar_segment_index: seg.segment_index,
-      suggested_pitch_degrees: seg.pitch_degrees,
-      suggested_azimuth_degrees: seg.azimuth_degrees,
-      suggested_ground_area_sqft:
-        typeof seg.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
-      facet_source: 'solar_bbox',
+    hints.push({
+      segment_index: seg.segment_index,
+      pitch_degrees: seg.pitch_degrees,
+      azimuth_degrees: seg.azimuth_degrees,
+      pixel_region: { x_min: rx0, y_min: ry0, x_max: rx1, y_max: ry1 },
     })
   }
-  return out
+
+  return hints
+}
+
+/** User-message block for facet detection: Solar bboxes → pixel hints; vision draws real polygons. */
+function buildSolarFacetDetectionPromptText(segments: SolarRoofSegment[], hints: SolarPixelPlaneHint[]): string {
+  if (hints.length === 0) {
+    if (segments.length === 0) {
+      return 'No Google Solar roof-segment data for this location. Infer roof facets only from visible roof edges in the image.'
+    }
+    return `Google Solar lists ${segments.length} segment(s) but none map cleanly to this image frame. Infer roof facets from visible edges only (hips, gables, eaves, rakes, valleys). Do not use axis-aligned placeholder rectangles on lawns or trees.
+Solar summary (no pixel hints):
+${JSON.stringify(
+  segments.slice(0, 20).map((s) => ({
+    segment_index: s.segment_index,
+    pitch_degrees: s.pitch_degrees,
+    azimuth_degrees: s.azimuth_degrees,
+  }))
+)}`
+  }
+
+  return `Google Solar identified ${hints.length} roof plane(s) for this address. Each entry maps a segment_index to a loose pixel_region in THIS image (same coordinate system as your vertices: x 0..width-1 left→right, y 0..height-1 top→bottom).
+
+FACET GEOMETRY (critical):
+- Output one facet polygon per listed segment_index when that roof plane is visible. Include "solar_segment_index" on each facet (integer matching segment_index).
+- Trace the actual roof outline from the imagery (eaves, rakes, ridges, valleys). Use 4–12+ vertices as needed for hips, gables, and trapezoids.
+- Do NOT output axis-aligned rectangles, squares, or the pixel_region border as the polygon. The region is only a search hint.
+- Rotate and shear polygons to match the roof in the photo; do not force edges parallel to the image frame unless the roof truly appears that way.
+- Where two planes meet, align shared boundaries; avoid large overlaps between facets. Do not cover trees, driveways, or lawn with roof facets.
+
+Plane hints:
+${JSON.stringify(hints)}`
 }
 
 function computeStaticLogicalSize(mapWidthPx?: number, mapHeightPx?: number): { sizeW: number; sizeH: number } {
@@ -368,13 +405,13 @@ function computeStaticLogicalSize(mapWidthPx?: number, mapHeightPx?: number): { 
 
 async function callDetectionModel(
   imageBase64: string,
-  solarSegments: SolarRoofSegment[],
   imagePixelDesc: string,
-  targetingNote: string
+  targetingNote: string,
+  solarFacetPrompt: string
 ): Promise<RawDetection> {
   const systemPrompt = `You are a roofing measurement AI.
 Analyze a satellite image and identify:
-- roof facets (polygons)
+- roof facets (polygons following real roof edges — not generic rectangles on the ground)
 - ridges (lines)
 - valleys (lines)
 - flashing where visible
@@ -386,7 +423,8 @@ Return ONLY JSON:
       "id": "facet_1",
       "vertices": [[x,y],[x,y],[x,y],[x,y]],
       "confidence": 0.92,
-      "estimated_sq_ft": 310
+      "estimated_sq_ft": 310,
+      "solar_segment_index": 0
     }
   ],
   "ridges": [{ "id": "r1", "points": [[x,y],[x,y]], "confidence": 0.9 }],
@@ -398,7 +436,8 @@ Return ONLY JSON:
 
 Rules:
 - The image is high-DPI satellite (logical size given in the user message). x is 0..width-1, y is 0..height-1, (0,0) top-left.
-- Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, squares on lawns, or “default” shapes in empty areas.
+- Facets: simple closed polygons; include solar_segment_index when the user message maps planes to Solar segment indices, otherwise omit it.
+- Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, axis-aligned boxes on lawns, or “default” shapes in empty areas.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
 - Include low confidence items (<0.65) only when you still see a plausible roof edge.`
@@ -419,86 +458,19 @@ Rules:
             {
               type: 'text',
               text: retry
-                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPrompt(solarSegments)}`
-                : `Analyze this roof satellite image. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPrompt(solarSegments)}`,
+                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${solarFacetPrompt}`
+                : `Analyze this roof satellite image. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${solarFacetPrompt}`,
             },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
         },
       ],
-      max_tokens: 1800,
+      max_tokens: 2600,
     })
 
     const content = completion.choices?.[0]?.message?.content || ''
     const parsed = safeJsonParse<RawDetection>(content)
     if (!parsed) throw new Error('Invalid JSON from model')
-    return parsed
-  }
-
-  try {
-    return await attempt(false)
-  } catch {
-    return await attempt(true)
-  }
-}
-
-/** Vision pass for ridges/valleys only when roof planes come from Google Solar bboxes. */
-async function callRoofLinesOnlyModel(
-  imageBase64: string,
-  solarSegments: SolarRoofSegment[],
-  imagePixelDesc: string,
-  targetingNote: string
-): Promise<RawDetection> {
-  const systemPrompt = `You are a roofing measurement AI for LINE features only.
-Roof plane polygons are already defined elsewhere. You must NOT draw facet polygons.
-
-Return ONLY JSON:
-{
-  "facets": [],
-  "ridges": [{ "id": "r1", "points": [[x,y],[x,y]], "confidence": 0.9 }],
-  "valleys": [{ "id": "v1", "points": [[x,y],[x,y]], "confidence": 0.85 }],
-  "step_flashing": [],
-  "wall_flashing": [],
-  "notes": ""
-}
-
-Rules:
-- facets MUST be an empty array [].
-- Ridges: polylines along visible roof peaks (horizontal or sloped ridgelines).
-- Valleys: polylines where two roof planes meet in an interior angle.
-- Pixel coords: x 0..width-1, y 0..height-1, (0,0) top-left.
-- Only draw lines you can clearly see on the roof; skip guesswork.`
-
-  const dataUrl = toDataUrl(imageBase64)
-  const openai = getOpenAI()
-
-  const attempt = async (retry = false) => {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      response_format: { type: 'json_object' },
-      temperature: 0.05,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: retry
-                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPromptLinesOnly(solarSegments)}`
-                : `Trace ridges and valleys on this satellite image. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPromptLinesOnly(solarSegments)}`,
-            },
-            { type: 'image_url', image_url: { url: dataUrl } },
-          ],
-        },
-      ],
-      max_tokens: 1200,
-    })
-
-    const content = completion.choices?.[0]?.message?.content || ''
-    const parsed = safeJsonParse<RawDetection>(content)
-    if (!parsed) throw new Error('Invalid JSON from model')
-    parsed.facets = []
     return parsed
   }
 
@@ -659,89 +631,6 @@ export async function POST(request: Request) {
       return centroidInExpandedBounds(cLat, cLng, validBounds, 0.12)
     }
 
-    const solarPlaneFacets = buildSolarPlaneFacets(solarSegments, validBounds)
-
-    /** Google Solar roof-segment bboxes → lat/lng quads; vision only adds ridges/valleys. */
-    if (solarPlaneFacets.length > 0) {
-      const mapCenter = alignWithClientMap ? requestedCenter : captureCenter
-      const mapZoom = alignWithClientMap
-        ? Math.min(22, Math.max(15, normalizedZoom))
-        : detectionZoomBase
-
-      const detectionImageBase64 = await fetchStaticMapBase64(
-        mapCenter.lat,
-        mapCenter.lng,
-        mapZoom,
-        logicalSizeW,
-        logicalSizeH
-      )
-
-      const raw = await callRoofLinesOnlyModel(
-        detectionImageBase64,
-        solarSegments,
-        imagePixelDesc,
-        targetingNote
-      )
-
-      const normalizeLineGroup = (lines: RawLine[] | undefined, prefix: string) =>
-        (lines || [])
-          .filter((line) => isNearImageCenter(Array.isArray(line.points) ? line.points : []))
-          .map((line, idx) => {
-            const points = Array.isArray(line.points) ? line.points : []
-            const latLngPoints = points.map(([x, y]) =>
-              pixelToLatLng(
-                Number(x),
-                Number(y),
-                mapCenter.lat,
-                mapCenter.lng,
-                mapZoom,
-                imageWidth,
-                imageHeight
-              )
-            )
-            return {
-              id: line.id || `${prefix}_${idx + 1}`,
-              points,
-              lat_lng_points: latLngPoints,
-              confidence: Number(line.confidence) || 0,
-            }
-          })
-
-      const filterLines = (lines: ReturnType<typeof normalizeLineGroup>) =>
-        validBounds ? lines.filter((line) => lineInBounds(line.lat_lng_points)) : lines
-
-      const facetsFiltered = validBounds
-        ? solarPlaneFacets.filter((facet) => {
-            const vs = facet.lat_lng_vertices
-            if (!vs || vs.length === 0) return false
-            const cLat = vs.reduce((s, p) => s + p.lat, 0) / vs.length
-            const cLng = vs.reduce((s, p) => s + p.lng, 0) / vs.length
-            return centroidInExpandedBounds(cLat, cLng, validBounds, 0.12)
-          })
-        : solarPlaneFacets
-
-      return NextResponse.json({
-        facets: facetsFiltered,
-        ridges: filterLines(normalizeLineGroup(raw.ridges, 'ridge')),
-        valleys: filterLines(normalizeLineGroup(raw.valleys, 'valley')),
-        step_flashing: filterLines(normalizeLineGroup(raw.step_flashing, 'step_flash')),
-        wall_flashing: filterLines(normalizeLineGroup(raw.wall_flashing, 'wall_flash')),
-        notes: raw.notes || '',
-        solar_segments: solarSegments,
-        requested_center: requestedCenter,
-        capture_center: mapCenter,
-        capture_center_source: alignWithClientMap
-          ? 'requested_center'
-          : shouldUseSolarAnchor
-            ? 'solar_anchor'
-            : 'requested_center',
-        detection_zoom: mapZoom,
-        localization: null,
-        facet_source: 'solar_bbox',
-        static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
-      })
-    }
-
     const localizationNote = shouldUseSolarAnchor
       ? 'The target house should already be close to the image center. Prefer the centered residence and ignore neighboring structures.'
       : 'Choose the main residence nearest the image center and ignore neighboring structures.'
@@ -817,7 +706,30 @@ export async function POST(request: Request) {
             logicalSizeH
           )
 
-    const raw = await callDetectionModel(detectionImageBase64, solarSegments, imagePixelDesc, targetingNote)
+    /** Bitmap center/zoom for pixel ↔ lat/lng (must match the image passed to the vision model). */
+    const usingClientImage = typeof imageBase64 === 'string' && imageBase64.trim().length > 0
+    const geoCenterForPixels =
+      usingClientImage && !alignWithClientMap ? captureCenter : localizedCenter
+    const geoZoomForPixels = usingClientImage && !alignWithClientMap ? detectionZoomBase : finalZoom
+
+    const solarPixelHints = buildSolarPixelPlaneHints(
+      solarSegments,
+      geoCenterForPixels.lat,
+      geoCenterForPixels.lng,
+      geoZoomForPixels,
+      imageWidth,
+      imageHeight,
+      validBounds
+    )
+    const solarFacetPrompt = buildSolarFacetDetectionPromptText(solarSegments, solarPixelHints)
+    const solarHintCount = solarPixelHints.length
+
+    const raw = await callDetectionModel(
+      detectionImageBase64,
+      imagePixelDesc,
+      targetingNote,
+      solarFacetPrompt
+    )
 
     const facets = (raw.facets || [])
       .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
@@ -827,9 +739,9 @@ export async function POST(request: Request) {
           pixelToLatLng(
             Number(x),
             Number(y),
-            localizedCenter.lat,
-            localizedCenter.lng,
-            finalZoom,
+            geoCenterForPixels.lat,
+            geoCenterForPixels.lng,
+            geoZoomForPixels,
             imageWidth,
             imageHeight
           )
@@ -853,20 +765,26 @@ export async function POST(request: Request) {
               }, null)
             : null
 
+        const modelSolarIdx =
+          typeof facet.solar_segment_index === 'number' && Number.isFinite(facet.solar_segment_index)
+            ? Math.round(facet.solar_segment_index)
+            : null
+        const segmentByModelIndex =
+          modelSolarIdx !== null ? solarSegments.find((s) => s.segment_index === modelSolarIdx) : null
+        const pitchSegment = segmentByModelIndex || nearestSolarSegment
+
         return {
           id: facet.id || `facet_${idx + 1}`,
           vertices,
           lat_lng_vertices: latLngVertices,
           confidence: Number(facet.confidence) || 0,
           estimated_sq_ft: typeof facet.estimated_sq_ft === 'number' ? facet.estimated_sq_ft : null,
-          solar_segment_index: nearestSolarSegment?.segment_index ?? null,
-          suggested_pitch_degrees: nearestSolarSegment?.pitch_degrees ?? null,
-          suggested_azimuth_degrees: nearestSolarSegment?.azimuth_degrees ?? null,
+          solar_segment_index: segmentByModelIndex?.segment_index ?? nearestSolarSegment?.segment_index ?? null,
+          suggested_pitch_degrees: pitchSegment?.pitch_degrees ?? null,
+          suggested_azimuth_degrees: pitchSegment?.azimuth_degrees ?? null,
           suggested_ground_area_sqft:
-            typeof nearestSolarSegment?.ground_area_m2 === 'number'
-              ? nearestSolarSegment.ground_area_m2 * 10.7639
-              : null,
-          facet_source: 'vision',
+            typeof pitchSegment?.ground_area_m2 === 'number' ? pitchSegment.ground_area_m2 * 10.7639 : null,
+          facet_source: solarHintCount > 0 ? 'vision_solar_guided' : 'vision',
         }
       })
 
@@ -889,9 +807,9 @@ export async function POST(request: Request) {
             pixelToLatLng(
               Number(x),
               Number(y),
-              localizedCenter.lat,
-              localizedCenter.lng,
-              finalZoom,
+              geoCenterForPixels.lat,
+              geoCenterForPixels.lng,
+              geoZoomForPixels,
               imageWidth,
               imageHeight
             )
@@ -929,7 +847,8 @@ export async function POST(request: Request) {
           : 'requested_center',
       detection_zoom: finalZoom,
       localization,
-      facet_source: 'vision',
+      facet_source: solarHintCount > 0 ? 'vision_solar_guided' : 'vision',
+      solar_pixel_hints: solarHintCount,
       static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
     })
   } catch (error) {
