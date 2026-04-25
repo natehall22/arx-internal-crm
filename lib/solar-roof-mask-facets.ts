@@ -38,7 +38,10 @@ const MIN_SPLIT_RING_AREA_PX = 55
 const MAX_FACETS = 6
 const MAX_SEGMENTS_FOR_SPLIT = 22
 const MAX_SPLIT_FACETS_OUTPUT = 16
+/** Whole-roof / legacy multipolygon pick — keep UI light. */
 const MAX_VERTICES_PER_RING = 48
+/** Per-plane mask contours — more vertices follow hips and irregular eaves. */
+const MAX_VERTICES_PER_SPLIT_RING = 72
 
 type SegPx = {
   segment_index: number
@@ -433,13 +436,13 @@ function facetsFromSplitMask(options: {
     for (let i = 0; i < labels.length; i++) {
       if (labels[i] === meta.segment_index && bin[i] === 1) scratch[i] = 1
     }
-    const rings = contourRingsFromMask(scratch, width, height).filter(
+    const rings = contourRingsFromMask(scratch, width, height, { smooth: false }).filter(
       (r) => polygonAreaPx(r) >= MIN_SPLIT_RING_AREA_PX
     )
     const ring = largestRing(rings)
     if (!ring) continue
 
-    const simplified = decimateClosedRing(ring, MAX_VERTICES_PER_RING)
+    const simplified = decimateClosedRing(ring, MAX_VERTICES_PER_SPLIT_RING)
     if (simplified.length < 4) continue
 
     const latLngVertices: { lat: number; lng: number }[] = []
@@ -513,7 +516,8 @@ function filterSplitFacetsByPin(
 export function contourRingsFromMask(
   band: geotiff.TypedArray,
   width: number,
-  height: number
+  height: number,
+  options?: { smooth?: boolean }
 ): [number, number][][] {
   const values = new Float64Array(width * height)
   for (let i = 0; i < values.length; i++) {
@@ -523,7 +527,8 @@ export function contourRingsFromMask(
 
   if (width < 2 || height < 2) return []
 
-  const generator = d3contours().size([width, height]).thresholds([0.5]).smooth(true)
+  const smooth = options?.smooth !== false
+  const generator = d3contours().size([width, height]).thresholds([0.5]).smooth(smooth)
   const multis = generator(values as unknown as number[])
   if (!multis.length) return []
 

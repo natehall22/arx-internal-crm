@@ -647,7 +647,7 @@ ${JSON.stringify(
 
 FACET GEOMETRY (critical):
 - Output one facet polygon per listed segment_index when that roof plane is visible. Include "solar_segment_index" on each facet (integer matching segment_index).
-- Trace the actual roof outline from the imagery (eaves, rakes, ridges, valleys). Use 4–12+ vertices as needed for hips, gables, and trapezoids.
+- Trace the actual roof outline from the imagery (eaves, rakes, ridges, valleys). Use **at least 5 vertices per facet** (often 6–14 on hips/gables). **Never** default to a 4-corner quadrilateral or axis-aligned rectangle.
 - Do NOT output axis-aligned rectangles, squares, or the pixel_region border as the polygon. The region is only a search hint.
 - Rotate and shear polygons to match the roof in the photo; do not force edges parallel to the image frame unless the roof truly appears that way.
 - Where two planes meet, align shared boundaries; avoid large overlaps between facets. Do not cover trees, driveways, or lawn with roof facets.
@@ -686,7 +686,7 @@ Return ONLY JSON:
   "facets": [
     {
       "id": "facet_1",
-      "vertices": [[x,y],[x,y],[x,y],[x,y]],
+      "vertices": [[x,y],[x,y],[x,y],[x,y],[x,y],[x,y],[x,y]],
       "confidence": 0.92,
       "estimated_sq_ft": 310,
       "solar_segment_index": 0
@@ -701,7 +701,8 @@ Return ONLY JSON:
 
 Rules:
 - The image is high-DPI satellite (logical size given in the user message). x is 0..width-1, y is 0..height-1, (0,0) top-left.
-- Facets: simple closed polygons; include solar_segment_index when the user message maps planes to Solar segment indices, otherwise omit it.
+- Facets: closed polygons tracing **visible** roof edges (eaves, rakes, hips, valleys, ridges). Use **at least 5 vertices per facet** for typical planes (6–14 is common on hips/gables). **Do not** output plain quadrilaterals or axis-aligned rectangles unless the roof in the image is genuinely a single untextured rectangle with no diagonal hips—almost never on residential.
+- Include solar_segment_index when the user message maps planes to Solar segment indices, otherwise omit it.
 - Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, axis-aligned boxes on lawns, or “default” shapes in empty areas.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
@@ -732,7 +733,7 @@ Rules:
           ],
         },
       ],
-      max_tokens: 2600,
+      max_tokens: 3600,
     })
 
     const content = completion.choices?.[0]?.message?.content || ''
