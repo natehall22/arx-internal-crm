@@ -35,6 +35,8 @@ interface RoofFacet {
   suggested_pitch?: string | null
   suggested_pitch_degrees?: number | null
   color: string
+  /** Accepted from AI draft vs drawn with “Draw Facet”. */
+  origin?: 'ai_draft' | 'manual_draw'
 }
 
 // Linear features that can be manually drawn (step flashing, custom valleys, etc.)
@@ -44,6 +46,7 @@ interface LinearFeature {
   points: Point[]
   length_ft: number
   label?: string
+  origin?: 'ai_draft' | 'manual_draw'
 }
 
 interface MeasurementData {
@@ -1041,6 +1044,7 @@ export default function RoofMeasurePage() {
         suggested_pitch: draft.suggested_pitch || null,
         suggested_pitch_degrees: draft.suggested_pitch_degrees ?? null,
         color: FACET_COLORS[colorIndex],
+        origin: 'ai_draft',
       }
 
       const polygon = new google.maps.Polygon({
@@ -1110,6 +1114,7 @@ export default function RoofMeasurePage() {
         points,
         length_ft: Math.round(lengthMeters * 3.28084),
         label: LINEAR_FEATURE_LABELS[mappedType],
+        origin: 'ai_draft',
       }
 
       const polyline = new google.maps.Polyline({
@@ -1279,6 +1284,7 @@ export default function RoofMeasurePage() {
       points,
       length_ft: lengthFt,
       label: LINEAR_FEATURE_LABELS[lineDrawingTypeRef.current],
+      origin: 'manual_draw',
     }
     
     // Store polyline reference
@@ -1413,6 +1419,7 @@ export default function RoofMeasurePage() {
       orientation: pendingFacet.orientation!,
       section_type: 'main_roof',
       color: pendingFacet.color!,
+      origin: 'manual_draw',
     }
     
     // Move polygon to permanent storage and apply high-visibility styling
@@ -1879,8 +1886,13 @@ export default function RoofMeasurePage() {
         const centroidDistanceFt = getDistanceFeet(getFacetCentroid(first.points), getFacetCentroid(second.points))
         if (centroidDistanceFt > 30) continue
 
+        const o1 = first.origin || 'manual_draw'
+        const o2 = second.origin || 'manual_draw'
+        const mixedAiManual = o1 !== o2
         validationNotes.push(
-          `Sections ${i + 1} and ${j + 1} look very similar (same pitch/size/level). Verify this is not a duplicate section.`
+          mixedAiManual
+            ? `Sections ${i + 1} and ${j + 1} look similar (mixed AI vs hand-drawn). Often one replaces the other—delete the extra if both cover the same plane.`
+            : `Sections ${i + 1} and ${j + 1} look very similar (same pitch/size/level). Verify this is not a duplicate section.`
         )
         confidence = 'medium'
       }
@@ -2175,7 +2187,9 @@ export default function RoofMeasurePage() {
               {isDetecting ? 'Loading…' : 'Load roof (Google Solar)'}
             </button>
             <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-              Free: one plane per Solar segment (~correct squares). Drag corners to match the roof.
+              Free: one plane per Solar segment (~correct squares). Drag corners to match the roof. Sections list shows{' '}
+              <span className="text-cyan-600/90">AI</span> vs <span className="text-gray-400">Drawn</span> when you mix
+              loads and manual edits.
             </p>
             <button
               onClick={() => detectRoofWithAI(false, 'vision')}
@@ -2386,6 +2400,15 @@ export default function RoofMeasurePage() {
                           style={{ backgroundColor: facet.color }}
                         />
                         <span className="text-white font-medium text-sm">Section {idx + 1}</span>
+                        {facet.origin === 'ai_draft' ? (
+                          <span className="text-[10px] px-1.5 py-0 rounded bg-cyan-900/60 text-cyan-300 font-medium">
+                            AI
+                          </span>
+                        ) : facet.origin === 'manual_draw' ? (
+                          <span className="text-[10px] px-1.5 py-0 rounded bg-gray-600/80 text-gray-300 font-medium">
+                            Drawn
+                          </span>
+                        ) : null}
                       </div>
                       <button
                         onClick={(e) => {
@@ -2487,6 +2510,15 @@ export default function RoofMeasurePage() {
                             style={{ backgroundColor: LINEAR_FEATURE_COLORS[feature.type] }}
                           />
                           <span className="text-white text-sm">{feature.label}</span>
+                          {feature.origin === 'ai_draft' ? (
+                            <span className="text-[10px] px-1.5 py-0 rounded bg-cyan-900/60 text-cyan-300 font-medium">
+                              AI
+                            </span>
+                          ) : feature.origin === 'manual_draw' ? (
+                            <span className="text-[10px] px-1.5 py-0 rounded bg-gray-600/80 text-gray-300 font-medium">
+                              Drawn
+                            </span>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-gray-400 text-xs">{feature.length_ft} LF</span>
