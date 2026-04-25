@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
+import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
 import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
 
 type PixelPoint = [number, number]
@@ -111,6 +112,47 @@ function latLngToPixel(
   const px = world.x - centerWorld.x + imageWidth / 2
   const py = world.y - centerWorld.y + imageHeight / 2
   return [px, py]
+}
+
+/**
+ * Pixels from the same static-map frame the model sees → lat/lng aligned with the **interactive** map when
+ * `bounds` comes from `map.getBounds()` on the client (same viewport the user traces on). Pure Web-Mercator
+ * center math can sit a few meters off vs JS Maps + Static Maps, which reads as a shifted overlay.
+ */
+function pixelToLatLngUsingViewportBounds(
+  px: number,
+  py: number,
+  bounds: MapBounds,
+  imageWidth: number,
+  imageHeight: number
+): { lat: number; lng: number } {
+  const iw = Math.max(1, imageWidth - 1)
+  const ih = Math.max(1, imageHeight - 1)
+  const tx = clamp(px, 0, imageWidth - 1) / iw
+  const ty = clamp(py, 0, imageHeight - 1) / ih
+  const lngSpan = bounds.east - bounds.west
+  const latSpan = bounds.north - bounds.south
+  const lng = bounds.west + tx * lngSpan
+  const lat = bounds.north - ty * latSpan
+  return { lat, lng }
+}
+
+function latLngToPixelUsingViewportBounds(
+  lat: number,
+  lng: number,
+  bounds: MapBounds,
+  imageWidth: number,
+  imageHeight: number
+): PixelPoint {
+  const lngSpan = bounds.east - bounds.west
+  const latSpan = bounds.north - bounds.south
+  const safeLng = Math.abs(lngSpan) < 1e-12 ? (lngSpan >= 0 ? 1e-12 : -1e-12) : lngSpan
+  const safeLat = Math.abs(latSpan) < 1e-12 ? (latSpan >= 0 ? 1e-12 : -1e-12) : latSpan
+  const iw = Math.max(1, imageWidth - 1)
+  const ih = Math.max(1, imageHeight - 1)
+  const tx = (lng - bounds.west) / safeLng
+  const ty = (bounds.north - lat) / safeLat
+  return [tx * iw, ty * ih]
 }
 
 type MapBounds = { north: number; south: number; east: number; west: number }
@@ -337,7 +379,7 @@ function buildSolarPlaneFacetPayloads(
 
 const MIN_FACET_SQFT = 35
 const MAX_FACET_SQFT = 4000
-/** Drop facets whose centroid falls inside a higher-confidence facet, or duplicates within ~14 ft with similar area. */
+/** Drop tiny facets whose centroid falls inside a larger facet (nested duplicate), near-duplicates within ~14 ft with similar area, or trim when summed area exceeds caps. */
 const DUPLICATE_CENTROID_FT = 14
 const DUPLICATE_AREA_RATIO = 0.38
 /** Sum of facet footprint areas should not exceed ~1.32× visible map footprint (guards stacked overlaps). */
@@ -347,6 +389,14 @@ const SUM_AREA_VS_VIEWPORT_FACTOR = 1.32
  * Allow modest vision overshoot but block 3–5× inflation from overlapping facets.
  */
 const SUM_AREA_VS_SOLAR_GROUND_FACTOR = 1.32
+/** Vision traces can legitimately exceed Solar ground_area sum when Google merged segments; slightly looser cap so real planes are not trimmed. */
+const SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION = 1.48
+
+/**
+ * If facet A's centroid lies inside facet B, we usually drop A as a duplicate — but when B is an oversized
+ * vision hull, a real third plane can sit "inside" B in 2D. Only drop when A is tiny vs B (true nested duplicate).
+ */
+const NESTED_CENTROID_DUPLICATE_MAX_FRAC = 0.26
 
 /** Sum of segment ground_area_m² → sq ft (roof footprint; comparable to flat facet totals before pitch). */
 function solarGroundFootprintTotalSqFt(segments: SolarRoofSegment[]): number | null {
@@ -365,8 +415,10 @@ function solarGroundFootprintTotalSqFt(segments: SolarRoofSegment[]): number | n
 function dedupeAndCapFacetFootprints(
   facets: FacetResponsePayload[],
   validBounds: MapBounds | null,
-  solarGroundFootprintSqFt: number | null
+  solarGroundFootprintSqFt: number | null,
+  opts?: { solarGroundSumFactor?: number }
 ): { facets: FacetResponsePayload[]; dropped_note: string | null } {
+  const solarSumFactor = opts?.solarGroundSumFactor ?? SUM_AREA_VS_SOLAR_GROUND_FACTOR
   const withArea = facets
     .map((f) => ({
       facet: f,
@@ -380,8 +432,13 @@ function dedupeAndCapFacetFootprints(
 
   for (const item of sorted) {
     const { facet, area, centroid } = item
-    const insideLarger = kept.some((k) => pointInPolygonLngLat(centroid, k.facet.lat_lng_vertices))
-    if (insideLarger) continue
+    const enclosedAsTinyNested = kept.some((k) => {
+      if (!pointInPolygonLngLat(centroid, k.facet.lat_lng_vertices)) return false
+      const kArea = planarPolygonAreaSqFt(k.facet.lat_lng_vertices)
+      if (!(kArea > 0)) return false
+      return area / kArea < NESTED_CENTROID_DUPLICATE_MAX_FRAC
+    })
+    if (enclosedAsTinyNested) continue
 
     const nearDuplicate = kept.some((k) => {
       const d = distanceFeet(centroid, k.centroid)
@@ -406,14 +463,17 @@ function dedupeAndCapFacetFootprints(
     solarGroundFootprintSqFt >= 350 &&
     Number.isFinite(solarGroundFootprintSqFt)
   ) {
-    const solarCap = solarGroundFootprintSqFt * SUM_AREA_VS_SOLAR_GROUND_FACTOR
+    const solarCap = solarGroundFootprintSqFt * solarSumFactor
     footprintCap = footprintCap == null ? solarCap : Math.min(footprintCap, solarCap)
   }
 
   if (footprintCap != null && footprintCap > 400 && result.length > 0) {
     let sum = result.reduce((s, f) => s + planarPolygonAreaSqFt(f.lat_lng_vertices), 0)
     if (sum > footprintCap) {
-      const again = [...kept].sort((a, b) => (b.facet.confidence || 0) - (a.facet.confidence || 0))
+      const again = [...kept].sort((a, b) => {
+        if (b.area !== a.area) return b.area - a.area
+        return (b.facet.confidence || 0) - (a.facet.confidence || 0)
+      })
       const trimmed: FacetResponsePayload[] = []
       sum = 0
       for (const item of again) {
@@ -436,42 +496,6 @@ function dedupeAndCapFacetFootprints(
       : null
 
   return { facets: result, dropped_note }
-}
-
-async function fetchStaticMapBase64(
-  lat: number,
-  lng: number,
-  zoom: number,
-  sizeW = 640,
-  sizeH = 640
-): Promise<string> {
-  const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-  if (!mapsKey) {
-    throw new Error('Google Maps API key missing on server')
-  }
-
-  const normalizedZoom = Math.round(zoom)
-  const w = Math.max(100, Math.min(640, Math.round(sizeW)))
-  const h = Math.max(100, Math.min(640, Math.round(sizeH)))
-
-  const url =
-    `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}` +
-    `&zoom=${normalizedZoom}&size=${w}x${h}&scale=2&maptype=satellite&key=${mapsKey}`
-
-  const response = await fetch(url)
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(`Static map fetch failed (${response.status}): ${text || 'unknown error'}`)
-  }
-
-  const contentType = response.headers.get('content-type') || ''
-  if (contentType.includes('text/')) {
-    const text = await response.text().catch(() => '')
-    throw new Error(`Static map returned text response: ${text || 'unknown error'}`)
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer())
-  return buffer.toString('base64')
 }
 
 function getSolarAnchor(segments: SolarRoofSegment[]): { lat: number; lng: number } | null {
@@ -598,7 +622,10 @@ function buildSolarPixelPlaneHints(
     let xMax = -Infinity
     let yMax = -Infinity
     for (const c of corners) {
-      const [px, py] = latLngToPixel(c.lat, c.lng, centerLat, centerLng, zoom, imageWidth, imageHeight)
+      const [px, py] =
+        validBounds != null
+          ? latLngToPixelUsingViewportBounds(c.lat, c.lng, validBounds, imageWidth, imageHeight)
+          : latLngToPixel(c.lat, c.lng, centerLat, centerLng, zoom, imageWidth, imageHeight)
       xMin = Math.min(xMin, px)
       yMin = Math.min(yMin, py)
       xMax = Math.max(xMax, px)
@@ -646,7 +673,8 @@ ${JSON.stringify(
   return `Google Solar identified ${hints.length} roof plane(s) for this address. Each entry maps a segment_index to a loose pixel_region in THIS image (same coordinate system as your vertices: x 0..width-1 left→right, y 0..height-1 top→bottom).
 
 FACET GEOMETRY (critical):
-- Output one facet polygon per listed segment_index when that roof plane is visible. Include "solar_segment_index" on each facet (integer matching segment_index).
+- Output **one facet per visible distinct roof plane** in the imagery. If you see **more** planes than Solar hints (common: porch roof, extra gable, or Google merged segments), add facets for those too and set solar_segment_index to **-1** for planes with no matching hint.
+- For each facet that clearly matches a hint, set solar_segment_index to that segment_index (integer).
 - Trace the actual roof outline from the imagery (eaves, rakes, ridges, valleys). Use **at least 5 vertices per facet** (often 6–14 on hips/gables). **Never** default to a 4-corner quadrilateral or axis-aligned rectangle.
 - Do NOT output axis-aligned rectangles, squares, or the pixel_region border as the polygon. The region is only a search hint.
 - Rotate and shear polygons to match the roof in the photo; do not force edges parallel to the image frame unless the roof truly appears that way.
@@ -655,17 +683,6 @@ FACET GEOMETRY (critical):
 
 Plane hints:
 ${JSON.stringify(hints)}`
-}
-
-function computeStaticLogicalSize(mapWidthPx?: number, mapHeightPx?: number): { sizeW: number; sizeH: number } {
-  const mw = typeof mapWidthPx === 'number' && mapWidthPx > 0 ? mapWidthPx : 640
-  const mh = typeof mapHeightPx === 'number' && mapHeightPx > 0 ? mapHeightPx : 640
-  const mMax = Math.max(mw, mh)
-  let sizeW = Math.round((640 * mw) / mMax)
-  let sizeH = Math.round((640 * mh) / mMax)
-  sizeW = Math.max(100, Math.min(640, sizeW))
-  sizeH = Math.max(100, Math.min(640, sizeH))
-  return { sizeW, sizeH }
 }
 
 /** OpenAI strict JSON schema for roof trace (enforces ≥5 vertices per facet). */
@@ -807,8 +824,9 @@ function normalizeStructuredRoofDetection(parsed: RawDetection): RawDetection {
     if (typeof f.estimated_sq_ft === 'number' && f.estimated_sq_ft > 0) {
       out.estimated_sq_ft = f.estimated_sq_ft
     }
-    if (typeof f.solar_segment_index === 'number' && f.solar_segment_index >= 0) {
-      out.solar_segment_index = f.solar_segment_index
+    if (typeof f.solar_segment_index === 'number' && Number.isFinite(f.solar_segment_index)) {
+      const idx = Math.round(f.solar_segment_index)
+      out.solar_segment_index = idx >= 0 ? idx : -1
     }
     return out
   })
@@ -846,8 +864,8 @@ Rules:
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
 - Include low confidence items (<0.65) only when you still see a plausible roof edge.
-- NON-OVERLAP: Each facet is one physical roof plane. Do not stack multiple polygons on the same face. Prefer 3–8 facets on a typical home; merge adjacent coplanar areas instead of duplicating.
-- Avoid 9+ separate facets unless you clearly see distinct structures (e.g. main house + detached garage).`
+- NON-OVERLAP: Each facet is one physical roof plane. Do not stack multiple polygons on the same **visible** face. Merge only when two polygons are clearly the **same** shingle plane; keep **separate** facets for distinct pitches, cross gables, porches, and shed roofs even if one polygon is smaller.
+- Prefer 3–8 facets on a typical home. Avoid 9+ separate facets unless you clearly see distinct structures (e.g. main house + detached garage).`
 
   const dataUrl = toDataUrl(imageBase64)
   const openai = getOpenAI()
@@ -1208,7 +1226,12 @@ export async function POST(request: Request) {
 
     const imageCenterX = imageWidth / 2
     const imageCenterY = imageHeight / 2
-    const centerRadiusPx = Math.min(imageWidth, imageHeight) * 0.42
+    /**
+     * Old: 0.42 * min(w,h) — on wide short static maps (typical CRM layout), min is small and this discards
+     * real roof planes toward the top/bottom of the frame (~half the squares). Use ~85% of center→corner
+     * distance so the whole centered structure stays included; only extreme corners (neighbors) clip out.
+     */
+    const centerRadiusPx = Math.hypot(imageWidth / 2, imageHeight / 2) * 0.85
     const isNearImageCenter = (points: PixelPoint[]) => {
       if (!points.length) return false
       const centroid = points.reduce(
@@ -1242,13 +1265,13 @@ export async function POST(request: Request) {
       const localizationImageBase64 =
         typeof imageBase64 === 'string' && imageBase64.trim().length > 0
           ? imageBase64
-          : await fetchStaticMapBase64(
-              captureCenter.lat,
-              captureCenter.lng,
-              detectionZoomBase,
-              logicalSizeW,
-              logicalSizeH
-            )
+          : await fetchStaticSatelliteMapBase64({
+              lat: captureCenter.lat,
+              lng: captureCenter.lng,
+              zoom: detectionZoomBase,
+              sizeW: logicalSizeW,
+              sizeH: logicalSizeH,
+            })
 
       localization = await callLocalizationModel(
         localizationImageBase64,
@@ -1294,13 +1317,13 @@ export async function POST(request: Request) {
     const detectionImageBase64 =
       typeof imageBase64 === 'string' && imageBase64.trim().length > 0
         ? imageBase64
-        : await fetchStaticMapBase64(
-            localizedCenter.lat,
-            localizedCenter.lng,
-            finalZoom,
-            logicalSizeW,
-            logicalSizeH
-          )
+        : await fetchStaticSatelliteMapBase64({
+            lat: localizedCenter.lat,
+            lng: localizedCenter.lng,
+            zoom: finalZoom,
+            sizeW: logicalSizeW,
+            sizeH: logicalSizeH,
+          })
 
     /** Bitmap center/zoom for pixel ↔ lat/lng (must match the image passed to the vision model). */
     const usingClientImage = typeof imageBase64 === 'string' && imageBase64.trim().length > 0
@@ -1327,21 +1350,16 @@ export async function POST(request: Request) {
       solarFacetPrompt
     )
 
+    const pixelToGeoForVision = (x: number, y: number) =>
+      validBounds
+        ? pixelToLatLngUsingViewportBounds(x, y, validBounds, imageWidth, imageHeight)
+        : pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, imageWidth, imageHeight)
+
     const facetsMapped: FacetResponsePayload[] = (raw.facets || [])
       .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
       .map((facet, idx) => {
         const vertices = Array.isArray(facet.vertices) ? facet.vertices : []
-        const latLngVertices = vertices.map(([x, y]) =>
-          pixelToLatLng(
-            Number(x),
-            Number(y),
-            geoCenterForPixels.lat,
-            geoCenterForPixels.lng,
-            geoZoomForPixels,
-            imageWidth,
-            imageHeight
-          )
-        )
+        const latLngVertices = vertices.map(([x, y]) => pixelToGeoForVision(Number(x), Number(y)))
         const center =
           latLngVertices.length > 0
             ? latLngVertices.reduce(
@@ -1366,8 +1384,19 @@ export async function POST(request: Request) {
             ? Math.round(facet.solar_segment_index)
             : null
         const segmentByModelIndex =
-          modelSolarIdx !== null ? solarSegments.find((s) => s.segment_index === modelSolarIdx) : null
+          modelSolarIdx !== null && modelSolarIdx >= 0
+            ? solarSegments.find((s) => s.segment_index === modelSolarIdx)
+            : null
         const pitchSegment = segmentByModelIndex || nearestSolarSegment
+
+        const solarSegmentIndexOut =
+          modelSolarIdx === -1
+            ? null
+            : segmentByModelIndex != null
+              ? segmentByModelIndex.segment_index
+              : modelSolarIdx == null
+                ? nearestSolarSegment?.segment_index ?? null
+                : null
 
         return {
           id: facet.id || `facet_${idx + 1}`,
@@ -1375,7 +1404,7 @@ export async function POST(request: Request) {
           lat_lng_vertices: latLngVertices,
           confidence: Number(facet.confidence) || 0,
           estimated_sq_ft: typeof facet.estimated_sq_ft === 'number' ? facet.estimated_sq_ft : null,
-          solar_segment_index: segmentByModelIndex?.segment_index ?? nearestSolarSegment?.segment_index ?? null,
+          solar_segment_index: solarSegmentIndexOut,
           suggested_pitch_degrees: pitchSegment?.pitch_degrees ?? null,
           suggested_azimuth_degrees: pitchSegment?.azimuth_degrees ?? null,
           suggested_ground_area_sqft:
@@ -1388,7 +1417,8 @@ export async function POST(request: Request) {
     const { facets: facetsDeduped, dropped_note } = dedupeAndCapFacetFootprints(
       facetsMapped,
       validBounds,
-      solarGroundFootprintSqFt
+      solarGroundFootprintSqFt,
+      { solarGroundSumFactor: SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION }
     )
 
     const facetsFiltered = validBounds
@@ -1397,7 +1427,7 @@ export async function POST(request: Request) {
           if (!vs || vs.length === 0) return false
           const cLat = vs.reduce((s, p) => s + p.lat, 0) / vs.length
           const cLng = vs.reduce((s, p) => s + p.lng, 0) / vs.length
-          return centroidInExpandedBounds(cLat, cLng, validBounds, 0.12)
+          return centroidInExpandedBounds(cLat, cLng, validBounds, 0.2)
         })
       : facetsDeduped
 
@@ -1408,17 +1438,7 @@ export async function POST(request: Request) {
         .filter((line) => isNearImageCenter(Array.isArray(line.points) ? line.points : []))
         .map((line, idx) => {
           const points = Array.isArray(line.points) ? line.points : []
-          const latLngPoints = points.map(([x, y]) =>
-            pixelToLatLng(
-              Number(x),
-              Number(y),
-              geoCenterForPixels.lat,
-              geoCenterForPixels.lng,
-              geoZoomForPixels,
-              imageWidth,
-              imageHeight
-            )
-          )
+          const latLngPoints = points.map(([x, y]) => pixelToGeoForVision(Number(x), Number(y)))
           return {
             id: line.id || `${prefix}_${idx + 1}`,
             points,

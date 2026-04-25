@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { shouldShowRoofMeasureDrawingHintsForUser } from '@/lib/permissions'
 
 declare const google: any
 
@@ -215,6 +216,34 @@ const getClosestPitchOption = (degrees: number | null | undefined) => {
   }, null as (typeof PITCH_OPTIONS)[number] | null)
 }
 
+/**
+ * Same satellite frame as `/api/ai/detect-roof` when `mapBounds` is set — request it here first so vision
+ * sees the exact bitmap we georeference with the live map viewport (avoids a second Static Maps fetch skew).
+ */
+async function fetchVisionAlignedStaticSnapshotBase64(params: {
+  lat: number
+  lng: number
+  zoom: number
+  mapWidthPx: number
+  mapHeightPx: number
+}): Promise<string | null> {
+  const qs = new URLSearchParams({
+    lat: String(params.lat),
+    lng: String(params.lng),
+    zoom: String(params.zoom),
+    mapWidthPx: String(params.mapWidthPx),
+    mapHeightPx: String(params.mapHeightPx),
+  })
+  try {
+    const res = await fetch(`/api/maps/static-satellite?${qs.toString()}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return typeof data.base64 === 'string' ? data.base64 : null
+  } catch {
+    return null
+  }
+}
+
 export default function RoofMeasurePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -278,6 +307,8 @@ export default function RoofMeasurePage() {
   const [isDrawingLine, setIsDrawingLine] = useState(false)
   const [lineDrawingType, setLineDrawingType] = useState<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
   const [showLineTypeModal, setShowLineTypeModal] = useState(false)
+  /** Fetched from `/api/calendar/profile`; default true so sales users see hints if the request fails. */
+  const [showDrawingToolHints, setShowDrawingToolHints] = useState(true)
   const lineDrawingTypeRef = useRef<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
   const facetsRef = useRef<RoofFacet[]>([])
   const linearFeaturesRef = useRef<LinearFeature[]>([])
@@ -292,6 +323,30 @@ export default function RoofMeasurePage() {
   useEffect(() => {
     linearFeaturesRef.current = linearFeatures
   }, [linearFeatures])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/calendar/profile')
+        if (!res.ok) return
+        const p = await res.json()
+        if (cancelled) return
+        setShowDrawingToolHints(
+          shouldShowRoofMeasureDrawingHintsForUser({
+            role: p.role,
+            customRoleName: p.custom_role?.name ?? null,
+            customRoleDisplayName: p.custom_role?.display_name ?? null,
+          }),
+        )
+      } catch {
+        /* keep default true */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const commitFacets = (nextFacets: RoofFacet[]) => {
     facetsRef.current = nextFacets
@@ -868,6 +923,18 @@ export default function RoofMeasurePage() {
           }
         : undefined
 
+      let visionSnapshotBase64: string | undefined
+      if (detectionMode === 'vision' && mapBounds) {
+        const snap = await fetchVisionAlignedStaticSnapshotBase64({
+          lat,
+          lng,
+          zoom: normalizedZoom,
+          mapWidthPx,
+          mapHeightPx,
+        })
+        if (snap) visionSnapshotBase64 = snap
+      }
+
       const response = await fetch('/api/ai/detect-roof', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -880,6 +947,7 @@ export default function RoofMeasurePage() {
           mapWidthPx,
           mapHeightPx,
           detectionMode,
+          ...(visionSnapshotBase64 ? { imageBase64: visionSnapshotBase64 } : {}),
         }),
       })
 
@@ -2192,12 +2260,14 @@ export default function RoofMeasurePage() {
             >
               {isDetecting ? 'Loading…' : 'Load roof (Google Solar)'}
             </button>
-            <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-              Free: uses Solar roof mask when Data Layers are enabled (polygon outlines per plane); otherwise segment
-              bounding boxes. Drag vertices to match imagery. Sections list shows{' '}
-              <span className="text-cyan-600/90">AI</span> vs <span className="text-gray-400">Drawn</span> when you mix
-              loads and manual edits.
-            </p>
+            {showDrawingToolHints && (
+              <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+                Free: uses Solar roof mask when Data Layers are enabled (polygon outlines per plane); otherwise segment
+                bounding boxes. Drag vertices to match imagery. Sections list shows{' '}
+                <span className="text-cyan-600/90">AI</span> vs <span className="text-gray-400">Drawn</span> when you mix
+                loads and manual edits.
+              </p>
+            )}
             <button
               onClick={() => detectRoofWithAI(false, 'vision')}
               disabled={isDetecting || !googleMapRef.current}
@@ -2205,9 +2275,11 @@ export default function RoofMeasurePage() {
             >
               AI trace roof (OpenAI — uses credits)
             </button>
-            <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-              Traces visible roof edges in the satellite view (min. 5 vertices per facet when structured output works).
-            </p>
+            {showDrawingToolHints && (
+              <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+                Traces visible roof edges in the satellite view (min. 5 vertices per facet when structured output works).
+              </p>
+            )}
 
             {aiDraftSections.length > 0 && (
               <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-900/20 p-3">

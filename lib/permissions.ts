@@ -300,6 +300,48 @@ export function canAccessJobBoard(role: string | null | undefined): boolean {
 }
 
 /**
+ * Custom role slugs from default org hierarchy (034) that are operations / production-facing,
+ * not sales reps — they do not need the in-app “how load roof works” blurbs on `/tools/roof-measure`.
+ */
+const ROOF_MEASURE_DRAWING_HINTS_SUPPRESSED_CUSTOM_ROLE_SLUGS = new Set([
+  'regional_operations',
+  'operations_manager',
+  'operations',
+  'field_operations',
+])
+
+function looksLikeProductionRepCustomRole(slug: string, display: string): boolean {
+  const normalized = `${slug} ${display}`.toLowerCase().replace(/[\s_-]+/g, ' ').trim()
+  if (!normalized.includes('production')) return false
+  return (
+    normalized.includes(' rep') ||
+    normalized.endsWith(' rep') ||
+    normalized.includes('representative')
+  )
+}
+
+/**
+ * Whether to show helper text under “Load roof (Google Solar)” and “AI trace roof” on the roof measure tool.
+ * Hidden for legacy `operations` users and operations-team custom roles (including “Production Rep”-style labels).
+ */
+export function shouldShowRoofMeasureDrawingHintsForUser(args: {
+  role?: string | null
+  customRoleName?: string | null
+  customRoleDisplayName?: string | null
+}): boolean {
+  const baseRole = String(args.role || '').toLowerCase()
+  if (baseRole === 'operations') return false
+
+  const slug = String(args.customRoleName || '').toLowerCase()
+  const display = String(args.customRoleDisplayName || '').toLowerCase()
+
+  if (ROOF_MEASURE_DRAWING_HINTS_SUPPRESSED_CUSTOM_ROLE_SLUGS.has(slug)) return false
+  if (looksLikeProductionRepCustomRole(slug, display)) return false
+
+  return true
+}
+
+/**
  * Check if a role has a specific permission
  */
 export function hasPermission(role: UserRole, permission: Permission): boolean {
