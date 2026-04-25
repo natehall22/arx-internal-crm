@@ -344,7 +344,8 @@ const MAX_FACET_SQFT = 4000
  * Keep this tight: adjacent roof-strip centroids are often under 15 ft apart; 14 ft was merging distinct planes.
  */
 const DUPLICATE_CENTROID_FT = 6.5
-const DUPLICATE_AREA_RATIO = 0.38
+/** Require similar-sized polygons to count as a double-trace; distinct roof faces often differ more in area. */
+const DUPLICATE_AREA_RATIO = 0.75
 /** Sum of facet footprint areas should not exceed ~1.32× visible map footprint (guards stacked overlaps). */
 const SUM_AREA_VS_VIEWPORT_FACTOR = 1.32
 /**
@@ -379,7 +380,7 @@ function dedupeAndCapFacetFootprints(
   facets: FacetResponsePayload[],
   validBounds: MapBounds | null,
   solarGroundFootprintSqFt: number | null,
-  opts?: { solarGroundSumFactor?: number }
+  opts?: { solarGroundSumFactor?: number; /** Vision facet sums often exceed merged Solar `ground_area` total. */ skipSolarFootprintCap?: boolean }
 ): { facets: FacetResponsePayload[]; dropped_note: string | null } {
   const solarSumFactor = opts?.solarGroundSumFactor ?? SUM_AREA_VS_SOLAR_GROUND_FACTOR
   const withArea = facets
@@ -422,6 +423,7 @@ function dedupeAndCapFacetFootprints(
     if (viewportCap > 500) footprintCap = viewportCap
   }
   if (
+    !opts?.skipSolarFootprintCap &&
     solarGroundFootprintSqFt != null &&
     solarGroundFootprintSqFt >= 350 &&
     Number.isFinite(solarGroundFootprintSqFt)
@@ -1382,7 +1384,10 @@ export async function POST(request: Request) {
       facetsMapped,
       validBounds,
       solarGroundFootprintSqFt,
-      { solarGroundSumFactor: SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION }
+      {
+        solarGroundSumFactor: SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION,
+        skipSolarFootprintCap: true,
+      }
     )
 
     const facetsFiltered = validBounds
