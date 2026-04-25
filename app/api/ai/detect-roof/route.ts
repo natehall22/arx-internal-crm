@@ -188,6 +188,7 @@ async function fetchGoogleSolarContext(lat: number, lng: number): Promise<SolarC
   }
 
   const data = await response.json().catch(() => null)
+  const buildingCenter = extractLatLng(data?.center)
   const roofSegments = Array.isArray(data?.solarPotential?.roofSegmentStats)
     ? data.solarPotential.roofSegmentStats
     : []
@@ -212,7 +213,7 @@ async function fetchGoogleSolarContext(lat: number, lng: number): Promise<SolarC
   }))
 
   return {
-    anchor: getSolarAnchor(segments),
+    anchor: buildingCenter || getSolarAnchor(segments),
     segments,
   }
 }
@@ -344,11 +345,15 @@ export async function POST(request: Request) {
       solarContext.anchor && solarAnchorDistance !== null && solarAnchorDistance <= 15
         ? solarContext.anchor
         : requestedCenter
+    const detectionZoom = Math.min(
+      21,
+      captureCenter === requestedCenter ? normalizedZoom + 1 : normalizedZoom + 2
+    )
 
     const resolvedImageBase64 =
       typeof imageBase64 === 'string' && imageBase64.trim().length > 0
         ? imageBase64
-        : await fetchStaticMapBase64(captureCenter.lat, captureCenter.lng, normalizedZoom)
+        : await fetchStaticMapBase64(captureCenter.lat, captureCenter.lng, detectionZoom)
 
     const solarSegments = solarContext.segments
     const raw = await callDetectionModel(resolvedImageBase64, solarSegments)
@@ -364,7 +369,7 @@ export async function POST(request: Request) {
           Number(y),
           captureCenter.lat,
           captureCenter.lng,
-          normalizedZoom,
+          detectionZoom,
           imageWidth,
           imageHeight
         )
@@ -413,7 +418,7 @@ export async function POST(request: Request) {
             Number(y),
             captureCenter.lat,
             captureCenter.lng,
-            normalizedZoom,
+            detectionZoom,
             imageWidth,
             imageHeight
           )
@@ -437,6 +442,7 @@ export async function POST(request: Request) {
       requested_center: requestedCenter,
       capture_center: captureCenter,
       capture_center_source: captureCenter === requestedCenter ? 'requested_center' : 'solar_anchor',
+      detection_zoom: detectionZoom,
     })
   } catch (error) {
     console.error('AI roof detect error:', error)
