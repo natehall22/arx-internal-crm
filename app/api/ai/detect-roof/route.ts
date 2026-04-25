@@ -132,6 +132,21 @@ function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng:
   return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff)
 }
 
+function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const toRadians = (value: number) => (value * Math.PI) / 180
+  const earthRadiusMeters = 6371000
+  const dLat = toRadians(b.lat - a.lat)
+  const dLng = toRadians(b.lng - a.lng)
+  const lat1 = toRadians(a.lat)
+  const lat2 = toRadians(b.lat)
+
+  const haversine =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+}
+
 async function fetchStaticMapBase64(
   lat: number,
   lng: number,
@@ -261,7 +276,8 @@ ${JSON.stringify(simplified)}`
 async function callDetectionModel(
   imageBase64: string,
   solarSegments: SolarRoofSegment[],
-  imagePixelDesc: string
+  imagePixelDesc: string,
+  targetingNote: string
 ): Promise<RawDetection> {
   const systemPrompt = `You are a roofing measurement AI.
 Analyze a satellite image and identify:
@@ -310,8 +326,8 @@ Rules:
             {
               type: 'text',
               text: retry
-                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}.\n\n${buildSolarPrompt(solarSegments)}`
-                : `Analyze this roof satellite image. Image pixel dimensions: ${imagePixelDesc}.\n\n${buildSolarPrompt(solarSegments)}`,
+                ? `Return strictly valid JSON only. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPrompt(solarSegments)}`
+                : `Analyze this roof satellite image. Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n${buildSolarPrompt(solarSegments)}`,
             },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
@@ -364,9 +380,6 @@ export async function POST(request: Request) {
 
     const requestedCenter = { lat, lng }
     const solarContext = await fetchGoogleSolarContext(lat, lng)
-    const captureCenter = requestedCenter
-    const detectionZoom = Math.min(22, Math.max(20, normalizedZoom))
-
     const validBounds =
       mapBounds &&
       typeof mapBounds.north === 'number' &&
@@ -376,6 +389,21 @@ export async function POST(request: Request) {
       mapBounds.north > mapBounds.south
         ? (mapBounds as MapBounds)
         : null
+
+    const solarAnchorDistance =
+      solarContext.anchor ? distanceMeters(requestedCenter, solarContext.anchor) : null
+    const shouldUseSolarAnchor =
+      Boolean(
+        solarContext.anchor &&
+          solarAnchorDistance !== null &&
+          solarAnchorDistance <= 120 &&
+          (!validBounds || centroidInExpandedBounds(solarContext.anchor.lat, solarContext.anchor.lng, validBounds, 0.1))
+      )
+
+    const captureCenter = shouldUseSolarAnchor && solarContext.anchor ? solarContext.anchor : requestedCenter
+    const detectionZoom = shouldUseSolarAnchor
+      ? Math.min(22, Math.max(21, normalizedZoom + 1))
+      : Math.min(22, Math.max(20, normalizedZoom))
 
     const mw = typeof mapWidthPx === 'number' && mapWidthPx > 0 ? mapWidthPx : 640
     const mh = typeof mapHeightPx === 'number' && mapHeightPx > 0 ? mapHeightPx : 640
@@ -394,9 +422,28 @@ export async function POST(request: Request) {
     const imageWidth = sizeW * 2
     const imageHeight = sizeH * 2
     const imagePixelDesc = `${imageWidth}×${imageHeight} (x: 0–${imageWidth - 1}, y: 0–${imageHeight - 1})`
-    const raw = await callDetectionModel(resolvedImageBase64, solarSegments, imagePixelDesc)
+    const targetingNote = shouldUseSolarAnchor
+      ? 'The target house is centered in this image. Prioritize the centered structure and ignore neighboring roofs near the edges.'
+      : 'Prioritize the roof structure nearest the center of the image and ignore neighboring roofs near the edges.'
+    const raw = await callDetectionModel(resolvedImageBase64, solarSegments, imagePixelDesc, targetingNote)
 
-    const facets = (raw.facets || []).map((facet, idx) => {
+    const imageCenterX = imageWidth / 2
+    const imageCenterY = imageHeight / 2
+    const centerRadiusPx = Math.min(imageWidth, imageHeight) * 0.32
+    const isNearImageCenter = (points: PixelPoint[]) => {
+      if (!points.length) return false
+      const centroid = points.reduce(
+        (acc, [x, y]) => ({ x: acc.x + Number(x) / points.length, y: acc.y + Number(y) / points.length }),
+        { x: 0, y: 0 }
+      )
+      const dx = centroid.x - imageCenterX
+      const dy = centroid.y - imageCenterY
+      return Math.sqrt(dx * dx + dy * dy) <= centerRadiusPx
+    }
+
+    const facets = (raw.facets || [])
+      .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
+      .map((facet, idx) => {
       const vertices = Array.isArray(facet.vertices) ? facet.vertices : []
       const latLngVertices = vertices.map(([x, y]) =>
         pixelToLatLng(
@@ -455,7 +502,9 @@ export async function POST(request: Request) {
       : facets
 
     const normalizeLineGroup = (lines: RawLine[] | undefined, prefix: string) =>
-      (lines || []).map((line, idx) => {
+      (lines || [])
+        .filter((line) => isNearImageCenter(Array.isArray(line.points) ? line.points : []))
+        .map((line, idx) => {
         const points = Array.isArray(line.points) ? line.points : []
         const latLngPoints = points.map(([x, y]) =>
           pixelToLatLng(
@@ -501,7 +550,7 @@ export async function POST(request: Request) {
       solar_segments: solarSegments,
       requested_center: requestedCenter,
       capture_center: captureCenter,
-      capture_center_source: 'requested_center',
+      capture_center_source: shouldUseSolarAnchor ? 'solar_anchor' : 'requested_center',
       detection_zoom: detectionZoom,
       static_map_size: { width: imageWidth, height: imageHeight, logical: `${sizeW}x${sizeH}` },
     })
