@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
 import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
 import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
+import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
 import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
 
 type PixelPoint = [number, number]
@@ -1038,6 +1039,15 @@ export async function POST(request: Request) {
     const imagePixelDesc = `${imageWidth}×${imageHeight} (x: 0–${imageWidth - 1}, y: 0–${imageHeight - 1})`
 
     const useVision = detectionMode === 'vision'
+    if (useVision && !ROOF_MEASURE_VISION_TRACE_ENABLED) {
+      return NextResponse.json(
+        {
+          error:
+            'AI roof trace is temporarily disabled. Use “Load roof (Google Solar)” or draw facets on the map.',
+        },
+        { status: 503 }
+      )
+    }
     const solarGroundFootprintSqFtEarly = solarGroundFootprintTotalSqFt(solarSegments)
 
     /** Default path: Solar roof mask GeoTIFF when available — $0 LLM. */

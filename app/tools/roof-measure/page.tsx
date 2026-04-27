@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { shouldShowRoofMeasureDrawingHintsForUser } from '@/lib/permissions'
+import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
 import { clampVisionAlignStaticZoom } from '@/lib/static-satellite-map'
 
 declare const google: any
@@ -893,6 +894,13 @@ export default function RoofMeasurePage() {
    */
   const detectRoofWithAI = async (autoAcceptFacets = false, detectionMode: 'solar' | 'vision' = 'solar') => {
     if (!googleMapRef.current) return
+
+    if (detectionMode === 'vision' && !ROOF_MEASURE_VISION_TRACE_ENABLED) {
+      alert(
+        'AI roof trace is turned off for now (accuracy work in progress). Use “Load roof (Google Solar)” or Draw Facet.'
+      )
+      return
+    }
 
     if (!autoAcceptFacets) {
       skipAutoDetectAfterFailureRef.current = false
@@ -2313,16 +2321,25 @@ export default function RoofMeasurePage() {
                 loads and manual edits.
               </p>
             )}
-            <button
-              onClick={() => detectRoofWithAI(false, 'vision')}
-              disabled={isDetecting || !googleMapRef.current}
-              className="w-full mb-3 min-h-[40px] px-3 py-2 rounded-lg font-medium text-xs bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 disabled:opacity-50"
-            >
-              AI trace roof (OpenAI — uses credits)
-            </button>
-            {showDrawingToolHints && (
-              <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-                Traces visible roof edges in the satellite view (min. 5 vertices per facet when structured output works).
+            {ROOF_MEASURE_VISION_TRACE_ENABLED ? (
+              <>
+                <button
+                  onClick={() => detectRoofWithAI(false, 'vision')}
+                  disabled={isDetecting || !googleMapRef.current}
+                  className="w-full mb-3 min-h-[40px] px-3 py-2 rounded-lg font-medium text-xs bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 disabled:opacity-50"
+                >
+                  AI trace roof (OpenAI — uses credits)
+                </button>
+                {showDrawingToolHints && (
+                  <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+                    Traces visible roof edges in the satellite view (min. 5 vertices per facet when structured output works).
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="w-full mb-3 rounded-lg border border-amber-600/40 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-100/90 leading-snug">
+                AI trace roof is <span className="font-medium">off</span> for now (saves OpenAI spend while alignment is
+                fixed). Use Load roof (Google Solar) or Draw Facet.
               </p>
             )}
 
