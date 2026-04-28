@@ -426,15 +426,17 @@ export default async function JobDetailPage({ params }: PageProps) {
   const missingDealerFeeOnJob =
     jobRow.dealer_fee_amount == null || Number(jobRow.dealer_fee_amount) === 0
   const explicitProposalId = jobRow.linked_proposal_id || jobRow.accepted_proposal_id || null
+  const explicitPaymentMethod = jobRow.project?.payment_method || null
+  const shouldTreatAsFinance =
+    explicitPaymentMethod === 'finance' ||
+    (explicitPaymentMethod == null && Boolean(jobRow.financing_program_id))
   const projectOppId =
     rawProject && typeof rawProject === 'object' && 'opportunity_id' in rawProject
       ? (rawProject as { opportunity_id?: string | null }).opportunity_id
       : null
   const resolvedOppId = opportunityId || projectOppId || null
   const shouldLoadProposalFinancing =
-    missingDealerFeeOnJob ||
-    Boolean(jobRow.financing_program_id) ||
-    (jobRow.project?.payment_method || null) === 'finance'
+    shouldTreatAsFinance && (missingDealerFeeOnJob || Boolean(jobRow.financing_program_id) || explicitProposalId != null)
   if (shouldLoadProposalFinancing) {
     try {
       if (explicitProposalId) {
@@ -720,13 +722,13 @@ export default async function JobDetailPage({ params }: PageProps) {
 
   const transformedJob = {
     ...jobRes.data,
-    dealer_fee_amount: proposalFinancing?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount,
-    dealer_fee_percent: proposalFinancing?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent,
-    financing_program_id: proposalFinancing?.financing_program_id ?? jobRes.data.financing_program_id,
-    financing_lender_name: proposalFinancing?.financing_lender_name ?? null,
-    financed_contract_total: proposalFinancing?.financed_contract_total ?? null,
-    financing_term_months: proposalFinancing?.financing_term_months ?? null,
-    financing_rate: proposalFinancing?.financing_rate ?? null,
+    dealer_fee_amount: shouldTreatAsFinance ? (proposalFinancing?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount) : null,
+    dealer_fee_percent: shouldTreatAsFinance ? (proposalFinancing?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent) : null,
+    financing_program_id: shouldTreatAsFinance ? (proposalFinancing?.financing_program_id ?? jobRes.data.financing_program_id) : null,
+    financing_lender_name: shouldTreatAsFinance ? (proposalFinancing?.financing_lender_name ?? null) : null,
+    financed_contract_total: shouldTreatAsFinance ? (proposalFinancing?.financed_contract_total ?? null) : null,
+    financing_term_months: shouldTreatAsFinance ? (proposalFinancing?.financing_term_months ?? null) : null,
+    financing_rate: shouldTreatAsFinance ? (proposalFinancing?.financing_rate ?? null) : null,
     assigned_crew: Array.isArray(jobRes.data.assigned_crew) ? jobRes.data.assigned_crew[0] : jobRes.data.assigned_crew,
     assigned_sub: Array.isArray(jobRes.data.assigned_sub) ? jobRes.data.assigned_sub[0] : jobRes.data.assigned_sub,
     customer: customer,

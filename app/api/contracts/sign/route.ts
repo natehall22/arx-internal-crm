@@ -599,14 +599,15 @@ export async function POST(request: NextRequest) {
                 .maybeSingle()
               if (propRow) {
                 const preTax = Math.round((Number(propRow.subtotal) || 0) * 100) / 100
+                const isFinance = contract.payment_method === 'finance'
                 const compBase = commissionCompBaseFromPreTaxAndDealerFee(
                   Number(propRow.subtotal) || 0,
-                  propRow.dealer_fee_amount
+                  isFinance ? propRow.dealer_fee_amount : null
                 )
                 proposalFinancing = {
-                  financing_program_id: propRow.financing_program_id,
-                  dealer_fee_percent: propRow.dealer_fee_percent,
-                  dealer_fee_amount: propRow.dealer_fee_amount,
+                  financing_program_id: isFinance ? propRow.financing_program_id : null,
+                  dealer_fee_percent: isFinance ? propRow.dealer_fee_percent : null,
+                  dealer_fee_amount: isFinance ? propRow.dealer_fee_amount : null,
                   commission_pre_tax_subtotal: preTax,
                   commission_comp_base: compBase,
                 }
@@ -796,14 +797,15 @@ export async function POST(request: NextRequest) {
               .maybeSingle()
             if (propRow2) {
               const preTax = Math.round((Number(propRow2.subtotal) || 0) * 100) / 100
+              const isFinance = contract.payment_method === 'finance'
               const compBase = commissionCompBaseFromPreTaxAndDealerFee(
                 Number(propRow2.subtotal) || 0,
-                propRow2.dealer_fee_amount
+                isFinance ? propRow2.dealer_fee_amount : null
               )
               proposalFinancingExisting = {
-                financing_program_id: propRow2.financing_program_id,
-                dealer_fee_percent: propRow2.dealer_fee_percent,
-                dealer_fee_amount: propRow2.dealer_fee_amount,
+                financing_program_id: isFinance ? propRow2.financing_program_id : null,
+                dealer_fee_percent: isFinance ? propRow2.dealer_fee_percent : null,
+                dealer_fee_amount: isFinance ? propRow2.dealer_fee_amount : null,
                 commission_pre_tax_subtotal: preTax,
                 commission_comp_base: compBase,
               }
