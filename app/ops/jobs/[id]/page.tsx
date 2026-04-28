@@ -61,6 +61,19 @@ type JobSoldScope = {
   roof_measurement_linear: JobSoldScopeRoofMeasureLf | null
 }
 
+type FinancialSourceProposalOption = {
+  id: string
+  proposal_number: string | null
+  financing_lender_name: string | null
+  financing_term_months: number | null
+  financing_rate: number | null
+  dealer_fee_percent: number | null
+  dealer_fee_amount: number | null
+  subtotal: number | null
+  accepted_at: string | null
+  updated_at: string | null
+}
+
 function positiveLinearFt(value: unknown): number | null {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n) || n <= 0) return null
@@ -435,6 +448,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       ? (rawProject as { opportunity_id?: string | null }).opportunity_id
       : null
   const resolvedOppId = opportunityId || projectOppId || null
+  const canEditFinancialSource = ['admin', 'owner'].includes(profile.role)
   const shouldLoadProposalFinancing =
     shouldTreatAsFinance && (missingDealerFeeOnJob || Boolean(jobRow.financing_program_id) || explicitProposalId != null)
   if (shouldLoadProposalFinancing) {
@@ -517,6 +531,59 @@ export default async function JobDetailPage({ params }: PageProps) {
   }
 
   let soldScope: JobSoldScope | null = null
+  let financialSourceProposalOptions: FinancialSourceProposalOption[] = []
+
+  if (canEditFinancialSource) {
+    try {
+      const proposalMap = new Map<string, FinancialSourceProposalOption>()
+      const selectColumns =
+        'id, proposal_number, financing_lender_name, financing_term_months, financing_rate, dealer_fee_percent, dealer_fee_amount, subtotal, accepted_at, updated_at'
+
+      if (resolvedOppId) {
+        const { data: opportunityProposals } = await supabaseService
+          .from('proposals')
+          .select(selectColumns)
+          .eq('org_id', profile.org_id)
+          .eq('opportunity_id', resolvedOppId)
+          .order('updated_at', { ascending: false })
+        for (const proposal of opportunityProposals || []) {
+          proposalMap.set(proposal.id, proposal)
+        }
+      }
+
+      if (jobRow.project_id) {
+        const { data: projectProposals } = await supabaseService
+          .from('proposals')
+          .select(selectColumns)
+          .eq('org_id', profile.org_id)
+          .eq('project_id', jobRow.project_id)
+          .order('updated_at', { ascending: false })
+        for (const proposal of projectProposals || []) {
+          proposalMap.set(proposal.id, proposal)
+        }
+      }
+
+      if (explicitProposalId && !proposalMap.has(explicitProposalId)) {
+        const { data: explicitProposal } = await supabaseService
+          .from('proposals')
+          .select(selectColumns)
+          .eq('org_id', profile.org_id)
+          .eq('id', explicitProposalId)
+          .maybeSingle()
+        if (explicitProposal) {
+          proposalMap.set(explicitProposal.id, explicitProposal)
+        }
+      }
+
+      financialSourceProposalOptions = Array.from(proposalMap.values()).sort((a, b) => {
+        const left = new Date(a.accepted_at || a.updated_at || 0).getTime()
+        const right = new Date(b.accepted_at || b.updated_at || 0).getTime()
+        return right - left
+      })
+    } catch {
+      financialSourceProposalOptions = []
+    }
+  }
 
   try {
     const jr = jobRes.data
@@ -750,6 +817,8 @@ export default async function JobDetailPage({ params }: PageProps) {
       userRole={profile.role}
       canViewJobBilling={canViewJobBilling}
       canEditPayrollAttribution={canEditPayrollAttribution}
+      canEditFinancialSource={canEditFinancialSource}
+      financialSourceProposalOptions={financialSourceProposalOptions}
       changeOrdersSection={
         showChangeOrdersSection
           ? {

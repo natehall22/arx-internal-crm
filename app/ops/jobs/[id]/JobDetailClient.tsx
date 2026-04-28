@@ -25,7 +25,7 @@ import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
-import { netCommissionableFromJob } from '@/lib/financing'
+import { computeFinancedContractTotal, netCommissionableFromJob } from '@/lib/financing'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -324,6 +324,17 @@ interface JobChangeOrdersSectionProps {
   }[]
 }
 
+interface FinancialSourceProposalOption {
+  id: string
+  proposal_number: string | null
+  financing_lender_name: string | null
+  financing_term_months: number | null
+  financing_rate: number | null
+  dealer_fee_percent: number | null
+  dealer_fee_amount: number | null
+  subtotal: number | null
+}
+
 interface JobDetailClientProps {
   initialJob: Job
   crews: Crew[]
@@ -331,6 +342,8 @@ interface JobDetailClientProps {
   userRole: string
   canViewJobBilling: boolean
   canEditPayrollAttribution: boolean
+  canEditFinancialSource: boolean
+  financialSourceProposalOptions: FinancialSourceProposalOption[]
   changeOrdersSection: JobChangeOrdersSectionProps | null
 }
 
@@ -497,6 +510,8 @@ export default function JobDetailClient({
   userRole,
   canViewJobBilling,
   canEditPayrollAttribution,
+  canEditFinancialSource,
+  financialSourceProposalOptions,
   changeOrdersSection,
 }: JobDetailClientProps) {
   const router = useRouter()
@@ -519,6 +534,15 @@ export default function JobDetailClient({
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
   const [autoCollecting, setAutoCollecting] = useState(false)
+  const initialFinancialSourceProposalId = initialJob.linked_proposal_id || initialJob.accepted_proposal_id || ''
+  const initialFinancialSourcePaymentMethod =
+    initialJob.project?.payment_method || (initialJob.financing_program_id ? 'finance' : 'cash')
+  const [editingFinancialSource, setEditingFinancialSource] = useState(false)
+  const [savingFinancialSource, setSavingFinancialSource] = useState(false)
+  const [financialSourceDraft, setFinancialSourceDraft] = useState({
+    paymentMethod: initialFinancialSourcePaymentMethod,
+    proposalId: initialFinancialSourceProposalId,
+  })
   const openCostAttachmentShortcutRef = useRef<(() => void) | null>(null)
   const registerOpenCostAttachmentShortcut = useCallback((openPicker: (() => void) | null) => {
     openCostAttachmentShortcutRef.current = openPicker
@@ -531,6 +555,16 @@ export default function JobDetailClient({
   const [showMentionDropdown, setShowMentionDropdown] = useState(false)
   const [mentionSearch, setMentionSearch] = useState('')
   const [mentionCursorPos, setMentionCursorPos] = useState(0)
+
+  useEffect(() => {
+    setJob(initialJob)
+    if (!editingFinancialSource) {
+      setFinancialSourceDraft({
+        paymentMethod: initialJob.project?.payment_method || (initialJob.financing_program_id ? 'finance' : 'cash'),
+        proposalId: initialJob.linked_proposal_id || initialJob.accepted_proposal_id || '',
+      })
+    }
+  }, [initialJob, editingFinancialSource])
 
   // Load payment summary for balance check
   useEffect(() => {
@@ -951,6 +985,35 @@ export default function JobDetailClient({
     }
   }
 
+  const saveFinancialSource = async () => {
+    setSavingFinancialSource(true)
+
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}/financial-source`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_method: financialSourceDraft.paymentMethod,
+          proposal_id: financialSourceDraft.proposalId || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to update financial source' }))
+        alert(error.error || 'Failed to update financial source')
+        return
+      }
+
+      setEditingFinancialSource(false)
+      router.refresh()
+    } catch (error) {
+      console.error('Error updating financial source:', error)
+      alert('Failed to update financial source')
+    } finally {
+      setSavingFinancialSource(false)
+    }
+  }
+
   const deleteJob = async () => {
     if (!confirm(`Are you sure you want to delete job ${job.job_number}? This action cannot be undone.`)) {
       return
@@ -1009,6 +1072,37 @@ export default function JobDetailClient({
     job.financing_rate != null ? `${job.financing_rate}% APR` : null,
   ].filter(Boolean)
   const loanInfoLabel = loanInfoParts.length > 0 ? loanInfoParts.join(' • ') : null
+  const selectedFinancialSourceProposal =
+    financialSourceProposalOptions.find((proposal) => proposal.id === financialSourceDraft.proposalId) || null
+  const selectedFinancialSourceLoanInfo = [
+    selectedFinancialSourceProposal?.financing_lender_name?.trim() || null,
+    selectedFinancialSourceProposal?.financing_term_months
+      ? `${selectedFinancialSourceProposal.financing_term_months} mo`
+      : null,
+    selectedFinancialSourceProposal?.financing_rate != null
+      ? `${selectedFinancialSourceProposal.financing_rate}% APR`
+      : null,
+  ].filter(Boolean).join(' • ')
+  const selectedFinancialSourceDealerFee =
+    selectedFinancialSourceProposal
+      ? (() => {
+          const explicitAmount = Math.round(Number(selectedFinancialSourceProposal.dealer_fee_amount || 0) * 100) / 100
+          if (explicitAmount > 0) return explicitAmount
+          if (
+            selectedFinancialSourceProposal.subtotal != null &&
+            selectedFinancialSourceProposal.dealer_fee_percent != null &&
+            Number(selectedFinancialSourceProposal.dealer_fee_percent) > 0
+          ) {
+            return computeFinancedContractTotal(
+              Number(selectedFinancialSourceProposal.subtotal) || 0,
+              selectedFinancialSourceProposal.dealer_fee_percent
+            ).dealerFeeAmount
+          }
+          return null
+        })()
+      : null
+  const financialSourceSaveDisabled =
+    savingFinancialSource || (financialSourceDraft.paymentMethod === 'finance' && !financialSourceDraft.proposalId)
 
   const handleAttachReceiptInvoiceShortcut = () => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
@@ -1733,10 +1827,125 @@ export default function JobDetailClient({
             <div className={mobileTab !== 'financials' ? 'hidden lg:block' : undefined}>
             {canViewProfitability && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
-                <p className="text-xs text-gray-500 mb-4">
-                  Total contract minus est. comp, labor, materials, and any lender dealer fee — admin &amp; owner only.
-                </p>
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
+                    <p className="text-xs text-gray-500">
+                      Total contract minus est. comp, labor, materials, and any lender dealer fee — admin &amp; owner only.
+                    </p>
+                  </div>
+                  {canEditFinancialSource && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingFinancialSource((current) => {
+                          if (current) {
+                            setFinancialSourceDraft({
+                              paymentMethod: job.project?.payment_method || (job.financing_program_id ? 'finance' : 'cash'),
+                              proposalId: job.linked_proposal_id || job.accepted_proposal_id || '',
+                            })
+                          }
+                          return !current
+                        })
+                      }}
+                      className="min-h-[40px] rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      {editingFinancialSource ? 'Cancel' : 'Edit source'}
+                    </button>
+                  )}
+                </div>
+                {canEditFinancialSource && editingFinancialSource && (
+                  <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
+                          Payment method
+                        </span>
+                        <select
+                          value={financialSourceDraft.paymentMethod}
+                          onChange={(e) => setFinancialSourceDraft((current) => ({
+                            ...current,
+                            paymentMethod: e.target.value,
+                          }))}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        >
+                          <option value="cash">Cash</option>
+                          <option value="finance">Finance</option>
+                          <option value="insurance">Insurance</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">
+                          Proposal source
+                        </span>
+                        <select
+                          value={financialSourceDraft.proposalId}
+                          onChange={(e) => setFinancialSourceDraft((current) => ({
+                            ...current,
+                            proposalId: e.target.value,
+                          }))}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        >
+                          <option value="">No linked proposal</option>
+                          {financialSourceProposalOptions.map((proposal) => (
+                            <option key={proposal.id} value={proposal.id}>
+                              {proposal.proposal_number || proposal.id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="mt-3 space-y-1 text-xs text-gray-600">
+                      {financialSourceDraft.paymentMethod === 'finance' ? (
+                        <>
+                          <p>
+                            Finance jobs pull lender and dealer-fee values from the selected proposal.
+                          </p>
+                          <p>
+                            {selectedFinancialSourceLoanInfo
+                              ? `Loan preview: ${selectedFinancialSourceLoanInfo}`
+                              : 'Loan preview: no lender / term / APR found on that proposal yet.'}
+                          </p>
+                          <p>
+                            Dealer fee preview:{' '}
+                            {selectedFinancialSourceDealerFee != null && selectedFinancialSourceDealerFee > 0
+                              ? formatCents(toCents(selectedFinancialSourceDealerFee))
+                              : 'None on selected proposal'}
+                          </p>
+                        </>
+                      ) : (
+                        <p>
+                          Non-financed jobs clear lender and dealer-fee fields so the bank-hit math stays on the cash contract total.
+                        </p>
+                      )}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={saveFinancialSource}
+                        disabled={financialSourceSaveDisabled}
+                        className="min-h-[40px] rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingFinancialSource ? 'Saving…' : 'Save financial source'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingFinancialSource(false)
+                          setFinancialSourceDraft({
+                            paymentMethod: job.project?.payment_method || (job.financing_program_id ? 'finance' : 'cash'),
+                            proposalId: job.linked_proposal_id || job.accepted_proposal_id || '',
+                          })
+                        }}
+                        disabled={savingFinancialSource}
+                        className="min-h-[40px] rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-3 text-sm sm:text-base">
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-700">Total contract</span>
