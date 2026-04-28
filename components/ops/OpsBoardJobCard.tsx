@@ -62,26 +62,22 @@ function OpsBoardJobCardInner({
     typeof job.sold_waste_percent === 'number' && job.sold_waste_percent > 0 ? job.sold_waste_percent : null
   const soldSquaresFromMeasure = job.sold_squares_from_measure === true
 
+  // Use proposal-enriched measure + waste whenever present, even when the visible total comes from
+  // `project.sold_roof_squares` (enriched sold_squares can be unset while line-item inference fills measure/waste).
   const boardEquation =
     roofSoldSquaresTotal != null
-      ? enrichedTotal != null
-        ? computeRoofSquaresEquation({
-            totalSquares: roofSoldSquaresTotal,
-            measuredSquares: measuredSquares,
-            wastePercent: soldWastePercent,
-          })
-        : computeRoofSquaresEquation({
-            totalSquares: roofSoldSquaresTotal,
-            measuredSquares: null,
-            wastePercent: null,
-          })
+      ? computeRoofSquaresEquation({
+          totalSquares: roofSoldSquaresTotal,
+          measuredSquares,
+          wastePercent: soldWastePercent,
+        })
       : null
 
   const showBoardNoWasteFlag =
     job.job_type === 'roofing' &&
     roofSoldSquaresTotal != null &&
-    enrichedTotal != null &&
-    soldWastePercent == null
+    soldWastePercent == null &&
+    (enrichedTotal != null || measuredSquares != null)
 
   const needsMaterials = job.materials_status === 'not_ordered'
   const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
