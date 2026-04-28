@@ -11,6 +11,11 @@ import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
 } from '@/lib/ops-board-sold-squares'
+import {
+  resolveProposalMeasuredSquares,
+  resolveProposalSoldRoofSquares,
+  resolveProposalWastePercent,
+} from '@/lib/sold-roof-squares'
 
 interface PageProps {
   params: { id: string }
@@ -420,6 +425,7 @@ export default async function JobDetailPage({ params }: PageProps) {
   const jobRow = jobRes.data
   const missingDealerFeeOnJob =
     jobRow.dealer_fee_amount == null || Number(jobRow.dealer_fee_amount) === 0
+  const explicitProposalId = jobRow.linked_proposal_id || jobRow.accepted_proposal_id || null
   const projectOppId =
     rawProject && typeof rawProject === 'object' && 'opportunity_id' in rawProject
       ? (rawProject as { opportunity_id?: string | null }).opportunity_id
@@ -431,7 +437,16 @@ export default async function JobDetailPage({ params }: PageProps) {
     (jobRow.project?.payment_method || null) === 'finance'
   if (shouldLoadProposalFinancing) {
     try {
-      if (resolvedOppId) {
+      if (explicitProposalId) {
+        const { data: prop } = await supabaseService
+          .from('proposals')
+          .select('dealer_fee_amount, dealer_fee_percent, financing_program_id, financing_lender_name, financed_contract_total, financing_term_months, financing_rate')
+          .eq('org_id', profile.org_id)
+          .eq('id', explicitProposalId)
+          .maybeSingle()
+        if (prop) proposalFinancing = prop
+      }
+      if (!proposalFinancing && !explicitProposalId && resolvedOppId) {
         const { data: prop } = await supabaseService
           .from('proposals')
           .select('dealer_fee_amount, dealer_fee_percent, financing_program_id, financing_lender_name, financed_contract_total, financing_term_months, financing_rate')
@@ -442,7 +457,7 @@ export default async function JobDetailPage({ params }: PageProps) {
           .maybeSingle()
         if (prop) proposalFinancing = prop
       }
-      if (!proposalFinancing && jobRow.project_id) {
+      if (!proposalFinancing && !explicitProposalId && jobRow.project_id) {
         const { data: prop } = await supabaseService
           .from('proposals')
           .select('dealer_fee_amount, dealer_fee_percent, financing_program_id, financing_lender_name, financed_contract_total, financing_term_months, financing_rate')
@@ -512,23 +527,6 @@ export default async function JobDetailPage({ params }: PageProps) {
         : null
     const legacyPositive = projectLegacySq != null && !Number.isNaN(projectLegacySq) && projectLegacySq > 0
 
-    const soldSqPositive =
-      typeof jobRowForSquares.sold_squares === 'number' && jobRowForSquares.sold_squares > 0
-        ? Number(jobRowForSquares.sold_squares)
-        : null
-    const soldSquaresFromMeasureRow =
-      (jobRowForSquares as { sold_squares_from_measure?: boolean }).sold_squares_from_measure === true
-
-    const totalSquares = soldSqPositive ?? (legacyPositive ? projectLegacySq : null)
-    const totalSquaresSource: JobSoldScope['total_squares_source'] =
-      soldSqPositive != null && soldSquaresFromMeasureRow
-        ? 'roof_measure_total'
-        : soldSqPositive != null
-          ? 'proposal_enriched'
-          : legacyPositive && projectLegacySq != null
-            ? 'project_legacy'
-            : null
-
     let proposalId: string | null =
       jr.linked_proposal_id || jr.accepted_proposal_id || null
 
@@ -546,16 +544,22 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
 
     let proposal_number: string | null = null
+    let proposalSquares: {
+      sold_squares?: number | null
+      measured_squares?: number | null
+      sold_waste_percent?: number | null
+    } | null = null
     let line_items: JobSoldScopeLineItem[] = []
 
     if (proposalId) {
       const { data: propMeta } = await supabaseService
         .from('proposals')
-        .select('id, proposal_number')
+        .select('id, proposal_number, sold_squares, measured_squares, sold_waste_percent')
         .eq('org_id', profile.org_id)
         .eq('id', proposalId)
         .maybeSingle()
       proposal_number = propMeta?.proposal_number ?? null
+      proposalSquares = propMeta
 
       const { data: li } = await supabaseService
         .from('proposal_line_items')
@@ -578,6 +582,37 @@ export default async function JobDetailPage({ params }: PageProps) {
       }))
     }
 
+    const proposalResolvedTotalSquares = proposalSquares
+      ? resolveProposalSoldRoofSquares(proposalSquares, line_items)
+      : null
+    const proposalResolvedMeasuredSquares = proposalSquares
+      ? resolveProposalMeasuredSquares(proposalSquares, line_items)
+      : null
+    const proposalResolvedWastePercent = proposalSquares
+      ? resolveProposalWastePercent(proposalSquares, line_items)
+      : null
+
+    const soldSqPositive =
+      proposalId != null
+        ? proposalResolvedTotalSquares
+        : typeof jobRowForSquares.sold_squares === 'number' && jobRowForSquares.sold_squares > 0
+          ? Number(jobRowForSquares.sold_squares)
+          : null
+    const soldSquaresFromMeasureRow =
+      proposalId == null &&
+      (jobRowForSquares as { sold_squares_from_measure?: boolean }).sold_squares_from_measure === true
+
+    const totalSquares =
+      soldSqPositive ?? (proposalId == null && legacyPositive ? projectLegacySq : null)
+    const totalSquaresSource: JobSoldScope['total_squares_source'] =
+      soldSqPositive != null && soldSquaresFromMeasureRow
+        ? 'roof_measure_total'
+        : soldSqPositive != null
+          ? 'proposal_enriched'
+          : proposalId == null && legacyPositive && projectLegacySq != null
+            ? 'project_legacy'
+            : null
+
     const measureSelect =
       'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, source, raw_data, suggested_waste_percent'
     let measurementRow: Parameters<typeof buildRoofMeasurementLinear>[0] = null
@@ -593,7 +628,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         .maybeSingle()
       measurementRow = data
     }
-    if (!measurementRow && resolvedOppId) {
+    if (!measurementRow && !proposalId && resolvedOppId) {
       const { data } = await supabaseService
         .from('roof_measurements')
         .select(measureSelect)
@@ -604,7 +639,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         .maybeSingle()
       measurementRow = data
     }
-    if (!measurementRow && jr.project_id) {
+    if (!measurementRow && !proposalId && jr.project_id) {
       const { data } = await supabaseService
         .from('roof_measurements')
         .select(measureSelect)
@@ -617,9 +652,10 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
 
     const roofMeasurementLinear = buildRoofMeasurementLinear(measurementRow)
-    const proposalHasWaste =
-      typeof jobRowForSquares.sold_waste_percent === 'number' &&
-      Number(jobRowForSquares.sold_waste_percent) > 0
+    const proposalHasWaste = proposalId != null
+      ? proposalResolvedWastePercent != null && proposalResolvedWastePercent > 0
+      : typeof jobRowForSquares.sold_waste_percent === 'number' &&
+        Number(jobRowForSquares.sold_waste_percent) > 0
     let measureSuggestedWasteOnly: number | null = null
     if (measurementRow && !proposalHasWaste) {
       measureSuggestedWasteOnly = positiveWastePercent(
@@ -632,9 +668,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
 
     const fromProposal =
-      soldSqPositive != null ||
-      (typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0) ||
-      (typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0) ||
+      proposalId != null ||
       line_items.length > 0
 
     const source: 'proposal' | 'project_legacy' | null = fromProposal
@@ -644,8 +678,11 @@ export default async function JobDetailPage({ params }: PageProps) {
         : null
 
     const hasMeasurementsOnly =
-      (typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0) ||
-      (typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0)
+      (proposalId != null && proposalResolvedMeasuredSquares != null && proposalResolvedMeasuredSquares > 0) ||
+      (proposalId != null && proposalResolvedWastePercent != null && proposalResolvedWastePercent > 0) ||
+      (proposalId == null &&
+        ((typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0) ||
+          (typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0)))
 
     if (
       totalSquares != null ||
@@ -658,13 +695,17 @@ export default async function JobDetailPage({ params }: PageProps) {
         total_squares: totalSquares,
         total_squares_source: totalSquaresSource,
         measured_squares:
-          typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0
-            ? jobRowForSquares.measured_squares
-            : null,
+          proposalId != null
+            ? proposalResolvedMeasuredSquares
+            : typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0
+              ? jobRowForSquares.measured_squares
+              : null,
         waste_percent:
-          typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0
-            ? jobRowForSquares.sold_waste_percent
-            : null,
+          proposalId != null
+            ? proposalResolvedWastePercent
+            : typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0
+              ? jobRowForSquares.sold_waste_percent
+              : null,
         measure_suggested_waste_percent: measureSuggestedWasteOnly,
         source,
         proposal_id: proposalId,
