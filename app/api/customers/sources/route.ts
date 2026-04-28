@@ -97,23 +97,32 @@ export async function GET(request: Request) {
       })
     }
 
-    // Fetch projects without customer_id
+    // Fetch projects for linking: default = no customer; show_all = include linked (to fix bad links)
     if (sourceType === 'all' || sourceType === 'project') {
-      const { data: projects } = await adminClient
+      let projectQuery = adminClient
         .from('projects')
         .select(`
-          id, status, address_text, created_at,
-          lead:leads(homeowner_name, email, phone)
+          id, status, address_text, created_at, customer_id,
+          lead:leads(homeowner_name, email, phone),
+          customers(name)
         `)
         .eq('org_id', profile.org_id)
-        .is('customer_id', null)
         .order('created_at', { ascending: false })
-        .limit(50)
+
+      if (!showAll) {
+        projectQuery = projectQuery.is('customer_id', null).limit(50)
+      } else {
+        projectQuery = projectQuery.limit(200)
+      }
+
+      const { data: projects } = await projectQuery
 
       // For each project, also try to get proposal customer info
-      const projectsWithProposals = await Promise.all((projects || []).map(async (p) => {
+      const projectsWithProposals = await Promise.all((projects || []).map(async (p: any) => {
         const lead = Array.isArray(p.lead) ? p.lead[0] : p.lead
-        
+        const linkedRow = Array.isArray(p.customers) ? p.customers[0] : p.customers
+        const linkedCustomerName = linkedRow?.name as string | undefined
+
         // Try to get customer info from proposal
         const { data: proposal } = await adminClient
           .from('proposals')
@@ -136,6 +145,7 @@ export async function GET(request: Request) {
           customer_email: customerEmail,
           customer_phone: customerPhone,
           customer_address: customerAddress,
+          linked_customer_name: p.customer_id ? linkedCustomerName : null,
         }
       }))
 

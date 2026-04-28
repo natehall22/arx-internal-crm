@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import ReferralsSection from '@/components/ReferralsSection'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
+import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCustomerButton'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 
@@ -341,6 +342,9 @@ export default async function CustomerDetailPage({
 
         {activeTab === 'projects' && (
           <div className="space-y-4">
+            <div className="flex justify-end">
+              <LinkProjectToCustomerButton customerId={params.id} customerName={customer.name} />
+            </div>
             {projects && projects.length > 0 ? (
               projects.map((project) => (
                 <div key={project.id} className="bg-white shadow rounded-lg p-6">
