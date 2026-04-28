@@ -6,6 +6,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  type CanvassMetricsLeadRow,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
@@ -86,6 +87,33 @@ function withDateColumn(query: any, column: string, startIso: string, endIso: st
   if (endIso) q = q.lte(column, endIso)
   return q
 }
+
+type ExportUserRow = {
+  id: string
+  full_name?: string | null
+  role?: string
+  email?: string
+  team_id?: string | null
+}
+
+type ExportOppRow = {
+  id: string
+  owner_user_id?: string | null
+  setter_user_id?: string | null
+  status?: string | null
+  project_type?: string | null
+  address_text?: string | null
+  created_at?: string | null
+  notes?: string | null
+}
+
+type ExportProjectRow = { status?: string | null }
+
+type ExportApptRow = { canvasser_user_id?: string | null }
+
+type ExportTeamRow = { id: string; name?: string | null; region_id?: string | null }
+
+type ExportRegionRow = { id: string; name?: string | null }
 
 function getSupabaseClient(req: NextRequest) {
   return createServerClient(
@@ -183,13 +211,13 @@ export async function GET(request: NextRequest) {
       supabase.from('orgs').select('settings').eq('id', profile.org_id).single(),
     ])
 
-    const users = usersRes.data || []
-    const leads = leadsRes.data || []
-    const opps = oppsRes.data || []
-    const appointments = appointmentsRes.data || []
-    const projects = projectsRes.data || []
-    const regions = regionsRes.data || []
-    const teams = teamsRes.data || []
+    const users = (usersRes.data || []) as ExportUserRow[]
+    const leads = (leadsRes.data || []) as CanvassMetricsLeadRow[]
+    const opps = (oppsRes.data || []) as ExportOppRow[]
+    const appointments = (appointmentsRes.data || []) as ExportApptRow[]
+    const projects = (projectsRes.data || []) as ExportProjectRow[]
+    const regions = (regionsRes.data || []) as ExportRegionRow[]
+    const teams = (teamsRes.data || []) as ExportTeamRow[]
     const salesOpps = getAttributedInstallationSales(
       signedContractsRes.data as InstallationSaleContractRow[] | null
     )
@@ -239,9 +267,11 @@ export async function GET(request: NextRequest) {
     const teamMetrics = teams.map(t => {
       const teamUserIds = users.filter(u => u.team_id === t.id).map(u => u.id)
       const teamLeads = leads.filter(l => teamUserIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l))
-      const teamOpps = opps.filter(o => teamUserIds.includes(o.owner_user_id))
-      const teamAppointments = appointments.filter(a => teamUserIds.includes(a.canvasser_user_id))
-      const teamSales = salesOpps.filter(o => teamUserIds.includes(o.owner_user_id) || teamUserIds.includes(o.setter_user_id))
+      const teamOpps = opps.filter((o) => teamUserIds.includes(o.owner_user_id || ''))
+      const teamAppointments = appointments.filter((a) => teamUserIds.includes(a.canvasser_user_id || ''))
+      const teamSales = salesOpps.filter(
+        (o) => teamUserIds.includes(o.owner_user_id || '') || teamUserIds.includes(o.setter_user_id || '')
+      )
       const region = regions.find(r => r.id === t.region_id)
       return {
         Team: t.name,
@@ -261,9 +291,12 @@ export async function GET(request: NextRequest) {
       const regionTeamIds = teams.filter(t => t.region_id === r.id).map(t => t.id)
       const regionUserIds = users.filter(u => regionTeamIds.includes(u.team_id || '')).map(u => u.id)
       const regionLeads = leads.filter(l => regionUserIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l))
-      const regionOpps = opps.filter(o => regionUserIds.includes(o.owner_user_id))
-      const regionAppointments = appointments.filter(a => regionUserIds.includes(a.canvasser_user_id))
-      const regionSales = salesOpps.filter(o => regionUserIds.includes(o.owner_user_id) || regionUserIds.includes(o.setter_user_id))
+      const regionOpps = opps.filter((o) => regionUserIds.includes(o.owner_user_id || ''))
+      const regionAppointments = appointments.filter((a) => regionUserIds.includes(a.canvasser_user_id || ''))
+      const regionSales = salesOpps.filter(
+        (o) =>
+          regionUserIds.includes(o.owner_user_id || '') || regionUserIds.includes(o.setter_user_id || '')
+      )
       return {
         Region: r.name,
         Teams: regionTeamIds.length,

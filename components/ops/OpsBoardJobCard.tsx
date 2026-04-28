@@ -48,18 +48,16 @@ function OpsBoardJobCardInner({
   const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
   const hasOpsSnapshot = hasOperationsSnapshotData(job.project ?? null)
   const payChip = paymentStatusChip(job)
-  const enrichedTotal =
-    typeof job.sold_squares === 'number' && job.sold_squares > 0 ? job.sold_squares : null
-  const projectLegacyTotal =
-    job.project?.sold_roof_squares != null && Number(job.project.sold_roof_squares) > 0
-      ? Number(job.project.sold_roof_squares)
-      : null
+  const positiveNum = (v: unknown): number | null => {
+    const n = typeof v === 'string' ? Number(v) : Number(v)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+  const enrichedTotal = positiveNum(job.sold_squares)
+  const projectLegacyTotal = positiveNum(job.project?.sold_roof_squares)
   const displayTotal = enrichedTotal ?? projectLegacyTotal
   const roofSoldSquaresTotal = job.job_type === 'roofing' ? displayTotal : null
-  const measuredSquares =
-    typeof job.measured_squares === 'number' && job.measured_squares > 0 ? job.measured_squares : null
-  const soldWastePercent =
-    typeof job.sold_waste_percent === 'number' && job.sold_waste_percent > 0 ? job.sold_waste_percent : null
+  const measuredSquares = positiveNum(job.measured_squares)
+  const soldWastePercent = positiveNum(job.sold_waste_percent)
   const soldSquaresFromMeasure = job.sold_squares_from_measure === true
 
   // Use proposal-enriched measure + waste whenever present, even when the visible total comes from

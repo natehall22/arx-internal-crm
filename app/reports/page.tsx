@@ -16,6 +16,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  type CanvassMetricsLeadRow,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
@@ -42,6 +43,8 @@ type OutcomeMetricRow = {
   inspection_outcome: string | null
   inspection_outcome_at?: string | null
 }
+
+type ReportProjectRow = { status?: string | null }
 
 function userOutcomeColumn(role: string | null | undefined) {
   return isSetterLikeRole(role || '') ? 'setter_user_id' : 'owner_user_id'
@@ -265,14 +268,14 @@ export default function ReportsPage() {
         .single(),
     ])
 
-    const leads = leadsRes.data || []
+    const leads = (leadsRes.data || []) as CanvassMetricsLeadRow[]
     const opps = oppsRes.data || []
-    const outcomeOpps = outcomeOppsRes.data || []
+    const outcomeOpps = (outcomeOppsRes.data || []) as OutcomeMetricRow[]
     const signedSales = getAttributedInstallationSales(
       signedContractsRes.data as InstallationSaleContractRow[] | null
     )
     const appointments = appointmentsRes.data || []
-    const projects = projectsRes.data || []
+    const projects = (projectsRes.data || []) as ReportProjectRow[]
     const statusUpdates = statusUpdatesRes.data || []
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
       orgRes.data?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
@@ -433,14 +436,16 @@ export default function ReportsPage() {
           userIds.includes(s.owner_user_id || '') || userIds.includes(s.setter_user_id || '')
         )
         const regionCloseMetrics = calculateCloseMetrics(regionOutcomeOpps, regionSales)
-        const attributedRegionLeads = (regionLeads || []).filter(
-          (l) => userIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l)
+        const regionLeadRows = (regionLeads || []) as CanvassMetricsLeadRow[]
+        const attributedRegionLeads = regionLeadRows.filter(
+          (l: CanvassMetricsLeadRow) =>
+            userIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l)
         )
-        
+
         regionsWithMetrics.push({
           ...region,
           doorsKnocked: attributedRegionLeads.length,
-          contacts: attributedRegionLeads.filter((l) =>
+          contacts: attributedRegionLeads.filter((l: CanvassMetricsLeadRow) =>
             isContactDisposition(l.canvass_disposition, contactDispositionIdSet)
           ).length,
           inspectionsSet: (regionAppointments || []).length,
@@ -537,14 +542,16 @@ export default function ReportsPage() {
           userIds.includes(s.owner_user_id || '') || userIds.includes(s.setter_user_id || '')
         )
         const teamCloseMetrics = calculateCloseMetrics(teamOutcomeOpps, teamSales)
-        const attributedTeamLeads = (teamLeads || []).filter(
-          (l) => userIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l)
+        const teamLeadRows = (teamLeads || []) as CanvassMetricsLeadRow[]
+        const attributedTeamLeads = teamLeadRows.filter(
+          (l: CanvassMetricsLeadRow) =>
+            userIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l)
         )
 
         teamsWithMetrics.push({
           ...team,
           doorsKnocked: attributedTeamLeads.length,
-          contacts: attributedTeamLeads.filter((l) =>
+          contacts: attributedTeamLeads.filter((l: CanvassMetricsLeadRow) =>
             isContactDisposition(l.canvass_disposition, contactDispositionIdSet)
           ).length,
           inspectionsSet: (teamAppointments || []).length,
@@ -625,13 +632,15 @@ export default function ReportsPage() {
         )
         const userCloseMetrics = calculateCloseMetrics(userOutcomeOpps || [], userSales)
 
+        const userLeadRows = (userLeads || []) as CanvassMetricsLeadRow[]
         usersWithMetrics.push({
           ...user,
-          doorsKnocked: (userLeads || []).filter(
-            l => getAttributedCanvassLeadUserId(l) === user.id && isCanvassDoorLead(l)
+          doorsKnocked: userLeadRows.filter(
+            (l: CanvassMetricsLeadRow) =>
+              getAttributedCanvassLeadUserId(l) === user.id && isCanvassDoorLead(l)
           ).length,
-          contacts: (userLeads || []).filter(
-            l =>
+          contacts: userLeadRows.filter(
+            (l: CanvassMetricsLeadRow) =>
               getAttributedCanvassLeadUserId(l) === user.id &&
               isCanvassDoorLead(l) &&
               isContactDisposition(l.canvass_disposition, contactDispositionIdSet)

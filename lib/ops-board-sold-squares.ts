@@ -99,7 +99,9 @@ export async function enrichOpsJobsWithSoldSquares(
     latestByProject.set(proposal.project_id, proposal)
   }
 
-  const proposalIds = Array.from(new Set(Array.from(latestByProject.values()).map((proposal) => proposal.id)))
+  // Load line items for every proposal we might attach to a job. Using only "latest per project" misses rows
+  // when accepted_proposal_id / linked_proposal_id points at an older accepted proposal than latestByProject.
+  const proposalIds = Array.from(byId.keys())
   const lineItemsByProposal = new Map<string, ProposalLineItemRow[]>()
 
   if (proposalIds.length > 0) {

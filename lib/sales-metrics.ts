@@ -33,6 +33,22 @@ export type AttributedInstallationSale = {
   signed_at: string | null
 }
 
+/** Row shape for canvass / door reporting filters (Supabase `leads` selects). */
+export type CanvassMetricsLeadRow = {
+  id: string
+  source?: string | null
+  canvass_disposition?: string | null
+  pin_attributed_user_id?: string | null
+  owner_user_id?: string | null
+  homeowner_name?: string | null
+  address_text?: string | null
+  phone?: string | null
+  email?: string | null
+  status?: string | null
+  created_at?: string | null
+  canvass_notes?: string | null
+}
+
 export function isCanvassDoorLead(lead: {
   source?: string | null
   canvass_disposition?: string | null

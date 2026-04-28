@@ -16,9 +16,10 @@ type ProposalLineItemLike = {
 const SQUARE_UNITS = new Set(['square', 'squares', 'sq'])
 const ROOFING_KEYWORDS = ['roof', 'roofing', 'shingle', 'shingles']
 
-function roundSquares(value: number | null | undefined): number | null {
-  if (!Number.isFinite(value)) return null
-  return Math.round(Number(value) * 100) / 100
+function roundSquares(value: number | string | null | undefined): number | null {
+  const n = typeof value === 'string' ? Number(value) : value
+  if (n == null || !Number.isFinite(Number(n))) return null
+  return Math.round(Number(n) * 100) / 100
 }
 
 function parseSquareUnit(unit: string | null | undefined): boolean {
