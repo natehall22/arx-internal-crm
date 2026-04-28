@@ -22,6 +22,7 @@ import {
   isContactDisposition,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
+import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -367,13 +368,9 @@ export default async function DashboardPage() {
       // Calculate stats for each member
       // Data is already filtered by date in queries
       for (const member of members) {
-        const effectiveLeadOwner = (l: {
-          owner_user_id?: string | null
-          pin_attributed_user_id?: string | null
-        }) => l.owner_user_id || l.pin_attributed_user_id
         // Leads attributed to this member (owner or frozen pin id if user was deleted)
         const memberLeads = (allLeads || []).filter(
-          l => effectiveLeadOwner(l) === member.id && isCanvassDoorLead(l)
+          l => getAttributedCanvassLeadUserId(l) === member.id && isCanvassDoorLead(l)
         )
         const rawDoors = memberLeads.length
         

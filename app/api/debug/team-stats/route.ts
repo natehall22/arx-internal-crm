@@ -8,6 +8,7 @@ import {
   isContactDisposition,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
+import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 
 export const dynamic = 'force-dynamic'
 
@@ -191,7 +192,7 @@ export async function GET(request: NextRequest) {
     // Fetch data SCOPED to team members only (for scalability)
     let leadsQuery = supabase
       .from('leads')
-      .select('id, owner_user_id, canvass_disposition, source, created_at')
+      .select('id, owner_user_id, pin_attributed_user_id, canvass_disposition, source, created_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
@@ -255,7 +256,7 @@ export async function GET(request: NextRequest) {
 
     const reps = members.map(member => {
       // LEADS (raw door knocks)
-      const memberLeads = leads?.filter(l => l.owner_user_id === member.id && isCanvassDoorLead(l)) || []
+      const memberLeads = leads?.filter(l => getAttributedCanvassLeadUserId(l) === member.id && isCanvassDoorLead(l)) || []
       const rawDoors = memberLeads.length
       const rawContacts = memberLeads.filter(l =>
         isContactDisposition(l.canvass_disposition, contactDispositionIdSet)

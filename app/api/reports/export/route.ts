@@ -9,6 +9,7 @@ import {
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -129,7 +130,7 @@ export async function GET(request: NextRequest) {
     XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary')
 
     const userMetrics = users.map(u => {
-      const userLeads = leads.filter(l => l.owner_user_id === u.id && isCanvassDoorLead(l))
+      const userLeads = leads.filter(l => getAttributedCanvassLeadUserId(l) === u.id && isCanvassDoorLead(l))
       const userOpps = opps.filter(o => o.owner_user_id === u.id)
       const userAppointments = appointments.filter(a => a.canvasser_user_id === u.id)
       const userSales = salesOpps.filter(o =>
@@ -151,7 +152,7 @@ export async function GET(request: NextRequest) {
 
     const teamMetrics = teams.map(t => {
       const teamUserIds = users.filter(u => u.team_id === t.id).map(u => u.id)
-      const teamLeads = leads.filter(l => teamUserIds.includes(l.owner_user_id) && isCanvassDoorLead(l))
+      const teamLeads = leads.filter(l => teamUserIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l))
       const teamOpps = opps.filter(o => teamUserIds.includes(o.owner_user_id))
       const teamAppointments = appointments.filter(a => teamUserIds.includes(a.canvasser_user_id))
       const teamSales = salesOpps.filter(o => teamUserIds.includes(o.owner_user_id) || teamUserIds.includes(o.setter_user_id))
@@ -173,7 +174,7 @@ export async function GET(request: NextRequest) {
     const regionMetrics = regions.map(r => {
       const regionTeamIds = teams.filter(t => t.region_id === r.id).map(t => t.id)
       const regionUserIds = users.filter(u => regionTeamIds.includes(u.team_id || '')).map(u => u.id)
-      const regionLeads = leads.filter(l => regionUserIds.includes(l.owner_user_id) && isCanvassDoorLead(l))
+      const regionLeads = leads.filter(l => regionUserIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l))
       const regionOpps = opps.filter(o => regionUserIds.includes(o.owner_user_id))
       const regionAppointments = appointments.filter(a => regionUserIds.includes(a.canvasser_user_id))
       const regionSales = salesOpps.filter(o => regionUserIds.includes(o.owner_user_id) || regionUserIds.includes(o.setter_user_id))

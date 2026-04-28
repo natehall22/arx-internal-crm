@@ -19,6 +19,7 @@ import {
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 
 type ReportMetrics = {
   doorsKnocked: number
@@ -301,9 +302,13 @@ export default function ReportsPage() {
         // Get leads for those users (doors knocked by setter)
         const { data: regionLeads } = await supabase
           .from('leads')
-          .select('id, status, source, canvass_disposition')
+          .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
           .eq('org_id', orgId)
-          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
+          .or(
+            userIds.length > 0
+              ? `owner_user_id.in.(${userIds.join(',')}),pin_attributed_user_id.in.(${userIds.join(',')})`
+              : 'owner_user_id.in.(none),pin_attributed_user_id.in.(none)'
+          )
           .gte('created_at', dateFilter)
 
         const { data: regionAppointments } = await supabase
@@ -338,11 +343,16 @@ export default function ReportsPage() {
           userIds.includes(s.owner_user_id || '') || userIds.includes(s.setter_user_id || '')
         )
         const regionCloseMetrics = calculateCloseMetrics(regionOutcomeOpps, regionSales)
+        const attributedRegionLeads = (regionLeads || []).filter(
+          (l) => userIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l)
+        )
         
         regionsWithMetrics.push({
           ...region,
-          doorsKnocked: (regionLeads || []).filter(isCanvassDoorLead).length,
-          contacts: (regionLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
+          doorsKnocked: attributedRegionLeads.length,
+          contacts: attributedRegionLeads.filter((l) =>
+            isContactDisposition(l.canvass_disposition, contactDispositionIdSet)
+          ).length,
           inspectionsSet: (regionAppointments || []).length,
           opportunitiesCreated: (regionOwnedOpps || []).length,
           contractsSigned: regionCloseMetrics.sales,
@@ -381,9 +391,13 @@ export default function ReportsPage() {
 
         const { data: teamLeads } = await supabase
           .from('leads')
-          .select('id, status, source, canvass_disposition')
+          .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
           .eq('org_id', orgId)
-          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
+          .or(
+            userIds.length > 0
+              ? `owner_user_id.in.(${userIds.join(',')}),pin_attributed_user_id.in.(${userIds.join(',')})`
+              : 'owner_user_id.in.(none),pin_attributed_user_id.in.(none)'
+          )
           .gte('created_at', dateFilter)
 
         const { data: teamAppointments } = await supabase
@@ -418,11 +432,16 @@ export default function ReportsPage() {
           userIds.includes(s.owner_user_id || '') || userIds.includes(s.setter_user_id || '')
         )
         const teamCloseMetrics = calculateCloseMetrics(teamOutcomeOpps, teamSales)
+        const attributedTeamLeads = (teamLeads || []).filter(
+          (l) => userIds.includes(getAttributedCanvassLeadUserId(l) || '') && isCanvassDoorLead(l)
+        )
 
         teamsWithMetrics.push({
           ...team,
-          doorsKnocked: (teamLeads || []).filter(isCanvassDoorLead).length,
-          contacts: (teamLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
+          doorsKnocked: attributedTeamLeads.length,
+          contacts: attributedTeamLeads.filter((l) =>
+            isContactDisposition(l.canvass_disposition, contactDispositionIdSet)
+          ).length,
           inspectionsSet: (teamAppointments || []).length,
           opportunitiesCreated: (teamOwnedOpps || []).length,
           contractsSigned: teamCloseMetrics.sales,
@@ -452,9 +471,9 @@ export default function ReportsPage() {
       for (const user of usersData || []) {
         const { data: userLeads } = await supabase
           .from('leads')
-          .select('id, status, source, canvass_disposition')
+          .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
           .eq('org_id', orgId)
-          .eq('owner_user_id', user.id)
+          .or(`owner_user_id.eq.${user.id},pin_attributed_user_id.eq.${user.id}`)
           .gte('created_at', dateFilter)
 
         const { data: userAppointments } = await supabase
@@ -489,8 +508,15 @@ export default function ReportsPage() {
 
         usersWithMetrics.push({
           ...user,
-          doorsKnocked: (userLeads || []).filter(isCanvassDoorLead).length,
-          contacts: (userLeads || []).filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
+          doorsKnocked: (userLeads || []).filter(
+            l => getAttributedCanvassLeadUserId(l) === user.id && isCanvassDoorLead(l)
+          ).length,
+          contacts: (userLeads || []).filter(
+            l =>
+              getAttributedCanvassLeadUserId(l) === user.id &&
+              isCanvassDoorLead(l) &&
+              isContactDisposition(l.canvass_disposition, contactDispositionIdSet)
+          ).length,
           inspectionsSet: (userAppointments || []).length,
           opportunitiesCreated: (userOwnedOpps || []).length,
           contractsSigned: userCloseMetrics.sales,
