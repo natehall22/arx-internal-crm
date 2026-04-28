@@ -405,62 +405,58 @@ export default async function JobDetailPage({ params }: PageProps) {
     jobRes.data.project_id && (originalContract || jobRes.data.sale_amount != null)
   )
 
-  // If job row was created before dealer_fee_* sync on sign, amounts live on proposals only (same as proposal UI).
-  let proposalDealerFee:
+  // Financing metadata can live on proposal even when the job has core numbers already synced.
+  let proposalFinancing:
     | {
         dealer_fee_amount: number | null
         dealer_fee_percent: number | null
         financing_program_id: string | null
+        financing_lender_name: string | null
+        financed_contract_total: number | null
+        financing_term_months: number | null
+        financing_rate: number | null
       }
     | undefined
   const jobRow = jobRes.data
   const missingDealerFeeOnJob =
     jobRow.dealer_fee_amount == null || Number(jobRow.dealer_fee_amount) === 0
-  if (missingDealerFeeOnJob) {
-    const projectOppId =
-      rawProject &&
-      typeof rawProject === 'object' &&
-      'opportunity_id' in rawProject
-        ? (rawProject as { opportunity_id?: string | null }).opportunity_id
-        : null
-    const resolvedOppId = opportunityId || projectOppId || null
-    try {
-      if (resolvedOppId) {
-        const { data: prop } = await supabaseService
-          .from('proposals')
-          .select('dealer_fee_amount, dealer_fee_percent, financing_program_id')
-          .eq('org_id', profile.org_id)
-          .eq('opportunity_id', resolvedOppId)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        if (prop && prop.dealer_fee_amount != null && Number(prop.dealer_fee_amount) > 0) {
-          proposalDealerFee = prop
-        }
-      }
-      if (!proposalDealerFee && jobRow.project_id) {
-        const { data: prop } = await supabaseService
-          .from('proposals')
-          .select('dealer_fee_amount, dealer_fee_percent, financing_program_id')
-          .eq('org_id', profile.org_id)
-          .eq('project_id', jobRow.project_id)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        if (prop && prop.dealer_fee_amount != null && Number(prop.dealer_fee_amount) > 0) {
-          proposalDealerFee = prop
-        }
-      }
-    } catch {
-      // proposals table / RLS
-    }
-  }
-
   const projectOppId =
     rawProject && typeof rawProject === 'object' && 'opportunity_id' in rawProject
       ? (rawProject as { opportunity_id?: string | null }).opportunity_id
       : null
   const resolvedOppId = opportunityId || projectOppId || null
+  const shouldLoadProposalFinancing =
+    missingDealerFeeOnJob ||
+    Boolean(jobRow.financing_program_id) ||
+    (jobRow.project?.payment_method || null) === 'finance'
+  if (shouldLoadProposalFinancing) {
+    try {
+      if (resolvedOppId) {
+        const { data: prop } = await supabaseService
+          .from('proposals')
+          .select('dealer_fee_amount, dealer_fee_percent, financing_program_id, financing_lender_name, financed_contract_total, financing_term_months, financing_rate')
+          .eq('org_id', profile.org_id)
+          .eq('opportunity_id', resolvedOppId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (prop) proposalFinancing = prop
+      }
+      if (!proposalFinancing && jobRow.project_id) {
+        const { data: prop } = await supabaseService
+          .from('proposals')
+          .select('dealer_fee_amount, dealer_fee_percent, financing_program_id, financing_lender_name, financed_contract_total, financing_term_months, financing_rate')
+          .eq('org_id', profile.org_id)
+          .eq('project_id', jobRow.project_id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (prop) proposalFinancing = prop
+      }
+    } catch {
+      // proposals table / RLS
+    }
+  }
 
   let payrollAttribution: {
     opportunity_id: string
@@ -683,9 +679,13 @@ export default async function JobDetailPage({ params }: PageProps) {
 
   const transformedJob = {
     ...jobRes.data,
-    dealer_fee_amount: proposalDealerFee?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount,
-    dealer_fee_percent: proposalDealerFee?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent,
-    financing_program_id: proposalDealerFee?.financing_program_id ?? jobRes.data.financing_program_id,
+    dealer_fee_amount: proposalFinancing?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount,
+    dealer_fee_percent: proposalFinancing?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent,
+    financing_program_id: proposalFinancing?.financing_program_id ?? jobRes.data.financing_program_id,
+    financing_lender_name: proposalFinancing?.financing_lender_name ?? null,
+    financed_contract_total: proposalFinancing?.financed_contract_total ?? null,
+    financing_term_months: proposalFinancing?.financing_term_months ?? null,
+    financing_rate: proposalFinancing?.financing_rate ?? null,
     assigned_crew: Array.isArray(jobRes.data.assigned_crew) ? jobRes.data.assigned_crew[0] : jobRes.data.assigned_crew,
     assigned_sub: Array.isArray(jobRes.data.assigned_sub) ? jobRes.data.assigned_sub[0] : jobRes.data.assigned_sub,
     customer: customer,

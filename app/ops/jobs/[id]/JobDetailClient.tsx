@@ -25,6 +25,7 @@ import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
+import { netCommissionableFromJob } from '@/lib/financing'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -60,6 +61,12 @@ interface Job {
   labor_cost: number | null
   material_cost: number | null
   dealer_fee_amount?: number | null
+  dealer_fee_percent?: number | null
+  financing_program_id?: string | null
+  financing_lender_name?: string | null
+  financed_contract_total?: number | null
+  financing_term_months?: number | null
+  financing_rate?: number | null
   // Insurance
   job_source?: 'retail' | 'insurance'
   insurance_stage?: string | null
@@ -988,6 +995,7 @@ export default function JobDetailClient({
   const laborCostCents = toCents(laborCost)
   const materialCostCents = toCents(materialCost)
   const dealerFeeCents = toCents(dealerFeeCost)
+  const netToArxCents = toCents(netCommissionableFromJob(saleAmount, dealerFeeCost))
   const commissionCents =
     payrollSnapshot.poolCap != null
       ? Math.round(payrollSnapshot.poolCap * 100)
@@ -995,6 +1003,12 @@ export default function JobDetailClient({
   const profitCents =
     saleAmountCents - laborCostCents - materialCostCents - dealerFeeCents - commissionCents
   const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
+  const loanInfoParts = [
+    job.financing_lender_name?.trim() || null,
+    job.financing_term_months ? `${job.financing_term_months} mo` : null,
+    job.financing_rate != null ? `${job.financing_rate}% APR` : null,
+  ].filter(Boolean)
+  const loanInfoLabel = loanInfoParts.length > 0 ? loanInfoParts.join(' • ') : null
 
   const handleAttachReceiptInvoiceShortcut = () => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
@@ -1721,15 +1735,39 @@ export default function JobDetailClient({
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
                 <p className="text-xs text-gray-500 mb-4">
-                  Sale minus est. comp, labor, materials, and any lender dealer fee — admin &amp; owner only.
+                  Total contract minus est. comp, labor, materials, and any lender dealer fee — admin &amp; owner only.
                 </p>
                 <div className="space-y-3 text-sm sm:text-base">
                   <div className="flex justify-between gap-4">
-                    <span className="text-gray-700">Sale</span>
+                    <span className="text-gray-700">Total contract</span>
                     <span className="font-medium text-gray-900 tabular-nums">
                       {job.sale_amount !== null ? formatCents(saleAmountCents) : '—'}
                     </span>
                   </div>
+                  {(loanInfoLabel || job.financing_program_id) && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-gray-700">Loan info</span>
+                      <span className="font-medium text-gray-900 text-right">
+                        {loanInfoLabel || 'Financed'}
+                      </span>
+                    </div>
+                  )}
+                  {dealerFeeCents > 0 && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-gray-700">Dealer fee</span>
+                      <span className="font-medium text-amber-900 tabular-nums">
+                        {formatCents(dealerFeeCents)}
+                      </span>
+                    </div>
+                  )}
+                  {dealerFeeCents > 0 && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-gray-700">Net to ARX</span>
+                      <span className="font-medium text-gray-900 tabular-nums">
+                        {formatCents(netToArxCents)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-700">Est. sales comp</span>
                     <span className="font-medium text-gray-900 tabular-nums">
@@ -1748,12 +1786,6 @@ export default function JobDetailClient({
                       {effectiveMaterialCost !== null ? formatCents(materialCostCents) : '—'}
                     </span>
                   </div>
-                  {dealerFeeCents > 0 && (
-                    <div className="flex justify-between gap-4">
-                      <span className="text-gray-700">Lender / dealer fee</span>
-                      <span className="font-medium text-amber-900 tabular-nums">{formatCents(dealerFeeCents)}</span>
-                    </div>
-                  )}
                   <div className="border-t border-gray-200 pt-3 flex justify-between gap-4">
                     <span className="text-gray-900 font-medium">Est. profit</span>
                     <span className={`font-semibold tabular-nums ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
