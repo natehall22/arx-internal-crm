@@ -15,9 +15,9 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all'
+type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all' | 'custom'
 
-function getDateFilter(range: DateRange): string {
+function getPresetStartIso(range: Exclude<DateRange, 'custom'>): string {
   const now = new Date()
   switch (range) {
     case '7d':
@@ -31,6 +31,60 @@ function getDateFilter(range: DateRange): string {
     case 'all':
       return new Date(2000, 0, 1).toISOString()
   }
+}
+
+function localYmdToStartIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y || 2000, (m || 1) - 1, d || 1, 0, 0, 0, 0).toISOString()
+}
+
+function localYmdToEndIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y || 2000, (m || 1) - 1, d || 1, 23, 59, 59, 999).toISOString()
+}
+
+function resolveExportBounds(
+  range: DateRange,
+  startParam: string | null,
+  endParam: string | null,
+): { startIso: string; endIso: string | null; label: string } {
+  if (range === 'custom') {
+    if (
+      startParam &&
+      endParam &&
+      /^\d{4}-\d{2}-\d{2}$/.test(startParam) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(endParam)
+    ) {
+      let s = localYmdToStartIso(startParam)
+      let e = localYmdToEndIso(endParam)
+      if (new Date(s) > new Date(e)) {
+        s = localYmdToStartIso(endParam)
+        e = localYmdToEndIso(startParam)
+      }
+      return {
+        startIso: s,
+        endIso: e,
+        label: `${startParam}_to_${endParam}`,
+      }
+    }
+    const now = new Date()
+    return {
+      startIso: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      endIso: null,
+      label: '30d_fallback',
+    }
+  }
+  return {
+    startIso: getPresetStartIso(range),
+    endIso: null,
+    label: range,
+  }
+}
+
+function withDateColumn(query: any, column: string, startIso: string, endIso: string | null) {
+  let q = query.gte(column, startIso)
+  if (endIso) q = q.lte(column, endIso)
+  return q
 }
 
 function getSupabaseClient(req: NextRequest) {
@@ -74,24 +128,56 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authorized to export reports' }, { status: 403 })
     }
 
-    const range = (request.nextUrl.searchParams.get('range') || '30d') as DateRange
-    const dateFilter = getDateFilter(range)
+    const VALID_RANGES: DateRange[] = ['7d', '30d', '90d', 'ytd', 'all', 'custom']
+    const rawRange = request.nextUrl.searchParams.get('range') || '30d'
+    const range = (VALID_RANGES.includes(rawRange as DateRange) ? rawRange : '30d') as DateRange
+    const startParam = request.nextUrl.searchParams.get('start')
+    const endParam = request.nextUrl.searchParams.get('end')
+    const { startIso, endIso, label: rangeLabel } = resolveExportBounds(range, startParam, endParam)
+    const rangeSummary =
+      range === 'custom' && startParam && endParam
+        ? `${startParam} – ${endParam}`
+        : range
 
     const [usersRes, leadsRes, oppsRes, signedContractsRes, appointmentsRes, projectsRes, regionsRes, teamsRes, orgRes] = await Promise.all([
       supabase.from('users').select('*').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
-      supabase.from('leads').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
-      supabase.from('opportunities').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
-      supabase
-        .from('order_form_contracts')
-        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-        .eq('org_id', profile.org_id)
-        .eq('agreement_type', 'installation')
-        .eq('status', 'completed')
-        .not('customer_signed_at', 'is', null)
-        .gte('customer_signed_at', dateFilter)
-        .order('customer_signed_at', { ascending: false }),
-      supabase.from('scheduled_appointments').select('id, canvasser_user_id').eq('org_id', profile.org_id).gte('created_at', dateFilter),
-      supabase.from('projects').select('*').eq('org_id', profile.org_id).gte('created_at', dateFilter),
+      withDateColumn(
+        supabase.from('leads').select('*').eq('org_id', profile.org_id),
+        'created_at',
+        startIso,
+        endIso,
+      ),
+      withDateColumn(
+        supabase.from('opportunities').select('*').eq('org_id', profile.org_id),
+        'created_at',
+        startIso,
+        endIso,
+      ),
+      withDateColumn(
+        supabase
+          .from('order_form_contracts')
+          .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+          .eq('org_id', profile.org_id)
+          .eq('agreement_type', 'installation')
+          .eq('status', 'completed')
+          .not('customer_signed_at', 'is', null)
+          .order('customer_signed_at', { ascending: false }),
+        'customer_signed_at',
+        startIso,
+        endIso,
+      ),
+      withDateColumn(
+        supabase.from('scheduled_appointments').select('id, canvasser_user_id').eq('org_id', profile.org_id),
+        'created_at',
+        startIso,
+        endIso,
+      ),
+      withDateColumn(
+        supabase.from('projects').select('*').eq('org_id', profile.org_id),
+        'created_at',
+        startIso,
+        endIso,
+      ),
       supabase.from('regions').select('*').eq('org_id', profile.org_id).order('name'),
       supabase.from('teams').select('*').eq('org_id', profile.org_id).order('name'),
       supabase.from('orgs').select('settings').eq('id', profile.org_id).single(),
@@ -115,7 +201,7 @@ export async function GET(request: NextRequest) {
 
     const summaryData = [
       ['Report Summary'],
-      ['Date Range', range],
+      ['Date Range', rangeSummary],
       ['Generated', new Date().toISOString()],
       [''],
       ['Metric', 'Value'],
@@ -220,7 +306,7 @@ export async function GET(request: NextRequest) {
 
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
-    const filename = `report_${range}_${new Date().toISOString().split('T')[0]}.xlsx`
+    const filename = `report_${rangeLabel.replace(/[^a-zA-Z0-9_.-]/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`
     
     return new NextResponse(buffer, {
       headers: {

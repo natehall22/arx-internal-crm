@@ -36,7 +36,7 @@ type UserMetrics = User & ReportMetrics
 type TeamMetrics = Team & ReportMetrics & { members: UserMetrics[] }
 type RegionMetrics = Region & ReportMetrics & { teams: TeamMetrics[] }
 
-type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all'
+type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all' | 'custom'
 
 type OutcomeMetricRow = {
   inspection_outcome: string | null
@@ -57,10 +57,40 @@ const CUSTOM_REPORT_DATE_RANGES: { id: string; label: string }[] = [
   { id: 'all', label: 'All time' },
 ]
 
+function formatYmd(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function localYmdToStartIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y || 2000, (m || 1) - 1, d || 1, 0, 0, 0, 0).toISOString()
+}
+
+function localYmdToEndIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y || 2000, (m || 1) - 1, d || 1, 23, 59, 59, 999).toISOString()
+}
+
+/** Lower bound inclusive; upper bound inclusive only for custom ranges (presets roll forward to “now”). */
+function withDateColumn(query: any, column: string, startIso: string, endIso: string | null) {
+  let q = query.gte(column, startIso)
+  if (endIso) q = q.lte(column, endIso)
+  return q
+}
+
 export default function ReportsPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState<DateRange>('30d')
+  const [customDateStart, setCustomDateStart] = useState(() => {
+    const end = new Date()
+    const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+    return formatYmd(start)
+  })
+  const [customDateEnd, setCustomDateEnd] = useState(() => formatYmd(new Date()))
   const [viewLevel, setViewLevel] = useState<'org' | 'region' | 'team' | 'user'>('org')
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
@@ -83,7 +113,7 @@ export default function ReportsPage() {
     if (currentUser) {
       loadMetrics()
     }
-  }, [currentUser, dateRange, viewLevel, selectedRegionId, selectedTeamId])
+  }, [currentUser, dateRange, customDateStart, customDateEnd, viewLevel, selectedRegionId, selectedTeamId])
 
   const loadCurrentUser = async () => {
     try {
@@ -115,19 +145,36 @@ export default function ReportsPage() {
     }
   }
 
-  const getDateFilter = () => {
+  const getDateBounds = (): { start: string; end: string | null } => {
     const now = new Date()
+    if (dateRange === 'custom') {
+      let sy = customDateStart
+      let ey = customDateEnd
+      if (!sy || !ey) {
+        const end = new Date()
+        const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+        sy = formatYmd(start)
+        ey = formatYmd(end)
+      }
+      let startIso = localYmdToStartIso(sy)
+      let endIso = localYmdToEndIso(ey)
+      if (new Date(startIso) > new Date(endIso)) {
+        startIso = localYmdToStartIso(ey)
+        endIso = localYmdToEndIso(sy)
+      }
+      return { start: startIso, end: endIso }
+    }
     switch (dateRange) {
       case '7d':
-        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        return { start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), end: null }
       case '30d':
-        return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+        return { start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), end: null }
       case '90d':
-        return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+        return { start: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(), end: null }
       case 'ytd':
-        return new Date(now.getFullYear(), 0, 1).toISOString()
+        return { start: new Date(now.getFullYear(), 0, 1).toISOString(), end: null }
       case 'all':
-        return new Date(2000, 0, 1).toISOString()
+        return { start: new Date(2000, 0, 1).toISOString(), end: null }
     }
   }
 
@@ -136,53 +183,81 @@ export default function ReportsPage() {
     setLoading(true)
 
     const supabase = createClientBrowser()
-    const dateFilter = getDateFilter()
+    const { start: dateStart, end: dateEnd } = getDateBounds()
     const scope = getReportScope(currentUser.role as UserRole)
     const orgId = currentUser.org_id
 
     // Load org-level metrics
     const [leadsRes, oppsRes, outcomeOppsRes, signedContractsRes, appointmentsRes, projectsRes, statusUpdatesRes, orgRes] = await Promise.all([
-      supabase
-        .from('leads')
-        .select('id, status, source, canvass_disposition, created_at, owner_user_id')
-        .eq('org_id', orgId)
-        .gte('created_at', dateFilter),
-      supabase
-        .from('opportunities')
-        .select('id, status, inspection_outcome, inspection_outcome_at, created_at, owner_user_id, setter_user_id')
-        .eq('org_id', orgId)
-        .gte('created_at', dateFilter),
-      supabase
-        .from('opportunities')
-        .select('id, status, inspection_outcome, inspection_outcome_at, owner_user_id, setter_user_id')
-        .eq('org_id', orgId)
-        .not('inspection_outcome', 'is', null)
-        .not('inspection_outcome_at', 'is', null)
-        .gte('inspection_outcome_at', dateFilter),
-      supabase
-        .from('order_form_contracts')
-        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-        .eq('org_id', orgId)
-        .eq('agreement_type', 'installation')
-        .eq('status', 'completed')
-        .not('customer_signed_at', 'is', null)
-        .gte('customer_signed_at', dateFilter)
-        .order('customer_signed_at', { ascending: false }),
-      supabase
-        .from('scheduled_appointments')
-        .select('id, canvasser_user_id, created_at')
-        .eq('org_id', orgId)
-        .gte('created_at', dateFilter),
-      supabase
-        .from('projects')
-        .select('id, status, created_at')
-        .eq('org_id', orgId)
-        .gte('created_at', dateFilter),
-      supabase
-        .from('inspection_status_updates')
-        .select('id, outcome, completed_at, closer_user_id')
-        .eq('org_id', orgId)
-        .gte('completed_at', dateFilter),
+      withDateColumn(
+        supabase
+          .from('leads')
+          .select('id, status, source, canvass_disposition, created_at, owner_user_id')
+          .eq('org_id', orgId),
+        'created_at',
+        dateStart,
+        dateEnd,
+      ),
+      withDateColumn(
+        supabase
+          .from('opportunities')
+          .select('id, status, inspection_outcome, inspection_outcome_at, created_at, owner_user_id, setter_user_id')
+          .eq('org_id', orgId),
+        'created_at',
+        dateStart,
+        dateEnd,
+      ),
+      withDateColumn(
+        supabase
+          .from('opportunities')
+          .select('id, status, inspection_outcome, inspection_outcome_at, owner_user_id, setter_user_id')
+          .eq('org_id', orgId)
+          .not('inspection_outcome', 'is', null)
+          .not('inspection_outcome_at', 'is', null),
+        'inspection_outcome_at',
+        dateStart,
+        dateEnd,
+      ),
+      withDateColumn(
+        supabase
+          .from('order_form_contracts')
+          .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+          .eq('org_id', orgId)
+          .eq('agreement_type', 'installation')
+          .eq('status', 'completed')
+          .not('customer_signed_at', 'is', null)
+          .order('customer_signed_at', { ascending: false }),
+        'customer_signed_at',
+        dateStart,
+        dateEnd,
+      ),
+      withDateColumn(
+        supabase
+          .from('scheduled_appointments')
+          .select('id, canvasser_user_id, created_at')
+          .eq('org_id', orgId),
+        'created_at',
+        dateStart,
+        dateEnd,
+      ),
+      withDateColumn(
+        supabase
+          .from('projects')
+          .select('id, status, created_at')
+          .eq('org_id', orgId),
+        'created_at',
+        dateStart,
+        dateEnd,
+      ),
+      withDateColumn(
+        supabase
+          .from('inspection_status_updates')
+          .select('id, outcome, completed_at, closer_user_id')
+          .eq('org_id', orgId),
+        'completed_at',
+        dateStart,
+        dateEnd,
+      ),
       supabase
         .from('orgs')
         .select('settings')
@@ -300,42 +375,57 @@ export default function ReportsPage() {
         const userIds = (regionUsers || []).map(u => u.id)
 
         // Get leads for those users (doors knocked by setter)
-        const { data: regionLeads } = await supabase
-          .from('leads')
-          .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
-          .eq('org_id', orgId)
-          .or(
-            userIds.length > 0
-              ? `owner_user_id.in.(${userIds.join(',')}),pin_attributed_user_id.in.(${userIds.join(',')})`
-              : 'owner_user_id.in.(none),pin_attributed_user_id.in.(none)'
-          )
-          .gte('created_at', dateFilter)
+        const { data: regionLeads } = await withDateColumn(
+          supabase
+            .from('leads')
+            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
+            .eq('org_id', orgId)
+            .or(
+              userIds.length > 0
+                ? `owner_user_id.in.(${userIds.join(',')}),pin_attributed_user_id.in.(${userIds.join(',')})`
+                : 'owner_user_id.in.(none),pin_attributed_user_id.in.(none)'
+            ),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
-        const { data: regionAppointments } = await supabase
-          .from('scheduled_appointments')
-          .select('id, canvasser_user_id')
-          .eq('org_id', orgId)
-          .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
-          .gte('created_at', dateFilter)
+        const { data: regionAppointments } = await withDateColumn(
+          supabase
+            .from('scheduled_appointments')
+            .select('id, canvasser_user_id')
+            .eq('org_id', orgId)
+            .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none']),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
-        // Get opportunities OWNED by users in this region (created pipeline)
-        const { data: regionOwnedOpps } = await supabase
-          .from('opportunities')
-          .select('id, status')
-          .eq('org_id', orgId)
-          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
-          .gte('created_at', dateFilter)
+        const { data: regionOwnedOpps } = await withDateColumn(
+          supabase
+            .from('opportunities')
+            .select('id, status')
+            .eq('org_id', orgId)
+            .in('owner_user_id', userIds.length > 0 ? userIds : ['none']),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
         let regionOutcomeOpps: OutcomeMetricRow[] = []
         if (userIds.length > 0) {
-          const { data } = await supabase
-            .from('opportunities')
-            .select('id, status, inspection_outcome, inspection_outcome_at')
-            .eq('org_id', orgId)
-            .or(`owner_user_id.in.(${userIds.join(',')}),setter_user_id.in.(${userIds.join(',')})`)
-            .not('inspection_outcome', 'is', null)
-            .not('inspection_outcome_at', 'is', null)
-            .gte('inspection_outcome_at', dateFilter)
+          const { data } = await withDateColumn(
+            supabase
+              .from('opportunities')
+              .select('id, status, inspection_outcome, inspection_outcome_at')
+              .eq('org_id', orgId)
+              .or(`owner_user_id.in.(${userIds.join(',')}),setter_user_id.in.(${userIds.join(',')})`)
+              .not('inspection_outcome', 'is', null)
+              .not('inspection_outcome_at', 'is', null),
+            'inspection_outcome_at',
+            dateStart,
+            dateEnd,
+          )
           regionOutcomeOpps = data || []
         }
 
@@ -389,42 +479,57 @@ export default function ReportsPage() {
 
         const userIds = (teamUsers || []).map(u => u.id)
 
-        const { data: teamLeads } = await supabase
-          .from('leads')
-          .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
-          .eq('org_id', orgId)
-          .or(
-            userIds.length > 0
-              ? `owner_user_id.in.(${userIds.join(',')}),pin_attributed_user_id.in.(${userIds.join(',')})`
-              : 'owner_user_id.in.(none),pin_attributed_user_id.in.(none)'
-          )
-          .gte('created_at', dateFilter)
+        const { data: teamLeads } = await withDateColumn(
+          supabase
+            .from('leads')
+            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
+            .eq('org_id', orgId)
+            .or(
+              userIds.length > 0
+                ? `owner_user_id.in.(${userIds.join(',')}),pin_attributed_user_id.in.(${userIds.join(',')})`
+                : 'owner_user_id.in.(none),pin_attributed_user_id.in.(none)'
+            ),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
-        const { data: teamAppointments } = await supabase
-          .from('scheduled_appointments')
-          .select('id, canvasser_user_id')
-          .eq('org_id', orgId)
-          .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
-          .gte('created_at', dateFilter)
+        const { data: teamAppointments } = await withDateColumn(
+          supabase
+            .from('scheduled_appointments')
+            .select('id, canvasser_user_id')
+            .eq('org_id', orgId)
+            .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none']),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
-        // Get opportunities OWNED by users in this team (created pipeline)
-        const { data: teamOwnedOpps } = await supabase
-          .from('opportunities')
-          .select('id, status')
-          .eq('org_id', orgId)
-          .in('owner_user_id', userIds.length > 0 ? userIds : ['none'])
-          .gte('created_at', dateFilter)
+        const { data: teamOwnedOpps } = await withDateColumn(
+          supabase
+            .from('opportunities')
+            .select('id, status')
+            .eq('org_id', orgId)
+            .in('owner_user_id', userIds.length > 0 ? userIds : ['none']),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
         let teamOutcomeOpps: OutcomeMetricRow[] = []
         if (userIds.length > 0) {
-          const { data } = await supabase
-            .from('opportunities')
-            .select('id, status, inspection_outcome, inspection_outcome_at')
-            .eq('org_id', orgId)
-            .or(`owner_user_id.in.(${userIds.join(',')}),setter_user_id.in.(${userIds.join(',')})`)
-            .not('inspection_outcome', 'is', null)
-            .not('inspection_outcome_at', 'is', null)
-            .gte('inspection_outcome_at', dateFilter)
+          const { data } = await withDateColumn(
+            supabase
+              .from('opportunities')
+              .select('id, status, inspection_outcome, inspection_outcome_at')
+              .eq('org_id', orgId)
+              .or(`owner_user_id.in.(${userIds.join(',')}),setter_user_id.in.(${userIds.join(',')})`)
+              .not('inspection_outcome', 'is', null)
+              .not('inspection_outcome_at', 'is', null),
+            'inspection_outcome_at',
+            dateStart,
+            dateEnd,
+          )
           teamOutcomeOpps = data || []
         }
 
@@ -469,37 +574,51 @@ export default function ReportsPage() {
 
       const usersWithMetrics: UserMetrics[] = []
       for (const user of usersData || []) {
-        const { data: userLeads } = await supabase
-          .from('leads')
-          .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
-          .eq('org_id', orgId)
-          .or(`owner_user_id.eq.${user.id},pin_attributed_user_id.eq.${user.id}`)
-          .gte('created_at', dateFilter)
+        const { data: userLeads } = await withDateColumn(
+          supabase
+            .from('leads')
+            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
+            .eq('org_id', orgId)
+            .or(`owner_user_id.eq.${user.id},pin_attributed_user_id.eq.${user.id}`),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
-        const { data: userAppointments } = await supabase
-          .from('scheduled_appointments')
-          .select('id, canvasser_user_id')
-          .eq('org_id', orgId)
-          .eq('canvasser_user_id', user.id)
-          .gte('created_at', dateFilter)
+        const { data: userAppointments } = await withDateColumn(
+          supabase
+            .from('scheduled_appointments')
+            .select('id, canvasser_user_id')
+            .eq('org_id', orgId)
+            .eq('canvasser_user_id', user.id),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
-        // Get opportunities OWNED by this user (created pipeline)
-        const { data: userOwnedOpps } = await supabase
-          .from('opportunities')
-          .select('id, status')
-          .eq('org_id', orgId)
-          .eq('owner_user_id', user.id)
-          .gte('created_at', dateFilter)
+        const { data: userOwnedOpps } = await withDateColumn(
+          supabase
+            .from('opportunities')
+            .select('id, status')
+            .eq('org_id', orgId)
+            .eq('owner_user_id', user.id),
+          'created_at',
+          dateStart,
+          dateEnd,
+        )
 
-        // Get outcome events for close-rate metrics
-        const { data: userOutcomeOpps } = await supabase
-          .from('opportunities')
-          .select('id, status, inspection_outcome, inspection_outcome_at')
-          .eq('org_id', orgId)
-          .eq(userOutcomeColumn(user.role), user.id)
-          .not('inspection_outcome', 'is', null)
-          .not('inspection_outcome_at', 'is', null)
-          .gte('inspection_outcome_at', dateFilter)
+        const { data: userOutcomeOpps } = await withDateColumn(
+          supabase
+            .from('opportunities')
+            .select('id, status, inspection_outcome, inspection_outcome_at')
+            .eq('org_id', orgId)
+            .eq(userOutcomeColumn(user.role), user.id)
+            .not('inspection_outcome', 'is', null)
+            .not('inspection_outcome_at', 'is', null),
+          'inspection_outcome_at',
+          dateStart,
+          dateEnd,
+        )
 
         const userSales = signedSales.filter(s =>
           isSetterLikeRole(user.role) ? s.setter_user_id === user.id : s.owner_user_id === user.id
@@ -584,21 +703,59 @@ export default function ReportsPage() {
           </div>
           <div className="flex items-center gap-4">
             {activeTab === 'overview' && (
-              <select
-                value={dateRange}
-                onChange={(e) => setDateRange(e.target.value as DateRange)}
-                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm"
-              >
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="90d">Last 90 days</option>
-                <option value="ytd">Year to date</option>
-                <option value="all">All time</option>
-              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={dateRange}
+                  onChange={(e) => {
+                    const v = e.target.value as DateRange
+                    if (v === 'custom' && dateRange !== 'custom') {
+                      const end = new Date()
+                      const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+                      setCustomDateStart(formatYmd(start))
+                      setCustomDateEnd(formatYmd(end))
+                    }
+                    setDateRange(v)
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm min-w-[11rem]"
+                >
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="90d">Last 90 days</option>
+                  <option value="ytd">Year to date</option>
+                  <option value="all">All time</option>
+                  <option value="custom">Custom range…</option>
+                </select>
+                {dateRange === 'custom' && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+                    <label className="flex items-center gap-1.5">
+                      <span className="text-gray-500 whitespace-nowrap">From</span>
+                      <input
+                        type="date"
+                        value={customDateStart}
+                        onChange={(e) => setCustomDateStart(e.target.value)}
+                        className="px-2 py-1.5 border border-gray-300 rounded-lg bg-white"
+                      />
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      <span className="text-gray-500 whitespace-nowrap">To</span>
+                      <input
+                        type="date"
+                        value={customDateEnd}
+                        onChange={(e) => setCustomDateEnd(e.target.value)}
+                        className="px-2 py-1.5 border border-gray-300 rounded-lg bg-white"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
             )}
             {can.exportReports(currentUser?.role as UserRole) && activeTab === 'overview' && (
               <Link
-                href={`/api/reports/export?range=${dateRange}`}
+                href={
+                  dateRange === 'custom'
+                    ? `/api/reports/export?range=custom&start=${encodeURIComponent(customDateStart)}&end=${encodeURIComponent(customDateEnd)}`
+                    : `/api/reports/export?range=${dateRange}`
+                }
                 className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm"
               >
                 Export Excel
