@@ -12,7 +12,11 @@ import {
 } from '@/lib/org-appointment-types'
 import { materializeSaleFromInspectionOutcome } from '@/lib/opportunity-sale-pipeline'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
-import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
+import {
+  INSURANCE_FOLLOW_UP_GRACE_DAYS,
+  isInsideSalesRoleLike,
+  REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
+} from '@/lib/inside-sales-follow-up'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
@@ -248,15 +252,6 @@ export async function POST(request: NextRequest) {
     console.log('Outcome:', outcome)
     console.log('Notes:', notes)
     console.log('Setter Feedback:', setter_feedback)
-
-    if (outcome === 'insurance_follow_up') {
-      if (!schedule_follow_up || !follow_up_date) {
-        return NextResponse.json(
-          { error: 'Insurance follow-up requires a scheduled date and time' },
-          { status: 400 }
-        )
-      }
-    }
 
     let appointment: any = null
     let lead: any = null
@@ -572,8 +567,13 @@ export async function POST(request: NextRequest) {
         opportunityUpdate.status = 'in_progress' // Active opportunities being worked
       }
       if (outcome === 'insurance_follow_up') {
+        const insuranceGraceDeadline = new Date()
+        insuranceGraceDeadline.setDate(insuranceGraceDeadline.getDate() + INSURANCE_FOLLOW_UP_GRACE_DAYS)
         opportunityUpdate.job_source = 'insurance'
         opportunityUpdate.insurance_stage = 'contingency_signed'
+        opportunityUpdate.pipeline_stage = REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+        opportunityUpdate.follow_up_at = insuranceGraceDeadline.toISOString()
+        opportunityUpdate.assigned_user_id = user.id
       }
       if (outcome === 'not_home') {
         opportunityUpdate.pipeline_stage = 'inside_sales_didnt_sit'
@@ -676,7 +676,7 @@ export async function POST(request: NextRequest) {
       setter_feedback: setter_feedback || null,
     }
 
-    if (outcome === 'not_home') {
+    if (outcome === 'not_home' || outcome === 'insurance_follow_up') {
       const { data: insideSalesUsers } = await supabase
         .from('users')
         .select('id, role, active, custom_roles(name, display_name)')
@@ -709,15 +709,20 @@ export async function POST(request: NextRequest) {
             `Customer: ${customerName}`,
             customerAddress ? `Address: ${customerAddress}` : null,
             lead?.phone ? `Phone: ${lead.phone}` : null,
-            'Reason: Did not sit (not home)',
+            outcome === 'insurance_follow_up'
+              ? `Reason: Insurance follow-up (rep grace period: ${INSURANCE_FOLLOW_UP_GRACE_DAYS} days)`
+              : 'Reason: Did not sit (not home)',
             notes ? `Closer Notes: "${notes}"` : null,
           ]
             .filter(Boolean)
             .join('\n'),
           data: {
             ...notificationData,
-            queue_type: 'didnt_sit',
-            pipeline_stage: 'inside_sales_didnt_sit',
+            queue_type: outcome === 'insurance_follow_up' ? 'insurance_follow_up' : 'didnt_sit',
+            pipeline_stage:
+              outcome === 'insurance_follow_up'
+                ? REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+                : 'inside_sales_didnt_sit',
           },
         })
       }

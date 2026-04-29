@@ -3,7 +3,9 @@ import { createClient } from '@supabase/supabase-js'
 import {
   canViewInsideSalesFollowUp,
   DIDNT_SIT_PIPELINE_PREFIX,
-  hasActiveDidntSitFollowUp,
+  getInsideSalesFollowUpKind,
+  hasActiveInsideSalesFollowUp,
+  INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
@@ -88,12 +90,12 @@ type ActionType =
   | 'mark_lost'
   | 'schedule_back_to_closer'
 
-const PIPELINE_STAGE_BY_ACTION: Record<Exclude<ActionType, 'claim_self' | 'schedule_back_to_closer'>, string> = {
-  log_call: `${DIDNT_SIT_PIPELINE_PREFIX}_attempting_contact`,
-  log_text: `${DIDNT_SIT_PIPELINE_PREFIX}_attempting_contact`,
-  mark_rescheduled: `${DIDNT_SIT_PIPELINE_PREFIX}_rescheduled`,
-  mark_unresponsive: `${DIDNT_SIT_PIPELINE_PREFIX}_unresponsive`,
-  mark_lost: `${DIDNT_SIT_PIPELINE_PREFIX}_lost`,
+const PIPELINE_STAGE_SUFFIX_BY_ACTION: Record<Exclude<ActionType, 'claim_self' | 'schedule_back_to_closer'>, string> = {
+  log_call: 'attempting_contact',
+  log_text: 'attempting_contact',
+  mark_rescheduled: 'rescheduled',
+  mark_unresponsive: 'unresponsive',
+  mark_lost: 'lost',
 }
 
 async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
@@ -192,7 +194,7 @@ export async function POST(
 
     const { data: opportunity } = await admin
       .from('opportunities')
-      .select('id, org_id, lead_id, status, inspection_outcome, pipeline_stage, assigned_user_id, notes')
+      .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, pipeline_stage, assigned_user_id, notes')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -201,9 +203,15 @@ export async function POST(
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 
-    if (!hasActiveDidntSitFollowUp(opportunity)) {
+    if (!hasActiveInsideSalesFollowUp(opportunity)) {
       return NextResponse.json({ error: 'No active inside sales follow-up for this opportunity' }, { status: 400 })
     }
+
+    const followUpKind = getInsideSalesFollowUpKind(opportunity)
+    const pipelinePrefix =
+      followUpKind === 'insurance'
+        ? INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+        : DIDNT_SIT_PIPELINE_PREFIX
 
     const body = await request.json()
     const action = String(body.action || '') as ActionType
@@ -425,7 +433,10 @@ export async function POST(
         .from('opportunities')
         .update({
           assigned_user_id: opportunity.assigned_user_id || profile.id,
-          pipeline_stage: `${DIDNT_SIT_PIPELINE_PREFIX}_rescheduled`,
+          pipeline_stage:
+            followUpKind === 'insurance'
+              ? `${INSURANCE_FOLLOW_UP_PIPELINE_PREFIX}_scheduled`
+              : `${DIDNT_SIT_PIPELINE_PREFIX}_rescheduled`,
           follow_up_at: null,
           inspection_outcome: null,
           inspection_outcome_at: null,
@@ -465,12 +476,16 @@ export async function POST(
         return NextResponse.json({ error: 'Only inside sales users can self-assign follow-ups' }, { status: 403 })
       }
       updateData.assigned_user_id = profile.id
-      updateData.pipeline_stage = opportunity.pipeline_stage || DIDNT_SIT_PIPELINE_PREFIX
+      updateData.pipeline_stage = opportunity.pipeline_stage || pipelinePrefix
       activityType = 'status_change'
       activityBody = 'Inside sales follow-up claimed.'
     } else {
       updateData.assigned_user_id = opportunity.assigned_user_id || profile.id
-      updateData.pipeline_stage = PIPELINE_STAGE_BY_ACTION[action]
+      const stageSuffix =
+        action === 'mark_rescheduled' && followUpKind === 'insurance'
+          ? 'scheduled'
+          : PIPELINE_STAGE_SUFFIX_BY_ACTION[action]
+      updateData.pipeline_stage = `${pipelinePrefix}_${stageSuffix}`
 
       if (action === 'log_call' || action === 'log_text') {
         if (!result) {

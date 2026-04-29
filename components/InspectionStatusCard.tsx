@@ -10,8 +10,6 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import {
-  FEEDBACK_PROMPT_DISPLAY_TIMEZONE,
-  calendarDateYmdInTimezone,
 } from '@/lib/scheduling-prompt'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 
@@ -70,6 +68,7 @@ export default function InspectionStatusCard({
   onReschedule,
   onFillLater,
 }: InspectionStatusCardProps) {
+  const displayTz = 'America/New_York'
   const [outcomeOptions, setOutcomeOptions] = useState<OutcomeOption[]>(() =>
     toUiOptions(DEFAULT_INSPECTION_OUTCOMES)
   )
@@ -80,8 +79,6 @@ export default function InspectionStatusCard({
   const [snoozing, setSnoozing] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [followUpDate, setFollowUpDate] = useState('')
-  const [followUpTime, setFollowUpTime] = useState('')
   const [showCloseModal, setShowCloseModal] = useState(false)
   const [closeSchedulePayload, setCloseSchedulePayload] = useState<CloseScheduleConfirm | null>(null)
   const [schedulingUsers, setSchedulingUsers] = useState<
@@ -160,7 +157,7 @@ export default function InspectionStatusCard({
     }
   }, [requiresCloseScheduleForSelected])
 
-  const showInsuranceSchedule = selectedOutcome === INSURANCE_OUTCOME_ID
+  const showInsuranceGracePeriod = selectedOutcome === INSURANCE_OUTCOME_ID
   const showMovingToCloseSchedule = requiresCloseScheduleForSelected
   const showDidntSitHandoff = selectedOutcome === DIDNT_SIT_OUTCOME_ID
 
@@ -177,13 +174,6 @@ export default function InspectionStatusCard({
       return
     }
 
-    if (selectedOutcome === INSURANCE_OUTCOME_ID) {
-      if (!followUpDate || !followUpTime) {
-        setError('Please select a date and time for the insurance follow-up')
-        return
-      }
-    }
-
     if (requiresCloseScheduleForSelected) {
       if (!closeSchedulePayload) {
         setError('Open “Schedule close” and pick a team or closer and time slot.')
@@ -195,17 +185,10 @@ export default function InspectionStatusCard({
     setError(null)
 
     try {
-      const followUpDateTime =
-        selectedOutcome === INSURANCE_OUTCOME_ID
-          ? `${followUpDate}T${followUpTime}`
-          : undefined
-
       await onComplete({
         outcome: selectedOutcome!,
         notes,
         setterFeedback,
-        scheduleFollowUp: selectedOutcome === INSURANCE_OUTCOME_ID ? true : undefined,
-        followUpDate: followUpDateTime,
         requiresCloseSchedule: requiresCloseScheduleForSelected,
         closeSchedule: requiresCloseScheduleForSelected ? closeSchedulePayload : undefined,
       })
@@ -232,8 +215,6 @@ export default function InspectionStatusCard({
     }
   }
 
-  const displayTz = FEEDBACK_PROMPT_DISPLAY_TIMEZONE
-  const minDateYmd = calendarDateYmdInTimezone(displayTz)
   const scheduledTime = new Date(appointment.scheduled_for)
   const promptMs = promptAt ? new Date(promptAt).getTime() : null
   /** Amber header: feedback has been due for a while (not tied to UTC calendar quirks). */
@@ -374,34 +355,13 @@ export default function InspectionStatusCard({
             </div>
           )}
 
-          {/* Insurance follow-up — required date & time */}
-          {showInsuranceSchedule && (
-            <div className="px-6 py-4 border-t">
-              <p className="text-sm font-medium text-gray-700 mb-3">Schedule insurance follow-up *</p>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                  <input
-                    type="date"
-                    value={followUpDate}
-                    onChange={(e) => setFollowUpDate(e.target.value)}
-                    min={minDateYmd}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
-                  <input
-                    type="time"
-                    value={followUpTime}
-                    onChange={(e) => setFollowUpTime(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-                <p className="text-xs text-gray-500">
-                  You&apos;ll get an inspection feedback reminder after this appointment.
-                </p>
-              </div>
+          {showInsuranceGracePeriod && (
+            <div className="px-6 py-4 border-t bg-violet-50/80">
+              <h3 className="text-sm font-semibold text-violet-900 mb-1">Insurance follow-up grace period</h3>
+              <p className="text-xs text-violet-800">
+                Submit this and you can keep working the lead for up to 7 days. If it is still unresolved after
+                that, it moves into the inside sales follow-up workflow.
+              </p>
             </div>
           )}
 

@@ -20,8 +20,10 @@ import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/clos
 import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import {
   canViewInsideSalesFollowUp,
-  getDidntSitFollowUpStatus,
-  hasActiveDidntSitFollowUp,
+  getInsideSalesFollowUpKind,
+  getInsideSalesFollowUpStatus,
+  hasRepWorkingInsuranceFollowUp,
+  hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 
@@ -112,20 +114,26 @@ export default async function OpportunityDetailPage({
 
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
   const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
-  const hasDidntSitFollowUp = hasActiveDidntSitFollowUp(opportunity)
-  const canViewDidntSitFollowUp = hasDidntSitFollowUp
+  const hasInsideSalesFollowUp = hasActiveInsideSalesFollowUp(opportunity)
+  const insideSalesFollowUpKind = getInsideSalesFollowUpKind(opportunity)
+  const hasRepWorkingInsuranceGrace = hasRepWorkingInsuranceFollowUp(opportunity)
+  const canViewInsideSalesQueue = hasInsideSalesFollowUp
     ? canViewInsideSalesFollowUp({
         role: profile.role,
         customRoleName: viewerCustomRole?.name || null,
         customRoleDisplayName: viewerCustomRole?.display_name || null,
       })
     : false
-  const canSelfAssignDidntSitFollowUp = isInsideSalesRoleLike({
+  const canSelfAssignInsideSalesFollowUp = isInsideSalesRoleLike({
     role: profile.role,
     customRoleName: viewerCustomRole?.name || null,
     customRoleDisplayName: viewerCustomRole?.display_name || null,
   })
-  const didntSitFollowUpStatus = getDidntSitFollowUpStatus(opportunity)
+  const insideSalesFollowUpStatus = getInsideSalesFollowUpStatus(opportunity)
+  const insuranceGraceDeadlineLabel =
+    hasRepWorkingInsuranceGrace && opportunity.follow_up_at
+      ? new Date(opportunity.follow_up_at).toLocaleString()
+      : null
 
   // Fetch inspection status updates (feedback history)
   const { data: inspectionUpdates } = await supabase
@@ -345,13 +353,43 @@ export default async function OpportunityDetailPage({
   } else if (!opportunity.inspection_outcome) {
     // Step 1 — no inspection result yet
     nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: inspectionFeedbackUrl, linkLabel: 'Submit Inspection' }
-  } else if (opportunity.inspection_outcome === 'not_home' && hasDidntSitFollowUp) {
+  } else if (
+    opportunity.inspection_outcome === 'not_home' &&
+    hasInsideSalesFollowUp &&
+    insideSalesFollowUpKind === 'didnt_sit'
+  ) {
     nextStep = {
       icon: '📞',
       title: 'Inside Sales Follow-Up Active',
       body: 'The customer did not sit. Inside sales should work the follow-up and log call results here until it is ready to be rescheduled.',
       bg: 'bg-amber-50 border-amber-200',
       titleColor: 'text-amber-900',
+    }
+  } else if (
+    opportunity.inspection_outcome === 'insurance_follow_up' &&
+    hasRepWorkingInsuranceGrace &&
+    !hasInsideSalesFollowUp
+  ) {
+    nextStep = {
+      icon: '🛡️',
+      title: 'Rep Working Insurance Follow-Up',
+      body: insuranceGraceDeadlineLabel
+        ? `The rep can keep working this insurance customer until ${insuranceGraceDeadlineLabel}. If it is still unresolved after that, inside sales takes over.`
+        : 'The rep can keep working this insurance customer for up to 7 days before inside sales takes over.',
+      bg: 'bg-violet-50 border-violet-200',
+      titleColor: 'text-violet-900',
+    }
+  } else if (
+    opportunity.inspection_outcome === 'insurance_follow_up' &&
+    hasInsideSalesFollowUp &&
+    insideSalesFollowUpKind === 'insurance'
+  ) {
+    nextStep = {
+      icon: '🛡️',
+      title: 'Inside Sales Insurance Follow-Up Active',
+      body: 'Inside sales should keep working this insurance customer until it is ready to be scheduled back to a closer or inspector.',
+      bg: 'bg-violet-50 border-violet-200',
+      titleColor: 'text-violet-900',
     }
   } else if (opportunity.inspection_outcome === 'rescheduled' || opportunity.inspection_outcome === 'not_home') {
     // Inspection couldn't happen — needs reschedule
@@ -444,7 +482,12 @@ export default async function OpportunityDetailPage({
                   <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 capitalize">
                     {opportunity.project_type || '—'}
                   </span>
-                  {hasDidntSitFollowUp && !canViewDidntSitFollowUp && (
+                  {hasRepWorkingInsuranceGrace && !hasInsideSalesFollowUp && (
+                    <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-violet-100 text-violet-800">
+                      Rep Working Insurance
+                    </span>
+                  )}
+                  {hasInsideSalesFollowUp && !canViewInsideSalesQueue && (
                     <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
                       Inside Sales Follow-Up Active
                     </span>
@@ -558,18 +601,19 @@ export default async function OpportunityDetailPage({
           </div>
         )}
 
-        {hasDidntSitFollowUp && (
+        {hasInsideSalesFollowUp && insideSalesFollowUpKind && (
           <InsideSalesFollowUpDrawer
             opportunityId={params.id}
             customerName={customerName}
             customerPhone={customerPhone}
+            followUpKind={insideSalesFollowUpKind}
             assignedToName={followUpAssignedUser?.full_name || null}
-            statusLabel={didntSitFollowUpStatus?.replace(/_/g, ' ') || 'new'}
+            statusLabel={insideSalesFollowUpStatus?.replace(/_/g, ' ') || 'new'}
             nextFollowUpAt={opportunity.follow_up_at || null}
             closerNotes={opportunity.inspection_notes || null}
             visible
-            canManage={canViewDidntSitFollowUp}
-            canSelfAssign={canSelfAssignDidntSitFollowUp}
+            canManage={canViewInsideSalesQueue}
+            canSelfAssign={canSelfAssignInsideSalesFollowUp}
             activities={(activities || []) as any[]}
           />
         )}

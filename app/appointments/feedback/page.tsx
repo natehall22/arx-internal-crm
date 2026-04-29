@@ -80,11 +80,6 @@ export default function AppointmentFeedbackPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [closeVisitDebrief, setCloseVisitDebrief] = useState<{ opportunityId: string } | null>(null)
 
-  // Insurance follow-up: schedule next touchpoint (required date + time)
-  const [showInsuranceSchedule, setShowInsuranceSchedule] = useState(false)
-  const [insuranceDate, setInsuranceDate] = useState('')
-  const [insuranceTime, setInsuranceTime] = useState('')
-
   useEffect(() => {
     if (appointmentId) {
       loadAppointment()
@@ -210,7 +205,6 @@ export default function AppointmentFeedbackPage() {
   const handleOutcomeChange = (newOutcomeId: string) => {
     setOutcome(newOutcomeId)
     setShowReschedule(isRescheduledOutcomeId(newOutcomeId))
-    setShowInsuranceSchedule(isInsuranceFollowUpOutcomeId(newOutcomeId))
   }
 
   const handleSubmit = async () => {
@@ -227,11 +221,6 @@ export default function AppointmentFeedbackPage() {
 
     if (isRescheduledOutcomeId(outcome) && (!rescheduleDate || !rescheduleTime)) {
       setError('Please select a new date and time for the reschedule')
-      return
-    }
-
-    if (isInsuranceFollowUpOutcomeId(outcome) && (!insuranceDate || !insuranceTime)) {
-      setError('Please select a date and time for the insurance follow-up')
       return
     }
 
@@ -293,7 +282,6 @@ export default function AppointmentFeedbackPage() {
         setCloseVisitDebrief({ opportunityId: statusData.opportunity_id })
         return
       } else if (outcome && isInsuranceFollowUpOutcomeId(outcome)) {
-        const localDateTime = `${insuranceDate}T${insuranceTime}`
         const response = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -303,8 +291,6 @@ export default function AppointmentFeedbackPage() {
             outcome,
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
-            schedule_follow_up: true,
-            follow_up_date: localDateTime,
           }),
         })
 
@@ -568,34 +554,13 @@ export default function AppointmentFeedbackPage() {
             </div>
           )}
 
-          {/* Insurance follow-up — date & time required */}
-          {showInsuranceSchedule && (
+          {isInsuranceFollowUpOutcomeId(outcome) && (
             <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
-              <h3 className="font-medium text-purple-800 mb-3">Schedule insurance follow-up</h3>
-              <p className="text-sm text-purple-700 mb-3">
-                When should we prompt you for the next inspection feedback after this follow-up?
+              <h3 className="font-medium text-purple-800 mb-2">Insurance follow-up grace period</h3>
+              <p className="text-sm text-purple-700">
+                You can keep working this insurance lead for up to 7 days. If it is still not resolved after that,
+                it moves into the inside sales follow-up workflow.
               </p>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={insuranceDate}
-                    onChange={(e) => setInsuranceDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
-                  <input
-                    type="time"
-                    value={insuranceTime}
-                    onChange={(e) => setInsuranceTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-              </div>
             </div>
           )}
 

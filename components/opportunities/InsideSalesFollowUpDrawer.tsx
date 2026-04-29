@@ -16,6 +16,7 @@ type Props = {
   opportunityId: string
   customerName: string
   customerPhone: string | null
+  followUpKind: 'didnt_sit' | 'insurance'
   assignedToName: string | null
   statusLabel: string
   nextFollowUpAt: string | null
@@ -36,6 +37,7 @@ export default function InsideSalesFollowUpDrawer({
   opportunityId,
   customerName,
   customerPhone,
+  followUpKind,
   assignedToName,
   statusLabel,
   nextFollowUpAt,
@@ -67,6 +69,18 @@ export default function InsideSalesFollowUpDrawer({
       ).slice(0, 8),
     [activities]
   )
+
+  const followUpBadgeLabel = followUpKind === 'insurance' ? 'Insurance Follow-Up' : "Didn't Sit"
+  const launcherLabel =
+    followUpKind === 'insurance'
+      ? 'Inside sales insurance follow-up active'
+      : 'Inside sales follow-up active'
+  const drawerEyebrow =
+    followUpKind === 'insurance' ? 'Inside Sales Insurance Follow-Up' : 'Inside Sales Follow-Up'
+  const schedulePlaceholder =
+    followUpKind === 'insurance'
+      ? 'Example: Claim is moving forward. Customer is ready to meet on-site with the adjuster. Review prior insurance notes before arrival.'
+      : 'Example: Customer available after 6 PM. Wife needs Spanish support. Confirm husband is home before driving out.'
 
   if (!visible) return null
 
@@ -187,9 +201,9 @@ export default function InsideSalesFollowUpDrawer({
           <div>
             <div className="flex items-center gap-2">
               <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                Didn&apos;t Sit
+                {followUpBadgeLabel}
               </span>
-              <span className="text-sm font-medium text-gray-900">Inside sales follow-up active</span>
+              <span className="text-sm font-medium text-gray-900">{launcherLabel}</span>
             </div>
             <p className="mt-1 text-sm text-gray-600">
               {customerPhone || 'No phone on file'}{assignedToName ? ` • Assigned to ${assignedToName}` : ' • Unassigned'}
@@ -211,7 +225,7 @@ export default function InsideSalesFollowUpDrawer({
           <div className="absolute right-0 top-0 flex h-full w-full max-w-xl flex-col bg-white shadow-2xl">
             <div className="flex items-start justify-between border-b px-5 py-4">
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Inside Sales Follow-Up</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-amber-700">{drawerEyebrow}</p>
                 <h2 className="mt-1 text-xl font-bold text-gray-900">{customerName}</h2>
                 <p className="mt-1 text-sm text-gray-600">{customerPhone || 'No phone on file'}</p>
               </div>
@@ -288,7 +302,7 @@ export default function InsideSalesFollowUpDrawer({
                       value={scheduleNote}
                       onChange={(e) => setScheduleNote(e.target.value)}
                       rows={3}
-                      placeholder="Example: Customer available after 6 PM. Wife needs Spanish support. Confirm husband is home before driving out."
+                      placeholder={schedulePlaceholder}
                       className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none"
                     />
                   </div>
