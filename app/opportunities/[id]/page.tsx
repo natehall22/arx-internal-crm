@@ -18,6 +18,7 @@ import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
+import OpportunityQueueSidebar from '@/components/opportunities/OpportunityQueueSidebar'
 import {
   canViewInsideSalesFollowUp,
   getInsideSalesFollowUpKind,
@@ -26,13 +27,23 @@ import {
   hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
+import {
+  buildOpportunityListQuery,
+  filtersFromSearchParams,
+} from '@/lib/opportunity-list-filters'
 
 export default async function OpportunityDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string }
+  searchParams?: { [key: string]: string | string[] | undefined }
 }) {
   const { profile } = await requireAuth()
+  const queueFilters = filtersFromSearchParams(searchParams || {})
+  const queueQueryString = buildOpportunityListQuery(queueFilters)
+  const queueEnabled = String(searchParams?.queue || '') === '1'
+  const backHref = queueQueryString ? `/opportunities?${queueQueryString}` : '/opportunities'
   // Use service client to bypass RLS
   const supabase = createServiceClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -454,15 +465,24 @@ export default async function OpportunityDetailPage({
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        <div className="mb-4 sm:mb-6">
-          <Link
-            href="/opportunities"
-            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-          >
-            ← Back to Opportunities
-          </Link>
-        </div>
+      <div className={`${queueEnabled ? 'max-w-7xl' : 'max-w-5xl'} mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8`}>
+        <div className={queueEnabled ? 'xl:flex xl:items-start xl:gap-6' : ''}>
+          {queueEnabled && (
+            <OpportunityQueueSidebar
+              currentOpportunityId={params.id}
+              filters={queueFilters}
+            />
+          )}
+
+          <div className={queueEnabled ? 'min-w-0 flex-1' : ''}>
+            <div className="mb-4 sm:mb-6">
+              <Link
+                href={backHref}
+                className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+              >
+                {queueEnabled ? '← Back to Filtered Opportunities' : '← Back to Opportunities'}
+              </Link>
+            </div>
 
         {/* Header card — customer name as title */}
         <div className="bg-white shadow rounded-xl overflow-hidden mb-4 sm:mb-6">
@@ -1044,6 +1064,8 @@ export default async function OpportunityDetailPage({
                 <p className="text-gray-500 text-sm">No files</p>
               )}
             </div>
+          </div>
+        </div>
           </div>
         </div>
       </div>

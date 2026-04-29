@@ -1,85 +1,40 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   DEFAULT_INSPECTION_OUTCOMES,
   sortInspectionOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
-
-type Opportunity = {
-  id: string
-  lead_id: string | null
-  customer_id: string | null
-  owner_user_id: string | null
-  address_text: string | null
-  project_type: string
-  status: string
-  created_at: string
-  customers: { name: string } | null
-  leads: { homeowner_name: string } | null
-  users: { full_name: string } | null
-  inspection_outcome: string | null
-  inspection_notes: string | null
-  inspection_date: string | null
-}
-
-const inspectionOutcomeLabels: Record<string, { label: string; color: string }> = {
-  sale: { label: 'Sale', color: 'bg-green-100 text-green-800' },
-  moving_to_close: { label: 'Moving to Close', color: 'bg-emerald-100 text-emerald-800' },
-  insurance_follow_up: { label: 'Insurance Follow Up', color: 'bg-cyan-100 text-cyan-800' },
-  not_home: { label: 'Not Home', color: 'bg-yellow-100 text-yellow-800' },
-  said_no: { label: 'Said No', color: 'bg-red-100 text-red-800' },
-  needs_repair: { label: 'Needs Repair', color: 'bg-orange-100 text-orange-800' },
-  rescheduled: { label: 'Rescheduled', color: 'bg-purple-100 text-purple-800' },
-  no_problems_found: { label: 'No Problems Found', color: 'bg-gray-100 text-gray-800' },
-  failed_credit: { label: 'Failed Credit', color: 'bg-rose-100 text-rose-800' },
-}
-
-type OutcomeBadge = { label: string; color: string; style?: CSSProperties }
-
-function getInspectionOutcomeDisplay(
-  outcome: string | null | undefined,
-  lookup: Map<string, InspectionOutcomeConfigRow>
-): OutcomeBadge | null {
-  if (!outcome) return null
-  const row = lookup.get(outcome) || lookup.get(outcome.toLowerCase())
-  if (row) {
-    if (row.color?.startsWith('#')) {
-      return {
-        label: row.label,
-        color: '',
-        style: {
-          backgroundColor: `${row.color}26`,
-          color: '#111827',
-        },
-      }
-    }
-    return { label: row.label, color: 'bg-gray-100 text-gray-800' }
-  }
-  const known = inspectionOutcomeLabels[outcome]
-  if (known) return { label: known.label, color: known.color }
-  const words = outcome.replace(/_/g, ' ')
-  const label = words.replace(/\b\w/g, (c) => c.toUpperCase())
-  return { label, color: 'bg-gray-100 text-gray-800' }
-}
+import {
+  applyOpportunityListFilters,
+  buildOpportunityListQuery,
+  EMPTY_OPPORTUNITY_LIST_FILTERS,
+  filtersFromSearchParams,
+} from '@/lib/opportunity-list-filters'
+import {
+  getInspectionOutcomeDisplay,
+  opportunityStatusColors as statusColors,
+  type OpportunityListRow as Opportunity,
+} from '@/components/opportunities/opportunity-list-shared'
 
 export default function OpportunitiesPage() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
-  const [filterInspectionOutcome, setFilterInspectionOutcome] = useState('')
-  const [filterProjectType, setFilterProjectType] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [inspectionOutcomeRows, setInspectionOutcomeRows] = useState<InspectionOutcomeConfigRow[]>(() =>
     sortInspectionOutcomes([...DEFAULT_INSPECTION_OUTCOMES], { includeInactive: true })
+  )
+  const filters = useMemo(
+    () => filtersFromSearchParams(searchParams),
+    [searchParams]
   )
 
   const outcomeLookup = useMemo(() => {
@@ -114,18 +69,14 @@ export default function OpportunitiesPage() {
 
   useEffect(() => {
     loadOpportunities()
-  }, [filterInspectionOutcome])
+  }, [])
 
   const loadOpportunities = async () => {
     setLoading(true)
     setError(null)
     
     try {
-      let url = '/api/opportunities?full=true'
-      if (filterInspectionOutcome) {
-        url += `&inspection_outcome=${encodeURIComponent(filterInspectionOutcome)}`
-      }
-      
+      const url = '/api/opportunities?full=true'
       const response = await fetch(url, { credentials: 'same-origin' })
       if (!response.ok) {
         const data = await response.json()
@@ -145,39 +96,25 @@ export default function OpportunitiesPage() {
     }
   }
 
-  // Client-side filtering for status, project type, and search
-  const filteredOpportunities = opportunities.filter(opp => {
-    // Status filter - compare lowercase to handle case differences
-    if (filterStatus && opp.status?.toLowerCase() !== filterStatus.toLowerCase()) return false
-    // Project type filter - compare lowercase
-    if (filterProjectType && opp.project_type?.toLowerCase() !== filterProjectType.toLowerCase()) return false
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      const name = opp.leads?.homeowner_name || opp.customers?.name || ''
-      const address = opp.address_text || ''
-      if (!name.toLowerCase().includes(q) && !address.toLowerCase().includes(q)) {
-        return false
-      }
-    }
-    return true
-  })
+  const filteredOpportunities = useMemo(
+    () => applyOpportunityListFilters(opportunities, filters),
+    [opportunities, filters]
+  )
 
-  const statusColors: Record<string, string> = {
-    open: 'bg-blue-100 text-blue-800',
-    in_progress: 'bg-purple-100 text-purple-800',
-    negotiation: 'bg-orange-100 text-orange-800',
-    won: 'bg-green-100 text-green-800',
-    lost: 'bg-red-100 text-red-800',
+  const setFilter = (key: 'q' | 'status' | 'inspection_outcome' | 'project_type', value: string) => {
+    const nextFilters = { ...filters, [key]: value }
+    const query = buildOpportunityListQuery(nextFilters)
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
   const clearFilters = () => {
-    setSearchQuery('')
-    setFilterStatus('')
-    setFilterInspectionOutcome('')
-    setFilterProjectType('')
+    const query = buildOpportunityListQuery(EMPTY_OPPORTUNITY_LIST_FILTERS)
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
-  const hasActiveFilters = searchQuery || filterStatus || filterInspectionOutcome || filterProjectType
+  const hasActiveFilters =
+    filters.q || filters.status || filters.inspection_outcome || filters.project_type
+  const detailQueryString = buildOpportunityListQuery(filters, { queue: '1' })
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -209,16 +146,16 @@ export default function OpportunitiesPage() {
               <input
                 type="text"
                 placeholder="Name, address..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={filters.q}
+                onChange={(e) => setFilter('q', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
               <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
+                value={filters.status}
+                onChange={(e) => setFilter('status', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Statuses</option>
@@ -232,17 +169,17 @@ export default function OpportunitiesPage() {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Inspection Result</label>
               <select
-                value={filterInspectionOutcome}
-                onChange={(e) => setFilterInspectionOutcome(e.target.value)}
+                value={filters.inspection_outcome}
+                onChange={(e) => setFilter('inspection_outcome', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Results</option>
                 <option value="none">No Inspection Yet</option>
-                {filterInspectionOutcome &&
-                  filterInspectionOutcome !== 'none' &&
-                  !inspectionOutcomeRows.some((o) => o.id === filterInspectionOutcome) && (
-                    <option value={filterInspectionOutcome}>
-                      {filterInspectionOutcome.replace(/_/g, ' ')} (legacy)
+                {filters.inspection_outcome &&
+                  filters.inspection_outcome !== 'none' &&
+                  !inspectionOutcomeRows.some((o) => o.id === filters.inspection_outcome) && (
+                    <option value={filters.inspection_outcome}>
+                      {filters.inspection_outcome.replace(/_/g, ' ')} (legacy)
                     </option>
                   )}
                 {inspectionOutcomeRows.map((o) => (
@@ -256,8 +193,8 @@ export default function OpportunitiesPage() {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Project Type</label>
               <select
-                value={filterProjectType}
-                onChange={(e) => setFilterProjectType(e.target.value)}
+                value={filters.project_type}
+                onChange={(e) => setFilter('project_type', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="">All Types</option>
@@ -303,7 +240,7 @@ export default function OpportunitiesPage() {
                     return (
                       <Link
                         key={opportunity.id}
-                        href={`/opportunities/${opportunity.id}`}
+                        href={`/opportunities/${opportunity.id}${detailQueryString ? `?${detailQueryString}` : ''}`}
                         className="block px-4 py-4 hover:bg-gray-50 active:bg-gray-100 transition"
                       >
                         {/* Name + status badge */}
@@ -437,7 +374,7 @@ export default function OpportunitiesPage() {
                           </td>
                           <td className="sticky right-0 bg-white px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <Link
-                              href={`/opportunities/${opportunity.id}`}
+                              href={`/opportunities/${opportunity.id}${detailQueryString ? `?${detailQueryString}` : ''}`}
                               className="inline-flex min-h-[36px] items-center px-2 py-1 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900"
                             >
                               View
