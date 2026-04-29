@@ -12,6 +12,7 @@ import {
 } from '@/lib/org-appointment-types'
 import { materializeSaleFromInspectionOutcome } from '@/lib/opportunity-sale-pipeline'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
+import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
@@ -574,6 +575,11 @@ export async function POST(request: NextRequest) {
         opportunityUpdate.job_source = 'insurance'
         opportunityUpdate.insurance_stage = 'contingency_signed'
       }
+      if (outcome === 'not_home') {
+        opportunityUpdate.pipeline_stage = 'inside_sales_didnt_sit'
+        opportunityUpdate.follow_up_at = new Date().toISOString()
+        opportunityUpdate.assigned_user_id = null
+      }
       // 'not_home' and 'rescheduled' keep status as 'open'
 
       // Align attribution with the scheduled appointment (manager submitter ≠ assigned closer)
@@ -668,6 +674,53 @@ export async function POST(request: NextRequest) {
       closer_name: profile.full_name,
       notes: notes || null,
       setter_feedback: setter_feedback || null,
+    }
+
+    if (outcome === 'not_home') {
+      const { data: insideSalesUsers } = await supabase
+        .from('users')
+        .select('id, role, active, custom_roles(name, display_name)')
+        .eq('org_id', profile.org_id)
+        .eq('active', true)
+
+      const insideSalesRecipients = (insideSalesUsers || []).filter((candidate: any) => {
+        const customRole = Array.isArray(candidate.custom_roles)
+          ? candidate.custom_roles[0]
+          : candidate.custom_roles
+
+        return (
+          candidate.id !== user.id &&
+          isInsideSalesRoleLike({
+            role: candidate.role,
+            customRoleName: customRole?.name || null,
+            customRoleDisplayName: customRole?.display_name || null,
+          })
+        )
+      })
+
+      for (const recipient of insideSalesRecipients) {
+        await supabase.from('notifications').insert({
+          org_id: profile.org_id,
+          recipient_user_id: recipient.id,
+          actor_user_id: user.id,
+          type: 'inside_sales_follow_up',
+          title: `Inside Sales Follow-Up: ${customerName}`,
+          body: [
+            `Customer: ${customerName}`,
+            customerAddress ? `Address: ${customerAddress}` : null,
+            lead?.phone ? `Phone: ${lead.phone}` : null,
+            'Reason: Did not sit (not home)',
+            notes ? `Closer Notes: "${notes}"` : null,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          data: {
+            ...notificationData,
+            queue_type: 'didnt_sit',
+            pipeline_stage: 'inside_sales_didnt_sit',
+          },
+        })
+      }
     }
 
     // Notify setter - always notify when feedback is submitted (unless closer is the setter)

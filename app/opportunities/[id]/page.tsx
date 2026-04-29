@@ -17,6 +17,11 @@ import DeleteProposalButton from '@/components/opportunities/DeleteProposalButto
 import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
+import {
+  canViewInsideSalesFollowUp,
+  getDidntSitFollowUpStatus,
+  hasActiveDidntSitFollowUp,
+} from '@/lib/inside-sales-follow-up'
 
 export default async function OpportunityDetailPage({
   params,
@@ -81,6 +86,26 @@ export default async function OpportunityDetailPage({
       .eq('id', closerUserIdFromLead)
       .single()
     closer = closerData
+  }
+
+  let viewerCustomRole: { name: string | null; display_name: string | null } | null = null
+  if (profile.custom_role_id) {
+    const { data: customRoleData } = await supabase
+      .from('custom_roles')
+      .select('name, display_name')
+      .eq('id', profile.custom_role_id)
+      .maybeSingle()
+    viewerCustomRole = customRoleData
+  }
+
+  let followUpAssignedUser: { full_name: string | null } | null = null
+  if (opportunity.assigned_user_id) {
+    const { data: assignedUserData } = await supabase
+      .from('users')
+      .select('full_name')
+      .eq('id', opportunity.assigned_user_id)
+      .maybeSingle()
+    followUpAssignedUser = assignedUserData
   }
 
   // Fetch inspection status updates (feedback history)
@@ -362,6 +387,16 @@ export default async function OpportunityDetailPage({
   }
 
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
+  const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
+  const hasDidntSitFollowUp = hasActiveDidntSitFollowUp(opportunity)
+  const canViewDidntSitFollowUp = hasDidntSitFollowUp
+    ? canViewInsideSalesFollowUp({
+        role: profile.role,
+        customRoleName: viewerCustomRole?.name || null,
+        customRoleDisplayName: viewerCustomRole?.display_name || null,
+      })
+    : false
+  const didntSitFollowUpStatus = getDidntSitFollowUpStatus(opportunity)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -394,6 +429,11 @@ export default async function OpportunityDetailPage({
                   <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 capitalize">
                     {opportunity.project_type || '—'}
                   </span>
+                  {hasDidntSitFollowUp && !canViewDidntSitFollowUp && (
+                    <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                      Inside Sales Follow-Up Active
+                    </span>
+                  )}
                 </div>
               </div>
               {profile.role === 'admin' && (
@@ -419,13 +459,23 @@ export default async function OpportunityDetailPage({
               <div>
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Customer</p>
                 {opportunity.customer_id ? (
-                  <Link href={`/customers/${opportunity.customer_id}`} className="text-indigo-600 hover:text-indigo-800 mt-0.5 inline-block">
-                    {opportunity.customers?.name || 'View'}
-                  </Link>
+                  <>
+                    <Link href={`/customers/${opportunity.customer_id}`} className="text-indigo-600 hover:text-indigo-800 mt-0.5 inline-block">
+                      {opportunity.customers?.name || 'View'}
+                    </Link>
+                    <p className="text-gray-900 mt-0.5">
+                      {leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || '—'}
+                    </p>
+                  </>
                 ) : (
-                  <div className="mt-0.5">
-                    <LinkCustomerButton sourceType="opportunity" sourceId={opportunity.id} className="" />
-                  </div>
+                  <>
+                    <div className="mt-0.5">
+                      <LinkCustomerButton sourceType="opportunity" sourceId={opportunity.id} className="" />
+                    </div>
+                    <p className="text-gray-900 mt-0.5">
+                      {leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || '—'}
+                    </p>
+                  </>
                 )}
               </div>
               {opportunity.lead_id && (
@@ -490,6 +540,50 @@ export default async function OpportunityDetailPage({
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {hasDidntSitFollowUp && canViewDidntSitFollowUp && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6 border border-amber-200">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Appointment Follow-Up</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Inside sales is working this didn&apos;t-sit opportunity.
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                Didn&apos;t Sit
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Status</p>
+                <p className="text-gray-900 mt-1 capitalize">{didntSitFollowUpStatus?.replace(/_/g, ' ') || 'new'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Assigned To</p>
+                <p className="text-gray-900 mt-1">{followUpAssignedUser?.full_name || 'Unassigned'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Next Follow-Up</p>
+                <p className="text-gray-900 mt-1">
+                  {opportunity.follow_up_at ? new Date(opportunity.follow_up_at).toLocaleString() : 'Needs scheduling'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Customer Phone</p>
+                <p className="text-gray-900 mt-1">{customerPhone || '—'}</p>
+              </div>
+            </div>
+
+            {opportunity.inspection_notes && (
+              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs font-medium text-amber-900 uppercase tracking-wide">Closer Notes</p>
+                <p className="text-sm text-amber-900 mt-1 whitespace-pre-wrap">{opportunity.inspection_notes}</p>
+              </div>
+            )}
           </div>
         )}
 

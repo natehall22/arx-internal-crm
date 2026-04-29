@@ -42,8 +42,7 @@ function toUiOptions(rows: InspectionOutcomeConfigRow[]): OutcomeOption[] {
 /** Built-in ids that keep special UI (reschedule redirect, insurance slot, optional follow-up). */
 const RESCHEDULE_OUTCOME_ID = 'rescheduled'
 const INSURANCE_OUTCOME_ID = 'insurance_follow_up'
-/** Generic follow-up (Not Home). Moving to Close uses CloseScheduleModal + schedule-close API. */
-const FOLLOW_UP_OPTION_IDS = new Set(['not_home'])
+const DIDNT_SIT_OUTCOME_ID = 'not_home'
 
 interface InspectionStatusCardProps {
   appointment: AppointmentWithDetails
@@ -81,7 +80,6 @@ export default function InspectionStatusCard({
   const [snoozing, setSnoozing] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [scheduleFollowUp, setScheduleFollowUp] = useState(false)
   const [followUpDate, setFollowUpDate] = useState('')
   const [followUpTime, setFollowUpTime] = useState('')
   const [showCloseModal, setShowCloseModal] = useState(false)
@@ -164,11 +162,7 @@ export default function InspectionStatusCard({
 
   const showInsuranceSchedule = selectedOutcome === INSURANCE_OUTCOME_ID
   const showMovingToCloseSchedule = requiresCloseScheduleForSelected
-  const showFollowUpOption =
-    !!selectedOutcome &&
-    FOLLOW_UP_OPTION_IDS.has(selectedOutcome) &&
-    selectedOutcome !== RESCHEDULE_OUTCOME_ID &&
-    selectedOutcome !== INSURANCE_OUTCOME_ID
+  const showDidntSitHandoff = selectedOutcome === DIDNT_SIT_OUTCOME_ID
 
   const handleSubmit = async () => {
     if (completed) return
@@ -204,18 +198,13 @@ export default function InspectionStatusCard({
       const followUpDateTime =
         selectedOutcome === INSURANCE_OUTCOME_ID
           ? `${followUpDate}T${followUpTime}`
-          : selectedOutcome === 'not_home' && scheduleFollowUp && followUpDate && followUpTime
-            ? `${followUpDate}T${followUpTime}`
-            : undefined
+          : undefined
 
       await onComplete({
         outcome: selectedOutcome!,
         notes,
         setterFeedback,
-        scheduleFollowUp:
-          selectedOutcome === INSURANCE_OUTCOME_ID
-            ? true
-            : selectedOutcome === 'not_home' && scheduleFollowUp && !!followUpDateTime,
+        scheduleFollowUp: selectedOutcome === INSURANCE_OUTCOME_ID ? true : undefined,
         followUpDate: followUpDateTime,
         requiresCloseSchedule: requiresCloseScheduleForSelected,
         closeSchedule: requiresCloseScheduleForSelected ? closeSchedulePayload : undefined,
@@ -454,55 +443,12 @@ export default function InspectionStatusCard({
             </div>
           )}
 
-          {/* Follow-up Scheduling Option (e.g. Not Home — generic follow-up on status API) */}
-          {showFollowUpOption && (
-            <div className="px-6 py-4 border-t">
-              <button
-                type="button"
-                onClick={() => setScheduleFollowUp(!scheduleFollowUp)}
-                className={`w-full py-3 px-4 rounded-xl border-2 flex items-center justify-between ${
-                  scheduleFollowUp ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">📅</span>
-                  <span className="font-medium text-gray-900">Schedule follow-up visit</span>
-                </div>
-                <div className={`w-12 h-7 rounded-full transition-colors ${scheduleFollowUp ? 'bg-indigo-500' : 'bg-gray-300'}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full mt-1 transition-transform ${scheduleFollowUp ? 'translate-x-6' : 'translate-x-1'}`} />
-                </div>
-              </button>
-              
-              {scheduleFollowUp && (
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Follow-up Date
-                    </label>
-                    <input
-                      type="date"
-                      value={followUpDate}
-                      onChange={(e) => setFollowUpDate(e.target.value)}
-                      min={minDateYmd}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Follow-up Time
-                    </label>
-                    <input
-                      type="time"
-                      value={followUpTime}
-                      onChange={(e) => setFollowUpTime(e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Creates a follow-up on your calendar via the status API (not the close round-robin flow).
-                  </p>
-                </div>
-              )}
+          {showDidntSitHandoff && (
+            <div className="px-6 py-4 border-t bg-amber-50/80">
+              <h3 className="text-sm font-semibold text-amber-900 mb-1">Inside sales handoff</h3>
+              <p className="text-xs text-amber-800">
+                Submitting this result will automatically push the customer to the inside sales follow-up queue.
+              </p>
             </div>
           )}
 
