@@ -4,12 +4,15 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { formatVolumeBonusTierRange, normalizeVolumeBonusTierMetric } from '@/lib/volume-bonus-display'
 
 interface VolumeTier {
   min_volume: number
   max_volume: number | null
   bonus_type: 'percentage' | 'flat'  // percentage adds to base rate, flat is dollar amount
   bonus_value: number
+  /** Bound basis: commission $ volume (default), closer close rate %, or setter sit count. */
+  tier_metric?: 'volume' | 'closing_rate' | 'sits'
 }
 
 interface OverrideTier {
@@ -70,6 +73,14 @@ const planTypeLabels: Record<string, string> = {
   hybrid: 'Hybrid',
   hourly: 'Hourly',
   unit_based: 'Per Unit',
+}
+
+function volumeTierFieldLabels(m: VolumeTier['tier_metric']) {
+  const t = normalizeVolumeBonusTierMetric(m)
+  if (t === 'closing_rate')
+    return { min: 'Min close rate (%)', max: 'Max close rate (%)' }
+  if (t === 'sits') return { min: 'Min sits', max: 'Max sits' }
+  return { min: 'Min volume ($)', max: 'Max volume ($)' }
 }
 
 const unitTypeLabels: Record<string, string> = {
@@ -328,7 +339,10 @@ export default function CompPlansPage() {
       unit_type: isCustomUnit ? 'custom' : (plan.unit_type || 'square'),
       custom_unit_label: isCustomUnit ? (plan.unit_type || '') : '',
       tiers: plan.tiers || [{ min: 0, max: 10000, rate: 5 }],
-      volume_bonuses: plan.volume_bonuses || [],
+      volume_bonuses: (plan.volume_bonuses || []).map((b) => ({
+        ...b,
+        tier_metric: normalizeVolumeBonusTierMetric(b.tier_metric) as VolumeTier['tier_metric'],
+      })),
       hybrid_components: plan.hybrid_components || [],
       is_manager_plan: plan.is_manager_plan || false,
       personal_sales_enabled: plan.personal_sales_enabled ?? true,
@@ -377,7 +391,8 @@ export default function CompPlansPage() {
         min_volume: newMin, 
         max_volume: newMin + 50000, 
         bonus_type: 'percentage',
-        bonus_value: 1 
+        bonus_value: 1,
+        tier_metric: 'volume',
       }]
     }))
   }
@@ -399,6 +414,9 @@ export default function CompPlansPage() {
         }
         if (field === 'bonus_type') {
           return { ...bonus, [field]: value as 'percentage' | 'flat' }
+        }
+        if (field === 'tier_metric') {
+          return { ...bonus, tier_metric: value as VolumeTier['tier_metric'] }
         }
         return { ...bonus, [field]: parseFloat(value as string) || 0 }
       })
@@ -602,7 +620,10 @@ export default function CompPlansPage() {
                       <div className="mt-1 space-y-1">
                         {plan.volume_bonuses.map((vb, i) => (
                           <div key={i} className="text-xs bg-blue-50 px-2 py-1 rounded">
-                            {vb.min_volume.toLocaleString()} - {vb.max_volume ? vb.max_volume.toLocaleString() : '∞'} accounts: 
+                            {formatVolumeBonusTierRange(vb, {
+                              nextMinVolume: plan.volume_bonuses![i + 1]?.min_volume ?? null,
+                            })}
+                            :{' '}
                             <span className="font-medium text-blue-600 ml-1">
                               {vb.bonus_type === 'percentage' ? `+${vb.bonus_value}%` : `+$${vb.bonus_value}`}
                             </span>
@@ -1218,7 +1239,10 @@ export default function CompPlansPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Volume Bonuses (Sliding Scale)</label>
-                      <p className="text-xs text-gray-500 mt-0.5">Add bonus % or $ based on total monthly/period volume</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Bonus tiers by monthly commissionable volume ($), sit count (setters), or close rate % (closers).
+                        Use % add or a flat $ bonus per sale.
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -1231,10 +1255,24 @@ export default function CompPlansPage() {
                   
                   {planForm.volume_bonuses.length > 0 ? (
                     <div className="space-y-2">
-                      {planForm.volume_bonuses.map((vb, index) => (
-                        <div key={index} className="flex items-end gap-2 p-3 bg-blue-50 rounded-lg">
-                          <div className="flex-1">
-                            <label className="text-xs text-gray-600">Min Volume (accounts)</label>
+                      {planForm.volume_bonuses.map((vb, index) => {
+                        const rangeL = volumeTierFieldLabels(vb.tier_metric)
+                        return (
+                        <div key={index} className="flex flex-wrap items-end gap-2 p-3 bg-blue-50 rounded-lg">
+                          <div className="w-full sm:w-40">
+                            <label className="text-xs text-gray-600">Tier basis</label>
+                            <select
+                              value={normalizeVolumeBonusTierMetric(vb.tier_metric)}
+                              onChange={(e) => updateVolumeBonus(index, 'tier_metric', e.target.value)}
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                            >
+                              <option value="volume">Volume ($)</option>
+                              <option value="closing_rate">Close rate (%)</option>
+                              <option value="sits">Sits (count)</option>
+                            </select>
+                          </div>
+                          <div className="flex-1 min-w-[7rem]">
+                            <label className="text-xs text-gray-600">{rangeL.min}</label>
                             <input
                               type="number"
                               value={vb.min_volume}
@@ -1242,8 +1280,8 @@ export default function CompPlansPage() {
                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
                             />
                           </div>
-                          <div className="flex-1">
-                            <label className="text-xs text-gray-600">Max Volume (accounts)</label>
+                          <div className="flex-1 min-w-[7rem]">
+                            <label className="text-xs text-gray-600">{rangeL.max}</label>
                             <input
                               type="number"
                               value={vb.max_volume || ''}
@@ -1253,14 +1291,14 @@ export default function CompPlansPage() {
                             />
                           </div>
                           <div className="w-28">
-                            <label className="text-xs text-gray-600">Bonus Type</label>
+                            <label className="text-xs text-gray-600">Bonus type</label>
                             <select
                               value={vb.bonus_type}
                               onChange={(e) => updateVolumeBonus(index, 'bonus_type', e.target.value)}
                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
                             >
                               <option value="percentage">% Add</option>
-                              <option value="flat">$ Flat</option>
+                              <option value="flat">$ amount</option>
                             </select>
                           </div>
                           <div className="w-24">
@@ -1285,7 +1323,8 @@ export default function CompPlansPage() {
                             </svg>
                           </button>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-4 border-2 border-dashed border-gray-200 rounded-lg">
@@ -1306,21 +1345,28 @@ export default function CompPlansPage() {
                       <p className="text-xs text-gray-600">
                         {planForm.plan_type === 'percentage' && planForm.base_percentage ? (
                           <>
-                            Base: {planForm.base_percentage}% + Volume Bonus = Total Rate
+                            Base rate plus tier bonus ({formatVolumeBonusTierRange(planForm.volume_bonuses[0])}).
                             <br />
-                            If rep closes {planForm.volume_bonuses[0]?.min_volume?.toLocaleString() || '0'}+ accounts in a period:
-                            <br />
-                            {planForm.base_percentage}% + {planForm.volume_bonuses[0]?.bonus_type === 'percentage' 
-                              ? `${planForm.volume_bonuses[0]?.bonus_value}%` 
-                              : `$${planForm.volume_bonuses[0]?.bonus_value} flat bonus`} 
-                            = <span className="font-medium text-green-600">
-                              {planForm.volume_bonuses[0]?.bonus_type === 'percentage' 
-                                ? `${(parseFloat(planForm.base_percentage) + (planForm.volume_bonuses[0]?.bonus_value || 0)).toFixed(1)}%`
-                                : `${planForm.base_percentage}% + $${planForm.volume_bonuses[0]?.bonus_value}`}
-                            </span>
+                            {planForm.volume_bonuses[0]?.bonus_type === 'percentage' ? (
+                              <>
+                                Example: {planForm.base_percentage}% + {planForm.volume_bonuses[0]?.bonus_value}% ={' '}
+                                <span className="font-medium text-green-600">
+                                  {(parseFloat(planForm.base_percentage) + (planForm.volume_bonuses[0]?.bonus_value || 0)).toFixed(1)}%
+                                </span>{' '}
+                                on commissionable amount; flat $ tiers add that amount per qualifying sale.
+                              </>
+                            ) : (
+                              <>
+                                Example: {planForm.base_percentage}% of sale +{' '}
+                                <span className="font-medium text-green-600">
+                                  ${planForm.volume_bonuses[0]?.bonus_value} bonus
+                                </span>{' '}
+                                per sale when the tier applies.
+                              </>
+                            )}
                           </>
                         ) : (
-                          <>Volume bonuses add to your base commission rate or provide flat dollar bonuses based on accounts closed.</>
+                          <>Tiers add extra rate or a per-sale dollar bonus when the rep qualifies on the chosen basis.</>
                         )}
                       </p>
                     </div>

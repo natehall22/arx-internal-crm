@@ -3,11 +3,13 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import {
+  buildMonthlyTierMetricMaps,
   buildMonthlyVolumeMaps,
   collectParticipants,
   computeRawCommissionForParticipant,
   loadActiveCompPlanForUser,
   monthKeyFromSaleDate,
+  periodSitsAndCloseRateForParticipant,
   scaleCommissionsToPool,
   type PayrollExportRow,
 } from '@/lib/payroll-export'
@@ -109,6 +111,13 @@ export async function GET(request: NextRequest) {
     }
 
     const volumeMap = buildMonthlyVolumeMaps(volJobs || [], opportunityByProjectId, projectIdByJobId)
+
+    const { sitsBySetterMonth, sitsByOwnerMonth, salesByOwnerMonth } = await buildMonthlyTierMetricMaps(
+      supabase,
+      orgId,
+      volFrom,
+      volTo
+    )
 
     const { data: exportJobs, error: exErr } = await supabase
       .from('production_jobs')
@@ -215,6 +224,14 @@ export async function GET(request: NextRequest) {
       for (const part of participants) {
         const assignment = await loadActiveCompPlanForUser(supabase, part.userId, orgId, saleDate)
         const periodVolume = mk ? volumeMap.get(`${part.userId}|${mk}`) || 0 : 0
+        const { periodSits, periodClosingRatePct } = periodSitsAndCloseRateForParticipant({
+          userId: part.userId,
+          monthKey: mk,
+          participantRole: part.role,
+          sitsBySetterMonth,
+          sitsByOwnerMonth,
+          salesByOwnerMonth,
+        })
 
         if (!assignment?.comp_plans) {
           metaByUser.set(part.userId, {
@@ -232,6 +249,8 @@ export async function GET(request: NextRequest) {
           plan,
           commissionableAmount: compBase,
           periodVolume,
+          periodSits,
+          periodClosingRatePct,
           overridePercentage: assignment.override_percentage,
         })
 

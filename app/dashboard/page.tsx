@@ -23,6 +23,7 @@ import {
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -343,9 +344,8 @@ export default async function DashboardPage() {
   if (canViewTeamLeaderboard) {
     let membersQuery = supabase
       .from('users')
-      .select('id, full_name, role, show_in_reports')
+      .select('id, full_name, role, show_in_reports, active')
       .eq('org_id', profile.org_id)
-      .neq('show_in_reports', false)
 
     if (isSalesManager && profile.team_id) {
       membersQuery = membersQuery.eq('team_id', profile.team_id)
@@ -365,29 +365,28 @@ export default async function DashboardPage() {
     const { data: members } = await membersQuery
     
     if (members && members.length > 0) {
-      // Calculate stats for each member
-      // Data is already filtered by date in queries
+      const built: any[] = []
       for (const member of members) {
         // Leads attributed to this member (owner or frozen pin id if user was deleted)
         const memberLeads = (allLeads || []).filter(
           l => getAttributedCanvassLeadUserId(l) === member.id && isCanvassDoorLead(l)
         )
         const rawDoors = memberLeads.length
-        
+
         // Count contacts - only dispositions where they talked to someone
         const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
-        
+
         // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
-        const memberAppointments = (allAppointments || []).filter(a => 
+        const memberAppointments = (allAppointments || []).filter(a =>
           a.canvasser_user_id === member.id
         )
         const inspectionsSet = memberAppointments.length
         const inspectionsReceived = (allAppointments || []).filter(
           (a) => a.closer_user_id === member.id
         ).length
-        
-        const finalDoors = isSetterLikeRole(member.role) ? rawDoors : 0
-        const finalContacts = isSetterLikeRole(member.role) ? rawContacts : 0
+
+        const finalDoors = rawDoors
+        const finalContacts = rawContacts
 
         const memberSales = (salesOpportunities || []).filter(o =>
           isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
@@ -407,7 +406,7 @@ export default async function DashboardPage() {
         const memberEfficiency =
           memberApptsOnCalendar > 0 ? (memberSalesCount / memberApptsOnCalendar * 100) : null
 
-        teamMemberStats.push({
+        const statsRow = {
           id: member.id,
           name: member.full_name || 'Unknown',
           role: member.role,
@@ -419,8 +418,19 @@ export default async function DashboardPage() {
           sales: memberSalesCount,
           closeRate: memberCloseRate !== null ? memberCloseRate.toFixed(0) : '—',
           efficiency: memberEfficiency !== null ? memberEfficiency.toFixed(0) : '—',
-        })
+        }
+
+        if (
+          shouldShowUserOnTeamLeaderboard(
+            { show_in_reports: member.show_in_reports, active: (member as { active?: boolean }).active },
+            statsRow
+          )
+        ) {
+          built.push(statsRow)
+        }
       }
+
+      teamMemberStats = built
 
       setterTeamStats = teamMemberStats
         .filter((m) => isSetterLikeRole(m.role))

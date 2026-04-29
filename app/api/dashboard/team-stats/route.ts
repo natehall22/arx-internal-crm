@@ -7,6 +7,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 import { getContactDispositionIdSet } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
@@ -181,18 +182,17 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Team roster: include inactive users so historical doors/sits still roll up to former reps
-    // (Prefer deactivating users over removing team_id so scoped queries still match.)
+    // Roster for RPC scope: everyone in org/team (including inactive and show_in_reports = false)
+    // so pin-attributed doors/sits still roll up. We filter who appears in the UI after computing stats.
     let membersQuery = supabase
       .from('users')
-      .select('id, full_name, role, show_in_reports')
+      .select('id, full_name, role, show_in_reports, active')
       .eq('org_id', profile.org_id)
-      .neq('show_in_reports', false)
-    
+
     if (!isAdmin && teamMemberIds.length > 0) {
       membersQuery = membersQuery.in('id', teamMemberIds)
     }
-    
+
     const { data: members } = await membersQuery
 
     if (!members || members.length === 0) {
@@ -366,13 +366,11 @@ export async function GET(request: NextRequest) {
       if (r.owner_id) salesByOwner.set(r.owner_id, num(r.cnt))
     }
 
-    const teamMemberStats: TeamStatRow[] = members.map((member) => {
-      // Doors/contacts are setter-lane metrics (canvass activity). The same lead-owner RPC also
-      // attributes leads to admins/closers who are bulk owner/pin — showing that as "doors" in the
-      // closer table is misleading; only setter-like roles get door/contact counts here.
-      const setterLane = isSetterLikeRole(member.role)
-      const doorsKnocked = setterLane ? doorByOwner.get(member.id) ?? 0 : 0
-      const contacts = setterLane ? contactByOwner.get(member.id) ?? 0 : 0
+    const teamMemberStatsAll: TeamStatRow[] = members.map((member) => {
+      // Doors/contacts: pin-first credit from dashboard_* RPCs (see migration 127/128) for every role,
+      // so closers / admins who canvass still see knocks; sits/sales stay setter vs owner lane below.
+      const doorsKnocked = doorByOwner.get(member.id) ?? 0
+      const contacts = contactByOwner.get(member.id) ?? 0
       const inspectionsSet = inspByCanvasser.get(member.id) ?? 0
       const inspectionsReceived = inspReceivedByCloser.get(member.id) ?? 0
       const sits = isSetterLikeRole(member.role)
@@ -414,6 +412,11 @@ export async function GET(request: NextRequest) {
       return result
     })
 
+    const teamMemberStats = teamMemberStatsAll.filter((row, idx) => {
+      const m = members[idx]!
+      return shouldShowUserOnTeamLeaderboard(m, row)
+    })
+
     const setterStats = teamMemberStats
       .filter((m) => isSetterLikeRole(m.role))
       .sort((a, b) => {
@@ -445,7 +448,7 @@ export async function GET(request: NextRequest) {
       teamMemberStats,
       setterStats,
       closerStats,
-      teamMemberCount: members.length,
+      teamMemberCount: teamMemberStats.length,
       distinctDealCounts,
     }
     
@@ -463,7 +466,8 @@ export async function GET(request: NextRequest) {
         sit_outcome_ids_configured: sitOutcomeIdSet.size,
         distinct_sit_opportunities: distinctDealCounts.sitOpportunitiesInPeriod,
         distinct_sale_opportunities: distinctDealCounts.saleOpportunitiesInPeriod,
-        team_member_count: members.length,
+        team_member_count: teamMemberStats.length,
+        team_member_count_pre_filter: members.length,
         viewer_role: profile.role,
         viewer_team_id: profile.team_id,
         week_starts_on: 'Sunday',

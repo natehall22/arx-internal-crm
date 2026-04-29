@@ -5,6 +5,11 @@ import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import {
+  applyFirstMatchingVolumeBonus,
+  formatVolumeBonusTierRange,
+  volumeBonusTierInRange,
+} from '@/lib/volume-bonus-display'
 
 interface Commission {
   id: string
@@ -62,6 +67,7 @@ interface VolumeTier {
   max_volume: number | null
   bonus_type: 'percentage' | 'flat'
   bonus_value: number
+  tier_metric?: 'volume' | 'closing_rate' | 'sits'
 }
 
 export default function CommissionWidget() {
@@ -88,10 +94,17 @@ export default function CommissionWidget() {
   // Calculator state
   const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
   const [calcJobsClosed, setCalcJobsClosed] = useState(4)
+  const [calcPeriodSits, setCalcPeriodSits] = useState(12)
   const [avgDealerFeePercent, setAvgDealerFeePercent] = useState(0)
 
   const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePrice, avgDealerFeePercent)
   const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosed
+  const widgetTierValues = {
+    periodVolume: monthlyCommissionableVolume,
+    periodSits: calcPeriodSits,
+    periodClosingRatePct:
+      calcPeriodSits > 0 ? Math.round((calcJobsClosed / calcPeriodSits) * 1000) / 10 : null,
+  }
 
   useEffect(() => {
     setMounted(true)
@@ -584,16 +597,21 @@ export default function CommissionWidget() {
                       <h4 className="font-semibold text-gray-900 mb-3">Volume Bonuses</h4>
                       <p className="text-sm text-gray-600 mb-3">Hit these thresholds to earn bonus commissions:</p>
                       <div className="space-y-2">
-                        {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => (
+                        {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
+                          const nextTier = compPlanDetails.volume_bonuses[idx + 1]
+                          return (
                           <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border">
                             <span className="text-gray-700">
-                              ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
+                              {formatVolumeBonusTierRange(tier, {
+                                nextMinVolume: nextTier?.min_volume ?? null,
+                              })}
                             </span>
                             <span className="font-semibold text-green-600">
                               {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
                             </span>
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   )}
@@ -781,6 +799,22 @@ export default function CommissionWidget() {
                     ))}
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Sits in period (for sit / close-rate tiers)
+                  </label>
+                  <input
+                    type="number"
+                    value={calcPeriodSits}
+                    onChange={(e) => setCalcPeriodSits(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                    min="0"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Close rate for tiers = jobs closed ÷ sits. Align with your dashboard period when possible.
+                  </p>
+                </div>
               </div>
               
               {/* Commission Tiers Table */}
@@ -790,17 +824,13 @@ export default function CommissionWidget() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-gray-500">
-                        <th className="pb-2">Monthly Volume</th>
-                        <th className="pb-2 text-right">Commission Rate</th>
+                        <th className="pb-2">Tier (volume / sits / close %)</th>
+                        <th className="pb-2 text-right">Bonus</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      <tr className={(() => {
-                        const monthlyVolume = monthlyCommissionableVolume
-                        const firstTier = compPlanDetails.volume_bonuses[0]
-                        return monthlyVolume < (firstTier?.min_volume || 0) ? 'bg-indigo-50' : ''
-                      })()}>
-                        <td className="py-2">Base Rate</td>
+                      <tr>
+                        <td className="py-2">Base rate</td>
                         <td className="py-2 text-right font-medium">
                           {compPlanDetails.plan_type === 'flat_rate' 
                             ? `$${compPlanDetails.flat_rate?.toLocaleString() || 0}` 
@@ -808,18 +838,21 @@ export default function CommissionWidget() {
                         </td>
                       </tr>
                       {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                        const monthlyVolume = monthlyCommissionableVolume
-                        const isActive = monthlyVolume >= tier.min_volume && 
-                          (tier.max_volume === null || monthlyVolume <= tier.max_volume)
+                        const nextTier = compPlanDetails.volume_bonuses[idx + 1]
+                        const isActive = volumeBonusTierInRange(tier, widgetTierValues, {
+                          nextMinVolume: nextTier?.min_volume ?? null,
+                        })
                         return (
                           <tr key={idx} className={isActive ? 'bg-indigo-50' : ''}>
                             <td className="py-2">
-                              ${tier.min_volume.toLocaleString()} - {tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}
+                              {formatVolumeBonusTierRange(tier, {
+                                nextMinVolume: nextTier?.min_volume ?? null,
+                              })}
                             </td>
                             <td className="py-2 text-right font-medium">
                               {tier.bonus_type === 'percentage' 
-                                ? `${(compPlanDetails.base_percentage || 0) + tier.bonus_value}%` 
-                                : `+$${tier.bonus_value}`}
+                                ? `+${tier.bonus_value}%` 
+                                : `+$${tier.bonus_value}/sale`}
                             </td>
                           </tr>
                         )
@@ -835,29 +868,19 @@ export default function CommissionWidget() {
                 <p className="text-4xl font-bold mb-4">
                   ${(() => {
                     if (!compPlanDetails) return 0
-                    const monthlyVolume = monthlyCommissionableVolume
-                    let rate = compPlanDetails.base_percentage || 0
-                    let flatBonus = 0
-                    
                     if (compPlanDetails.plan_type === 'flat_rate') {
                       return ((compPlanDetails.flat_rate || 0) * calcJobsClosed).toLocaleString()
                     }
-                    
-                    // Find applicable volume bonus
-                    if (compPlanDetails.volume_bonuses) {
-                      for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
-                        if (monthlyVolume >= tier.min_volume && 
-                            (tier.max_volume === null || monthlyVolume <= tier.max_volume)) {
-                          if (tier.bonus_type === 'percentage') {
-                            rate += tier.bonus_value
-                          } else {
-                            flatBonus += tier.bonus_value
-                          }
-                        }
-                      }
-                    }
-                    
-                    return ((monthlyVolume * rate / 100) + flatBonus).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                    const monthlyVolume = monthlyCommissionableVolume
+                    const { extraRatePct, flatPerSale } = applyFirstMatchingVolumeBonus(
+                      compPlanDetails.volume_bonuses,
+                      widgetTierValues
+                    )
+                    const rate = (compPlanDetails.base_percentage || 0) + extraRatePct
+                    return (
+                      monthlyVolume * (rate / 100) +
+                      flatPerSale * calcJobsClosed
+                    ).toLocaleString(undefined, { maximumFractionDigits: 0 })
                   })()}
                 </p>
                 
@@ -870,19 +893,11 @@ export default function CommissionWidget() {
                         if (compPlanDetails.plan_type === 'flat_rate') {
                           return `$${compPlanDetails.flat_rate?.toLocaleString() || 0}/job`
                         }
-                        const monthlyVolume = monthlyCommissionableVolume
-                        let rate = compPlanDetails.base_percentage || 0
-                        
-                        if (compPlanDetails.volume_bonuses) {
-                          for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
-                            if (monthlyVolume >= tier.min_volume && 
-                                (tier.max_volume === null || monthlyVolume <= tier.max_volume) &&
-                                tier.bonus_type === 'percentage') {
-                              rate += tier.bonus_value
-                            }
-                          }
-                        }
-                        return `${rate}%`
+                        const { extraRatePct } = applyFirstMatchingVolumeBonus(
+                          compPlanDetails.volume_bonuses,
+                          widgetTierValues
+                        )
+                        return `${(compPlanDetails.base_percentage || 0) + extraRatePct}%`
                       })()}
                     </p>
                   </div>
@@ -891,24 +906,17 @@ export default function CommissionWidget() {
                     <p className="text-xl font-bold">
                       ${(() => {
                         if (!compPlanDetails || calcJobsClosed === 0) return 0
-                        const monthlyVolume = monthlyCommissionableVolume
-                        let rate = compPlanDetails.base_percentage || 0
-                        
                         if (compPlanDetails.plan_type === 'flat_rate') {
                           return (compPlanDetails.flat_rate || 0).toLocaleString()
                         }
-                        
-                        if (compPlanDetails.volume_bonuses) {
-                          for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
-                            if (monthlyVolume >= tier.min_volume && 
-                                (tier.max_volume === null || monthlyVolume <= tier.max_volume) &&
-                                tier.bonus_type === 'percentage') {
-                              rate += tier.bonus_value
-                            }
-                          }
-                        }
-                        
-                        return (commissionablePerJob * rate / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                        const { extraRatePct, flatPerSale } = applyFirstMatchingVolumeBonus(
+                          compPlanDetails.volume_bonuses,
+                          widgetTierValues
+                        )
+                        const rate = (compPlanDetails.base_percentage || 0) + extraRatePct
+                        return (commissionablePerJob * (rate / 100) + flatPerSale).toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })
                       })()}
                     </p>
                   </div>
@@ -917,28 +925,19 @@ export default function CommissionWidget() {
                     <p className="text-xl font-bold">
                       ${(() => {
                         if (!compPlanDetails) return 0
-                        const monthlyVolume = monthlyCommissionableVolume
-                        let rate = compPlanDetails.base_percentage || 0
-                        let flatBonus = 0
-                        
                         if (compPlanDetails.plan_type === 'flat_rate') {
                           return ((compPlanDetails.flat_rate || 0) * calcJobsClosed * 12).toLocaleString()
                         }
-                        
-                        if (compPlanDetails.volume_bonuses) {
-                          for (const tier of compPlanDetails.volume_bonuses as VolumeTier[]) {
-                            if (monthlyVolume >= tier.min_volume && 
-                                (tier.max_volume === null || monthlyVolume <= tier.max_volume)) {
-                              if (tier.bonus_type === 'percentage') {
-                                rate += tier.bonus_value
-                              } else {
-                                flatBonus += tier.bonus_value
-                              }
-                            }
-                          }
-                        }
-                        
-                        return (((monthlyVolume * rate / 100) + flatBonus) * 12).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                        const monthlyVolume = monthlyCommissionableVolume
+                        const { extraRatePct, flatPerSale } = applyFirstMatchingVolumeBonus(
+                          compPlanDetails.volume_bonuses,
+                          widgetTierValues
+                        )
+                        const rate = (compPlanDetails.base_percentage || 0) + extraRatePct
+                        return (
+                          (monthlyVolume * (rate / 100) + flatPerSale * calcJobsClosed) *
+                          12
+                        ).toLocaleString(undefined, { maximumFractionDigits: 0 })
                       })()}
                     </p>
                   </div>

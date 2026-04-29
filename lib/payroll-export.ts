@@ -1,5 +1,10 @@
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { calculateCommissionFromPlanForSale, type CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
+import {
+  getSitOutcomeNormalizedIdSet,
+  normalizeInspectionOutcomeId,
+  type InspectionOutcomeConfigRow,
+} from '@/lib/inspection-outcomes'
 
 export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' | 'owner' }
 
@@ -171,6 +176,130 @@ export function buildMonthlyVolumeMaps(
   return vol
 }
 
+export async function loadOrgSitOutcomeIdSet(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<Set<string>> {
+  const { data: orgRow } = await supabase.from('orgs').select('settings').eq('id', orgId).maybeSingle()
+  const raw = orgRow?.settings as { inspection_outcomes?: InspectionOutcomeConfigRow[] } | undefined
+  return getSitOutcomeNormalizedIdSet(raw?.inspection_outcomes)
+}
+
+/**
+ * Per-user monthly sits (setter vs owner attribution) and install sales counts by owner,
+ * aligned with dashboard sit/sale attribution.
+ */
+export async function buildMonthlyTierMetricMaps(
+  supabase: SupabaseClient,
+  orgId: string,
+  volFrom: string,
+  volTo: string
+): Promise<{
+  sitsBySetterMonth: Map<string, number>
+  sitsByOwnerMonth: Map<string, number>
+  salesByOwnerMonth: Map<string, number>
+}> {
+  const sitsBySetterMonth = new Map<string, number>()
+  const sitsByOwnerMonth = new Map<string, number>()
+  const salesByOwnerMonth = new Map<string, number>()
+
+  const startIso = `${volFrom}T00:00:00.000Z`
+  const endIso = `${volTo}T23:59:59.999Z`
+
+  const sitSet = await loadOrgSitOutcomeIdSet(supabase, orgId)
+  if (sitSet.size > 0) {
+    const { data: opps, error: oppErr } = await supabase
+      .from('opportunities')
+      .select('setter_user_id, owner_user_id, inspection_outcome, inspection_outcome_at')
+      .eq('org_id', orgId)
+      .not('inspection_outcome', 'is', null)
+      .not('inspection_outcome_at', 'is', null)
+      .gte('inspection_outcome_at', startIso)
+      .lte('inspection_outcome_at', endIso)
+
+    if (oppErr) {
+      console.error('buildMonthlyTierMetricMaps opportunities', oppErr)
+    } else {
+      for (const o of opps || []) {
+        const norm = normalizeInspectionOutcomeId(o.inspection_outcome as string | null)
+        if (!sitSet.has(norm)) continue
+        const mk = monthKeyFromSaleDate(o.inspection_outcome_at as string | null)
+        if (!mk) continue
+        const su = o.setter_user_id as string | null | undefined
+        const ou = o.owner_user_id as string | null | undefined
+        if (su) {
+          const key = `${su}|${mk}`
+          sitsBySetterMonth.set(key, (sitsBySetterMonth.get(key) || 0) + 1)
+        }
+        if (ou) {
+          const key = `${ou}|${mk}`
+          sitsByOwnerMonth.set(key, (sitsByOwnerMonth.get(key) || 0) + 1)
+        }
+      }
+    }
+  }
+
+  const { data: contracts, error: cErr } = await supabase
+    .from('order_form_contracts')
+    .select('customer_signed_at, opportunity_id, opportunities!inner(owner_user_id, org_id)')
+    .eq('org_id', orgId)
+    .eq('agreement_type', 'installation')
+    .eq('status', 'completed')
+    .not('customer_signed_at', 'is', null)
+    .gte('customer_signed_at', startIso)
+    .lte('customer_signed_at', endIso)
+
+  if (cErr) {
+    console.error('buildMonthlyTierMetricMaps contracts', cErr)
+  } else {
+    const seen = new Set<string>()
+    for (const c of contracts || []) {
+      const rawOpp = c.opportunities as unknown
+      const opp = (Array.isArray(rawOpp) ? rawOpp[0] : rawOpp) as
+        | { owner_user_id: string | null }
+        | null
+        | undefined
+      const owner = opp?.owner_user_id
+      if (!owner) continue
+      const mk = monthKeyFromSaleDate(c.customer_signed_at as string | null)
+      if (!mk) continue
+      const dedupe = `${owner}|${mk}|${c.opportunity_id as string}`
+      if (seen.has(dedupe)) continue
+      seen.add(dedupe)
+      const key = `${owner}|${mk}`
+      salesByOwnerMonth.set(key, (salesByOwnerMonth.get(key) || 0) + 1)
+    }
+  }
+
+  return { sitsBySetterMonth, sitsByOwnerMonth, salesByOwnerMonth }
+}
+
+export function periodSitsAndCloseRateForParticipant(input: {
+  userId: string
+  monthKey: string | null
+  participantRole: PayrollParticipant['role']
+  sitsBySetterMonth: Map<string, number>
+  sitsByOwnerMonth: Map<string, number>
+  salesByOwnerMonth: Map<string, number>
+}): { periodSits: number; periodClosingRatePct: number | null } {
+  if (!input.monthKey) {
+    return { periodSits: 0, periodClosingRatePct: null }
+  }
+  const key = `${input.userId}|${input.monthKey}`
+  if (input.participantRole === 'setter') {
+    return {
+      periodSits: input.sitsBySetterMonth.get(key) || 0,
+      periodClosingRatePct: null,
+    }
+  }
+  const sits = input.sitsByOwnerMonth.get(key) || 0
+  const sales = input.salesByOwnerMonth.get(key) || 0
+  return {
+    periodSits: sits,
+    periodClosingRatePct: sits > 0 ? Math.round((sales / sits) * 1000) / 10 : null,
+  }
+}
+
 export function scaleCommissionsToPool(
   rawByUser: Map<string, number>,
   poolCap: number
@@ -195,12 +324,16 @@ export function computeRawCommissionForParticipant(input: {
   plan: CompPlanForCalc
   commissionableAmount: number
   periodVolume: number
+  periodSits: number
+  periodClosingRatePct: number | null
   overridePercentage: number | null
 }) {
   return calculateCommissionFromPlanForSale({
     plan: input.plan,
     commissionableAmount: input.commissionableAmount,
     periodVolume: input.periodVolume,
+    periodSits: input.periodSits,
+    periodClosingRatePct: input.periodClosingRatePct,
     overridePercentage: input.overridePercentage,
   })
 }

@@ -3,11 +3,15 @@
  * tiered tiers use commissionable amount; percentage applies to commissionable amount.
  */
 
+export type VolumeBonusTierMetric = 'volume' | 'closing_rate' | 'sits'
+
 export type VolumeBonusRow = {
   min_volume: number
   max_volume: number | null
   bonus_type: string
   bonus_value: number
+  /** What min/max bounds apply to. Defaults to volume ($) when omitted (legacy rows). */
+  tier_metric?: VolumeBonusTierMetric | string | null
 }
 
 export type TierRow = { min: number; max: number | null; rate: number }
@@ -28,6 +32,23 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
+function normalizeTierMetric(row: VolumeBonusRow): VolumeBonusTierMetric {
+  const m = row.tier_metric
+  if (m === 'closing_rate' || m === 'sits') return m
+  return 'volume'
+}
+
+function compareValueForVolumeBonus(
+  row: VolumeBonusRow,
+  input: { periodVolume: number; periodSits: number; periodClosingRatePct: number | null }
+): number | null {
+  const metric = normalizeTierMetric(row)
+  if (metric === 'volume') return roundMoney(Number(input.periodVolume) || 0)
+  if (metric === 'sits') return Math.round(Number(input.periodSits) || 0)
+  if (input.periodClosingRatePct == null || !Number.isFinite(input.periodClosingRatePct)) return null
+  return roundMoney(input.periodClosingRatePct)
+}
+
 function flatDollars(plan: CompPlanForCalc): number {
   return roundMoney(Number(plan.flat_amount ?? plan.flat_rate ?? 0) || 0)
 }
@@ -35,8 +56,12 @@ function flatDollars(plan: CompPlanForCalc): number {
 export function calculateCommissionFromPlanForSale(input: {
   plan: CompPlanForCalc
   commissionableAmount: number
-  /** User-attributed volume for the sale month (for volume bonus tiers). */
+  /** User-attributed commission base sum for the sale month (volume bonus tiers). */
   periodVolume: number
+  /** Setter: setter-attributed sits; closer (owner/rep): owner-attributed sits in period. */
+  periodSits: number
+  /** Closer-only: install sales / sits × 100 for the sale month; null if sits is 0. */
+  periodClosingRatePct: number | null
   /** Per-user_comp_plans.override_percentage — replaces computed base % when set. */
   overridePercentage: number | null
 }): {
@@ -102,12 +127,17 @@ export function calculateCommissionFromPlanForSale(input: {
   let volumeBonusRate = 0
   let volumeBonusFlat = 0
   const vb = plan.volume_bonuses
-  if (vb && Array.isArray(vb) && input.periodVolume > 0) {
-    const pv = input.periodVolume
+  if (vb && Array.isArray(vb)) {
     for (const row of vb as VolumeBonusRow[]) {
+      const cmp = compareValueForVolumeBonus(row, {
+        periodVolume: input.periodVolume,
+        periodSits: input.periodSits,
+        periodClosingRatePct: input.periodClosingRatePct,
+      })
+      if (cmp === null) continue
       const minV = Number(row.min_volume) || 0
       const maxV = row.max_volume == null ? null : Number(row.max_volume)
-      if (pv >= minV && (maxV == null || pv <= maxV)) {
+      if (cmp >= minV && (maxV == null || cmp <= maxV)) {
         if (row.bonus_type === 'percentage') {
           volumeBonusRate = roundMoney(Number(row.bonus_value) || 0)
         } else if (row.bonus_type === 'flat') {

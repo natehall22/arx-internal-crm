@@ -10,6 +10,11 @@ import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
+import {
+  applyFirstMatchingVolumeBonus,
+  formatVolumeBonusTierRange,
+  volumeBonusTierInRange,
+} from '@/lib/volume-bonus-display'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -42,6 +47,7 @@ interface VolumeTier {
   max_volume: number | null
   bonus_type: 'percentage' | 'flat'
   bonus_value: number
+  tier_metric?: 'volume' | 'closing_rate' | 'sits'
 }
 
 interface TeamMemberStat {
@@ -333,6 +339,18 @@ export default function DashboardClient({
   const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosed
   const teamCommissionablePerJob = netCommissionableFromFinancedTotal(calcTeamAvgPrice, avgDealerFeePercent)
   const teamMonthlyCommissionableVolume = teamCommissionablePerJob * calcTeamSales
+
+  const compCalculatorTierValues = useMemo(() => {
+    const cr =
+      personalStats.closeRate != null && String(personalStats.closeRate) !== ''
+        ? Number(personalStats.closeRate)
+        : null
+    return {
+      periodVolume: monthlyCommissionableVolume,
+      periodSits: personalStats.sits,
+      periodClosingRatePct: cr,
+    }
+  }, [monthlyCommissionableVolume, personalStats.sits, personalStats.closeRate])
 
   useEffect(() => {
     setMounted(true)
@@ -1076,13 +1094,19 @@ export default function DashboardClient({
                               <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                                 {member.doorsKnocked}
                               </p>
-                              <p className="text-xs text-gray-500">Doors</p>
+                              <p className="text-xs text-gray-500">
+                                Doors{' '}
+                                <span className="text-gray-400">(pins · {timeFrameLabel[timeFrame]})</span>
+                              </p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${member.contacts > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
                                 {member.contacts || 0}
                               </p>
-                              <p className="text-xs text-gray-500">Contacts</p>
+                              <p className="text-xs text-gray-500">
+                                Contacts{' '}
+                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                              </p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${member.inspectionsSet > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
@@ -1112,8 +1136,18 @@ export default function DashboardClient({
                           <tr>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doors</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Contacts</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Doors
+                              <span className="block font-normal normal-case text-gray-400">
+                                (pins · {timeFrameLabel[timeFrame]})
+                              </span>
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Contacts
+                              <span className="block font-normal normal-case text-gray-400">
+                                ({timeFrameLabel[timeFrame]})
+                              </span>
+                            </th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. set</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sits</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sales</th>
@@ -1220,13 +1254,19 @@ export default function DashboardClient({
                               <p className={`text-base font-bold ${member.doorsKnocked > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                                 {member.doorsKnocked}
                               </p>
-                              <p className="text-xs text-gray-500">Doors</p>
+                              <p className="text-xs text-gray-500">
+                                Doors{' '}
+                                <span className="text-gray-400">(pins · {timeFrameLabel[timeFrame]})</span>
+                              </p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${(member.contacts ?? 0) > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
                                 {member.contacts ?? 0}
                               </p>
-                              <p className="text-xs text-gray-500">Contacts</p>
+                              <p className="text-xs text-gray-500">
+                                Contacts{' '}
+                                <span className="text-gray-400">({timeFrameLabel[timeFrame]})</span>
+                              </p>
                             </div>
                             <div>
                               <p className={`text-base font-bold ${(member.inspectionsSet ?? 0) > 0 ? 'text-orange-500' : 'text-gray-400'}`}>
@@ -1280,8 +1320,18 @@ export default function DashboardClient({
                           <tr>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rep</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doors</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Contacts</th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Doors
+                              <span className="block font-normal normal-case text-gray-400">
+                                (pins · {timeFrameLabel[timeFrame]})
+                              </span>
+                            </th>
+                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Contacts
+                              <span className="block font-normal normal-case text-gray-400">
+                                ({timeFrameLabel[timeFrame]})
+                              </span>
+                            </th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Insp. set</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                               Insp. recv.
@@ -1835,22 +1885,18 @@ export default function DashboardClient({
                   {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
                     <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                       <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Volume Bonuses</h4>
-                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Hit these sales thresholds to earn bonus commissions:</p>
+                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">
+                        Tiers can use volume ($), sits, or close rate (see team stats for your current period).
+                      </p>
                       <div className="space-y-2">
                         {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                          const isSalesCount = tier.min_volume < 1000
                           const nextTier = compPlanDetails.volume_bonuses[idx + 1]
-                          const displayMax = isSalesCount && tier.max_volume && tier.max_volume > 100
-                            ? (nextTier ? nextTier.min_volume - 1 : null)
-                            : tier.max_volume
-                          
                           return (
                             <div key={idx} className="flex items-center justify-between p-2 sm:p-3 bg-white rounded-lg border">
                               <span className="text-gray-700 text-sm">
-                                {isSalesCount 
-                                  ? `${tier.min_volume}${displayMax ? ` - ${displayMax}` : '+'} sales`
-                                  : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
-                                }
+                                {formatVolumeBonusTierRange(tier, {
+                                  nextMinVolume: nextTier?.min_volume ?? null,
+                                })}
                               </span>
                               <span className="font-semibold text-green-600 text-sm">
                                 {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
@@ -2201,26 +2247,18 @@ export default function DashboardClient({
                     if (!compPlanDetails.is_manager_plan || compPlanDetails.personal_sales_enabled) {
                       const monthlyVolume = monthlyCommissionableVolume
                       let baseRate = compPlanDetails.base_percentage || 0
-                      let appliedBonuses: string[] = []
+                      const appliedBonuses: string[] = []
                       
-                      // Check for volume bonuses
-                      if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
-                        const bonuses = compPlanDetails.volume_bonuses
-                        for (let i = 0; i < bonuses.length; i++) {
-                          const tier = bonuses[i]
-                          const isSalesCount = tier.min_volume < 1000
-                          const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
-                          
-                          if (compareValue >= tier.min_volume) {
-                            if (tier.bonus_type === 'percentage') {
-                              baseRate += tier.bonus_value
-                              appliedBonuses.push(`+${tier.bonus_value}%`)
-                            }
-                          }
-                        }
-                      }
-                      
-                      personalEarnings = monthlyVolume * (baseRate / 100)
+                      const { extraRatePct, flatPerSale } = applyFirstMatchingVolumeBonus(
+                        compPlanDetails.volume_bonuses,
+                        compCalculatorTierValues
+                      )
+                      baseRate += extraRatePct
+                      if (extraRatePct > 0) appliedBonuses.push(`+${extraRatePct}%`)
+                      if (flatPerSale > 0) appliedBonuses.push(`+$${flatPerSale}/sale`)
+
+                      personalEarnings =
+                        monthlyVolume * (baseRate / 100) + flatPerSale * calcJobsClosed
                       
                       if (compPlanDetails.is_manager_plan) {
                         displayRows.push({ label: '— Your Sales —', value: '' })
@@ -2269,19 +2307,14 @@ export default function DashboardClient({
                     // For non-managers, show simpler display
                     if (!compPlanDetails.is_manager_plan) {
                       const monthlyVolume = monthlyCommissionableVolume
-                      let baseRate = compPlanDetails.base_percentage || 0
-                      let appliedBonuses: string[] = []
-                      
-                      if (compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0) {
-                        for (const tier of compPlanDetails.volume_bonuses) {
-                          const isSalesCount = tier.min_volume < 1000
-                          const compareValue = isSalesCount ? calcJobsClosed : monthlyVolume
-                          if (compareValue >= tier.min_volume && tier.bonus_type === 'percentage') {
-                            baseRate += tier.bonus_value
-                            appliedBonuses.push(`+${tier.bonus_value}%`)
-                          }
-                        }
-                      }
+                      const { extraRatePct, flatPerSale } = applyFirstMatchingVolumeBonus(
+                        compPlanDetails.volume_bonuses,
+                        compCalculatorTierValues
+                      )
+                      const baseRate = (compPlanDetails.base_percentage || 0) + extraRatePct
+                      const appliedBonuses: string[] = []
+                      if (extraRatePct > 0) appliedBonuses.push(`+${extraRatePct}%`)
+                      if (flatPerSale > 0) appliedBonuses.push(`+$${flatPerSale}/sale`)
                       
                       displayRows = [
                         { label: 'Sales/Month', value: `${calcJobsClosed}` },
@@ -2290,7 +2323,7 @@ export default function DashboardClient({
                         { label: 'Base Rate', value: `${compPlanDetails.base_percentage || 0}%` },
                       ]
                       if (appliedBonuses.length > 0) {
-                        displayRows.push({ label: 'Bonuses', value: appliedBonuses.join(', ') })
+                        displayRows.push({ label: 'Tier bonus', value: appliedBonuses.join(', ') })
                       }
                       displayRows.push({ label: 'Total Rate', value: `${baseRate}%` })
                     }
@@ -2329,25 +2362,24 @@ export default function DashboardClient({
               {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
                 <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                   <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Commission Tiers</h4>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Highlights the tier that matches this calculator (volume) and your current team stats (sits /
+                    close rate).
+                  </p>
                   <div className="space-y-2">
                     {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
-                      const isSalesCount = tier.min_volume < 1000
                       const nextTier = compPlanDetails.volume_bonuses[idx + 1]
-                      const effectiveMax = isSalesCount && tier.max_volume && tier.max_volume > 100
-                        ? (nextTier ? nextTier.min_volume - 1 : null)
-                        : tier.max_volume
-                      
-                      const isActive = isSalesCount 
-                        ? calcJobsClosed >= tier.min_volume && (!effectiveMax || calcJobsClosed <= effectiveMax)
-                        : monthlyCommissionableVolume >= tier.min_volume && (!tier.max_volume || monthlyCommissionableVolume <= tier.max_volume)
-                      
+                      const isActive = volumeBonusTierInRange(
+                        tier,
+                        compCalculatorTierValues,
+                        { nextMinVolume: nextTier?.min_volume ?? null }
+                      )
                       return (
                         <div key={idx} className={`flex items-center justify-between p-2 sm:p-3 rounded-lg border ${isActive ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
                           <span className={`text-sm ${isActive ? 'text-green-800 font-medium' : 'text-gray-700'}`}>
-                            {isSalesCount 
-                              ? `${tier.min_volume}${effectiveMax ? ` - ${effectiveMax}` : '+'} sales`
-                              : `$${tier.min_volume.toLocaleString()} - ${tier.max_volume ? `$${tier.max_volume.toLocaleString()}` : '∞'}`
-                            }
+                            {formatVolumeBonusTierRange(tier, {
+                              nextMinVolume: nextTier?.min_volume ?? null,
+                            })}
                           </span>
                           <span className={`text-sm font-semibold ${isActive ? 'text-green-600' : 'text-gray-500'}`}>
                             {tier.bonus_type === 'percentage' ? `+${tier.bonus_value}%` : `+$${tier.bonus_value}`}
