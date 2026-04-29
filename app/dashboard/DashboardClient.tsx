@@ -306,6 +306,10 @@ export default function DashboardClient({
     sitOpportunitiesInPeriod: number
     saleOpportunitiesInPeriod: number
   } | null>(null)
+  /** null = unchecked or non-admin; false = DB still owner-first (migration 107). */
+  const [dashboardDoorAttributionPinFirst, setDashboardDoorAttributionPinFirst] = useState<
+    boolean | null
+  >(null)
   const [loadingStats, setLoadingStats] = useState(false)
   const [personalStats, setPersonalStats] = useState({
     doorsKnocked: stats.doorsKnockedThisWeek,
@@ -400,6 +404,11 @@ export default function DashboardClient({
           } else {
             setDistinctDealCounts(null)
           }
+          setDashboardDoorAttributionPinFirst(
+            typeof data.dashboardDoorAttributionPinFirst === 'boolean'
+              ? data.dashboardDoorAttributionPinFirst
+              : null
+          )
         }
         if (personalRes.ok) {
           const pData = await personalRes.json()
@@ -752,6 +761,22 @@ export default function DashboardClient({
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Unpaid Referrals Alert */}
         <UnpaidReferralsAlert />
+
+        {profile.role === 'admin' && dashboardDoorAttributionPinFirst === false && (
+          <div
+            className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            role="status"
+          >
+            <p className="font-medium">Leaderboard doors/contacts may be misattributed</p>
+            <p className="mt-1 text-amber-800">
+              This database is still using owner-first knock attribution (older RPC). After bulk reassignment,
+              most pins count toward whoever owns the lead now. Apply migration{' '}
+              <span className="font-mono text-xs">130_dashboard_canvass_exclude_inbound_disposition_only.sql</span>{' '}
+              in Supabase so aggregates use pin_attributed_user_id first (original canvasser) and exclude
+              inbound disposition-only leads.
+            </p>
+          </div>
+        )}
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 sm:mb-8">

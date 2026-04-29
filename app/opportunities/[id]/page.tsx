@@ -17,10 +17,12 @@ import DeleteProposalButton from '@/components/opportunities/DeleteProposalButto
 import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
+import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import {
   canViewInsideSalesFollowUp,
   getDidntSitFollowUpStatus,
   hasActiveDidntSitFollowUp,
+  isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 
 export default async function OpportunityDetailPage({
@@ -107,6 +109,23 @@ export default async function OpportunityDetailPage({
       .maybeSingle()
     followUpAssignedUser = assignedUserData
   }
+
+  const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
+  const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
+  const hasDidntSitFollowUp = hasActiveDidntSitFollowUp(opportunity)
+  const canViewDidntSitFollowUp = hasDidntSitFollowUp
+    ? canViewInsideSalesFollowUp({
+        role: profile.role,
+        customRoleName: viewerCustomRole?.name || null,
+        customRoleDisplayName: viewerCustomRole?.display_name || null,
+      })
+    : false
+  const canSelfAssignDidntSitFollowUp = isInsideSalesRoleLike({
+    role: profile.role,
+    customRoleName: viewerCustomRole?.name || null,
+    customRoleDisplayName: viewerCustomRole?.display_name || null,
+  })
+  const didntSitFollowUpStatus = getDidntSitFollowUpStatus(opportunity)
 
   // Fetch inspection status updates (feedback history)
   const { data: inspectionUpdates } = await supabase
@@ -326,7 +345,15 @@ export default async function OpportunityDetailPage({
   } else if (!opportunity.inspection_outcome) {
     // Step 1 — no inspection result yet
     nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: inspectionFeedbackUrl, linkLabel: 'Submit Inspection' }
-  } else if (['not_home', 'rescheduled'].includes(opportunity.inspection_outcome)) {
+  } else if (opportunity.inspection_outcome === 'not_home' && hasDidntSitFollowUp) {
+    nextStep = {
+      icon: '📞',
+      title: 'Inside Sales Follow-Up Active',
+      body: 'The customer did not sit. Inside sales should work the follow-up and log call results here until it is ready to be rescheduled.',
+      bg: 'bg-amber-50 border-amber-200',
+      titleColor: 'text-amber-900',
+    }
+  } else if (opportunity.inspection_outcome === 'rescheduled' || opportunity.inspection_outcome === 'not_home') {
     // Inspection couldn't happen — needs reschedule
     const rescheduleHref = inspectionAppointment?.id
       ? `/schedule?reschedule=${inspectionAppointment.id}`
@@ -385,18 +412,6 @@ export default async function OpportunityDetailPage({
       }
     }
   }
-
-  const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
-  const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
-  const hasDidntSitFollowUp = hasActiveDidntSitFollowUp(opportunity)
-  const canViewDidntSitFollowUp = hasDidntSitFollowUp
-    ? canViewInsideSalesFollowUp({
-        role: profile.role,
-        customRoleName: viewerCustomRole?.name || null,
-        customRoleDisplayName: viewerCustomRole?.display_name || null,
-      })
-    : false
-  const didntSitFollowUpStatus = getDidntSitFollowUpStatus(opportunity)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -543,48 +558,20 @@ export default async function OpportunityDetailPage({
           </div>
         )}
 
-        {hasDidntSitFollowUp && canViewDidntSitFollowUp && (
-          <div className="bg-white shadow rounded-lg p-6 mb-6 border border-amber-200">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Appointment Follow-Up</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  Inside sales is working this didn&apos;t-sit opportunity.
-                </p>
-              </div>
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                Didn&apos;t Sit
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-              <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Status</p>
-                <p className="text-gray-900 mt-1 capitalize">{didntSitFollowUpStatus?.replace(/_/g, ' ') || 'new'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Assigned To</p>
-                <p className="text-gray-900 mt-1">{followUpAssignedUser?.full_name || 'Unassigned'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Next Follow-Up</p>
-                <p className="text-gray-900 mt-1">
-                  {opportunity.follow_up_at ? new Date(opportunity.follow_up_at).toLocaleString() : 'Needs scheduling'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Customer Phone</p>
-                <p className="text-gray-900 mt-1">{customerPhone || '—'}</p>
-              </div>
-            </div>
-
-            {opportunity.inspection_notes && (
-              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-xs font-medium text-amber-900 uppercase tracking-wide">Closer Notes</p>
-                <p className="text-sm text-amber-900 mt-1 whitespace-pre-wrap">{opportunity.inspection_notes}</p>
-              </div>
-            )}
-          </div>
+        {hasDidntSitFollowUp && (
+          <InsideSalesFollowUpDrawer
+            opportunityId={params.id}
+            customerName={customerName}
+            customerPhone={customerPhone}
+            assignedToName={followUpAssignedUser?.full_name || null}
+            statusLabel={didntSitFollowUpStatus?.replace(/_/g, ' ') || 'new'}
+            nextFollowUpAt={opportunity.follow_up_at || null}
+            closerNotes={opportunity.inspection_notes || null}
+            visible
+            canManage={canViewDidntSitFollowUp}
+            canSelfAssign={canSelfAssignDidntSitFollowUp}
+            activities={(activities || []) as any[]}
+          />
         )}
 
         {/* Canvass Notes Section */}

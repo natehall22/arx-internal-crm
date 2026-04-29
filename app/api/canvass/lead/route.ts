@@ -537,10 +537,11 @@ export async function POST(request: Request) {
         .from('leads')
         .insert({
           org_id: profile.org_id,
-          owner_user_id: profile.id, // Setter is always the owner
           status: scheduleInspection ? 'inspection' : 'new',
           source: body.source || 'door_to_door',
           ...leadPayload,
+          // After spread so a stray `owner_user_id` on payload can never override the authenticated canvasser
+          owner_user_id: profile.id,
         })
         .select('*')
         .single()

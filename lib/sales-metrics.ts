@@ -1,4 +1,7 @@
-const CANVASS_SOURCES = new Set(['door_to_door', 'canvass', 'door_knock'])
+const DOOR_COUNT_SOURCES = new Set(['door_to_door', 'canvass', 'door_knock', 'csv_import'])
+
+/** Inbound leads: disposition alone must not turn them into canvass doors (see migration 130). */
+const NON_CANVASS_DISPOSITION_SOURCES = new Set(['web', 'inbound'])
 const CONTACT_DISPOSITIONS = new Set(['go_back', 'hot_lead', 'not_interested', 'renter'])
 
 type CanvassDispositionConfig = {
@@ -53,7 +56,10 @@ export function isCanvassDoorLead(lead: {
   source?: string | null
   canvass_disposition?: string | null
 }): boolean {
-  return CANVASS_SOURCES.has(String(lead.source || '').toLowerCase()) || Boolean(lead.canvass_disposition)
+  const src = String(lead.source || '').toLowerCase().trim()
+  if (DOOR_COUNT_SOURCES.has(src)) return true
+  if (Boolean(lead.canvass_disposition) && !NON_CANVASS_DISPOSITION_SOURCES.has(src)) return true
+  return false
 }
 
 export function getContactDispositionIdSet(

@@ -10,6 +10,13 @@ type OpportunityLike = {
   pipeline_stage?: string | null
 }
 
+export const DIDNT_SIT_PIPELINE_PREFIX = 'inside_sales_didnt_sit'
+const RESOLVED_DIDNT_SIT_STAGES = new Set([
+  `${DIDNT_SIT_PIPELINE_PREFIX}_rescheduled`,
+  `${DIDNT_SIT_PIPELINE_PREFIX}_unresponsive`,
+  `${DIDNT_SIT_PIPELINE_PREFIX}_lost`,
+])
+
 const MANAGER_ROLES = new Set([
   'admin',
   'owner',
@@ -44,14 +51,19 @@ export function hasActiveDidntSitFollowUp(opportunity: OpportunityLike) {
   if (status === 'won' || status === 'lost') return false
 
   const pipelineStage = normalize(opportunity.pipeline_stage)
-  if (pipelineStage === 'inside_sales_didnt_sit') return true
+  if (RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage)) return false
+  if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX) return true
+  if (pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) return true
 
   return normalize(opportunity.inspection_outcome) === 'not_home'
 }
 
 export function getDidntSitFollowUpStatus(opportunity: OpportunityLike) {
   const pipelineStage = normalize(opportunity.pipeline_stage)
-  if (pipelineStage === 'inside_sales_didnt_sit') return 'new'
+  if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX) return 'new'
+  if (pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) {
+    return pipelineStage.slice(`${DIDNT_SIT_PIPELINE_PREFIX}_`.length) || 'new'
+  }
   if (normalize(opportunity.inspection_outcome) === 'not_home') return 'new'
   return null
 }

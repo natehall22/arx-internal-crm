@@ -219,6 +219,33 @@ export async function GET(request: NextRequest) {
     const pStart = start.toISOString()
     const pEnd = end.toISOString()
 
+    let dashboardDoorAttributionPinFirst: boolean | null = null
+    if (isAdmin) {
+      const { data: attrData, error: attrErr } = await supabase.rpc(
+        'dashboard_door_rpc_attribution_is_pin_first'
+      )
+      const attrErrMessage = String(attrErr?.message || '')
+      const missingAttributionHelper =
+        attrErrMessage.includes('dashboard_door_rpc_attribution_is_pin_first') &&
+        (attrErrMessage.toLowerCase().includes('could not find the function') ||
+          attrErrMessage.toLowerCase().includes('function') ||
+          attrErrMessage.toLowerCase().includes('schema cache'))
+
+      if (!attrErr && typeof attrData === 'boolean') {
+        dashboardDoorAttributionPinFirst = attrData
+      } else if (missingAttributionHelper) {
+        dashboardDoorAttributionPinFirst = false
+        console.warn(
+          '[team-stats] Attribution helper RPC is missing. Treating dashboard door/contact attribution as unsafe until migration 130 (or 129 + 130) is applied.'
+        )
+      }
+      if (dashboardDoorAttributionPinFirst === false) {
+        console.warn(
+          '[team-stats] Door/contact SQL may still use owner-first attribution. Apply supabase migration 130 (or 129 + 130) so stats credit pin_attributed_user_id first and exclude inbound disposition-only leads.'
+        )
+      }
+    }
+
     const [
       doorRows,
       contactRows,
@@ -450,6 +477,7 @@ export async function GET(request: NextRequest) {
       closerStats,
       teamMemberCount: teamMemberStats.length,
       distinctDealCounts,
+      ...(isAdmin ? { dashboardDoorAttributionPinFirst } : {}),
     }
     
     // Include date range info in debug mode
