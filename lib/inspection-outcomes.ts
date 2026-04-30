@@ -203,7 +203,8 @@ export function getInspectionOutcomeInsideSalesHandoff(
 }
 
 /**
- * True when this inspection outcome should route to the immediate inside-sales “didn’t sit” pipeline.
+ * True when recording this outcome should mark the scheduled appointment as no-show (customer not present).
+ * Not used for inside-sales queue routing — that follows `inside_sales_handoff_*` on the outcome row.
  * Matches default id `not_home` and admin rows that keep the default “Not Home” label but use a custom id.
  */
 export function inspectionOutcomeRoutesToInsideSalesDidntSit(

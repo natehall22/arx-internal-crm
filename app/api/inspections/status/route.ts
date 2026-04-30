@@ -22,7 +22,6 @@ import {
 } from '@/lib/inspection-outcomes'
 import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
-  isInsideSalesRoleLike,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 
@@ -380,10 +379,9 @@ export async function POST(request: NextRequest) {
     )
     const outcomeConfig = getInspectionOutcomeConfig(inspectionOutcomes, outcome)
     const insideSalesHandoffConfig = getInspectionOutcomeInsideSalesHandoff(inspectionOutcomes, outcome)
-    const isNotHomeOutcome = inspectionOutcomeRoutesToInsideSalesDidntSit(inspectionOutcomes, outcome)
     const isInsuranceOutcome = normalizeInspectionOutcomeId(outcome) === 'insurance_follow_up'
     const delayedInsideSalesHandoffEnabled =
-      !isNotHomeOutcome && insideSalesHandoffConfig.enabled && insideSalesHandoffConfig.delayDays !== null
+      insideSalesHandoffConfig.enabled && insideSalesHandoffConfig.delayDays !== null
     const delayedInsideSalesHandoffDays = insideSalesHandoffConfig.delayDays
     const delayedInsideSalesHandoffAt =
       delayedInsideSalesHandoffEnabled && delayedInsideSalesHandoffDays !== null
@@ -490,17 +488,9 @@ export async function POST(request: NextRequest) {
           inspection_notes: notes || null,
           job_source: isInsuranceOutcome ? 'insurance' : 'retail',
           insurance_stage: isInsuranceOutcome ? 'contingency_signed' : null,
-          pipeline_stage: delayedInsideSalesHandoffEnabled
-            ? REP_WORKING_HANDOFF_PIPELINE_PREFIX
-            : isNotHomeOutcome
-              ? 'inside_sales_didnt_sit'
-              : null,
-          follow_up_at: delayedInsideSalesHandoffEnabled
-            ? delayedInsideSalesHandoffAt
-            : isNotHomeOutcome
-              ? new Date().toISOString()
-              : null,
-          assigned_user_id: delayedInsideSalesHandoffEnabled ? assignedCloserId : isNotHomeOutcome ? null : closerForOpp,
+          pipeline_stage: delayedInsideSalesHandoffEnabled ? REP_WORKING_HANDOFF_PIPELINE_PREFIX : null,
+          follow_up_at: delayedInsideSalesHandoffEnabled ? delayedInsideSalesHandoffAt : null,
+          assigned_user_id: delayedInsideSalesHandoffEnabled ? assignedCloserId : closerForOpp,
         })
         .select()
         .single()
@@ -602,11 +592,6 @@ export async function POST(request: NextRequest) {
         opportunityUpdate.pipeline_stage = REP_WORKING_HANDOFF_PIPELINE_PREFIX
         opportunityUpdate.follow_up_at = delayedInsideSalesHandoffAt
         opportunityUpdate.assigned_user_id = assignedCloserId
-      }
-      if (isNotHomeOutcome) {
-        opportunityUpdate.pipeline_stage = 'inside_sales_didnt_sit'
-        opportunityUpdate.follow_up_at = new Date().toISOString()
-        opportunityUpdate.assigned_user_id = null
       } else if (!delayedInsideSalesHandoffEnabled && isInsideSalesFollowUpPipelineStage(opportunity?.pipeline_stage)) {
         opportunityUpdate.pipeline_stage = null
         opportunityUpdate.follow_up_at = null
@@ -705,53 +690,6 @@ export async function POST(request: NextRequest) {
       closer_name: profile.full_name,
       notes: notes || null,
       setter_feedback: setter_feedback || null,
-    }
-
-    if (isNotHomeOutcome) {
-      const { data: insideSalesUsers } = await supabase
-        .from('users')
-        .select('id, role, active, custom_roles(name, display_name)')
-        .eq('org_id', profile.org_id)
-        .eq('active', true)
-
-      const insideSalesRecipients = (insideSalesUsers || []).filter((candidate: any) => {
-        const customRole = Array.isArray(candidate.custom_roles)
-          ? candidate.custom_roles[0]
-          : candidate.custom_roles
-
-        return (
-          candidate.id !== user.id &&
-          isInsideSalesRoleLike({
-            role: candidate.role,
-            customRoleName: customRole?.name || null,
-            customRoleDisplayName: customRole?.display_name || null,
-          })
-        )
-      })
-
-      for (const recipient of insideSalesRecipients) {
-        await supabase.from('notifications').insert({
-          org_id: profile.org_id,
-          recipient_user_id: recipient.id,
-          actor_user_id: user.id,
-          type: 'inside_sales_follow_up',
-          title: `Inside Sales Follow-Up: ${customerName}`,
-          body: [
-            `Customer: ${customerName}`,
-            customerAddress ? `Address: ${customerAddress}` : null,
-            lead?.phone ? `Phone: ${lead.phone}` : null,
-            'Reason: Did not sit (not home)',
-            notes ? `Closer Notes: "${notes}"` : null,
-          ]
-            .filter(Boolean)
-            .join('\n'),
-          data: {
-            ...notificationData,
-            queue_type: 'didnt_sit',
-            pipeline_stage: 'inside_sales_didnt_sit',
-          },
-        })
-      }
     }
 
     // Notify setter - always notify when feedback is submitted (unless closer is the setter)
