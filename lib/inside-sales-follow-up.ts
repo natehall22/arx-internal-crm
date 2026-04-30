@@ -139,6 +139,7 @@ function legacyPipelineInsideSalesHandoffVisible(
     return false
   }
   if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) return false
+  if (pipelineStage.startsWith(`${REP_WORKING_HANDOFF_PIPELINE_PREFIX}_`)) return false
   if (RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage)) return false
   if (RESOLVED_HANDOFF_PIPELINE_STAGES.has(pipelineStage)) return false
   return true
