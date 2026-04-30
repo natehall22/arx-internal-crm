@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { getMailTransport } from '@/lib/setter-email'
 
 function escapeHtml(s: string): string {
@@ -35,25 +36,26 @@ export async function notifyAdminOpsOfJobPayment(
 ): Promise<void> {
   if (!process.env.SMTP_HOST) return
 
-  const { data: recipients, error } = await supabase
-    .from('users')
-    .select('email')
-    .eq('org_id', params.orgId)
-    .in('role', ['admin', 'operations'])
-    .eq('active', true)
+  const { data: orgRow, error: orgError } = await supabase
+    .from('orgs')
+    .select('settings')
+    .eq('id', params.orgId)
+    .maybeSingle()
 
-  if (error) {
-    console.error('notifyAdminOpsOfJobPayment: recipients query', error)
+  if (orgError) {
+    console.error('notifyAdminOpsOfJobPayment: org settings query', orgError)
     return
   }
 
-  const emails = Array.from(
-    new Set(
-      (recipients || [])
-        .map((a) => a.email?.trim().toLowerCase())
-        .filter((e): e is string => typeof e === 'string' && e.includes('@'))
-    )
-  )
+  const settings = getOrgEmailBlastSettings(orgRow?.settings)
+  const { emails } = await resolveEmailBlastRecipients(supabase, {
+    orgId: params.orgId,
+    blastType: 'job_payment',
+    settings,
+  }).catch((error) => {
+    console.error('notifyAdminOpsOfJobPayment: recipients query', error)
+    return { emails: [], users: [] }
+  })
 
   if (emails.length === 0) {
     return
