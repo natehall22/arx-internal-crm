@@ -115,10 +115,22 @@ export function mergeEffectiveInspectionFields(
   }
   candidates.sort((a, b) => ts(b.created_at) - ts(a.created_at))
   const best = candidates[0]
+  let inspectionOutcomeAt: string | null = best.created_at
+  const parsed = Number.isFinite(new Date(inspectionOutcomeAt).getTime())
+    ? new Date(inspectionOutcomeAt).getTime()
+    : NaN
+  if (!inspectionOutcomeAt || !String(inspectionOutcomeAt).trim() || !Number.isFinite(parsed)) {
+    inspectionOutcomeAt =
+      opportunity.inspection_outcome_at ||
+      opportunity.updated_at ||
+      opportunity.created_at ||
+      best.created_at ||
+      null
+  }
   return {
     inspection_outcome: best.outcome,
     inspection_notes: best.notes,
-    inspection_outcome_at: best.created_at,
+    inspection_outcome_at: inspectionOutcomeAt,
   }
 }
 

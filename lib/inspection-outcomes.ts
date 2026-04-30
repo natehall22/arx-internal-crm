@@ -138,13 +138,29 @@ function normalizeDelayDays(value: unknown): number | null {
   return normalized
 }
 
+/** Match admin rows that reused a default label but got a custom id (handoff flags inherit from defaults). */
+function inspectionOutcomeLabelKey(label: string | null | undefined): string {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
 export function normalizeInspectionOutcomeRow(
   row: InspectionOutcomeConfigRow,
   index = 0
 ): InspectionOutcomeConfigRow {
-  const fallback = DEFAULT_INSPECTION_OUTCOMES.find(
+  const fallbackById = DEFAULT_INSPECTION_OUTCOMES.find(
     (candidate) => normalizeInspectionOutcomeId(candidate.id) === normalizeInspectionOutcomeId(row.id)
   )
+  const fallbackByLabel =
+    !fallbackById && row.label
+      ? DEFAULT_INSPECTION_OUTCOMES.find(
+          (candidate) =>
+            inspectionOutcomeLabelKey(candidate.label) === inspectionOutcomeLabelKey(row.label)
+        )
+      : undefined
+  const fallback = fallbackById ?? fallbackByLabel
   const handoffEnabled =
     row.inside_sales_handoff_enabled === true ||
     (row.inside_sales_handoff_enabled === undefined && fallback?.inside_sales_handoff_enabled === true)

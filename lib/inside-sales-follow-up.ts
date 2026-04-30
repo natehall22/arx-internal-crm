@@ -72,6 +72,13 @@ function normalize(value: string | null | undefined) {
   return String(value || '').trim().toLowerCase()
 }
 
+function onRepWorkingInsurancePipeline(pipelineStage: string): boolean {
+  return (
+    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${REP_WORKING_HANDOFF_PIPELINE_PREFIX}_`)
+  )
+}
+
 function inspectionRows(orgInspectionOutcomes?: OrgInspectionOutcomesArg) {
   return normalizeInspectionOutcomeRows(orgInspectionOutcomes)
 }
@@ -138,8 +145,7 @@ function legacyPipelineInsideSalesHandoffVisible(
   ) {
     return false
   }
-  if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) return false
-  if (pipelineStage.startsWith(`${REP_WORKING_HANDOFF_PIPELINE_PREFIX}_`)) return false
+  if (onRepWorkingInsurancePipeline(pipelineStage)) return false
   if (RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage)) return false
   if (RESOLVED_HANDOFF_PIPELINE_STAGES.has(pipelineStage)) return false
   return true
@@ -151,9 +157,7 @@ function repWorkingHandoffQueueEligible(
   orgInspectionOutcomes?: OrgInspectionOutcomesArg
 ): boolean {
   const pipelineStage = normalize(opportunity.pipeline_stage)
-  const onRepWorking =
-    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX ||
-    pipelineStage.startsWith(`${REP_WORKING_HANDOFF_PIPELINE_PREFIX}_`)
+  const onRepWorking = onRepWorkingInsurancePipeline(pipelineStage)
   if (!onRepWorking) return false
   const fu = opportunity.follow_up_at
   const handoff = getInspectionOutcomeInsideSalesHandoff(
@@ -194,7 +198,7 @@ export function hasRepWorkingHandoffFollowUp(
   const status = normalize(opportunity.status)
   if (status === 'won' || status === 'lost') return false
   const pipelineStage = normalize(opportunity.pipeline_stage)
-  if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) return true
+  if (onRepWorkingInsurancePipeline(pipelineStage)) return true
   return delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)
 }
 
@@ -210,7 +214,7 @@ export function getInsideSalesFollowUpKind(
     return 'didnt_sit'
   }
   const repWorkingHandoffGrace =
-    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX &&
+    onRepWorkingInsurancePipeline(pipelineStage) &&
     inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)
 
   if (
@@ -242,7 +246,7 @@ export function hasActiveInsideSalesFollowUp(
   if (pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) return true
 
   if (
-    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX &&
+    onRepWorkingInsurancePipeline(pipelineStage) &&
     inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)
   ) {
     return true
@@ -259,7 +263,7 @@ export function hasActiveInsideSalesFollowUp(
 
 export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, pipelinePrefix: string) {
   const n = normalize(opportunity.pipeline_stage)
-  if (n === REP_WORKING_HANDOFF_PIPELINE_PREFIX) {
+  if (onRepWorkingInsurancePipeline(n)) {
     return pipelinePrefix
   }
   if (
@@ -297,10 +301,7 @@ export function getInsideSalesFollowUpStatus(
   if (pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) {
     return pipelineStage.slice(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`.length) || 'new'
   }
-  if (
-    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX ||
-    pipelineStage.startsWith(`${REP_WORKING_HANDOFF_PIPELINE_PREFIX}_`)
-  ) {
+  if (onRepWorkingInsurancePipeline(pipelineStage)) {
     return repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ? 'new' : 'rep_working'
   }
   if (delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) return 'rep_working'
@@ -358,9 +359,7 @@ export function getInsideSalesCallability(
     return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: delayDays }
   }
 
-  const repWorkingFamily =
-    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX ||
-    pipelineStage.startsWith(`${REP_WORKING_HANDOFF_PIPELINE_PREFIX}_`)
+  const repWorkingFamily = onRepWorkingInsurancePipeline(pipelineStage)
 
   if (repWorkingFamily) {
     const fu = opportunity.follow_up_at
