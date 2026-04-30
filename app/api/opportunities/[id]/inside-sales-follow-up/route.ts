@@ -222,9 +222,10 @@ async function createInspectionEventOnCloserCalendar(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } | Promise<{ id: string }> }
 ) {
   try {
+    const { id: opportunityId } = await context.params
     const { client: authClient, accessToken } = getAuthClient(request)
 
     if (!accessToken) {
@@ -266,7 +267,7 @@ export async function POST(
       admin
         .from('opportunities')
         .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, pipeline_stage, assigned_user_id, notes, created_at, updated_at, inspection_notes')
-        .eq('id', params.id)
+        .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
         .single(),
       admin.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
@@ -282,7 +283,7 @@ export async function POST(
       admin
         .from('inspection_status_updates')
         .select('opportunity_id, lead_id, outcome, notes, created_at')
-        .eq('opportunity_id', params.id)
+        .eq('opportunity_id', opportunityId)
         .order('created_at', { ascending: false }),
       opportunity.lead_id
         ? admin
@@ -334,7 +335,7 @@ export async function POST(
       const { data: originalAppointment, error: originalAppointmentError } = await admin
         .from('scheduled_appointments')
         .select('id, org_id, lead_id, opportunity_id, closer_user_id, canvasser_user_id, address_text, scheduled_for, leads(homeowner_name, phone, address_text)')
-        .eq('opportunity_id', params.id)
+        .eq('opportunity_id', opportunityId)
         .eq('org_id', profile.org_id)
         .eq('appointment_type', 'inspection')
         .order('scheduled_for', { ascending: false })
@@ -542,7 +543,7 @@ export async function POST(
           inspection_notes: null,
           notes: note || opportunity.notes || null,
         })
-        .eq('id', params.id)
+        .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
         .select('id, status, pipeline_stage, follow_up_at, assigned_user_id, notes, inspection_outcome, inspection_outcome_at, inspection_notes')
         .single()
@@ -553,7 +554,7 @@ export async function POST(
 
       await admin.from('activities').insert({
         org_id: profile.org_id,
-        opportunity_id: params.id,
+        opportunity_id: opportunityId,
         lead_id: opportunity.lead_id,
         user_id: profile.id,
         type: 'appointment_scheduled',
@@ -617,7 +618,7 @@ export async function POST(
     const { data: updatedOpportunity, error: updateError } = await admin
       .from('opportunities')
       .update(updateData)
-      .eq('id', params.id)
+      .eq('id', opportunityId)
       .eq('org_id', profile.org_id)
       .select('id, status, pipeline_stage, follow_up_at, assigned_user_id, notes')
       .single()
@@ -629,7 +630,7 @@ export async function POST(
     if (activityType && activityBody) {
       await admin.from('activities').insert({
         org_id: profile.org_id,
-        opportunity_id: params.id,
+        opportunity_id: opportunityId,
         lead_id: opportunity.lead_id,
         user_id: profile.id,
         type: activityType,

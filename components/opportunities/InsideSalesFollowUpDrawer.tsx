@@ -73,6 +73,7 @@ export default function InsideSalesFollowUpDrawer({
   const [inspectionDuration, setInspectionDuration] = useState(60)
   const [scheduleDataLoaded, setScheduleDataLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   const recentActivities = useMemo(
@@ -158,6 +159,7 @@ export default function InsideSalesFollowUpDrawer({
       try {
         await submitAction(kind)
         resetForm()
+        setScheduleError(null)
         onFollowUpCompleted?.()
         setOpen(false)
         router.refresh()
@@ -171,6 +173,7 @@ export default function InsideSalesFollowUpDrawer({
     startTransition(async () => {
       try {
         await submitAction('claim_self')
+        setScheduleError(null)
         onFollowUpCompleted?.()
         setOpen(false)
         router.refresh()
@@ -185,6 +188,7 @@ export default function InsideSalesFollowUpDrawer({
       try {
         await loadSchedulingData()
         setError(null)
+        setScheduleError(null)
         setScheduleModalOpen(true)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load scheduling options')
@@ -208,13 +212,14 @@ export default function InsideSalesFollowUpDrawer({
           const data = await response.json().catch(() => ({}))
           throw new Error(data.error || 'Failed to schedule back to closer')
         }
+        setScheduleError(null)
         setScheduleModalOpen(false)
         setScheduleNote('')
         onFollowUpCompleted?.()
         setOpen(false)
         router.refresh()
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to schedule back to closer')
+        setScheduleError(err instanceof Error ? err.message : 'Failed to schedule back to closer')
       }
     })
   }
@@ -391,6 +396,7 @@ export default function InsideSalesFollowUpDrawer({
                       placeholder={schedulePlaceholder}
                       className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none"
                     />
+                    {scheduleError && <p className="mt-3 text-sm text-red-600">{scheduleError}</p>}
                   </div>
 
                   {action && (

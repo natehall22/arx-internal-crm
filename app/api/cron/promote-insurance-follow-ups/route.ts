@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
+  getInsideSalesCallability,
+  getInsideSalesFollowUpKind,
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
-  REP_WORKING_HANDOFF_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 import {
   getInspectionOutcomeConfig,
-  getInspectionOutcomeInsideSalesHandoff,
+  mergeOrgInspectionOutcomesWithDefaults,
   normalizeInspectionOutcomeId,
 } from '@/lib/inspection-outcomes'
+import {
+  mapLatestInspectionByLeadId,
+  mapLatestInspectionByOpportunityId,
+  withEffectiveInspectionFields,
+} from '@/lib/effective-inspection-state'
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -32,25 +38,50 @@ export async function GET(request: NextRequest) {
   try {
     const { data: candidates, error: fetchError } = await admin
       .from('opportunities')
-      .select('id, org_id, lead_id, assigned_user_id, follow_up_at, inspection_outcome, inspection_outcome_at, pipeline_stage, leads(homeowner_name, phone, address_text)')
-      .not('inspection_outcome', 'is', null)
+      .select('id, org_id, lead_id, status, assigned_user_id, follow_up_at, inspection_outcome, inspection_outcome_at, pipeline_stage, leads(homeowner_name, phone, address_text)')
       .neq('status', 'won')
       .neq('status', 'lost')
-      .limit(1000)
+      .limit(8000)
 
     if (fetchError) {
       console.error('promote-insurance-follow-ups: fetch error', fetchError)
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
 
+    const rawCandidates = candidates || []
+    const opportunityIds = rawCandidates.map((opportunity: any) => opportunity.id)
+    const leadIds = rawCandidates.map((opportunity: any) => opportunity.lead_id).filter(Boolean)
+
+    let inspectionByOpportunityId = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
+    if (opportunityIds.length > 0) {
+      const { data: opportunityInspectionRows } = await admin
+        .from('inspection_status_updates')
+        .select('opportunity_id, lead_id, outcome, notes, created_at')
+        .in('opportunity_id', opportunityIds)
+        .order('created_at', { ascending: false })
+      inspectionByOpportunityId = mapLatestInspectionByOpportunityId(opportunityInspectionRows || [])
+    }
+
+    let inspectionByLeadId = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
+    if (leadIds.length > 0) {
+      const { data: leadInspectionRows } = await admin
+        .from('inspection_status_updates')
+        .select('opportunity_id, lead_id, outcome, notes, created_at')
+        .in('lead_id', leadIds)
+        .order('created_at', { ascending: false })
+      inspectionByLeadId = mapLatestInspectionByLeadId(leadInspectionRows || [])
+    }
+
     const overdueOpportunities: any[] = []
 
-    for (const opportunity of candidates || []) {
+    for (const rawOpportunity of rawCandidates) {
+      const opportunity = withEffectiveInspectionFields(
+        rawOpportunity,
+        inspectionByOpportunityId,
+        inspectionByLeadId
+      )
       const outcomeId = normalizeInspectionOutcomeId(opportunity.inspection_outcome)
-      if (!outcomeId) {
-        continue
-      }
-
+      if (!outcomeId || outcomeId === 'sale') continue
       let orgSettings = orgSettingsByOrgId.get(opportunity.org_id)
       if (orgSettings === undefined) {
         const { data: orgRow } = await admin
@@ -62,14 +93,9 @@ export async function GET(request: NextRequest) {
         orgSettingsByOrgId.set(opportunity.org_id, orgSettings)
       }
 
-      const insideSalesHandoff = getInspectionOutcomeInsideSalesHandoff(
-        orgSettings?.inspection_outcomes,
-        opportunity.inspection_outcome
+      const inspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(
+        orgSettings?.inspection_outcomes
       )
-      if (!insideSalesHandoff.enabled || insideSalesHandoff.delayDays === null) {
-        continue
-      }
-
       const pipelineStage = String(opportunity.pipeline_stage || '').trim().toLowerCase()
       if (
         pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
@@ -78,36 +104,19 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) {
-        if (Boolean(opportunity.follow_up_at) && String(opportunity.follow_up_at) <= nowIso) {
-          overdueOpportunities.push({
-            ...opportunity,
-            handoffDelayDays: insideSalesHandoff.delayDays,
-            outcomeLabel:
-              getInspectionOutcomeConfig(orgSettings?.inspection_outcomes, opportunity.inspection_outcome)?.label ||
-              String(opportunity.inspection_outcome).replace(/_/g, ' '),
-          })
-        }
+      const followUpKind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeRows)
+      const callability = getInsideSalesCallability(opportunity, inspectionOutcomeRows)
+      if (followUpKind !== 'handoff' || !callability?.callableNow) {
         continue
       }
 
-      if (!pipelineStage) {
-        if (!opportunity.inspection_outcome_at) {
-          continue
-        }
-        const handoffCutoffIso = new Date(
-          Date.now() - insideSalesHandoff.delayDays * 24 * 60 * 60 * 1000
-        ).toISOString()
-        if (String(opportunity.inspection_outcome_at) <= handoffCutoffIso) {
-          overdueOpportunities.push({
-            ...opportunity,
-            handoffDelayDays: insideSalesHandoff.delayDays,
-            outcomeLabel:
-              getInspectionOutcomeConfig(orgSettings?.inspection_outcomes, opportunity.inspection_outcome)?.label ||
-              String(opportunity.inspection_outcome).replace(/_/g, ' '),
-          })
-        }
-      }
+      overdueOpportunities.push({
+        ...opportunity,
+        handoffDelayDays: callability.adminHandoffDelayDays,
+        outcomeLabel:
+          getInspectionOutcomeConfig(inspectionOutcomeRows, opportunity.inspection_outcome)?.label ||
+          String(opportunity.inspection_outcome).replace(/_/g, ' '),
+      })
     }
 
     if (overdueOpportunities.length === 0) {

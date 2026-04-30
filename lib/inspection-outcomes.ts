@@ -16,7 +16,7 @@ export interface InspectionOutcomeConfigRow {
   sort_order: number
 }
 
-export const DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS = 7
+export const DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS = 2
 
 /** Default list — keep in sync with `app/admin/settings/page.tsx` initial state. */
 export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [

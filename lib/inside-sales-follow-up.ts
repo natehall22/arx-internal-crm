@@ -79,6 +79,10 @@ function onRepWorkingInsurancePipeline(pipelineStage: string): boolean {
   )
 }
 
+function isResolvedInsideSalesPipelineStage(pipelineStage: string): boolean {
+  return RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage) || RESOLVED_HANDOFF_PIPELINE_STAGES.has(pipelineStage)
+}
+
 function inspectionRows(orgInspectionOutcomes?: OrgInspectionOutcomesArg) {
   return normalizeInspectionOutcomeRows(orgInspectionOutcomes)
 }
@@ -112,6 +116,19 @@ function delayedHandoffStillGraceEmptyPipeline(
   if (!opportunity.inspection_outcome_at) return false
   const cutoff = Date.now() - handoff.delayDays * 24 * 60 * 60 * 1000
   return new Date(opportunity.inspection_outcome_at).getTime() > cutoff
+}
+
+function latestHandoffEligibleAtMs(
+  opportunity: OpportunityLike,
+  orgInspectionOutcomes?: OrgInspectionOutcomesArg
+): number | null {
+  const oid = normalizeInspectionOutcomeId(opportunity.inspection_outcome)
+  if (!oid || !opportunity.inspection_outcome_at) return null
+  const handoff = getInspectionOutcomeInsideSalesHandoff(inspectionRows(orgInspectionOutcomes), oid)
+  if (!handoff.enabled || handoff.delayDays === null) return null
+  const outcomeMs = new Date(opportunity.inspection_outcome_at).getTime()
+  if (!Number.isFinite(outcomeMs)) return null
+  return outcomeMs + handoff.delayDays * 24 * 60 * 60 * 1000
 }
 
 /** True when this opportunity’s inspection outcome has Admin → Auto-send to Inside Sales enabled. */
@@ -148,7 +165,8 @@ function legacyPipelineInsideSalesHandoffVisible(
   if (onRepWorkingInsurancePipeline(pipelineStage)) return false
   if (RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage)) return false
   if (RESOLVED_HANDOFF_PIPELINE_STAGES.has(pipelineStage)) return false
-  return true
+  const eligibleAtMs = latestHandoffEligibleAtMs(opportunity, orgInspectionOutcomes)
+  return eligibleAtMs !== null && Date.now() >= eligibleAtMs
 }
 
 /** Rep-working stage timed out — uses admin delay for this inspection outcome when present. */
@@ -210,18 +228,14 @@ export function getInsideSalesFollowUpKind(
   orgInspectionOutcomes?: OrgInspectionOutcomesArg
 ): InsideSalesQueueKind | null {
   const pipelineStage = normalize(opportunity.pipeline_stage)
+  if (isResolvedInsideSalesPipelineStage(pipelineStage)) return null
   if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX || pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) {
     return 'didnt_sit'
   }
-  const repWorkingHandoffGrace =
-    onRepWorkingInsurancePipeline(pipelineStage) &&
-    inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)
-
   if (
-    pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
-    pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`) ||
-    repWorkingHandoffGrace ||
-    delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes) ||
+    (pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
+      pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) ||
+    repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ||
     delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes) ||
     legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)
   ) {
@@ -238,27 +252,10 @@ export function hasActiveInsideSalesFollowUp(
   if (status === 'won' || status === 'lost') return false
 
   const pipelineStage = normalize(opportunity.pipeline_stage)
-  if (RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage)) return false
-  if (RESOLVED_HANDOFF_PIPELINE_STAGES.has(pipelineStage)) return false
+  if (isResolvedInsideSalesPipelineStage(pipelineStage)) return false
   if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX) return true
   if (pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) return true
-  if (pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX) return true
-  if (pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) return true
-
-  if (
-    onRepWorkingInsurancePipeline(pipelineStage) &&
-    inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)
-  ) {
-    return true
-  }
-
-  if (delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) return true
-
-  if (delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)) return true
-
-  if (legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)) return true
-
-  return false
+  return getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes) === 'handoff'
 }
 
 export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, pipelinePrefix: string) {
@@ -301,6 +298,7 @@ export function getInsideSalesFollowUpStatus(
   if (pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) {
     return pipelineStage.slice(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`.length) || 'new'
   }
+  if (!inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)) return null
   if (onRepWorkingInsurancePipeline(pipelineStage)) {
     return repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ? 'new' : 'rep_working'
   }
