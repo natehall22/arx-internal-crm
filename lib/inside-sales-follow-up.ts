@@ -118,6 +118,32 @@ function inspectionOutcomeHasInsideSalesHandoff(
   ).enabled
 }
 
+/**
+ * Historical imports / pre-pipeline rows: outcome has admin inside-sales handoff but `pipeline_stage` was never
+ * set to rep_working or inside_sales_* (any non-empty unknown stage).
+ */
+function legacyPipelineInsideSalesHandoffVisible(
+  opportunity: OpportunityLike,
+  orgInspectionOutcomes?: OrgInspectionOutcomesArg
+): boolean {
+  if (!inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)) return false
+  const pipelineStage = normalize(opportunity.pipeline_stage)
+  if (!pipelineStage) return false
+  if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX || pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) {
+    return false
+  }
+  if (
+    pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)
+  ) {
+    return false
+  }
+  if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) return false
+  if (RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage)) return false
+  if (RESOLVED_HANDOFF_PIPELINE_STAGES.has(pipelineStage)) return false
+  return true
+}
+
 /** Rep-working stage timed out — uses admin delay for this inspection outcome when present. */
 function repWorkingHandoffQueueEligible(
   opportunity: OpportunityLike,
@@ -187,7 +213,9 @@ export function getInsideSalesFollowUpKind(
     pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
     pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`) ||
     repWorkingHandoffGrace ||
-    delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)
+    delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes) ||
+    delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes) ||
+    legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)
   ) {
     return 'handoff'
   }
@@ -216,7 +244,13 @@ export function hasActiveInsideSalesFollowUp(
     return true
   }
 
-  return delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)
+  if (delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) return true
+
+  if (delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)) return true
+
+  if (legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)) return true
+
+  return false
 }
 
 export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, pipelinePrefix: string) {
@@ -224,7 +258,16 @@ export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, p
   if (n === REP_WORKING_HANDOFF_PIPELINE_PREFIX) {
     return pipelinePrefix
   }
-  return opportunity.pipeline_stage || pipelinePrefix
+  if (
+    n === DIDNT_SIT_PIPELINE_PREFIX ||
+    n.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`) ||
+    n === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
+    n.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)
+  ) {
+    return opportunity.pipeline_stage || pipelinePrefix
+  }
+  // Any other legacy stage: adopt canonical inside-sales prefix on claim.
+  return pipelinePrefix
 }
 
 export function hasActiveDidntSitFollowUp(
@@ -255,6 +298,15 @@ export function getInsideSalesFollowUpStatus(
   }
   if (delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) return 'rep_working'
   if (delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)) return 'new'
+  if (legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)) {
+    const handoff = getInspectionOutcomeInsideSalesHandoff(
+      inspectionRows(orgInspectionOutcomes),
+      opportunity.inspection_outcome
+    )
+    if (!handoff.enabled || handoff.delayDays === null || !opportunity.inspection_outcome_at) return 'new'
+    const cutoff = Date.now() - handoff.delayDays * 24 * 60 * 60 * 1000
+    return new Date(opportunity.inspection_outcome_at).getTime() <= cutoff ? 'new' : 'rep_working'
+  }
   return null
 }
 
