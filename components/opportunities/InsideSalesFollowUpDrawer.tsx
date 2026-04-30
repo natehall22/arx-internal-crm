@@ -23,6 +23,10 @@ type Props = {
   statusLabel: string
   nextFollowUpAt: string | null
   closerNotes: string | null
+  /** Past admin wait / didnt-sit ready */
+  callableNow?: boolean
+  eligibleAtIso?: string | null
+  adminHandoffDelayDays?: number | null
   visible: boolean
   canManage: boolean
   canSelfAssign: boolean
@@ -45,6 +49,9 @@ export default function InsideSalesFollowUpDrawer({
   statusLabel,
   nextFollowUpAt,
   closerNotes,
+  callableNow = true,
+  eligibleAtIso = null,
+  adminHandoffDelayDays = null,
   visible,
   canManage,
   canSelfAssign,
@@ -214,6 +221,24 @@ export default function InsideSalesFollowUpDrawer({
             <p className="mt-1 text-sm text-gray-600">
               {customerPhone || 'No phone on file'}{assignedToName ? ` • Assigned to ${assignedToName}` : ' • Unassigned'}
             </p>
+            {!callableNow && eligibleAtIso && (
+              <p className="mt-2 text-xs font-medium text-amber-900">
+                Rep window until{' '}
+                {new Date(eligibleAtIso).toLocaleString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+                {adminHandoffDelayDays != null ? ` (${adminHandoffDelayDays} day admin rule)` : ''}
+              </p>
+            )}
+            {callableNow &&
+              (followUpKind === 'didnt_sit' ? (
+                <p className="mt-2 text-xs font-medium text-emerald-800">Ready to call — didn&apos;t sit queue</p>
+              ) : (
+                <p className="mt-2 text-xs font-medium text-emerald-800">Ready to call — past admin day rule</p>
+              ))}
           </div>
           <button
             type="button"
@@ -258,7 +283,18 @@ export default function InsideSalesFollowUpDrawer({
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-amber-800">Next Follow-Up</p>
                     <p className="mt-1 font-medium text-gray-900">
-                      {nextFollowUpAt ? new Date(nextFollowUpAt).toLocaleString() : 'Needs scheduling'}
+                      {!callableNow && eligibleAtIso
+                        ? `Opens ${new Date(eligibleAtIso).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}`
+                        : nextFollowUpAt
+                          ? new Date(nextFollowUpAt).toLocaleString()
+                          : adminHandoffDelayDays != null
+                            ? `${adminHandoffDelayDays}-day admin window`
+                            : 'Needs scheduling'}
                     </p>
                   </div>
                   <div>
@@ -270,6 +306,33 @@ export default function InsideSalesFollowUpDrawer({
                   <div className="mt-4 rounded-lg border border-amber-200 bg-white/80 p-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-amber-800">Closer Notes</p>
                     <p className="mt-1 text-sm text-gray-800 whitespace-pre-wrap">{closerNotes}</p>
+                  </div>
+                )}
+                {!callableNow && eligibleAtIso && (
+                  <div className="mt-4 rounded-lg border border-amber-300 bg-amber-100/90 p-3 text-sm text-amber-950">
+                    <p className="font-semibold">Still with rep (admin timing)</p>
+                    <p className="mt-1">
+                      Inside sales calls usually start after{' '}
+                      <strong>
+                        {new Date(eligibleAtIso).toLocaleString(undefined, {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </strong>
+                      {adminHandoffDelayDays != null ? (
+                        <>
+                          {' '}
+                          ({adminHandoffDelayDays} day{adminHandoffDelayDays === 1 ? '' : 's'} from inspection per
+                          Admin settings).
+                        </>
+                      ) : null}
+                    </p>
+                    <p className="mt-2 text-xs text-amber-900">
+                      You can still use actions below if your team approved an early touch.
+                    </p>
                   </div>
                 )}
               </div>

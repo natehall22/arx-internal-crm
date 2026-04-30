@@ -11,6 +11,7 @@ import {
 } from '@/lib/inspection-outcomes'
 import {
   canViewInsideSalesFollowUp,
+  getInsideSalesCallability,
   getInsideSalesFollowUpKind,
   getInsideSalesFollowUpStatus,
   hasActiveInsideSalesFollowUp,
@@ -190,6 +191,7 @@ export async function GET(request: NextRequest) {
           kind === 'handoff'
             ? getInspectionOutcomeConfig(inspectionOutcomeRows, opportunity.inspection_outcome)
             : null
+        const callability = getInsideSalesCallability(opportunity, inspectionOutcomeSettings)
         return {
           id: opportunity.id,
           status: opportunity.status,
@@ -204,6 +206,9 @@ export async function GET(request: NextRequest) {
           followUpKind: kind,
           followUpOutcomeLabel: outcomeCfg?.label ?? null,
           followUpStatus: getInsideSalesFollowUpStatus(opportunity, inspectionOutcomeSettings),
+          callableNow: callability?.callableNow ?? true,
+          eligibleAtIso: callability?.eligibleAtIso ?? null,
+          adminHandoffDelayDays: callability?.adminHandoffDelayDays ?? null,
         }
       })
       .filter((opportunity: any) => opportunity.followUpKind)
@@ -252,26 +257,39 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const items = queueItems.map((item: any) => ({
-      id: item.id,
-      status: item.status,
-      address_text: item.address_text,
-      project_type: item.project_type,
-      inspection_notes: item.inspection_notes,
-      follow_up_at: item.follow_up_at,
-      customerName: item.customerName,
-      customerPhone: item.customerPhone,
-      followUpKind: item.followUpKind,
-      followUpOutcomeLabel: item.followUpOutcomeLabel,
-      followUpStatus: item.followUpStatus,
-      assignedToName: item.assigned_user_id
-        ? userNameMap.get(item.assigned_user_id) || 'Assigned'
-        : null,
-      closerName: item.closerUserId
-        ? userNameMap.get(item.closerUserId) || null
-        : null,
-      activities: activityMap.get(item.id) || [],
-    }))
+    const items = queueItems
+      .map((item: any) => ({
+        id: item.id,
+        status: item.status,
+        address_text: item.address_text,
+        project_type: item.project_type,
+        inspection_notes: item.inspection_notes,
+        follow_up_at: item.follow_up_at,
+        customerName: item.customerName,
+        customerPhone: item.customerPhone,
+        followUpKind: item.followUpKind,
+        followUpOutcomeLabel: item.followUpOutcomeLabel,
+        followUpStatus: item.followUpStatus,
+        callableNow: item.callableNow,
+        eligibleAtIso: item.eligibleAtIso,
+        adminHandoffDelayDays: item.adminHandoffDelayDays,
+        assignedToName: item.assigned_user_id
+          ? userNameMap.get(item.assigned_user_id) || 'Assigned'
+          : null,
+        closerName: item.closerUserId ? userNameMap.get(item.closerUserId) || null : null,
+        activities: activityMap.get(item.id) || [],
+      }))
+      .sort((a: any, b: any) => {
+        if (a.callableNow !== b.callableNow) return a.callableNow ? -1 : 1
+        const ae = a.eligibleAtIso ? new Date(a.eligibleAtIso).getTime() : Number.POSITIVE_INFINITY
+        const be = b.eligibleAtIso ? new Date(b.eligibleAtIso).getTime() : Number.POSITIVE_INFINITY
+        if (ae !== be) return ae - be
+        const af = a.follow_up_at ? new Date(a.follow_up_at).getTime() : Number.POSITIVE_INFINITY
+        const bf = b.follow_up_at ? new Date(b.follow_up_at).getTime() : Number.POSITIVE_INFINITY
+        return af - bf
+      })
+
+    const readyCount = items.filter((item: any) => item.callableNow).length
 
     return NextResponse.json({
       canView: true,
@@ -283,6 +301,7 @@ export async function GET(request: NextRequest) {
       items,
       counts: {
         total: items.length,
+        readyToCall: readyCount,
         didntSit: items.filter((item: any) => item.followUpKind === 'didnt_sit').length,
         handoff: items.filter((item: any) => item.followUpKind === 'handoff').length,
       },

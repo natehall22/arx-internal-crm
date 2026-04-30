@@ -42,6 +42,9 @@ type InsideSalesItem = {
   followUpKind: 'didnt_sit' | 'handoff'
   followUpOutcomeLabel?: string | null
   followUpStatus: string | null
+  callableNow: boolean
+  eligibleAtIso: string | null
+  adminHandoffDelayDays: number | null
   assignedToName: string | null
   closerName: string | null
   activities: InsideSalesActivity[]
@@ -162,7 +165,16 @@ export default function OpportunitiesPage() {
       const data = await response.json()
       setCanViewInsideSalesTab(Boolean(data.canView))
       setCanSelfAssignInsideSales(Boolean(data.canSelfAssign))
-      setInsideSalesItems(Array.isArray(data.items) ? data.items : [])
+      const rawItems = Array.isArray(data.items) ? data.items : []
+      setInsideSalesItems(
+        rawItems.map((item: any) => ({
+          ...item,
+          callableNow: item.callableNow !== false,
+          eligibleAtIso: item.eligibleAtIso ?? null,
+          adminHandoffDelayDays:
+            typeof item.adminHandoffDelayDays === 'number' ? item.adminHandoffDelayDays : null,
+        }))
+      )
     } catch (err) {
       console.error('Error loading inside sales queue:', err)
       setInsideSalesError(err instanceof Error ? err.message : 'Failed to load inside sales queue')
@@ -201,8 +213,14 @@ export default function OpportunitiesPage() {
       if (status && String(item.status || '').toLowerCase() !== status) return false
       if (projectType && String(item.project_type || '').toLowerCase() !== projectType) return false
 
-      if (queueType && queueType !== 'none' && item.followUpKind !== queueType) return false
-      if (queueType === 'none') return false
+      if (queueTypeRaw === 'callable') {
+        if (!item.callableNow) return false
+      } else if (queueTypeRaw === 'waiting_rep') {
+        if (item.callableNow) return false
+      } else {
+        if (queueType && queueType !== 'none' && item.followUpKind !== queueType) return false
+        if (queueType === 'none') return false
+      }
 
       return true
     })
@@ -247,6 +265,7 @@ export default function OpportunitiesPage() {
   }, [filters])
   const insideSalesCounts = {
     total: insideSalesItems.length,
+    readyToCall: insideSalesItems.filter((item) => item.callableNow).length,
     didntSit: insideSalesItems.filter((item) => item.followUpKind === 'didnt_sit').length,
     handoff: insideSalesItems.filter((item) => item.followUpKind === 'handoff').length,
   }
@@ -338,7 +357,9 @@ export default function OpportunitiesPage() {
               >
                 {activeView === 'inside_sales' ? (
                   <>
-                    <option value="">All Queue Types</option>
+                    <option value="">All queue types</option>
+                    <option value="callable">Ready to call (past admin wait)</option>
+                    <option value="waiting_rep">Waiting on rep (admin window)</option>
                     <option value="didnt_sit">Didn&apos;t Sit</option>
                     <option value="handoff">Inspection handoff (admin)</option>
                   </>
@@ -408,9 +429,14 @@ export default function OpportunitiesPage() {
               <div className="p-8 text-center text-gray-500">Loading inside sales queue...</div>
             ) : filteredInsideSalesItems.length > 0 ? (
               <div className="p-4 sm:p-6 space-y-4">
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-emerald-800">Ready to call</p>
+                    <p className="mt-2 text-3xl font-bold text-emerald-950">{insideSalesCounts.readyToCall}</p>
+                    <p className="mt-1 text-xs text-emerald-800">Past admin day rule or didn&apos;t sit</p>
+                  </div>
                   <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                    <p className="text-sm font-medium text-gray-500">Queue size</p>
+                    <p className="text-sm font-medium text-gray-500">In queue</p>
                     <p className="mt-2 text-3xl font-bold text-gray-900">{insideSalesCounts.total}</p>
                   </div>
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
@@ -444,6 +470,25 @@ export default function OpportunitiesPage() {
                             <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 capitalize">
                               {String(item.followUpStatus || 'new').replace(/_/g, ' ')}
                             </span>
+                            {item.callableNow ? (
+                              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
+                                Ready to call
+                              </span>
+                            ) : item.eligibleAtIso ? (
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-800">
+                                Rep through{' '}
+                                {new Date(item.eligibleAtIso).toLocaleString(undefined, {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                Waiting on rep
+                              </span>
+                            )}
                           </div>
                           <h2 className="mt-3 text-lg font-semibold text-gray-900">{item.customerName}</h2>
                           <p className="mt-1 text-sm text-gray-600">{item.address_text || 'No address'}</p>
@@ -462,9 +507,22 @@ export default function OpportunitiesPage() {
                             <p className="mt-1 font-medium text-gray-900">{item.closerName || '—'}</p>
                           </div>
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Next Follow-Up</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                              Call timing
+                            </p>
                             <p className="mt-1 font-medium text-gray-900">
-                              {item.follow_up_at ? new Date(item.follow_up_at).toLocaleString() : 'Needs scheduling'}
+                              {!item.callableNow && item.eligibleAtIso
+                                ? `Opens ${new Date(item.eligibleAtIso).toLocaleString(undefined, {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                  })}`
+                                : item.follow_up_at
+                                  ? new Date(item.follow_up_at).toLocaleString()
+                                  : item.adminHandoffDelayDays != null
+                                    ? `${item.adminHandoffDelayDays}-day admin wait from inspection`
+                                    : '—'}
                             </p>
                           </div>
                         </div>
@@ -489,6 +547,9 @@ export default function OpportunitiesPage() {
                         statusLabel={String(item.followUpStatus || 'new').replace(/_/g, ' ')}
                         nextFollowUpAt={item.follow_up_at}
                         closerNotes={item.inspection_notes}
+                        callableNow={item.callableNow}
+                        eligibleAtIso={item.eligibleAtIso}
+                        adminHandoffDelayDays={item.adminHandoffDelayDays}
                         visible
                         canManage
                         canSelfAssign={canSelfAssignInsideSales}
