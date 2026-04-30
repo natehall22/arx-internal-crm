@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import {
+  mapLatestInspectionByLeadId,
+  mapLatestInspectionByOpportunityId,
+  mergeEffectiveInspectionFields,
+} from '@/lib/effective-inspection-state'
 
 export const dynamic = 'force-dynamic'
 
@@ -253,20 +258,11 @@ export async function GET(request: NextRequest) {
         .in('opportunity_id', oppIdList)
         .order('created_at', { ascending: false })
 
-      const inspectionMap: Record<string, { outcome: string; notes: string | null; created_at: string }> = {}
-      ;(inspectionStatuses || []).forEach((status: any) => {
-        if (status.opportunity_id && !inspectionMap[status.opportunity_id]) {
-          inspectionMap[status.opportunity_id] = {
-            outcome: status.outcome,
-            notes: status.notes,
-            created_at: status.created_at,
-          }
-        }
-      })
+      const inspectionMap = mapLatestInspectionByOpportunityId(inspectionStatuses || [])
 
       // Latest inspection per lead (any opportunity_id). Do NOT require opportunity_id IS NULL.
       // Otherwise rows linked to a stale/duplicate opportunity id never merge onto the current opportunity row.
-      let leadInspectionMap: Record<string, { outcome: string; notes: string | null; created_at: string }> = {}
+      let leadInspectionMap = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
       if (leadIdList.length > 0) {
         const { data: leadOnlyStatuses } = await adminClient
           .from('inspection_status_updates')
@@ -274,68 +270,14 @@ export async function GET(request: NextRequest) {
           .in('lead_id', leadIdList)
           .order('created_at', { ascending: false })
 
-        ;(leadOnlyStatuses || []).forEach((status: any) => {
-          if (status.lead_id && !leadInspectionMap[status.lead_id]) {
-            leadInspectionMap[status.lead_id] = {
-              outcome: status.outcome,
-              notes: status.notes,
-              created_at: status.created_at,
-            }
-          }
-        })
-      }
-
-      const mergeInspectionDisplay = (opp: any) => {
-        type Row = { outcome: string; notes: string | null; created_at: string }
-        const candidates: Row[] = []
-        const byOpp = inspectionMap[opp.id]
-        if (byOpp?.outcome) {
-          candidates.push({
-            outcome: byOpp.outcome,
-            notes: byOpp.notes,
-            created_at: byOpp.created_at,
-          })
-        }
-        if (opp.lead_id) {
-          const byLead = leadInspectionMap[opp.lead_id]
-          if (byLead?.outcome) {
-            candidates.push({
-              outcome: byLead.outcome,
-              notes: byLead.notes,
-              created_at: byLead.created_at,
-            })
-          }
-        }
-        if (opp.inspection_outcome) {
-          const at =
-            opp.inspection_outcome_at ||
-            opp.updated_at ||
-            opp.created_at
-          candidates.push({
-            outcome: opp.inspection_outcome,
-            notes: opp.inspection_notes ?? null,
-            created_at: at,
-          })
-        }
-        if (candidates.length === 0) {
-          return { inspection_outcome: null, inspection_notes: null, inspection_date: null }
-        }
-        candidates.sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )
-        const best = candidates[0]
-        return {
-          inspection_outcome: best.outcome,
-          inspection_notes: best.notes,
-          inspection_date: best.created_at,
-        }
+        leadInspectionMap = mapLatestInspectionByLeadId(leadOnlyStatuses || [])
       }
 
       enrichedOpportunities.forEach((opp: any) => {
-        const merged = mergeInspectionDisplay(opp)
+        const merged = mergeEffectiveInspectionFields(opp, inspectionMap, leadInspectionMap)
         opp.inspection_outcome = merged.inspection_outcome
         opp.inspection_notes = merged.inspection_notes
-        opp.inspection_date = merged.inspection_date
+        opp.inspection_date = merged.inspection_outcome_at
       })
       
       // Filter by inspection outcome if specified (match merged display outcome; case-insensitive on id)

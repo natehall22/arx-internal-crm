@@ -25,6 +25,11 @@ import {
   hasActiveInsideSalesFollowUp,
 } from '@/lib/inside-sales-follow-up'
 import {
+  mapLatestInspectionByLeadId,
+  mapLatestInspectionByOpportunityId,
+  withEffectiveInspectionFields,
+} from '@/lib/effective-inspection-state'
+import {
   buildOpportunityListQuery,
   filtersFromSearchParams,
 } from '@/lib/opportunity-list-filters'
@@ -117,9 +122,33 @@ export default async function OpportunityDetailPage({
 
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
   const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
-  const hasInsideSalesFollowUp = hasActiveInsideSalesFollowUp(opportunity)
-  const insideSalesFollowUpKind = getInsideSalesFollowUpKind(opportunity)
-  const hasRepWorkingInsuranceGrace = hasRepWorkingInsuranceFollowUp(opportunity)
+
+  const [{ data: inspectionUpdates }, { data: leadInspectionRowsForMerge }] = await Promise.all([
+    supabase
+      .from('inspection_status_updates')
+      .select('*')
+      .eq('opportunity_id', params.id)
+      .order('created_at', { ascending: false }),
+    opportunity.lead_id
+      ? supabase
+          .from('inspection_status_updates')
+          .select('opportunity_id, lead_id, outcome, notes, created_at')
+          .eq('lead_id', opportunity.lead_id)
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] as any[] }),
+  ])
+
+  const inspectionByOpportunityId = mapLatestInspectionByOpportunityId(inspectionUpdates || [])
+  const inspectionByLeadId = mapLatestInspectionByLeadId(leadInspectionRowsForMerge || [])
+  const opportunityForInspectionUi = withEffectiveInspectionFields(
+    opportunity as any,
+    inspectionByOpportunityId,
+    inspectionByLeadId
+  )
+
+  const hasInsideSalesFollowUp = hasActiveInsideSalesFollowUp(opportunityForInspectionUi)
+  const insideSalesFollowUpKind = getInsideSalesFollowUpKind(opportunityForInspectionUi)
+  const hasRepWorkingInsuranceGrace = hasRepWorkingInsuranceFollowUp(opportunityForInspectionUi)
   const canViewInsideSalesQueue = hasInsideSalesFollowUp
     ? canViewInsideSalesFollowUp({
         role: profile.role,
@@ -131,13 +160,6 @@ export default async function OpportunityDetailPage({
     hasRepWorkingInsuranceGrace && opportunity.follow_up_at
       ? new Date(opportunity.follow_up_at).toLocaleString()
       : null
-
-  // Fetch inspection status updates (feedback history)
-  const { data: inspectionUpdates } = await supabase
-    .from('inspection_status_updates')
-    .select('*')
-    .eq('opportunity_id', params.id)
-    .order('created_at', { ascending: false })
 
   const { data: activities } = await supabase
     .from('activities')
@@ -347,11 +369,11 @@ export default async function OpportunityDetailPage({
     nextStep = { icon: '🎉', title: 'Deal Won!', body: 'Check the Job Board to track production progress.', bg: 'bg-green-50 border-green-200', titleColor: 'text-green-800', link: '/ops', linkLabel: 'Go to Job Board' }
   } else if (opportunity.status === 'lost') {
     nextStep = { icon: '📋', title: 'Marked as Lost', body: 'You can still follow up or reopen this opportunity if the customer comes back.', bg: 'bg-gray-50 border-gray-200', titleColor: 'text-gray-700' }
-  } else if (!opportunity.inspection_outcome) {
+  } else if (!opportunityForInspectionUi.inspection_outcome) {
     // Step 1 — no inspection result yet
     nextStep = { icon: '🔍', title: 'Inspection Needed', body: 'Run the inspection and submit your results below.', bg: 'bg-blue-50 border-blue-200', titleColor: 'text-blue-800', link: inspectionFeedbackUrl, linkLabel: 'Submit Inspection' }
   } else if (
-    opportunity.inspection_outcome === 'not_home' &&
+    opportunityForInspectionUi.inspection_outcome === 'not_home' &&
     hasInsideSalesFollowUp &&
     insideSalesFollowUpKind === 'didnt_sit'
   ) {
@@ -398,7 +420,7 @@ export default async function OpportunityDetailPage({
           }
         : {}),
     }
-  } else if (opportunity.inspection_outcome === 'rescheduled' || opportunity.inspection_outcome === 'not_home') {
+  } else if (opportunityForInspectionUi.inspection_outcome === 'rescheduled' || opportunityForInspectionUi.inspection_outcome === 'not_home') {
     // Inspection couldn't happen — needs reschedule
     const rescheduleHref = inspectionAppointment?.id
       ? `/schedule?reschedule=${inspectionAppointment.id}`
@@ -414,7 +436,7 @@ export default async function OpportunityDetailPage({
       secondaryLink: '/calendar',
       secondaryLabel: 'Team calendar',
     }
-  } else if (['said_no', 'insurance_follow_up', 'failed_credit'].includes(opportunity.inspection_outcome)) {
+  } else if (['said_no', 'insurance_follow_up', 'failed_credit'].includes(opportunityForInspectionUi.inspection_outcome || '')) {
     // Stalled — offer follow-up close, calendar, and mark lost in-banner
     nextStep = {
       icon: '💬',
@@ -639,36 +661,36 @@ export default async function OpportunityDetailPage({
         )}
 
         {/* Inspection Feedback Section */}
-        {(opportunity.inspection_outcome || (inspectionUpdates && inspectionUpdates.length > 0)) && (
+        {(opportunityForInspectionUi.inspection_outcome || (inspectionUpdates && inspectionUpdates.length > 0)) && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Inspection Feedback</h2>
             
-            {opportunity.inspection_outcome && (
+            {opportunityForInspectionUi.inspection_outcome && (
               <div className="mb-4 p-4 rounded-lg bg-gray-50 border">
                 <div className="flex items-center gap-3 mb-2">
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    opportunity.inspection_outcome === 'sale' ? 'bg-green-100 text-green-700' :
-                    opportunity.inspection_outcome === 'said_no' ? 'bg-red-100 text-red-700' :
-                    opportunity.inspection_outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
-                    opportunity.inspection_outcome === 'needs_repair' ? 'bg-orange-100 text-orange-700' :
-                    opportunity.inspection_outcome === 'rescheduled' ? 'bg-blue-100 text-blue-700' :
+                    opportunityForInspectionUi.inspection_outcome === 'sale' ? 'bg-green-100 text-green-700' :
+                    opportunityForInspectionUi.inspection_outcome === 'said_no' ? 'bg-red-100 text-red-700' :
+                    opportunityForInspectionUi.inspection_outcome === 'not_home' ? 'bg-yellow-100 text-yellow-700' :
+                    opportunityForInspectionUi.inspection_outcome === 'needs_repair' ? 'bg-orange-100 text-orange-700' :
+                    opportunityForInspectionUi.inspection_outcome === 'rescheduled' ? 'bg-blue-100 text-blue-700' :
                     'bg-gray-100 text-gray-700'
                   }`}>
-                    {opportunity.inspection_outcome === 'sale' ? '✓ Sale' :
-                     opportunity.inspection_outcome === 'said_no' ? 'Said No' :
-                     opportunity.inspection_outcome === 'not_home' ? 'Not Home' :
-                     opportunity.inspection_outcome === 'needs_repair' ? 'Needs Repair' :
-                     opportunity.inspection_outcome === 'rescheduled' ? 'Rescheduled' :
-                     opportunity.inspection_outcome}
+                    {opportunityForInspectionUi.inspection_outcome === 'sale' ? '✓ Sale' :
+                     opportunityForInspectionUi.inspection_outcome === 'said_no' ? 'Said No' :
+                     opportunityForInspectionUi.inspection_outcome === 'not_home' ? 'Not Home' :
+                     opportunityForInspectionUi.inspection_outcome === 'needs_repair' ? 'Needs Repair' :
+                     opportunityForInspectionUi.inspection_outcome === 'rescheduled' ? 'Rescheduled' :
+                     opportunityForInspectionUi.inspection_outcome}
                   </span>
-                  {opportunity.inspection_outcome_at && (
+                  {opportunityForInspectionUi.inspection_outcome_at && (
                     <span className="text-xs text-gray-500">
-                      {new Date(opportunity.inspection_outcome_at).toLocaleString()}
+                      {new Date(opportunityForInspectionUi.inspection_outcome_at).toLocaleString()}
                     </span>
                   )}
                 </div>
-                {opportunity.inspection_notes && (
-                  <p className="text-sm text-gray-700 mt-2">{opportunity.inspection_notes}</p>
+                {opportunityForInspectionUi.inspection_notes && (
+                  <p className="text-sm text-gray-700 mt-2">{opportunityForInspectionUi.inspection_notes}</p>
                 )}
               </div>
             )}

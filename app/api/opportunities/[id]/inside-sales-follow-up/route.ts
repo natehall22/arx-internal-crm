@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
+  mapLatestInspectionByLeadId,
+  mapLatestInspectionByOpportunityId,
+  withEffectiveInspectionFields,
+} from '@/lib/effective-inspection-state'
+import {
   canViewInsideSalesFollowUp,
   DIDNT_SIT_PIPELINE_PREFIX,
   getInsideSalesFollowUpKind,
@@ -258,7 +263,7 @@ export async function POST(
 
     const { data: opportunity } = await admin
       .from('opportunities')
-      .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, pipeline_stage, assigned_user_id, notes')
+      .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, pipeline_stage, assigned_user_id, notes, created_at, updated_at, inspection_notes')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -267,11 +272,34 @@ export async function POST(
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 
-    if (!hasActiveInsideSalesFollowUp(opportunity)) {
+    const [{ data: oppInspectionRows }, { data: leadInspectionRows }] = await Promise.all([
+      admin
+        .from('inspection_status_updates')
+        .select('opportunity_id, lead_id, outcome, notes, created_at')
+        .eq('opportunity_id', params.id)
+        .order('created_at', { ascending: false }),
+      opportunity.lead_id
+        ? admin
+            .from('inspection_status_updates')
+            .select('opportunity_id, lead_id, outcome, notes, created_at')
+            .eq('lead_id', opportunity.lead_id)
+            .order('created_at', { ascending: false })
+        : Promise.resolve({ data: [] as any[] }),
+    ])
+
+    const inspectionByOpportunityId = mapLatestInspectionByOpportunityId(oppInspectionRows || [])
+    const inspectionByLeadId = mapLatestInspectionByLeadId(leadInspectionRows || [])
+    const opportunityEffective = withEffectiveInspectionFields(
+      opportunity as any,
+      inspectionByOpportunityId,
+      inspectionByLeadId
+    )
+
+    if (!hasActiveInsideSalesFollowUp(opportunityEffective)) {
       return NextResponse.json({ error: 'No active inside sales follow-up for this opportunity' }, { status: 400 })
     }
 
-    const followUpKind = getInsideSalesFollowUpKind(opportunity)
+    const followUpKind = getInsideSalesFollowUpKind(opportunityEffective)
     const pipelinePrefix =
       followUpKind === 'insurance'
         ? INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
