@@ -1,6 +1,7 @@
 import {
   DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
   getInspectionOutcomeInsideSalesHandoff,
+  inspectionOutcomeRoutesToInsideSalesDidntSit,
   normalizeInspectionOutcomeId,
   normalizeInspectionOutcomeRows,
   type InspectionOutcomeConfigRow,
@@ -229,7 +230,11 @@ export function getInsideSalesFollowUpKind(
 ): InsideSalesQueueKind | null {
   const pipelineStage = normalize(opportunity.pipeline_stage)
   if (isResolvedInsideSalesPipelineStage(pipelineStage)) return null
-  if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX || pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) {
+  if (
+    pipelineStage === DIDNT_SIT_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`) ||
+    inspectionOutcomeRoutesToInsideSalesDidntSit(orgInspectionOutcomes, opportunity.inspection_outcome)
+  ) {
     return 'didnt_sit'
   }
   if (
@@ -255,7 +260,8 @@ export function hasActiveInsideSalesFollowUp(
   if (isResolvedInsideSalesPipelineStage(pipelineStage)) return false
   if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX) return true
   if (pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) return true
-  return getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes) === 'handoff'
+  const kind = getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes)
+  return kind === 'didnt_sit' || kind === 'handoff'
 }
 
 export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, pipelinePrefix: string) {

@@ -220,16 +220,27 @@ export function getInspectionOutcomeConfig(
   outcomeId: string | null | undefined
 ): InspectionOutcomeConfigRow | null {
   const normalizedOutcomeId = normalizeInspectionOutcomeId(outcomeId)
+  const outcomeLabel = inspectionOutcomeLabelKey(outcomeId)
   if (!normalizedOutcomeId) return null
   const rows = normalizeInspectionOutcomeRows(orgRows)
   const fromOrg = rows.find((row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId)
   if (fromOrg) return fromOrg
 
+  const fromOrgLabel = rows.find(
+    (row) => inspectionOutcomeLabelKey(row.label) === outcomeLabel
+  )
+  if (fromOrgLabel) return fromOrgLabel
+
   /** Canonical id present on opportunity but omitted from saved org list — use built-in default row. */
   const fromDefaults = DEFAULT_INSPECTION_OUTCOMES.find(
     (row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId
   )
-  return fromDefaults ? normalizeInspectionOutcomeRow(fromDefaults, 0) : null
+  if (fromDefaults) return normalizeInspectionOutcomeRow(fromDefaults, 0)
+
+  const fromDefaultLabel = DEFAULT_INSPECTION_OUTCOMES.find(
+    (row) => inspectionOutcomeLabelKey(row.label) === outcomeLabel
+  )
+  return fromDefaultLabel ? normalizeInspectionOutcomeRow(fromDefaultLabel, 0) : null
 }
 
 export function getInspectionOutcomeInsideSalesHandoff(
@@ -262,11 +273,20 @@ export function inspectionOutcomeRoutesToInsideSalesDidntSit(
   if (idNorm === 'not_home') return true
   const cfg = getInspectionOutcomeConfig(orgRows, outcomeId)
   if (!cfg || cfg.active === false) return false
+  const labelNorm = inspectionOutcomeLabelKey(cfg.label)
+  if (
+    labelNorm === 'not home' ||
+    labelNorm === 'did not sit' ||
+    labelNorm === "didn't sit" ||
+    labelNorm === 'didnt sit'
+  ) {
+    return true
+  }
   const defaultNotHome = DEFAULT_INSPECTION_OUTCOMES.find(
     (o) => normalizeInspectionOutcomeId(o.id) === 'not_home'
   )
   if (!defaultNotHome) return false
-  const a = (cfg.label || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  const a = labelNorm
   const b = (defaultNotHome.label || '').trim().toLowerCase().replace(/\s+/g, ' ')
   return a === b && a.length > 0
 }
