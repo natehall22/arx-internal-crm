@@ -24,6 +24,7 @@ import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
+import { computeInsideSalesOpensAtIso } from '@/lib/inside-sales-handoff-timing'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
@@ -383,10 +384,6 @@ export async function POST(request: NextRequest) {
     const delayedInsideSalesHandoffEnabled =
       insideSalesHandoffConfig.enabled && insideSalesHandoffConfig.delayDays !== null
     const delayedInsideSalesHandoffDays = insideSalesHandoffConfig.delayDays
-    const delayedInsideSalesHandoffAt =
-      delayedInsideSalesHandoffEnabled && delayedInsideSalesHandoffDays !== null
-        ? new Date(Date.now() + delayedInsideSalesHandoffDays * 24 * 60 * 60 * 1000).toISOString()
-        : null
     const shouldCreateOpportunity =
       Boolean(outcomeConfig?.converts_to_opportunity) || delayedInsideSalesHandoffEnabled
 
@@ -425,6 +422,28 @@ export async function POST(request: NextRequest) {
             'Cannot record inspection feedback without a linked lead. Ensure the appointment has lead_id or pass lead_id.',
         },
         { status: 400 }
+      )
+    }
+
+    let delayedInsideSalesHandoffAt: string | null = null
+    if (delayedInsideSalesHandoffEnabled && delayedInsideSalesHandoffDays !== null) {
+      let anchorScheduledForIso: string | null = appointment?.scheduled_for ?? null
+      if (!anchorScheduledForIso) {
+        const { data: lastInspection } = await supabase
+          .from('scheduled_appointments')
+          .select('scheduled_for')
+          .eq('org_id', profile.org_id)
+          .eq('lead_id', leadId)
+          .eq('appointment_type', 'inspection')
+          .neq('status', 'cancelled')
+          .order('scheduled_for', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        anchorScheduledForIso = lastInspection?.scheduled_for ?? null
+      }
+      delayedInsideSalesHandoffAt = computeInsideSalesOpensAtIso(
+        delayedInsideSalesHandoffDays,
+        anchorScheduledForIso
       )
     }
 

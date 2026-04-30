@@ -141,7 +141,12 @@ export default async function OpportunityDetailPage({
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
   const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
 
-  const [{ data: inspectionUpdates }, { data: leadInspectionRowsForMerge }, { data: orgSettings }] = await Promise.all([
+  const [
+    { data: inspectionUpdates },
+    { data: leadInspectionRowsForMerge },
+    { data: orgSettings },
+    { data: latestInspectionAppointment },
+  ] = await Promise.all([
     supabase
       .from('inspection_status_updates')
       .select('*')
@@ -155,6 +160,18 @@ export default async function OpportunityDetailPage({
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as any[] }),
     supabase.from('orgs').select('settings').eq('id', profile.org_id).single(),
+    opportunity.lead_id
+      ? supabase
+          .from('scheduled_appointments')
+          .select('scheduled_for')
+          .eq('org_id', profile.org_id)
+          .eq('lead_id', opportunity.lead_id)
+          .eq('appointment_type', 'inspection')
+          .neq('status', 'cancelled')
+          .order('scheduled_for', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null as { scheduled_for: string | null } | null }),
   ])
 
   const inspectionOutcomeSettings = orgSettings?.settings?.inspection_outcomes
@@ -167,16 +184,21 @@ export default async function OpportunityDetailPage({
     inspectionByLeadId
   )
 
+  const opportunityForInsideSalesTiming = {
+    ...opportunityForInspectionUi,
+    inspection_scheduled_for: latestInspectionAppointment?.scheduled_for ?? null,
+  }
+
   const hasInsideSalesFollowUp = hasActiveInsideSalesFollowUp(
-    opportunityForInspectionUi,
+    opportunityForInsideSalesTiming,
     inspectionOutcomeSettings
   )
   const insideSalesFollowUpKind = getInsideSalesFollowUpKind(
-    opportunityForInspectionUi,
+    opportunityForInsideSalesTiming,
     inspectionOutcomeSettings
   )
   const hasRepWorkingHandoffGrace = hasRepWorkingHandoffFollowUp(
-    opportunityForInspectionUi,
+    opportunityForInsideSalesTiming,
     inspectionOutcomeSettings
   )
   const canViewInsideSalesQueue = hasInsideSalesFollowUp
@@ -191,10 +213,6 @@ export default async function OpportunityDetailPage({
     customRoleName: viewerCustomRole?.name || null,
     customRoleDisplayName: viewerCustomRole?.display_name || null,
   })
-  const handoffGraceDeadlineLabel =
-    hasRepWorkingHandoffGrace && opportunity.follow_up_at
-      ? new Date(opportunity.follow_up_at).toLocaleString()
-      : null
 
   const inspectionRowsForBanner = normalizeInspectionOutcomeRows(inspectionOutcomeSettings)
   const handoffInspectionLabel =
@@ -206,10 +224,18 @@ export default async function OpportunityDetailPage({
       : null
 
   const insideSalesCallability = hasInsideSalesFollowUp
-    ? getInsideSalesCallability(opportunityForInspectionUi as any, inspectionOutcomeSettings)
+    ? getInsideSalesCallability(opportunityForInsideSalesTiming as any, inspectionOutcomeSettings)
     : null
+
+  const handoffGraceDeadlineLabel =
+    hasRepWorkingHandoffGrace &&
+    (insideSalesCallability?.eligibleAtIso
+      ? new Date(insideSalesCallability.eligibleAtIso).toLocaleString()
+      : opportunity.follow_up_at
+        ? new Date(opportunity.follow_up_at).toLocaleString()
+        : null)
   const insideSalesFollowUpStatusForDrawer = hasInsideSalesFollowUp
-    ? getInsideSalesFollowUpStatus(opportunityForInspectionUi as any, inspectionOutcomeSettings)
+    ? getInsideSalesFollowUpStatus(opportunityForInsideSalesTiming as any, inspectionOutcomeSettings)
     : null
 
   const { data: activities } = await supabase

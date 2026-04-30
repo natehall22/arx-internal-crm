@@ -5,6 +5,7 @@ import {
   normalizeInspectionOutcomeRows,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { MS_PER_INSIDE_SALES_DELAY_DAY } from '@/lib/inside-sales-handoff-timing'
 
 type RoleLike = {
   role?: string | null
@@ -16,6 +17,8 @@ type OpportunityLike = {
   status?: string | null
   inspection_outcome?: string | null
   inspection_outcome_at?: string | null
+  /** Latest non-cancelled inspection appointment start — merged by APIs for delay math vs submission time */
+  inspection_scheduled_for?: string | null
   pipeline_stage?: string | null
   follow_up_at?: string | null
 }
@@ -72,7 +75,25 @@ function normalize(value: string | null | undefined) {
   return String(value || '').trim().toLowerCase()
 }
 
-function onRepWorkingInsurancePipeline(pipelineStage: string): boolean {
+/** Prefer inspection slot (`scheduled_for`) over outcome submission time for “N days after inspection”. */
+function insideSalesHandoffAnchorIso(opportunity: OpportunityLike): string | null {
+  const scheduled = opportunity.inspection_scheduled_for
+  const outcomeAt = opportunity.inspection_outcome_at
+  if (scheduled && Number.isFinite(new Date(scheduled).getTime())) return scheduled
+  if (outcomeAt && Number.isFinite(new Date(outcomeAt).getTime())) return outcomeAt
+  return null
+}
+
+/** Opens-at instant for delayed handoff from anchor + admin delay days; null if no usable anchor. */
+function handoffEligibleTimestampMs(opportunity: OpportunityLike, delayDays: number): number | null {
+  const anchorIso = insideSalesHandoffAnchorIso(opportunity)
+  if (!anchorIso) return null
+  const anchorMs = new Date(anchorIso).getTime()
+  if (!Number.isFinite(anchorMs)) return null
+  return anchorMs + delayDays * MS_PER_INSIDE_SALES_DELAY_DAY
+}
+
+export function onRepWorkingInsurancePipeline(pipelineStage: string): boolean {
   return (
     pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX ||
     pipelineStage.startsWith(`${REP_WORKING_HANDOFF_PIPELINE_PREFIX}_`)
@@ -94,9 +115,9 @@ function delayedHandoffPastDueEmptyPipeline(
   if (!oid) return false
   const handoff = getInspectionOutcomeInsideSalesHandoff(inspectionRows(orgInspectionOutcomes), oid)
   if (!handoff.enabled || handoff.delayDays === null) return false
-  if (!opportunity.inspection_outcome_at) return false
-  const cutoff = Date.now() - handoff.delayDays * 24 * 60 * 60 * 1000
-  return new Date(opportunity.inspection_outcome_at).getTime() <= cutoff
+  const eligibleMs = handoffEligibleTimestampMs(opportunity, handoff.delayDays)
+  if (eligibleMs === null) return false
+  return eligibleMs <= Date.now()
 }
 
 function delayedHandoffStillGraceEmptyPipeline(
@@ -109,9 +130,9 @@ function delayedHandoffStillGraceEmptyPipeline(
   if (!oid) return false
   const handoff = getInspectionOutcomeInsideSalesHandoff(inspectionRows(orgInspectionOutcomes), oid)
   if (!handoff.enabled || handoff.delayDays === null) return false
-  if (!opportunity.inspection_outcome_at) return false
-  const cutoff = Date.now() - handoff.delayDays * 24 * 60 * 60 * 1000
-  return new Date(opportunity.inspection_outcome_at).getTime() > cutoff
+  const eligibleMs = handoffEligibleTimestampMs(opportunity, handoff.delayDays)
+  if (eligibleMs === null) return false
+  return eligibleMs > Date.now()
 }
 
 /** True when this opportunity’s inspection outcome has Admin → Auto-send to Inside Sales enabled. */
@@ -170,9 +191,9 @@ function repWorkingHandoffQueueEligible(
     const t = new Date(fu).getTime()
     return Number.isFinite(t) && t <= Date.now()
   }
-  if (!opportunity.inspection_outcome_at) return false
-  const cutoff = Date.now() - delayDays * 24 * 60 * 60 * 1000
-  return new Date(opportunity.inspection_outcome_at).getTime() <= cutoff
+  const eligibleMs = handoffEligibleTimestampMs(opportunity, delayDays)
+  if (eligibleMs === null) return false
+  return eligibleMs <= Date.now()
 }
 
 export function isInsideSalesRoleLike(roleLike: RoleLike) {
@@ -311,9 +332,10 @@ export function getInsideSalesFollowUpStatus(
       inspectionRows(orgInspectionOutcomes),
       opportunity.inspection_outcome
     )
-    if (!handoff.enabled || handoff.delayDays === null || !opportunity.inspection_outcome_at) return 'new'
-    const cutoff = Date.now() - handoff.delayDays * 24 * 60 * 60 * 1000
-    return new Date(opportunity.inspection_outcome_at).getTime() <= cutoff ? 'new' : 'rep_working'
+    if (!handoff.enabled || handoff.delayDays === null) return 'new'
+    const eligibleMs = handoffEligibleTimestampMs(opportunity, handoff.delayDays)
+    if (eligibleMs === null) return 'new'
+    return eligibleMs <= Date.now() ? 'new' : 'rep_working'
   }
   return null
 }
@@ -374,13 +396,14 @@ export function getInsideSalesCallability(
         adminHandoffDelayDays: delayDays,
       }
     }
-    if (opportunity.inspection_outcome_at && delayDays !== null) {
-      const outcomeMs = new Date(opportunity.inspection_outcome_at).getTime()
-      const eligibleMs = outcomeMs + delayDays * 24 * 60 * 60 * 1000
-      return {
-        callableNow: Date.now() >= eligibleMs,
-        eligibleAtIso: new Date(eligibleMs).toISOString(),
-        adminHandoffDelayDays: delayDays,
+    if (delayDays !== null) {
+      const eligibleMs = handoffEligibleTimestampMs(opportunity, delayDays)
+      if (eligibleMs !== null) {
+        return {
+          callableNow: Date.now() >= eligibleMs,
+          eligibleAtIso: new Date(eligibleMs).toISOString(),
+          adminHandoffDelayDays: delayDays,
+        }
       }
     }
     return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: delayDays }
@@ -390,40 +413,39 @@ export function getInsideSalesCallability(
     if (delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)) {
       return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: delayDays }
     }
-    if (
-      delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes) &&
-      opportunity.inspection_outcome_at &&
-      delayDays !== null
-    ) {
-      const outcomeMs = new Date(opportunity.inspection_outcome_at).getTime()
-      const eligibleMs = outcomeMs + delayDays * 24 * 60 * 60 * 1000
-      return {
-        callableNow: false,
-        eligibleAtIso: new Date(eligibleMs).toISOString(),
-        adminHandoffDelayDays: delayDays,
+    if (delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes) && delayDays !== null) {
+      const eligibleMs = handoffEligibleTimestampMs(opportunity, delayDays)
+      if (eligibleMs !== null) {
+        return {
+          callableNow: false,
+          eligibleAtIso: new Date(eligibleMs).toISOString(),
+          adminHandoffDelayDays: delayDays,
+        }
       }
     }
-    if (opportunity.inspection_outcome_at && delayDays !== null) {
-      const outcomeMs = new Date(opportunity.inspection_outcome_at).getTime()
-      const eligibleMs = outcomeMs + delayDays * 24 * 60 * 60 * 1000
-      const callable = Date.now() >= eligibleMs
-      return {
-        callableNow: callable,
-        eligibleAtIso: new Date(eligibleMs).toISOString(),
-        adminHandoffDelayDays: delayDays,
+    if (delayDays !== null) {
+      const eligibleMs = handoffEligibleTimestampMs(opportunity, delayDays)
+      if (eligibleMs !== null) {
+        const callable = Date.now() >= eligibleMs
+        return {
+          callableNow: callable,
+          eligibleAtIso: new Date(eligibleMs).toISOString(),
+          adminHandoffDelayDays: delayDays,
+        }
       }
     }
     return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: delayDays }
   }
 
   if (legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)) {
-    if (opportunity.inspection_outcome_at && delayDays !== null) {
-      const outcomeMs = new Date(opportunity.inspection_outcome_at).getTime()
-      const eligibleMs = outcomeMs + delayDays * 24 * 60 * 60 * 1000
-      return {
-        callableNow: Date.now() >= eligibleMs,
-        eligibleAtIso: new Date(eligibleMs).toISOString(),
-        adminHandoffDelayDays: delayDays,
+    if (delayDays !== null) {
+      const eligibleMs = handoffEligibleTimestampMs(opportunity, delayDays)
+      if (eligibleMs !== null) {
+        return {
+          callableNow: Date.now() >= eligibleMs,
+          eligibleAtIso: new Date(eligibleMs).toISOString(),
+          adminHandoffDelayDays: delayDays,
+        }
       }
     }
     return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: delayDays }

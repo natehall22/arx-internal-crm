@@ -2,14 +2,42 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
-  REP_WORKING_HANDOFF_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
+  onRepWorkingInsurancePipeline,
 } from '@/lib/inside-sales-follow-up'
 import {
   getInspectionOutcomeConfig,
   getInspectionOutcomeInsideSalesHandoff,
   normalizeInspectionOutcomeId,
 } from '@/lib/inspection-outcomes'
+import { computeInsideSalesOpensAtIso } from '@/lib/inside-sales-handoff-timing'
+
+async function fetchInsideSalesHandoffAnchorIso(
+  admin: ReturnType<typeof createServiceClient>,
+  orgId: string,
+  leadId: string | null | undefined,
+  inspectionOutcomeAt: string | null | undefined
+): Promise<string | null> {
+  if (leadId) {
+    const { data: anchorAppt } = await admin
+      .from('scheduled_appointments')
+      .select('scheduled_for')
+      .eq('org_id', orgId)
+      .eq('lead_id', leadId)
+      .eq('appointment_type', 'inspection')
+      .neq('status', 'cancelled')
+      .order('scheduled_for', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (anchorAppt?.scheduled_for) return anchorAppt.scheduled_for
+  }
+
+  if (inspectionOutcomeAt && Number.isFinite(new Date(inspectionOutcomeAt).getTime())) {
+    return inspectionOutcomeAt
+  }
+  return null
+}
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -78,8 +106,24 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) {
-        if (Boolean(opportunity.follow_up_at) && String(opportunity.follow_up_at) <= nowIso) {
+      if (onRepWorkingInsurancePipeline(pipelineStage)) {
+        const followUpDue =
+          Boolean(opportunity.follow_up_at) && String(opportunity.follow_up_at) <= nowIso
+
+        const anchorIso = await fetchInsideSalesHandoffAnchorIso(
+          admin,
+          opportunity.org_id,
+          opportunity.lead_id,
+          opportunity.inspection_outcome_at
+        )
+
+        let anchorDue = false
+        if (anchorIso) {
+          const opensIso = computeInsideSalesOpensAtIso(insideSalesHandoff.delayDays, anchorIso)
+          anchorDue = opensIso <= nowIso
+        }
+
+        if (followUpDue || anchorDue) {
           overdueOpportunities.push({
             ...opportunity,
             handoffDelayDays: insideSalesHandoff.delayDays,
@@ -92,13 +136,18 @@ export async function GET(request: NextRequest) {
       }
 
       if (!pipelineStage) {
-        if (!opportunity.inspection_outcome_at) {
+        const anchorIso = await fetchInsideSalesHandoffAnchorIso(
+          admin,
+          opportunity.org_id,
+          opportunity.lead_id,
+          opportunity.inspection_outcome_at
+        )
+        if (!anchorIso) {
           continue
         }
-        const handoffCutoffIso = new Date(
-          Date.now() - insideSalesHandoff.delayDays * 24 * 60 * 60 * 1000
-        ).toISOString()
-        if (String(opportunity.inspection_outcome_at) <= handoffCutoffIso) {
+
+        const opensIso = computeInsideSalesOpensAtIso(insideSalesHandoff.delayDays, anchorIso)
+        if (opensIso <= nowIso) {
           overdueOpportunities.push({
             ...opportunity,
             handoffDelayDays: insideSalesHandoff.delayDays,
