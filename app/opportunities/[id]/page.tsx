@@ -123,7 +123,7 @@ export default async function OpportunityDetailPage({
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
   const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
 
-  const [{ data: inspectionUpdates }, { data: leadInspectionRowsForMerge }] = await Promise.all([
+  const [{ data: inspectionUpdates }, { data: leadInspectionRowsForMerge }, { data: orgSettings }] = await Promise.all([
     supabase
       .from('inspection_status_updates')
       .select('*')
@@ -136,7 +136,10 @@ export default async function OpportunityDetailPage({
           .eq('lead_id', opportunity.lead_id)
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as any[] }),
+    supabase.from('orgs').select('settings').eq('id', profile.org_id).single(),
   ])
+
+  const inspectionOutcomeSettings = orgSettings?.settings?.inspection_outcomes
 
   const inspectionByOpportunityId = mapLatestInspectionByOpportunityId(inspectionUpdates || [])
   const inspectionByLeadId = mapLatestInspectionByLeadId(leadInspectionRowsForMerge || [])
@@ -146,9 +149,18 @@ export default async function OpportunityDetailPage({
     inspectionByLeadId
   )
 
-  const hasInsideSalesFollowUp = hasActiveInsideSalesFollowUp(opportunityForInspectionUi)
-  const insideSalesFollowUpKind = getInsideSalesFollowUpKind(opportunityForInspectionUi)
-  const hasRepWorkingInsuranceGrace = hasRepWorkingInsuranceFollowUp(opportunityForInspectionUi)
+  const hasInsideSalesFollowUp = hasActiveInsideSalesFollowUp(
+    opportunityForInspectionUi,
+    inspectionOutcomeSettings
+  )
+  const insideSalesFollowUpKind = getInsideSalesFollowUpKind(
+    opportunityForInspectionUi,
+    inspectionOutcomeSettings
+  )
+  const hasRepWorkingInsuranceGrace = hasRepWorkingInsuranceFollowUp(
+    opportunityForInspectionUi,
+    inspectionOutcomeSettings
+  )
   const canViewInsideSalesQueue = hasInsideSalesFollowUp
     ? canViewInsideSalesFollowUp({
         role: profile.role,
@@ -219,13 +231,7 @@ export default async function OpportunityDetailPage({
     console.log('order_form_contracts table not available')
   }
 
-  // Check if in-house measure tool is enabled for this org
-  const { data: orgSettings } = await supabase
-    .from('orgs')
-    .select('settings')
-    .eq('id', profile.org_id)
-    .single()
-  
+  // Org settings (measure tool + inspection outcomes for inside-sales eligibility)
   const measureToolEnabled = orgSettings?.settings?.measure_tool_enabled !== false // Default to enabled
 
   // Fetch the most recent inspection appointment linked to this opportunity

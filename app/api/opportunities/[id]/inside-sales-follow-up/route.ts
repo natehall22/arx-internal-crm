@@ -12,6 +12,7 @@ import {
   hasActiveInsideSalesFollowUp,
   INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
+  pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
@@ -261,16 +262,21 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { data: opportunity } = await admin
-      .from('opportunities')
-      .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, pipeline_stage, assigned_user_id, notes, created_at, updated_at, inspection_notes')
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-      .single()
+    const [{ data: opportunity }, { data: orgRow }] = await Promise.all([
+      admin
+        .from('opportunities')
+        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, pipeline_stage, assigned_user_id, notes, created_at, updated_at, inspection_notes')
+        .eq('id', params.id)
+        .eq('org_id', profile.org_id)
+        .single(),
+      admin.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
+    ])
 
     if (!opportunity) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
+
+    const inspectionOutcomeSettings = orgRow?.settings?.inspection_outcomes
 
     const [{ data: oppInspectionRows }, { data: leadInspectionRows }] = await Promise.all([
       admin
@@ -295,11 +301,11 @@ export async function POST(
       inspectionByLeadId
     )
 
-    if (!hasActiveInsideSalesFollowUp(opportunityEffective)) {
+    if (!hasActiveInsideSalesFollowUp(opportunityEffective, inspectionOutcomeSettings)) {
       return NextResponse.json({ error: 'No active inside sales follow-up for this opportunity' }, { status: 400 })
     }
 
-    const followUpKind = getInsideSalesFollowUpKind(opportunityEffective)
+    const followUpKind = getInsideSalesFollowUpKind(opportunityEffective, inspectionOutcomeSettings)
     const pipelinePrefix =
       followUpKind === 'insurance'
         ? INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
@@ -569,7 +575,7 @@ export async function POST(
         return NextResponse.json({ error: 'Only inside sales users can self-assign follow-ups' }, { status: 403 })
       }
       updateData.assigned_user_id = profile.id
-      updateData.pipeline_stage = opportunity.pipeline_stage || pipelinePrefix
+      updateData.pipeline_stage = pipelineStageForInsideSalesClaim(opportunity, pipelinePrefix)
       activityType = 'status_change'
       activityBody = 'Inside sales follow-up claimed.'
     } else {

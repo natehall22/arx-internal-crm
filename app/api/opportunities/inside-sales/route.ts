@@ -114,7 +114,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { data: opportunities } = await adminClient
+    const [{ data: opportunities }, { data: orgRow }] = await Promise.all([
+      adminClient
       .from('opportunities')
       .select(`
         id,
@@ -137,7 +138,11 @@ export async function GET(request: NextRequest) {
       .neq('status', 'won')
       .neq('status', 'lost')
       .order('follow_up_at', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }),
+      adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
+    ])
+
+    const inspectionOutcomeSettings = orgRow?.settings?.inspection_outcomes
 
     const rawOpportunities = opportunities || []
     const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)
@@ -169,7 +174,9 @@ export async function GET(request: NextRequest) {
       .map((opportunity: any) =>
         withEffectiveInspectionFields(opportunity, inspectionMap, leadInspectionMap)
       )
-      .filter((opportunity: any) => hasActiveInsideSalesFollowUp(opportunity))
+      .filter((opportunity: any) =>
+        hasActiveInsideSalesFollowUp(opportunity, inspectionOutcomeSettings)
+      )
       .map((opportunity: any) => {
         const lead = Array.isArray(opportunity.leads) ? opportunity.leads[0] : opportunity.leads
         const customer = Array.isArray(opportunity.customers) ? opportunity.customers[0] : opportunity.customers
@@ -184,8 +191,8 @@ export async function GET(request: NextRequest) {
           customerPhone: lead?.phone || customer?.phone || null,
           closerUserId: lead?.closer_user_id || null,
           assigned_user_id: opportunity.assigned_user_id,
-          followUpKind: getInsideSalesFollowUpKind(opportunity),
-          followUpStatus: getInsideSalesFollowUpStatus(opportunity),
+          followUpKind: getInsideSalesFollowUpKind(opportunity, inspectionOutcomeSettings),
+          followUpStatus: getInsideSalesFollowUpStatus(opportunity, inspectionOutcomeSettings),
         }
       })
       .filter((opportunity: any) => opportunity.followUpKind)
