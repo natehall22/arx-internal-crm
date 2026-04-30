@@ -27,6 +27,8 @@ type Props = {
   callableNow?: boolean
   eligibleAtIso?: string | null
   adminHandoffDelayDays?: number | null
+  /** Refetch queue list after claim / save / schedule */
+  onFollowUpCompleted?: () => void
   visible: boolean
   canManage: boolean
   canSelfAssign: boolean
@@ -52,6 +54,7 @@ export default function InsideSalesFollowUpDrawer({
   callableNow = true,
   eligibleAtIso = null,
   adminHandoffDelayDays = null,
+  onFollowUpCompleted,
   visible,
   canManage,
   canSelfAssign,
@@ -83,17 +86,20 @@ export default function InsideSalesFollowUpDrawer({
   const followUpBadgeLabel =
     followUpKind === 'handoff'
       ? handoffOutcomeLabel?.trim() || 'Inspection handoff'
-      : "Didn't Sit"
-  const launcherLabel =
-    followUpKind === 'handoff'
-      ? 'Inside sales follow-up active'
-      : 'Inside sales follow-up active'
-  const drawerEyebrow =
-    followUpKind === 'handoff' ? 'Inside Sales Follow-Up' : 'Inside Sales Follow-Up'
+      : "Didn't sit"
+  const headline = callableNow
+    ? 'Your turn — ok to call'
+    : eligibleAtIso
+      ? 'Still with field rep'
+      : 'In follow-up queue'
+
+  const drawerEyebrow = 'Inside sales'
   const schedulePlaceholder =
     followUpKind === 'handoff'
       ? 'Example: Customer is ready for the next visit. Review prior notes before arriving and confirm the right decision-maker will be there.'
       : 'Example: Customer available after 6 PM. Wife needs Spanish support. Confirm husband is home before driving out.'
+
+  const phoneDigits = customerPhone ? customerPhone.replace(/\D/g, '') : ''
 
   if (!visible) return null
 
@@ -152,6 +158,8 @@ export default function InsideSalesFollowUpDrawer({
       try {
         await submitAction(kind)
         resetForm()
+        onFollowUpCompleted?.()
+        setOpen(false)
         router.refresh()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to save follow-up')
@@ -163,6 +171,8 @@ export default function InsideSalesFollowUpDrawer({
     startTransition(async () => {
       try {
         await submitAction('claim_self')
+        onFollowUpCompleted?.()
+        setOpen(false)
         router.refresh()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to claim follow-up')
@@ -200,6 +210,8 @@ export default function InsideSalesFollowUpDrawer({
         }
         setScheduleModalOpen(false)
         setScheduleNote('')
+        onFollowUpCompleted?.()
+        setOpen(false)
         router.refresh()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to schedule back to closer')
@@ -211,41 +223,57 @@ export default function InsideSalesFollowUpDrawer({
     <>
       <div className="mb-4 sm:mb-6 rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
                 {followUpBadgeLabel}
               </span>
-              <span className="text-sm font-medium text-gray-900">{launcherLabel}</span>
+              <span className="text-sm font-semibold text-gray-900">{headline}</span>
             </div>
-            <p className="mt-1 text-sm text-gray-600">
-              {customerPhone || 'No phone on file'}{assignedToName ? ` • Assigned to ${assignedToName}` : ' • Unassigned'}
-            </p>
-            {!callableNow && eligibleAtIso && (
-              <p className="mt-2 text-xs font-medium text-amber-900">
-                Rep window until{' '}
-                {new Date(eligibleAtIso).toLocaleString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-                {adminHandoffDelayDays != null ? ` (${adminHandoffDelayDays} day admin rule)` : ''}
-              </p>
-            )}
-            {callableNow &&
-              (followUpKind === 'didnt_sit' ? (
-                <p className="mt-2 text-xs font-medium text-emerald-800">Ready to call — didn&apos;t sit queue</p>
+            <p className="mt-2 text-sm text-gray-700">
+              {customerPhone && phoneDigits ? (
+                <a href={`tel:${phoneDigits}`} className="font-medium text-indigo-700 hover:underline">
+                  {customerPhone}
+                </a>
               ) : (
-                <p className="mt-2 text-xs font-medium text-emerald-800">Ready to call — past admin day rule</p>
-              ))}
+                <span>No phone on file</span>
+              )}
+              <span className="text-gray-500">
+                {assignedToName ? ` · Assigned: ${assignedToName}` : ' · Unassigned'}
+              </span>
+            </p>
+            <p className="mt-1 text-xs text-gray-600">
+              {callableNow && (
+                <span className="font-medium text-emerald-800">Dial when ready.</span>
+              )}
+              {!callableNow && eligibleAtIso && (
+                <>
+                  Opens{' '}
+                  <span className="font-semibold text-gray-900">
+                    {new Date(eligibleAtIso).toLocaleString(undefined, {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                  {adminHandoffDelayDays != null ? (
+                    <span className="text-gray-600"> ({adminHandoffDelayDays}-day rule)</span>
+                  ) : null}
+                </>
+              )}
+              {!callableNow && !eligibleAtIso && (
+                <span className="text-gray-600">Ask a manager if timing looks off.</span>
+              )}
+            </p>
           </div>
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-50"
+            className="inline-flex shrink-0 items-center rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
           >
-            Open Follow-Up
+            Work this customer
           </button>
         </div>
       </div>
@@ -258,7 +286,15 @@ export default function InsideSalesFollowUpDrawer({
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-amber-700">{drawerEyebrow}</p>
                 <h2 className="mt-1 text-xl font-bold text-gray-900">{customerName}</h2>
-                <p className="mt-1 text-sm text-gray-600">{customerPhone || 'No phone on file'}</p>
+                <p className="mt-1 text-sm text-gray-600">
+                  {customerPhone && phoneDigits ? (
+                    <a href={`tel:${phoneDigits}`} className="font-medium text-indigo-700 hover:underline">
+                      {customerPhone}
+                    </a>
+                  ) : (
+                    'No phone on file'
+                  )}
+                </p>
               </div>
               <button
                 type="button"
@@ -281,20 +317,23 @@ export default function InsideSalesFollowUpDrawer({
                     <p className="mt-1 font-medium text-gray-900">{assignedToName || 'Unassigned'}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-amber-800">Next Follow-Up</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-amber-800">
+                      {!callableNow && eligibleAtIso ? 'Call opens' : 'Next follow-up'}
+                    </p>
                     <p className="mt-1 font-medium text-gray-900">
                       {!callableNow && eligibleAtIso
-                        ? `Opens ${new Date(eligibleAtIso).toLocaleString(undefined, {
+                        ? new Date(eligibleAtIso).toLocaleString(undefined, {
+                            weekday: 'short',
                             month: 'short',
                             day: 'numeric',
                             hour: 'numeric',
                             minute: '2-digit',
-                          })}`
+                          })
                         : nextFollowUpAt
                           ? new Date(nextFollowUpAt).toLocaleString()
                           : adminHandoffDelayDays != null
-                            ? `${adminHandoffDelayDays}-day admin window`
-                            : 'Needs scheduling'}
+                            ? `${adminHandoffDelayDays}-day rule from inspection`
+                            : 'Not set'}
                     </p>
                   </div>
                   <div>
@@ -309,31 +348,9 @@ export default function InsideSalesFollowUpDrawer({
                   </div>
                 )}
                 {!callableNow && eligibleAtIso && (
-                  <div className="mt-4 rounded-lg border border-amber-300 bg-amber-100/90 p-3 text-sm text-amber-950">
-                    <p className="font-semibold">Still with rep (admin timing)</p>
-                    <p className="mt-1">
-                      Inside sales calls usually start after{' '}
-                      <strong>
-                        {new Date(eligibleAtIso).toLocaleString(undefined, {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}
-                      </strong>
-                      {adminHandoffDelayDays != null ? (
-                        <>
-                          {' '}
-                          ({adminHandoffDelayDays} day{adminHandoffDelayDays === 1 ? '' : 's'} from inspection per
-                          Admin settings).
-                        </>
-                      ) : null}
-                    </p>
-                    <p className="mt-2 text-xs text-amber-900">
-                      You can still use actions below if your team approved an early touch.
-                    </p>
-                  </div>
+                  <p className="mt-3 text-xs text-gray-600">
+                    Easiest flow: wait until the time above (company rule). Early call OK only if a manager said so.
+                  </p>
                 )}
               </div>
 

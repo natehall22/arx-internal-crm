@@ -22,11 +22,15 @@ import {
   normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
 import OpportunityQueueSidebar from '@/components/opportunities/OpportunityQueueSidebar'
+import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import {
   canViewInsideSalesFollowUp,
+  getInsideSalesCallability,
   getInsideSalesFollowUpKind,
+  getInsideSalesFollowUpStatus,
   hasRepWorkingHandoffFollowUp,
   hasActiveInsideSalesFollowUp,
+  isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 import {
   mapLatestInspectionByLeadId,
@@ -114,6 +118,16 @@ export default async function OpportunityDetailPage({
     closer = closerData
   }
 
+  let assignedInsideSalesName: string | null = null
+  if (opportunity.assigned_user_id) {
+    const { data: assigneeRow } = await supabase
+      .from('users')
+      .select('full_name')
+      .eq('id', opportunity.assigned_user_id)
+      .maybeSingle()
+    assignedInsideSalesName = assigneeRow?.full_name ?? null
+  }
+
   let viewerCustomRole: { name: string | null; display_name: string | null } | null = null
   if (profile.custom_role_id) {
     const { data: customRoleData } = await supabase
@@ -172,6 +186,11 @@ export default async function OpportunityDetailPage({
         customRoleDisplayName: viewerCustomRole?.display_name || null,
       })
     : false
+  const canSelfAssignInsideSalesDetail = isInsideSalesRoleLike({
+    role: profile.role,
+    customRoleName: viewerCustomRole?.name || null,
+    customRoleDisplayName: viewerCustomRole?.display_name || null,
+  })
   const handoffGraceDeadlineLabel =
     hasRepWorkingHandoffGrace && opportunity.follow_up_at
       ? new Date(opportunity.follow_up_at).toLocaleString()
@@ -185,6 +204,13 @@ export default async function OpportunityDetailPage({
           opportunityForInspectionUi.inspection_outcome
         )?.label ?? null
       : null
+
+  const insideSalesCallability = hasInsideSalesFollowUp
+    ? getInsideSalesCallability(opportunityForInspectionUi as any, inspectionOutcomeSettings)
+    : null
+  const insideSalesFollowUpStatusForDrawer = hasInsideSalesFollowUp
+    ? getInsideSalesFollowUpStatus(opportunityForInspectionUi as any, inspectionOutcomeSettings)
+    : null
 
   const { data: activities } = await supabase
     .from('activities')
@@ -398,14 +424,15 @@ export default async function OpportunityDetailPage({
   ) {
     nextStep = {
       icon: '📞',
-      title: 'Inside Sales Follow-Up Active',
-      body: 'The customer did not sit. Inside sales should work this from the inside sales queue until it is ready to be rescheduled.',
+      title: 'Inside sales — your turn',
+      body:
+        'Customer did not sit. You can dial now — log calls or texts from the panel below or the Inside Sales queue, then reschedule when ready.',
       bg: 'bg-amber-50 border-amber-200',
       titleColor: 'text-amber-900',
       ...(canViewInsideSalesQueue
         ? {
             link: `/opportunities?view=inside_sales&q=${encodeURIComponent(customerName)}`,
-            linkLabel: 'Open inside sales queue',
+            linkLabel: 'Open Inside Sales queue',
           }
         : {}),
     }
@@ -426,20 +453,57 @@ export default async function OpportunityDetailPage({
     hasInsideSalesFollowUp &&
     insideSalesFollowUpKind === 'handoff'
   ) {
-    nextStep = {
-      icon: '🛡️',
-      title: 'Inside Sales Follow-Up Active',
-      body: handoffInspectionLabel
-        ? `Inside sales should work this (${handoffInspectionLabel}) from the inside sales queue until it is ready to be scheduled back out.`
-        : 'Inside sales should keep working this from the inside sales queue until it is ready to be scheduled back out.',
-      bg: 'bg-violet-50 border-violet-200',
-      titleColor: 'text-violet-900',
-      ...(canViewInsideSalesQueue
-        ? {
-            link: `/opportunities?view=inside_sales&q=${encodeURIComponent(customerName)}`,
-            linkLabel: 'Open inside sales queue',
-          }
-        : {}),
+    const cal = insideSalesCallability
+    const callableNow = cal?.callableNow ?? true
+    const opensLabel =
+      cal?.eligibleAtIso &&
+      new Date(cal.eligibleAtIso).toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    const delayPhrase =
+      cal?.adminHandoffDelayDays != null
+        ? `Admin timing: ${cal.adminHandoffDelayDays} days after inspection.`
+        : ''
+
+    if (callableNow) {
+      nextStep = {
+        icon: '📞',
+        title: 'Inside sales — your turn',
+        body: handoffInspectionLabel
+          ? `Ok to call now (${handoffInspectionLabel}). Log touches below or from the queue, then schedule back when the customer is ready.`
+          : 'Ok to call now. Log touches below or from the queue, then schedule back when the customer is ready.',
+        bg: 'bg-amber-50 border-amber-200',
+        titleColor: 'text-amber-900',
+        ...(canViewInsideSalesQueue
+          ? {
+              link: `/opportunities?view=inside_sales&q=${encodeURIComponent(customerName)}`,
+              linkLabel: 'Open Inside Sales queue',
+            }
+          : {}),
+      }
+    } else {
+      nextStep = {
+        icon: '⏳',
+        title: 'Inside sales — call opens soon',
+        body:
+          opensLabel && delayPhrase
+            ? `Still in the admin wait window. Calls open ${opensLabel}. ${delayPhrase}`
+            : opensLabel
+              ? `Calls open ${opensLabel}. Review notes now; dialing starts once this time passes.${delayPhrase ? ` ${delayPhrase}` : ''}`
+              : `Timing follows your org rules from the inspection outcome. Review notes and check back, or ask a manager if this looks off.${delayPhrase ? ` ${delayPhrase}` : ''}`,
+        bg: 'bg-violet-50 border-violet-200',
+        titleColor: 'text-violet-900',
+        ...(canViewInsideSalesQueue
+          ? {
+              link: `/opportunities?view=inside_sales&q=${encodeURIComponent(customerName)}`,
+              linkLabel: 'Open Inside Sales queue',
+            }
+          : {}),
+      }
     }
   } else if (opportunityForInspectionUi.inspection_outcome === 'rescheduled' || opportunityForInspectionUi.inspection_outcome === 'not_home') {
     // Inspection couldn't happen — needs reschedule
@@ -550,14 +614,21 @@ export default async function OpportunityDetailPage({
                       Rep working (grace)
                     </span>
                   )}
-                  {hasInsideSalesFollowUp && (
-                    <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${
-                      insideSalesFollowUpKind === 'handoff'
-                        ? 'bg-violet-100 text-violet-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      Inside Sales Follow-Up Active
-                      {handoffInspectionLabel ? ` · ${handoffInspectionLabel}` : ''}
+                  {hasInsideSalesFollowUp && insideSalesFollowUpKind && (
+                    <span
+                      className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${
+                        insideSalesFollowUpKind === 'handoff' &&
+                        insideSalesCallability &&
+                        !insideSalesCallability.callableNow
+                          ? 'bg-violet-100 text-violet-800'
+                          : 'bg-amber-100 text-amber-900'
+                      }`}
+                    >
+                      {insideSalesFollowUpKind === 'didnt_sit'
+                        ? "Didn't sit · Ready for you"
+                        : insideSalesCallability && !insideSalesCallability.callableNow
+                          ? `${handoffInspectionLabel || 'Handoff'} · Opens ${insideSalesCallability.eligibleAtIso ? new Date(insideSalesCallability.eligibleAtIso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'soon'}`
+                          : `${handoffInspectionLabel || 'Handoff'} · Ready for you`}
                     </span>
                   )}
                 </div>
@@ -668,6 +739,38 @@ export default async function OpportunityDetailPage({
             </div>
           </div>
         )}
+
+        {hasInsideSalesFollowUp &&
+          canViewInsideSalesQueue &&
+          insideSalesFollowUpKind &&
+          (insideSalesFollowUpKind === 'didnt_sit' || insideSalesFollowUpKind === 'handoff') && (
+            <div className="mb-4 sm:mb-6">
+              <InsideSalesFollowUpDrawer
+                opportunityId={params.id}
+                customerName={customerName}
+                customerPhone={customerPhone}
+                followUpKind={insideSalesFollowUpKind}
+                handoffOutcomeLabel={handoffInspectionLabel}
+                assignedToName={assignedInsideSalesName}
+                statusLabel={String(insideSalesFollowUpStatusForDrawer || 'new').replace(/_/g, ' ')}
+                nextFollowUpAt={opportunity.follow_up_at}
+                closerNotes={opportunity.inspection_notes}
+                callableNow={insideSalesCallability?.callableNow ?? true}
+                eligibleAtIso={insideSalesCallability?.eligibleAtIso ?? null}
+                adminHandoffDelayDays={insideSalesCallability?.adminHandoffDelayDays ?? null}
+                visible
+                canManage={canViewInsideSalesQueue}
+                canSelfAssign={canSelfAssignInsideSalesDetail}
+                activities={(activities || []).map((a: any) => ({
+                  id: a.id,
+                  type: a.type,
+                  body: a.body,
+                  created_at: a.created_at,
+                  users: a.users,
+                }))}
+              />
+            </div>
+          )}
 
         {/* Canvass Notes Section */}
         {leadRow?.canvass_notes && (
