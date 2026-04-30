@@ -107,6 +107,17 @@ function delayedHandoffStillGraceEmptyPipeline(
   return new Date(opportunity.inspection_outcome_at).getTime() > cutoff
 }
 
+/** True when this opportunity’s inspection outcome has Admin → Auto-send to Inside Sales enabled. */
+function inspectionOutcomeHasInsideSalesHandoff(
+  opportunity: OpportunityLike,
+  orgInspectionOutcomes?: OrgInspectionOutcomesArg
+): boolean {
+  return getInspectionOutcomeInsideSalesHandoff(
+    inspectionRows(orgInspectionOutcomes),
+    opportunity.inspection_outcome
+  ).enabled
+}
+
 /** Rep-working stage timed out — uses admin delay for this inspection outcome when present. */
 function repWorkingHandoffQueueEligible(
   opportunity: OpportunityLike,
@@ -119,8 +130,8 @@ function repWorkingHandoffQueueEligible(
     inspectionRows(orgInspectionOutcomes),
     opportunity.inspection_outcome
   )
-  const delayDays =
-    handoff.enabled && handoff.delayDays !== null ? handoff.delayDays : DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS
+  if (!handoff.enabled || handoff.delayDays === null) return false
+  const delayDays = handoff.delayDays
   if (fu) {
     const t = new Date(fu).getTime()
     return Number.isFinite(t) && t <= Date.now()
@@ -168,10 +179,14 @@ export function getInsideSalesFollowUpKind(
   if (pipelineStage === DIDNT_SIT_PIPELINE_PREFIX || pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) {
     return 'didnt_sit'
   }
+  const repWorkingHandoffGrace =
+    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX &&
+    inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)
+
   if (
     pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
     pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`) ||
-    repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ||
+    repWorkingHandoffGrace ||
     delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)
   ) {
     return 'handoff'
@@ -194,7 +209,12 @@ export function hasActiveInsideSalesFollowUp(
   if (pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX) return true
   if (pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) return true
 
-  if (repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes)) return true
+  if (
+    pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX &&
+    inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)
+  ) {
+    return true
+  }
 
   return delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)
 }
