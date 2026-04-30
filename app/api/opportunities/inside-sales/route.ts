@@ -81,19 +81,6 @@ function getAdminClient() {
   })
 }
 
-/** Latest non-cancelled inspection `scheduled_for` per lead (rows must be ordered by scheduled_for desc). */
-function mapLatestInspectionScheduledForByLeadId(
-  rows: { lead_id: string | null; scheduled_for: string | null }[]
-): Map<string, string> {
-  const map = new Map<string, string>()
-  for (const row of rows) {
-    const lid = row.lead_id
-    if (!lid || map.has(lid)) continue
-    if (row.scheduled_for) map.set(lid, row.scheduled_for)
-  }
-  return map
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -191,31 +178,10 @@ export async function GET(request: NextRequest) {
       leadInspectionMap = mapLatestInspectionByLeadId(leadStatuses || [])
     }
 
-    const uniqueLeadIds = Array.from(new Set(leadIds as string[]))
-    let inspectionScheduledForByLeadId = new Map<string, string>()
-    if (uniqueLeadIds.length > 0) {
-      const { data: inspectionSlots } = await adminClient
-        .from('scheduled_appointments')
-        .select('lead_id, scheduled_for')
-        .eq('org_id', profile.org_id)
-        .eq('appointment_type', 'inspection')
-        .neq('status', 'cancelled')
-        .in('lead_id', uniqueLeadIds)
-        .order('scheduled_for', { ascending: false })
-
-      inspectionScheduledForByLeadId = mapLatestInspectionScheduledForByLeadId(inspectionSlots || [])
-    }
-
-    const mergedForQueue = rawOpportunities.map((opportunity: any) => {
-      const merged = withEffectiveInspectionFields(opportunity, inspectionMap, leadInspectionMap)
-      const lid = opportunity.lead_id as string | undefined | null
-      return {
-        ...merged,
-        inspection_scheduled_for: lid ? inspectionScheduledForByLeadId.get(lid) ?? null : null,
-      }
-    })
-
-    const queueItems = mergedForQueue
+    const queueItems = rawOpportunities
+      .map((opportunity: any) =>
+        withEffectiveInspectionFields(opportunity, inspectionMap, leadInspectionMap)
+      )
       .filter((opportunity: any) =>
         hasActiveInsideSalesFollowUp(opportunity, inspectionOutcomeSettings)
       )
