@@ -50,6 +50,19 @@ type InsideSalesItem = {
   activities: InsideSalesActivity[]
 }
 
+/** Inside Sales “Queue Type” URL param only — not All-opps inspection ids (e.g. said_no). */
+function isInsideSalesQueueTypeParam(value: string): boolean {
+  const v = value.trim().toLowerCase()
+  return (
+    v === '' ||
+    v === 'callable' ||
+    v === 'waiting_rep' ||
+    v === 'didnt_sit' ||
+    v === 'handoff' ||
+    v === 'insurance'
+  )
+}
+
 export default function OpportunitiesPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -185,6 +198,16 @@ export default function OpportunitiesPage() {
     }
   }, [activeView, canViewInsideSalesTab, insideSalesAccessChecked, pathname, router, searchParams])
 
+  useEffect(() => {
+    if (activeView !== 'inside_sales') return
+    const raw = searchParams.get('inspection_outcome') || ''
+    if (raw && !isInsideSalesQueueTypeParam(raw)) {
+      const next = new URLSearchParams(searchParams.toString())
+      next.delete('inspection_outcome')
+      router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
+    }
+  }, [activeView, pathname, router, searchParams])
+
   const filteredOpportunities = useMemo(
     () => applyOpportunityListFilters(opportunities, filters),
     [opportunities, filters]
@@ -194,7 +217,10 @@ export default function OpportunitiesPage() {
     const query = filters.q.trim().toLowerCase()
     const status = filters.status.trim().toLowerCase()
     const projectType = filters.project_type.trim().toLowerCase()
-    const queueTypeRaw = filters.inspection_outcome.trim().toLowerCase()
+    let queueTypeRaw = filters.inspection_outcome.trim().toLowerCase()
+    if (!isInsideSalesQueueTypeParam(queueTypeRaw)) {
+      queueTypeRaw = ''
+    }
     const queueType =
       queueTypeRaw === 'insurance' ? 'handoff' : queueTypeRaw
 
@@ -245,6 +271,10 @@ export default function OpportunitiesPage() {
     const next = new URLSearchParams(searchParams.toString())
     if (view === 'inside_sales') {
       next.set('view', 'inside_sales')
+      const io = next.get('inspection_outcome') || ''
+      if (io && !isInsideSalesQueueTypeParam(io)) {
+        next.delete('inspection_outcome')
+      }
     } else {
       next.delete('view')
     }
@@ -266,8 +296,142 @@ export default function OpportunitiesPage() {
   const insideSalesCounts = {
     total: insideSalesItems.length,
     readyToCall: insideSalesItems.filter((item) => item.callableNow).length,
+    waitingOnRep: insideSalesItems.filter((item) => !item.callableNow).length,
     didntSit: insideSalesItems.filter((item) => item.followUpKind === 'didnt_sit').length,
     handoff: insideSalesItems.filter((item) => item.followUpKind === 'handoff').length,
+  }
+
+  const insideSalesQueueSel = useMemo(() => {
+    const raw = filters.inspection_outcome.trim().toLowerCase()
+    return isInsideSalesQueueTypeParam(raw) ? raw : ''
+  }, [filters.inspection_outcome])
+
+  const insideSalesReadyShown = filteredInsideSalesItems.filter((item) => item.callableNow)
+  const insideSalesWaitingShown = filteredInsideSalesItems.filter((item) => !item.callableNow)
+  const showReadySection =
+    insideSalesQueueSel !== 'waiting_rep' && insideSalesReadyShown.length > 0
+  const showWaitingSection =
+    insideSalesQueueSel !== 'callable' && insideSalesWaitingShown.length > 0
+
+  const renderInsideSalesPipelineCard = (item: InsideSalesItem) => {
+    const kindLabel =
+      item.followUpKind === 'handoff'
+        ? item.followUpOutcomeLabel || 'Inspection handoff'
+        : "Didn't Sit"
+    const kindClasses =
+      item.followUpKind === 'handoff'
+        ? 'bg-cyan-100 text-cyan-800'
+        : 'bg-amber-100 text-amber-800'
+    const statusPretty = String(item.followUpStatus || 'new').replace(/_/g, ' ')
+    const phoneDigits = item.customerPhone ? String(item.customerPhone).replace(/\D/g, '') : ''
+
+    return (
+      <div key={item.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kindClasses}`}>
+                {kindLabel}
+                <span className="font-normal opacity-90"> · {statusPretty}</span>
+              </span>
+              {item.callableNow ? (
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
+                  Ready now
+                </span>
+              ) : item.eligibleAtIso ? (
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-800">
+                  Opens{' '}
+                  {new Date(item.eligibleAtIso).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </span>
+              ) : (
+                <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-900">
+                  Waiting on rep
+                </span>
+              )}
+            </div>
+            <h2 className="mt-3 text-lg font-semibold text-gray-900">{item.customerName}</h2>
+            <p className="mt-1 text-sm text-gray-600">{item.address_text || 'No address'}</p>
+          </div>
+          <div className="grid gap-3 text-sm sm:grid-cols-2 lg:min-w-[320px]">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Phone</p>
+              <p className="mt-1 font-medium text-gray-900">
+                {item.customerPhone && phoneDigits ? (
+                  <a
+                    href={`tel:${phoneDigits}`}
+                    className="text-indigo-700 hover:text-indigo-900 hover:underline"
+                  >
+                    {item.customerPhone}
+                  </a>
+                ) : (
+                  item.customerPhone || 'No phone'
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Assigned</p>
+              <p className="mt-1 font-medium text-gray-900">{item.assignedToName || 'Unassigned'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Closer</p>
+              <p className="mt-1 font-medium text-gray-900">{item.closerName || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">When to call</p>
+              <p className="mt-1 font-medium text-gray-900">
+                {!item.callableNow && item.eligibleAtIso
+                  ? `Opens ${new Date(item.eligibleAtIso).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}`
+                  : item.follow_up_at
+                    ? new Date(item.follow_up_at).toLocaleString()
+                    : item.adminHandoffDelayDays != null
+                      ? `${item.adminHandoffDelayDays}-day admin wait from inspection`
+                      : '—'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1">
+            <InsideSalesFollowUpDrawer
+              opportunityId={item.id}
+              customerName={item.customerName}
+              customerPhone={item.customerPhone}
+              followUpKind={item.followUpKind}
+              handoffOutcomeLabel={item.followUpOutcomeLabel ?? null}
+              assignedToName={item.assignedToName}
+              statusLabel={String(item.followUpStatus || 'new').replace(/_/g, ' ')}
+              nextFollowUpAt={item.follow_up_at}
+              closerNotes={item.inspection_notes}
+              callableNow={item.callableNow}
+              eligibleAtIso={item.eligibleAtIso}
+              adminHandoffDelayDays={item.adminHandoffDelayDays}
+              onFollowUpCompleted={loadInsideSales}
+              visible
+              canManage
+              canSelfAssign={canSelfAssignInsideSales}
+              activities={item.activities}
+            />
+          </div>
+          <Link
+            href={`/opportunities/${item.id}${insideSalesDetailQueryString ? `?${insideSalesDetailQueryString}` : ''}`}
+            className="inline-flex shrink-0 items-center self-start rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+          >
+            Full record →
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -280,8 +444,9 @@ export default function OpportunitiesPage() {
             <p className="text-gray-500 mt-1 text-sm">
               {activeView === 'inside_sales' ? (
                 <>
-                  {filteredInsideSalesItems.length} below · {insideSalesCounts.readyToCall} ready for calls · waiting
-                  leads after that (already sorted)
+                  Pipeline: {insideSalesCounts.total} eligible · {insideSalesCounts.readyToCall} ready now ·{' '}
+                  {insideSalesCounts.waitingOnRep} waiting on rep
+                  {hasActiveFilters ? ` · showing ${filteredInsideSalesItems.length}` : ''}
                 </>
               ) : (
                 `${filteredOpportunities.length} opportunities`
@@ -307,7 +472,7 @@ export default function OpportunitiesPage() {
                       : 'border border-gray-200 bg-white text-gray-700'
                   }`}
                 >
-                  Inside Sales ({insideSalesCounts.readyToCall}/{insideSalesCounts.total})
+                  Inside Sales ({insideSalesCounts.total})
                 </button>
               )}
             </div>
@@ -366,7 +531,7 @@ export default function OpportunitiesPage() {
               >
                 {activeView === 'inside_sales' ? (
                   <>
-                    <option value="">Everything in queue</option>
+                    <option value="">Full pipeline (ready + waiting)</option>
                     <option value="callable">Ready for me (past wait)</option>
                     <option value="waiting_rep">Still with rep</option>
                     <option value="didnt_sit">Didn&apos;t sit only</option>
@@ -436,17 +601,18 @@ export default function OpportunitiesPage() {
           {activeView === 'inside_sales' ? (
             insideSalesLoading ? (
               <div className="p-8 text-center text-gray-500">Loading inside sales queue...</div>
-            ) : filteredInsideSalesItems.length > 0 ? (
-              <div className="p-4 sm:p-6 space-y-4">
+            ) : showReadySection || showWaitingSection ? (
+              <div className="p-4 sm:p-6 space-y-8">
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
-                    <p className="text-sm font-medium text-emerald-800">Ready for calls</p>
+                    <p className="text-sm font-medium text-emerald-800">Ready now</p>
                     <p className="mt-2 text-3xl font-bold text-emerald-950">{insideSalesCounts.readyToCall}</p>
-                    <p className="mt-1 text-xs text-emerald-800">Sorted with ready leads first</p>
+                    <p className="mt-1 text-xs text-emerald-800">Ok to dial / work</p>
                   </div>
-                  <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                    <p className="text-sm font-medium text-gray-500">Total in queue</p>
-                    <p className="mt-2 text-3xl font-bold text-gray-900">{insideSalesCounts.total}</p>
+                  <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-violet-800">Waiting on rep</p>
+                    <p className="mt-2 text-3xl font-bold text-violet-950">{insideSalesCounts.waitingOnRep}</p>
+                    <p className="mt-1 text-xs text-violet-800">Grace or timing window</p>
                   </div>
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
                     <p className="text-sm font-medium text-amber-800">Didn&apos;t sit</p>
@@ -458,128 +624,31 @@ export default function OpportunitiesPage() {
                   </div>
                 </div>
 
-                {filteredInsideSalesItems.map((item) => {
-                  const kindLabel =
-                    item.followUpKind === 'handoff'
-                      ? item.followUpOutcomeLabel || 'Inspection handoff'
-                      : "Didn't Sit"
-                  const kindClasses =
-                    item.followUpKind === 'handoff'
-                      ? 'bg-cyan-100 text-cyan-800'
-                      : 'bg-amber-100 text-amber-800'
-                  const statusPretty = String(item.followUpStatus || 'new').replace(/_/g, ' ')
-                  const phoneDigits = item.customerPhone ? String(item.customerPhone).replace(/\D/g, '') : ''
-
-                  return (
-                    <div key={item.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kindClasses}`}>
-                              {kindLabel}
-                              <span className="font-normal opacity-90"> · {statusPretty}</span>
-                            </span>
-                            {item.callableNow ? (
-                              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
-                                Ready for calls
-                              </span>
-                            ) : item.eligibleAtIso ? (
-                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-800">
-                                Opens{' '}
-                                {new Date(item.eligibleAtIso).toLocaleString(undefined, {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                            ) : (
-                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                                Waiting on rep
-                              </span>
-                            )}
-                          </div>
-                          <h2 className="mt-3 text-lg font-semibold text-gray-900">{item.customerName}</h2>
-                          <p className="mt-1 text-sm text-gray-600">{item.address_text || 'No address'}</p>
-                        </div>
-                        <div className="grid gap-3 text-sm sm:grid-cols-2 lg:min-w-[320px]">
-                          <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Phone</p>
-                            <p className="mt-1 font-medium text-gray-900">
-                              {item.customerPhone && phoneDigits ? (
-                                <a
-                                  href={`tel:${phoneDigits}`}
-                                  className="text-indigo-700 hover:text-indigo-900 hover:underline"
-                                >
-                                  {item.customerPhone}
-                                </a>
-                              ) : (
-                                item.customerPhone || 'No phone'
-                              )}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Assigned</p>
-                            <p className="mt-1 font-medium text-gray-900">{item.assignedToName || 'Unassigned'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Closer</p>
-                            <p className="mt-1 font-medium text-gray-900">{item.closerName || '—'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                              When to call
-                            </p>
-                            <p className="mt-1 font-medium text-gray-900">
-                              {!item.callableNow && item.eligibleAtIso
-                                ? `Opens ${new Date(item.eligibleAtIso).toLocaleString(undefined, {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                  })}`
-                                : item.follow_up_at
-                                  ? new Date(item.follow_up_at).toLocaleString()
-                                  : item.adminHandoffDelayDays != null
-                                    ? `${item.adminHandoffDelayDays}-day admin wait from inspection`
-                                    : '—'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                        <div className="min-w-0 flex-1">
-                          <InsideSalesFollowUpDrawer
-                            opportunityId={item.id}
-                            customerName={item.customerName}
-                            customerPhone={item.customerPhone}
-                            followUpKind={item.followUpKind}
-                            handoffOutcomeLabel={item.followUpOutcomeLabel ?? null}
-                            assignedToName={item.assignedToName}
-                            statusLabel={String(item.followUpStatus || 'new').replace(/_/g, ' ')}
-                            nextFollowUpAt={item.follow_up_at}
-                            closerNotes={item.inspection_notes}
-                            callableNow={item.callableNow}
-                            eligibleAtIso={item.eligibleAtIso}
-                            adminHandoffDelayDays={item.adminHandoffDelayDays}
-                            onFollowUpCompleted={loadInsideSales}
-                            visible
-                            canManage
-                            canSelfAssign={canSelfAssignInsideSales}
-                            activities={item.activities}
-                          />
-                        </div>
-                        <Link
-                          href={`/opportunities/${item.id}${insideSalesDetailQueryString ? `?${insideSalesDetailQueryString}` : ''}`}
-                          className="inline-flex shrink-0 items-center self-start rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                        >
-                          Full record →
-                        </Link>
-                      </div>
+                {showReadySection && (
+                  <section aria-label="Ready now">
+                    <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-emerald-200 pb-2">
+                      <h2 className="text-base font-semibold text-emerald-950">Ready now</h2>
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-900">
+                        {insideSalesReadyShown.length}
+                      </span>
+                      <span className="text-xs text-gray-600">Past admin wait — work these first</span>
                     </div>
-                  )
-                })}
+                    <div className="space-y-4">{insideSalesReadyShown.map(renderInsideSalesPipelineCard)}</div>
+                  </section>
+                )}
+
+                {showWaitingSection && (
+                  <section aria-label="Waiting on rep">
+                    <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-violet-200 pb-2">
+                      <h2 className="text-base font-semibold text-violet-950">Waiting on rep</h2>
+                      <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-900">
+                        {insideSalesWaitingShown.length}
+                      </span>
+                      <span className="text-xs text-gray-600">Still with field rep or inside timing window</span>
+                    </div>
+                    <div className="space-y-4">{insideSalesWaitingShown.map(renderInsideSalesPipelineCard)}</div>
+                  </section>
+                )}
               </div>
             ) : (
               <div className="p-8 text-center text-gray-500">
