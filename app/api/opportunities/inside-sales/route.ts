@@ -113,6 +113,7 @@ export async function GET(request: NextRequest) {
       .from('opportunities')
       .select(`
         id,
+        lead_id,
         status,
         address_text,
         project_type,
@@ -123,6 +124,7 @@ export async function GET(request: NextRequest) {
         follow_up_at,
         assigned_user_id,
         created_at,
+        updated_at,
         leads(homeowner_name, phone, closer_user_id),
         customers(name, phone)
       `)
@@ -132,7 +134,94 @@ export async function GET(request: NextRequest) {
       .order('follow_up_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false })
 
-    const queueItems = (opportunities || [])
+    const rawOpportunities = opportunities || []
+    const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)
+    const leadIds = rawOpportunities.map((opportunity: any) => opportunity.lead_id).filter(Boolean)
+
+    const inspectionMap = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
+    if (opportunityIds.length > 0) {
+      const { data: inspectionStatuses } = await adminClient
+        .from('inspection_status_updates')
+        .select('opportunity_id, outcome, notes, created_at')
+        .in('opportunity_id', opportunityIds)
+        .order('created_at', { ascending: false })
+
+      for (const row of inspectionStatuses || []) {
+        if (row.opportunity_id && !inspectionMap.has(row.opportunity_id)) {
+          inspectionMap.set(row.opportunity_id, {
+            outcome: row.outcome,
+            notes: row.notes,
+            created_at: row.created_at,
+          })
+        }
+      }
+    }
+
+    const leadInspectionMap = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
+    if (leadIds.length > 0) {
+      const { data: leadStatuses } = await adminClient
+        .from('inspection_status_updates')
+        .select('lead_id, outcome, notes, created_at')
+        .in('lead_id', leadIds)
+        .order('created_at', { ascending: false })
+
+      for (const row of leadStatuses || []) {
+        if (row.lead_id && !leadInspectionMap.has(row.lead_id)) {
+          leadInspectionMap.set(row.lead_id, {
+            outcome: row.outcome,
+            notes: row.notes,
+            created_at: row.created_at,
+          })
+        }
+      }
+    }
+
+    function mergeInspectionDisplay(opportunity: any) {
+      const candidates: Array<{ outcome: string; notes: string | null; created_at: string }> = []
+
+      const byOpportunity = inspectionMap.get(opportunity.id)
+      if (byOpportunity?.outcome) candidates.push(byOpportunity)
+
+      if (opportunity.lead_id) {
+        const byLead = leadInspectionMap.get(opportunity.lead_id)
+        if (byLead?.outcome) candidates.push(byLead)
+      }
+
+      if (opportunity.inspection_outcome) {
+        candidates.push({
+          outcome: opportunity.inspection_outcome,
+          notes: opportunity.inspection_notes ?? null,
+          created_at: opportunity.inspection_outcome_at || opportunity.updated_at || opportunity.created_at,
+        })
+      }
+
+      if (candidates.length === 0) {
+        return {
+          inspection_outcome: null,
+          inspection_notes: opportunity.inspection_notes ?? null,
+          inspection_outcome_at: opportunity.inspection_outcome_at ?? null,
+        }
+      }
+
+      candidates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      const best = candidates[0]
+      return {
+        inspection_outcome: best.outcome,
+        inspection_notes: best.notes,
+        inspection_outcome_at: best.created_at,
+      }
+    }
+
+    const queueItems = rawOpportunities
+      .map((opportunity: any) => {
+        const mergedInspection = mergeInspectionDisplay(opportunity)
+        return {
+          ...opportunity,
+          inspection_outcome: mergedInspection.inspection_outcome,
+          inspection_notes: mergedInspection.inspection_notes,
+          inspection_outcome_at: mergedInspection.inspection_outcome_at,
+        }
+      })
       .filter((opportunity: any) => hasActiveInsideSalesFollowUp(opportunity))
       .map((opportunity: any) => {
         const lead = Array.isArray(opportunity.leads) ? opportunity.leads[0] : opportunity.leads
@@ -174,13 +263,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const opportunityIds = queueItems.map((item: any) => item.id)
+    const queuedOpportunityIds = queueItems.map((item: any) => item.id)
     const activityMap = new Map<string, any[]>()
-    if (opportunityIds.length > 0) {
+    if (queuedOpportunityIds.length > 0) {
       const { data: activities } = await adminClient
         .from('activities')
         .select('id, opportunity_id, type, body, created_at, users(full_name)')
-        .in('opportunity_id', opportunityIds)
+        .in('opportunity_id', queuedOpportunityIds)
         .order('created_at', { ascending: false })
 
       for (const activity of activities || []) {
