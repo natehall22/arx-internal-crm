@@ -150,6 +150,70 @@ async function getTimezoneForUser(adminClient: ReturnType<typeof getAdminClient>
   return 'America/New_York'
 }
 
+function buildInspectionCalendarDescription(params: {
+  customerName: string
+  phone?: string | null
+  address?: string | null
+  note?: string | null
+}): string {
+  return [
+    `Customer: ${params.customerName}`,
+    params.phone ? `Phone: ${params.phone}` : '',
+    params.address ? `Address: ${params.address}` : '',
+    params.note ? `Inside Sales Notes:\n${params.note}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+async function createInspectionEventOnCloserCalendar(
+  adminClient: ReturnType<typeof getAdminClient>,
+  params: {
+    closerUserId: string
+    scheduledAppointmentId: string
+    localDateTimeStr: string
+    inspectionDuration: number
+    customerName: string
+    phone?: string | null
+    address?: string | null
+    note?: string | null
+  }
+): Promise<string | null> {
+  const accessToken = await getValidAccessToken(adminClient, params.closerUserId)
+  if (!accessToken) return null
+
+  const timezone = await getTimezoneForUser(adminClient, params.closerUserId)
+  const [datePart, timePart] = params.localDateTimeStr.split('T')
+  const [hourPart, minutePart] = timePart.split(':').map(Number)
+  let endHour = hourPart
+  let endMin = minutePart + params.inspectionDuration
+  while (endMin >= 60) {
+    endMin -= 60
+    endHour += 1
+  }
+
+  const event: CalendarEvent = {
+    summary: `Inspection: ${params.customerName}`,
+    description: buildInspectionCalendarDescription(params),
+    location: params.address || undefined,
+    start: { dateTime: `${params.localDateTimeStr}:00`, timeZone: timezone },
+    end: {
+      dateTime: `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`,
+      timeZone: timezone,
+    },
+  }
+
+  const createdEvent = await createCalendarEvent(accessToken, event, 'primary', 'none')
+  if (!createdEvent?.id) return null
+
+  await adminClient
+    .from('scheduled_appointments')
+    .update({ google_event_id: createdEvent.id })
+    .eq('id', params.scheduledAppointmentId)
+
+  return createdEvent.id
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -264,6 +328,12 @@ export async function POST(
 
       let scheduledAppointmentId: string | null = null
       let assignedCloserName = 'Closer'
+      let assignedCloserId: string | null = null
+      let googleCalendarEventId: string | null = null
+      const customerName = (originalAppointment.leads as any)?.homeowner_name || 'Customer'
+      const customerPhone = (originalAppointment.leads as any)?.phone || null
+      const customerAddress =
+        (originalAppointment.leads as any)?.address_text || originalAppointment.address_text || null
 
       if (schedule.useRoundRobin) {
         const teamId =
@@ -300,7 +370,9 @@ export async function POST(
         }
 
         scheduledAppointmentId = assignment.appointmentId
+        assignedCloserId = assignment.closerId || null
         assignedCloserName = assignment.closerName || assignedCloserName
+        googleCalendarEventId = assignment.googleEventId || null
 
         await admin
           .from('scheduled_appointments')
@@ -310,6 +382,31 @@ export async function POST(
             buffer_after_minutes: bufferAfter,
           })
           .eq('id', assignment.appointmentId)
+
+        if (!googleCalendarEventId && assignedCloserId && scheduledAppointmentId) {
+          try {
+            googleCalendarEventId = await createInspectionEventOnCloserCalendar(admin, {
+              closerUserId: assignedCloserId,
+              scheduledAppointmentId,
+              localDateTimeStr,
+              inspectionDuration,
+              customerName,
+              phone: customerPhone,
+              address: customerAddress,
+              note: note || 'Scheduled back to closer by inside sales.',
+            })
+          } catch (calendarError) {
+            console.error('Inside sales round-robin backup calendar sync failed:', calendarError)
+          }
+        }
+
+        if (!googleCalendarEventId && scheduledAppointmentId) {
+          await admin.from('scheduled_appointments').delete().eq('id', scheduledAppointmentId)
+          return NextResponse.json(
+            { error: 'Failed to push this inspection onto the closer calendar. No appointment was created.' },
+            { status: 409 }
+          )
+        }
       } else {
         const closerUserId = typeof schedule.closerUserId === 'string' ? schedule.closerUserId : null
         if (!closerUserId) {
@@ -326,6 +423,7 @@ export async function POST(
           return NextResponse.json({ error: 'Invalid closer for this organization' }, { status: 400 })
         }
 
+        assignedCloserId = closerUserId
         assignedCloserName = closerRow.full_name || assignedCloserName
 
         const { data: insertedAppointment, error: createError } = await admin
@@ -353,65 +451,32 @@ export async function POST(
 
         scheduledAppointmentId = insertedAppointment.id
 
-        const accessToken = await getValidAccessToken(admin, closerUserId)
-        if (!accessToken || !scheduledAppointmentId) {
-          await admin.from('scheduled_appointments').delete().eq('id', insertedAppointment.id)
-          return NextResponse.json(
-            { error: 'That closer does not have Google Calendar connected, so this inspection could not be scheduled.' },
-            { status: 409 }
-          )
-        }
-
-        const timezone = await getTimezoneForUser(admin, closerUserId)
-        const [datePart, timePart] = localDateTimeStr.split('T')
-        const [hourPart, minutePart] = timePart.split(':').map(Number)
-        let endHour = hourPart
-        let endMin = minutePart + inspectionDuration
-        while (endMin >= 60) {
-          endMin -= 60
-          endHour += 1
-        }
-        const event: CalendarEvent = {
-          summary: `Inspection: ${(originalAppointment.leads as any)?.homeowner_name || 'Customer'}`,
-          description: [
-            `Customer: ${(originalAppointment.leads as any)?.homeowner_name || 'Customer'}`,
-            (originalAppointment.leads as any)?.phone ? `Phone: ${(originalAppointment.leads as any)?.phone}` : '',
-            (originalAppointment.leads as any)?.address_text ? `Address: ${(originalAppointment.leads as any)?.address_text}` : '',
-            note ? `Inside Sales Notes:\n${note}` : '',
-          ].filter(Boolean).join('\n'),
-          location: (originalAppointment.leads as any)?.address_text || originalAppointment.address_text || undefined,
-          start: { dateTime: `${localDateTimeStr}:00`, timeZone: timezone },
-          end: { dateTime: `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`, timeZone: timezone },
-        }
-        try {
-          const createdEvent = await createCalendarEvent(accessToken, event, 'primary', 'none')
-          if (!createdEvent?.id) {
-            throw new Error('Calendar event did not return an ID')
-          }
-          await admin
-            .from('scheduled_appointments')
-            .update({ google_event_id: createdEvent.id })
-            .eq('id', scheduledAppointmentId)
-        } catch (calendarError) {
-          console.error('Inside sales manual scheduling calendar sync failed:', calendarError)
+        googleCalendarEventId = await createInspectionEventOnCloserCalendar(admin, {
+          closerUserId,
+          scheduledAppointmentId: insertedAppointment.id,
+          localDateTimeStr,
+          inspectionDuration,
+          customerName,
+          phone: customerPhone,
+          address: customerAddress,
+          note: note || 'Scheduled back to closer by inside sales.',
+        })
+        if (!googleCalendarEventId || !scheduledAppointmentId) {
           await admin.from('scheduled_appointments').delete().eq('id', insertedAppointment.id)
           return NextResponse.json(
             { error: 'Failed to push this inspection onto the closer calendar. No appointment was created.' },
             { status: 409 }
           )
         }
+      }
 
-        const promptAt = computeInspectionFeedbackPromptAt(
-          scheduledForISO,
-          inspectionDuration,
-          bufferAfter,
-          0
-        )
+      if (scheduledAppointmentId && assignedCloserId) {
+        const promptAt = computeInspectionFeedbackPromptAt(scheduledForISO, inspectionDuration, bufferAfter, 0)
         await admin.from('pending_status_prompts').upsert(
           {
             org_id: profile.org_id,
-            appointment_id: insertedAppointment.id,
-            closer_user_id: closerUserId,
+            appointment_id: scheduledAppointmentId,
+            closer_user_id: assignedCloserId,
             prompt_at: promptAt,
             completed: false,
             dismissed: false,
