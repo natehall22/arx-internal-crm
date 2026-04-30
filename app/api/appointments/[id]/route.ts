@@ -4,6 +4,7 @@ import { getMailTransport } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
+import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
@@ -603,13 +604,47 @@ export async function PATCH(
         }
       }
 
-      const { error: promptRedirectError } = await adminClient
-        .from('pending_status_prompts')
-        .update({ closer_user_id: new_closer_id, dismissed: false })
-        .eq('appointment_id', params.id)
-        .eq('completed', false)
-      if (promptRedirectError) {
-        console.error('pending_status_prompts redirect on reassignment:', promptRedirectError)
+      if (appointment.appointment_type === 'inspection') {
+        const { data: redirectedPrompts, error: promptRedirectError } = await adminClient
+          .from('pending_status_prompts')
+          .update({ closer_user_id: new_closer_id, dismissed: false })
+          .eq('appointment_id', params.id)
+          .eq('completed', false)
+          .select('id')
+        if (promptRedirectError) {
+          console.error('pending_status_prompts redirect on reassignment:', promptRedirectError)
+        } else if (!redirectedPrompts || redirectedPrompts.length === 0) {
+          const { data: orgRow } = await adminClient
+            .from('orgs')
+            .select('inspection_feedback_buffer_minutes')
+            .eq('id', profile.org_id)
+            .maybeSingle()
+
+          const promptAt = computeInspectionFeedbackPromptAt(
+            String(updated.scheduled_for || appointment.scheduled_for || new Date().toISOString()),
+            Number(updated.duration_minutes || appointment.duration_minutes || 60),
+            Number(updated.buffer_after_minutes || appointment.buffer_after_minutes || 0),
+            orgRow?.inspection_feedback_buffer_minutes ?? 0
+          )
+
+          const { error: promptBackfillError } = await adminClient
+            .from('pending_status_prompts')
+            .upsert(
+              {
+                org_id: profile.org_id,
+                appointment_id: params.id,
+                closer_user_id: new_closer_id,
+                prompt_at: promptAt,
+                completed: false,
+                dismissed: false,
+              },
+              { onConflict: 'appointment_id' }
+            )
+
+          if (promptBackfillError) {
+            console.error('pending_status_prompts backfill on reassignment:', promptBackfillError)
+          }
+        }
       }
 
       await syncCloserAttributionDownstream(adminClient, {

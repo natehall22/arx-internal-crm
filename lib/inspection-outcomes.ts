@@ -9,8 +9,14 @@ export interface InspectionOutcomeConfigRow {
   converts_to_opportunity: boolean
   /** When true, opportunities with this inspection_outcome count toward Team Stats "Sits". */
   counts_as_sit?: boolean
+  /** When true, unresolved opportunities age into the inside-sales queue after the configured delay. */
+  inside_sales_handoff_enabled?: boolean
+  /** Delay, in days, before an unresolved opportunity is auto-sent to inside sales. */
+  inside_sales_handoff_delay_days?: number | null
   sort_order: number
 }
+
+export const DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS = 7
 
 /** Default list — keep in sync with `app/admin/settings/page.tsx` initial state. */
 export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
@@ -43,8 +49,10 @@ export const DEFAULT_INSPECTION_OUTCOMES: InspectionOutcomeConfigRow[] = [
     color: '#8b5cf6',
     icon: '📋',
     active: true,
-    converts_to_opportunity: false,
+    converts_to_opportunity: true,
     counts_as_sit: true,
+    inside_sales_handoff_enabled: true,
+    inside_sales_handoff_delay_days: DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
     sort_order: 2,
   },
   {
@@ -122,6 +130,76 @@ export function normalizeInspectionOutcomeId(id: string | null | undefined): str
     .trim()
     .toLowerCase()
     .replace(/-/g, '_')
+}
+
+function normalizeDelayDays(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const normalized = Math.max(0, Math.floor(value))
+  return normalized
+}
+
+export function normalizeInspectionOutcomeRow(
+  row: InspectionOutcomeConfigRow,
+  index = 0
+): InspectionOutcomeConfigRow {
+  const fallback = DEFAULT_INSPECTION_OUTCOMES.find(
+    (candidate) => normalizeInspectionOutcomeId(candidate.id) === normalizeInspectionOutcomeId(row.id)
+  )
+  const handoffEnabled =
+    row.inside_sales_handoff_enabled === true ||
+    (row.inside_sales_handoff_enabled === undefined && fallback?.inside_sales_handoff_enabled === true)
+  const fallbackDelay =
+    normalizeDelayDays(fallback?.inside_sales_handoff_delay_days) ??
+    DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS
+  const explicitDelay = normalizeDelayDays(row.inside_sales_handoff_delay_days)
+
+  return {
+    ...row,
+    converts_to_opportunity: handoffEnabled ? true : row.converts_to_opportunity,
+    counts_as_sit: row.counts_as_sit ?? fallback?.counts_as_sit ?? false,
+    inside_sales_handoff_enabled: handoffEnabled,
+    inside_sales_handoff_delay_days: handoffEnabled
+      ? explicitDelay ?? fallbackDelay
+      : null,
+    sort_order: typeof row.sort_order === 'number' ? row.sort_order : fallback?.sort_order ?? index,
+  }
+}
+
+export function normalizeInspectionOutcomeRows(
+  rows: InspectionOutcomeConfigRow[] | null | undefined
+): InspectionOutcomeConfigRow[] {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return DEFAULT_INSPECTION_OUTCOMES.map((row, index) => normalizeInspectionOutcomeRow(row, index))
+  }
+  return rows.map((row, index) => normalizeInspectionOutcomeRow(row, index))
+}
+
+export function getInspectionOutcomeConfig(
+  orgRows: InspectionOutcomeConfigRow[] | null | undefined,
+  outcomeId: string | null | undefined
+): InspectionOutcomeConfigRow | null {
+  const normalizedOutcomeId = normalizeInspectionOutcomeId(outcomeId)
+  if (!normalizedOutcomeId) return null
+  const rows = normalizeInspectionOutcomeRows(orgRows)
+  return (
+    rows.find((row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId) ?? null
+  )
+}
+
+export function getInspectionOutcomeInsideSalesHandoff(
+  orgRows: InspectionOutcomeConfigRow[] | null | undefined,
+  outcomeId: string | null | undefined
+): { enabled: boolean; delayDays: number | null } {
+  const config = getInspectionOutcomeConfig(orgRows, outcomeId)
+  if (!config?.inside_sales_handoff_enabled) {
+    return { enabled: false, delayDays: null }
+  }
+  return {
+    enabled: true,
+    delayDays:
+      normalizeDelayDays(config.inside_sales_handoff_delay_days) ??
+      DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+  }
 }
 
 /** Normalized outcome ids that count as a "sit" for Team Stats (admin Inspection outcomes). */

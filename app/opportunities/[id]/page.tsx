@@ -377,28 +377,26 @@ export default async function OpportunityDetailPage({
       titleColor: 'text-amber-900',
     }
   } else if (
-    opportunity.inspection_outcome === 'insurance_follow_up' &&
     hasRepWorkingInsuranceGrace &&
     !hasInsideSalesFollowUp
   ) {
     nextStep = {
       icon: '🛡️',
-      title: 'Rep Working Insurance Follow-Up',
+      title: 'Rep Working Follow-Up',
       body: insuranceGraceDeadlineLabel
-        ? `The rep can keep working this insurance customer until ${insuranceGraceDeadlineLabel}. If it is still unresolved after that, inside sales takes over.`
-        : 'The rep can keep working this insurance customer for up to 7 days before inside sales takes over.',
+        ? `The rep can keep working this follow-up until ${insuranceGraceDeadlineLabel}. If it is still unresolved after that, inside sales takes over.`
+        : 'The rep can keep working this follow-up for a limited grace period before inside sales takes over.',
       bg: 'bg-violet-50 border-violet-200',
       titleColor: 'text-violet-900',
     }
   } else if (
-    opportunity.inspection_outcome === 'insurance_follow_up' &&
     hasInsideSalesFollowUp &&
     insideSalesFollowUpKind === 'insurance'
   ) {
     nextStep = {
       icon: '🛡️',
-      title: 'Inside Sales Insurance Follow-Up Active',
-      body: 'Inside sales should keep working this insurance customer until it is ready to be scheduled back to a closer or inspector.',
+      title: 'Inside Sales Follow-Up Active',
+      body: 'Inside sales should keep working this follow-up until it is ready to be scheduled back to a closer or inspector.',
       bg: 'bg-violet-50 border-violet-200',
       titleColor: 'text-violet-900',
     }

@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Image from 'next/image'
 import { DEFAULT_CLOSE_OUTCOMES } from '@/lib/close-outcomes'
+import {
+  DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+  DEFAULT_INSPECTION_OUTCOMES,
+  normalizeInspectionOutcomeRows,
+} from '@/lib/inspection-outcomes'
 
 type SettingsSection = 
   | 'contact-fields' 
@@ -58,6 +63,8 @@ interface InspectionOutcomeType {
   converts_to_opportunity: boolean
   /** When true, counts toward dashboard Team Stats "Sits" for the outcome timestamp window */
   counts_as_sit?: boolean
+  inside_sales_handoff_enabled?: boolean
+  inside_sales_handoff_delay_days?: number | null
   sort_order: number
 }
 
@@ -162,16 +169,9 @@ export default function AdminSettingsPage() {
   const [showAddDisposition, setShowAddDisposition] = useState(false)
   
   // Inspection Outcomes
-  const [inspectionOutcomes, setInspectionOutcomes] = useState<InspectionOutcomeType[]>([
-    { id: 'sale', label: 'Sale', description: 'Customer signed the contract', color: '#22c55e', icon: '✓', active: true, converts_to_opportunity: true, counts_as_sit: true, sort_order: 0 },
-    { id: 'moving_to_close', label: 'Moving to Close', description: 'Customer interested, following up to close', color: '#10b981', icon: '→', active: true, converts_to_opportunity: true, counts_as_sit: true, sort_order: 1 },
-    { id: 'insurance_follow_up', label: 'Insurance Follow Up', description: 'Waiting on insurance claim/approval', color: '#8b5cf6', icon: '📋', active: true, converts_to_opportunity: false, counts_as_sit: true, sort_order: 2 },
-    { id: 'said_no', label: 'Said No', description: 'Customer declined after presentation', color: '#ef4444', icon: '✗', active: true, converts_to_opportunity: false, counts_as_sit: true, sort_order: 3 },
-    { id: 'not_home', label: 'Not Home', description: 'Customer was not present', color: '#f59e0b', icon: '?', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 4 },
-    { id: 'no_problems_found', label: 'No Problems Found', description: 'Roof inspection showed no issues', color: '#6b7280', icon: '○', active: true, converts_to_opportunity: false, counts_as_sit: true, sort_order: 5 },
-    { id: 'needs_repair', label: 'Needs Repair', description: 'Roof needs repair work, not full replacement', color: '#f97316', icon: '🔧', active: true, converts_to_opportunity: false, counts_as_sit: true, sort_order: 6 },
-    { id: 'rescheduled', label: 'Rescheduled', description: 'Appointment moved to new date', color: '#3b82f6', icon: '↻', active: true, converts_to_opportunity: false, counts_as_sit: false, sort_order: 7 },
-  ])
+  const [inspectionOutcomes, setInspectionOutcomes] = useState<InspectionOutcomeType[]>(
+    normalizeInspectionOutcomeRows(DEFAULT_INSPECTION_OUTCOMES)
+  )
   const [editingInspectionOutcome, setEditingInspectionOutcome] = useState<InspectionOutcomeType | null>(null)
   const [showAddInspectionOutcome, setShowAddInspectionOutcome] = useState(false)
 
@@ -582,7 +582,7 @@ export default function AdminSettingsPage() {
       
       // Load inspection outcomes from org settings
       if (data.settings?.inspection_outcomes) {
-        setInspectionOutcomes(data.settings.inspection_outcomes)
+        setInspectionOutcomes(normalizeInspectionOutcomeRows(data.settings.inspection_outcomes))
       }
 
       if (data.settings?.close_outcomes) {
@@ -2316,12 +2316,33 @@ export default function AdminSettingsPage() {
                           type="checkbox"
                           id="outcome-converts"
                           checked={editingInspectionOutcome.converts_to_opportunity}
-                          onChange={(e) => setEditingInspectionOutcome(prev => prev ? { ...prev, converts_to_opportunity: e.target.checked } : null)}
+                          onChange={(e) =>
+                            setEditingInspectionOutcome((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    converts_to_opportunity: e.target.checked,
+                                    inside_sales_handoff_enabled: e.target.checked
+                                      ? prev.inside_sales_handoff_enabled
+                                      : false,
+                                    inside_sales_handoff_delay_days: e.target.checked
+                                      ? prev.inside_sales_handoff_delay_days
+                                      : null,
+                                  }
+                                : null
+                            )
+                          }
+                          disabled={!!editingInspectionOutcome.inside_sales_handoff_enabled}
                           className="w-5 h-5 rounded border-gray-300 text-green-600"
                         />
                         <label htmlFor="outcome-converts" className="text-sm text-gray-700">
                           <span className="font-medium">Creates Opportunity</span>
-                          <p className="text-gray-500 text-xs mt-0.5">When selected, this outcome will automatically convert the lead to an opportunity</p>
+                          <p className="text-gray-500 text-xs mt-0.5">
+                            When selected, this outcome will automatically convert the lead to an opportunity.
+                            {editingInspectionOutcome.inside_sales_handoff_enabled
+                              ? ' Required for inside sales follow-up.'
+                              : ''}
+                          </p>
                         </label>
                       </div>
                       <div className="flex items-center gap-3 p-3 bg-cyan-50 rounded-lg border border-cyan-200">
@@ -2343,6 +2364,65 @@ export default function AdminSettingsPage() {
                             for the time period when the outcome was recorded.
                           </p>
                         </label>
+                      </div>
+                      <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            id="outcome-inside-sales"
+                            checked={!!editingInspectionOutcome.inside_sales_handoff_enabled}
+                            onChange={(e) =>
+                              setEditingInspectionOutcome((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      converts_to_opportunity: e.target.checked
+                                        ? true
+                                        : prev.converts_to_opportunity,
+                                      inside_sales_handoff_enabled: e.target.checked,
+                                      inside_sales_handoff_delay_days: e.target.checked
+                                        ? prev.inside_sales_handoff_delay_days ?? DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS
+                                        : null,
+                                    }
+                                  : null
+                              )
+                            }
+                            className="mt-1 h-5 w-5 rounded border-gray-300 text-violet-600"
+                          />
+                          <label htmlFor="outcome-inside-sales" className="flex-1 text-sm text-gray-700">
+                            <span className="font-medium">Auto-send to Inside Sales</span>
+                            <p className="mt-0.5 text-xs text-gray-500">
+                              Keep this opportunity with the current rep first, then move it into the inside sales queue after the selected number of days if it is still unresolved.
+                            </p>
+                          </label>
+                        </div>
+
+                        {editingInspectionOutcome.inside_sales_handoff_enabled && (
+                          <div className="mt-3">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Send after how many days?
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={editingInspectionOutcome.inside_sales_handoff_delay_days ?? DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS}
+                              onChange={(e) =>
+                                setEditingInspectionOutcome((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        inside_sales_handoff_delay_days: Math.max(
+                                          0,
+                                          Math.floor(Number(e.target.value) || 0)
+                                        ),
+                                      }
+                                    : null
+                                )
+                              }
+                              className="w-full rounded-lg border border-gray-300 px-4 py-2 text-gray-900"
+                            />
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <input

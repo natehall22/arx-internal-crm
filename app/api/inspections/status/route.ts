@@ -13,7 +13,13 @@ import {
 import { materializeSaleFromInspectionOutcome } from '@/lib/opportunity-sale-pipeline'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
 import {
-  INSURANCE_FOLLOW_UP_GRACE_DAYS,
+  DEFAULT_INSPECTION_OUTCOMES,
+  getInspectionOutcomeConfig,
+  getInspectionOutcomeInsideSalesHandoff,
+  normalizeInspectionOutcomeId,
+  normalizeInspectionOutcomeRows,
+} from '@/lib/inspection-outcomes'
+import {
   isInsideSalesRoleLike,
   REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
@@ -22,6 +28,17 @@ import {
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
   if (row == null) return null
   return Array.isArray(row) ? row[0] ?? null : row
+}
+
+function isInsideSalesFollowUpPipelineStage(value: string | null | undefined) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return (
+    normalized === 'inside_sales_didnt_sit' ||
+    normalized.startsWith('inside_sales_didnt_sit_') ||
+    normalized === 'inside_sales_insurance_follow_up' ||
+    normalized.startsWith('inside_sales_insurance_follow_up_') ||
+    normalized === REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+  )
 }
 
 function getAdminClient() {
@@ -354,29 +371,23 @@ export async function POST(request: NextRequest) {
       default_scheduling_gap_minutes: orgData?.default_scheduling_gap_minutes ?? 15,
     }
     
-    // Default inspection outcomes used only when org settings are missing.
-    // Match requested baseline: sale, moving_to_close, insurance_follow_up.
-    const defaultInspectionOutcomes = [
-      { id: 'sale', converts_to_opportunity: true },
-      { id: 'moving_to_close', converts_to_opportunity: true },
-      { id: 'insurance_follow_up', converts_to_opportunity: true },
-      { id: 'said_no', converts_to_opportunity: false },
-      { id: 'not_home', converts_to_opportunity: false },
-      { id: 'no_problems_found', converts_to_opportunity: false },
-      { id: 'needs_repair', converts_to_opportunity: false },
-      { id: 'rescheduled', converts_to_opportunity: false },
-    ]
-    
-    // Use org settings when present so admins fully control opportunity creation behavior.
     const hasConfiguredOutcomes = (orgData?.settings?.inspection_outcomes?.length ?? 0) > 0
-    const inspectionOutcomes = hasConfiguredOutcomes
-      ? orgData!.settings.inspection_outcomes 
-      : defaultInspectionOutcomes
-    const outcomeConfig = inspectionOutcomes.find(
-      (o: any) => String(o.id || '').toLowerCase() === String(outcome || '').toLowerCase()
+    const inspectionOutcomes = normalizeInspectionOutcomeRows(
+      hasConfiguredOutcomes ? orgData?.settings?.inspection_outcomes : DEFAULT_INSPECTION_OUTCOMES
     )
+    const outcomeConfig = getInspectionOutcomeConfig(inspectionOutcomes, outcome)
+    const insideSalesHandoffConfig = getInspectionOutcomeInsideSalesHandoff(inspectionOutcomes, outcome)
+    const isNotHomeOutcome = normalizeInspectionOutcomeId(outcome) === 'not_home'
+    const isInsuranceOutcome = normalizeInspectionOutcomeId(outcome) === 'insurance_follow_up'
+    const delayedInsideSalesHandoffEnabled =
+      !isNotHomeOutcome && insideSalesHandoffConfig.enabled && insideSalesHandoffConfig.delayDays !== null
+    const delayedInsideSalesHandoffDays = insideSalesHandoffConfig.delayDays
+    const delayedInsideSalesHandoffAt =
+      delayedInsideSalesHandoffEnabled && delayedInsideSalesHandoffDays !== null
+        ? new Date(Date.now() + delayedInsideSalesHandoffDays * 24 * 60 * 60 * 1000).toISOString()
+        : null
     const shouldCreateOpportunity =
-      Boolean(outcomeConfig?.converts_to_opportunity) || outcome === 'insurance_follow_up'
+      Boolean(outcomeConfig?.converts_to_opportunity) || delayedInsideSalesHandoffEnabled
 
     const staticOutcomeLabels: Record<string, string> = {
       sale: 'Sale!',
@@ -416,6 +427,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const assignedCloserId = appointment?.closer_user_id || user.id
     let opportunityId = appointment?.opportunity_id || opportunity?.id || null
     let createdOpportunity = null
     
@@ -450,12 +462,12 @@ export async function POST(request: NextRequest) {
         newStatus = 'won'
       } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
         newStatus = 'lost'
-      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up') {
+      } else if (outcome === 'moving_to_close' || delayedInsideSalesHandoffEnabled) {
         newStatus = 'in_progress'
       }
       
       // owner = assigned closer on the appointment; fall back to current user only if unknown
-      const closerForOpp = appointment?.closer_user_id || user.id
+      const closerForOpp = assignedCloserId
       // setter = canvasser who set the appointment; fall back to lead owner
       const setterForOpp = appointment?.canvasser_user_id || lead?.owner_user_id || null
 
@@ -473,8 +485,19 @@ export async function POST(request: NextRequest) {
           inspection_outcome: outcome,
           inspection_outcome_at: new Date().toISOString(),
           inspection_notes: notes || null,
-          job_source: outcome === 'insurance_follow_up' ? 'insurance' : 'retail',
-          insurance_stage: outcome === 'insurance_follow_up' ? 'contingency_signed' : null,
+          job_source: isInsuranceOutcome ? 'insurance' : 'retail',
+          insurance_stage: isInsuranceOutcome ? 'contingency_signed' : null,
+          pipeline_stage: delayedInsideSalesHandoffEnabled
+            ? REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+            : isNotHomeOutcome
+              ? 'inside_sales_didnt_sit'
+              : null,
+          follow_up_at: delayedInsideSalesHandoffEnabled
+            ? delayedInsideSalesHandoffAt
+            : isNotHomeOutcome
+              ? new Date().toISOString()
+              : null,
+          assigned_user_id: delayedInsideSalesHandoffEnabled ? assignedCloserId : isNotHomeOutcome ? null : closerForOpp,
         })
         .select()
         .single()
@@ -493,8 +516,6 @@ export async function POST(request: NextRequest) {
           .eq('id', leadId)
       }
     }
-
-    const assignedCloserId = appointment?.closer_user_id || user.id
 
     // Create status update record (closer = assigned rep on the appointment, not necessarily submitter)
     const { data: statusUpdate, error: statusError } = await supabase
@@ -563,22 +584,25 @@ export async function POST(request: NextRequest) {
         opportunityUpdate.status = 'won'
       } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
         opportunityUpdate.status = 'lost'
-      } else if (outcome === 'moving_to_close' || outcome === 'insurance_follow_up') {
+      } else if (outcome === 'moving_to_close' || delayedInsideSalesHandoffEnabled) {
         opportunityUpdate.status = 'in_progress' // Active opportunities being worked
       }
-      if (outcome === 'insurance_follow_up') {
-        const insuranceGraceDeadline = new Date()
-        insuranceGraceDeadline.setDate(insuranceGraceDeadline.getDate() + INSURANCE_FOLLOW_UP_GRACE_DAYS)
-        opportunityUpdate.job_source = 'insurance'
-        opportunityUpdate.insurance_stage = 'contingency_signed'
+      if (delayedInsideSalesHandoffEnabled) {
+        if (isInsuranceOutcome) {
+          opportunityUpdate.job_source = 'insurance'
+          opportunityUpdate.insurance_stage = 'contingency_signed'
+        }
         opportunityUpdate.pipeline_stage = REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
-        opportunityUpdate.follow_up_at = insuranceGraceDeadline.toISOString()
-        opportunityUpdate.assigned_user_id = user.id
+        opportunityUpdate.follow_up_at = delayedInsideSalesHandoffAt
+        opportunityUpdate.assigned_user_id = assignedCloserId
       }
-      if (outcome === 'not_home') {
+      if (isNotHomeOutcome) {
         opportunityUpdate.pipeline_stage = 'inside_sales_didnt_sit'
         opportunityUpdate.follow_up_at = new Date().toISOString()
         opportunityUpdate.assigned_user_id = null
+      } else if (!delayedInsideSalesHandoffEnabled && isInsideSalesFollowUpPipelineStage(opportunity?.pipeline_stage)) {
+        opportunityUpdate.pipeline_stage = null
+        opportunityUpdate.follow_up_at = null
       }
       // 'not_home' and 'rescheduled' keep status as 'open'
 
@@ -676,7 +700,7 @@ export async function POST(request: NextRequest) {
       setter_feedback: setter_feedback || null,
     }
 
-    if (outcome === 'not_home' || outcome === 'insurance_follow_up') {
+    if (isNotHomeOutcome) {
       const { data: insideSalesUsers } = await supabase
         .from('users')
         .select('id, role, active, custom_roles(name, display_name)')
@@ -709,20 +733,15 @@ export async function POST(request: NextRequest) {
             `Customer: ${customerName}`,
             customerAddress ? `Address: ${customerAddress}` : null,
             lead?.phone ? `Phone: ${lead.phone}` : null,
-            outcome === 'insurance_follow_up'
-              ? `Reason: Insurance follow-up (rep grace period: ${INSURANCE_FOLLOW_UP_GRACE_DAYS} days)`
-              : 'Reason: Did not sit (not home)',
+            'Reason: Did not sit (not home)',
             notes ? `Closer Notes: "${notes}"` : null,
           ]
             .filter(Boolean)
             .join('\n'),
           data: {
             ...notificationData,
-            queue_type: outcome === 'insurance_follow_up' ? 'insurance_follow_up' : 'didnt_sit',
-            pipeline_stage:
-              outcome === 'insurance_follow_up'
-                ? REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
-                : 'inside_sales_didnt_sit',
+            queue_type: 'didnt_sit',
+            pipeline_stage: 'inside_sales_didnt_sit',
           },
         })
       }

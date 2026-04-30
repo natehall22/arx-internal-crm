@@ -70,16 +70,16 @@ export default function InsideSalesFollowUpDrawer({
     [activities]
   )
 
-  const followUpBadgeLabel = followUpKind === 'insurance' ? 'Insurance Follow-Up' : "Didn't Sit"
+  const followUpBadgeLabel = followUpKind === 'insurance' ? 'Inspection Follow-Up' : "Didn't Sit"
   const launcherLabel =
     followUpKind === 'insurance'
-      ? 'Inside sales insurance follow-up active'
+      ? 'Inside sales follow-up active'
       : 'Inside sales follow-up active'
   const drawerEyebrow =
-    followUpKind === 'insurance' ? 'Inside Sales Insurance Follow-Up' : 'Inside Sales Follow-Up'
+    followUpKind === 'insurance' ? 'Inside Sales Follow-Up' : 'Inside Sales Follow-Up'
   const schedulePlaceholder =
     followUpKind === 'insurance'
-      ? 'Example: Claim is moving forward. Customer is ready to meet on-site with the adjuster. Review prior insurance notes before arrival.'
+      ? 'Example: Customer is ready for the next visit. Review prior notes before arriving and confirm the right decision-maker will be there.'
       : 'Example: Customer available after 6 PM. Wife needs Spanish support. Confirm husband is home before driving out.'
 
   if (!visible) return null
