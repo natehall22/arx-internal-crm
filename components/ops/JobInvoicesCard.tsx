@@ -19,6 +19,7 @@ import CreateInvoiceModal from './CreateInvoiceModal'
 interface JobInvoicesCardProps {
   jobId: string
   saleAmount: number | null
+  jobSource?: 'retail' | 'insurance' | null
   customerEmail?: string | null
   onInvoiceChange?: () => void
 }
@@ -36,6 +37,7 @@ const defaultDepositInfo: DepositInfo = {
 export default function JobInvoicesCard({ 
   jobId, 
   saleAmount, 
+  jobSource,
   customerEmail,
   onInvoiceChange 
 }: JobInvoicesCardProps) {
@@ -321,6 +323,7 @@ export default function JobInvoicesCard({
       {showCreateModal && (
         <CreateInvoiceModal
           jobId={jobId}
+          jobSource={jobSource ?? null}
           saleAmountCents={saleAmountCents}
           remainingContractCents={remainingContractCents}
           depositInfo={depositInfo}

@@ -2048,6 +2048,7 @@ export default function JobDetailClient({
                 <JobInvoicesCard
                   jobId={job.id}
                   saleAmount={job.sale_amount}
+                  jobSource={job.job_source ?? null}
                   customerEmail={job.customer?.email}
                   onInvoiceChange={() => setPaymentsRefreshKey(k => k + 1)}
                 />

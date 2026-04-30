@@ -147,14 +147,17 @@ export async function createInvoiceForJob(
   if (defaultFromJobTotal) {
     const { data: job } = await supabase
       .from('production_jobs')
-      .select('sale_amount, job_type')
+      .select('sale_amount, job_type, job_source')
       .eq('id', jobId)
       .single()
 
     if (job?.sale_amount) {
       const saleAmountCents = Math.round(job.sale_amount * 100)
       await addInvoiceItem(supabase, invoice.id, {
-        description: `${job.job_type || 'Roofing'} - Per Contract`,
+        description:
+          job.job_source === 'insurance'
+            ? `${job.job_type || 'Roofing'} - Insurance Claim Amount`
+            : `${job.job_type || 'Roofing'} - Per Contract`,
         qty: 1,
         unit_price_cents: saleAmountCents,
       })
@@ -206,18 +209,22 @@ export async function createCustomAmountInvoice(
 
   const { data: job } = await supabase
     .from('production_jobs')
-    .select('sale_amount, job_type')
+    .select('sale_amount, job_type, job_source')
     .eq('id', jobId)
     .single()
 
   const saleAmountCents = Math.round((job?.sale_amount || 0) * 100)
+  const isInsuranceJob = job?.job_source === 'insurance'
 
   if (saleAmountCents > 0) {
-    const totalInvoiced = await getTotalInvoicedCentsForJob(supabase, jobId)
-    const remaining = saleAmountCents - totalInvoiced
-    if (amountCents > remaining) {
+    const maxAllowed = isInsuranceJob
+      ? saleAmountCents
+      : saleAmountCents - (await getTotalInvoicedCentsForJob(supabase, jobId))
+    if (amountCents > maxAllowed) {
       throw new Error(
-        `Amount exceeds remaining contract balance (${formatCurrency(Math.max(0, remaining))} available of ${formatCurrency(saleAmountCents)} contract)`
+        isInsuranceJob
+          ? `Amount exceeds full contract amount (${formatCurrency(saleAmountCents)})`
+          : `Amount exceeds remaining contract balance (${formatCurrency(Math.max(0, maxAllowed))} available of ${formatCurrency(saleAmountCents)} contract)`
       )
     }
   }
@@ -237,7 +244,10 @@ export async function createCustomAmountInvoice(
     throw new Error(`Failed to create invoice: ${invoiceError?.message || 'Unknown error'}`)
   }
 
-  const defaultDesc = `${job?.job_type || 'Roofing'} - Per Contract`
+  const defaultDesc =
+    job?.job_source === 'insurance'
+      ? `${job?.job_type || 'Roofing'} - Insurance Claim Amount`
+      : `${job?.job_type || 'Roofing'} - Per Contract`
   const description = lineDescription?.trim() || defaultDesc
 
   await addInvoiceItem(supabase, invoice.id, {

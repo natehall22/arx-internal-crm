@@ -6,6 +6,7 @@ import { DepositInfo } from '@/lib/types/invoices'
 
 interface CreateInvoiceModalProps {
   jobId: string
+  jobSource?: 'retail' | 'insurance' | null
   saleAmountCents: number
   /** Contract balance not yet on a non-void invoice (for custom / validation hints) */
   remainingContractCents: number
@@ -16,6 +17,7 @@ interface CreateInvoiceModalProps {
 
 export default function CreateInvoiceModal({
   jobId,
+  jobSource,
   saleAmountCents,
   remainingContractCents,
   depositInfo,
@@ -26,6 +28,7 @@ export default function CreateInvoiceModal({
   const [error, setError] = useState<string | null>(null)
   const [customAmount, setCustomAmount] = useState('')
   const [customDescription, setCustomDescription] = useState('')
+  const isInsuranceJob = jobSource === 'insurance'
 
   const handleCreate = async (invoiceKind: 'deposit' | 'final' | 'standard') => {
     setCreating(true)
@@ -62,9 +65,16 @@ export default function CreateInvoiceModal({
       return
     }
     const amountCents = Math.round(parsed * 100)
-    if (saleAmountCents > 0 && amountCents > remainingContractCents) {
+    const maxCustomAmountCents =
+      saleAmountCents > 0
+        ? (isInsuranceJob ? saleAmountCents : remainingContractCents)
+        : 0
+
+    if (saleAmountCents > 0 && amountCents > maxCustomAmountCents) {
       setError(
-        `Amount cannot exceed remaining contract balance (${formatCurrency(remainingContractCents)} available)`
+        isInsuranceJob
+          ? `Amount cannot exceed the full contract amount (${formatCurrency(saleAmountCents)})`
+          : `Amount cannot exceed remaining contract balance (${formatCurrency(remainingContractCents)} available)`
       )
       setCreating(false)
       return
@@ -181,7 +191,9 @@ export default function CreateInvoiceModal({
               <div className="font-medium text-gray-900">Custom amount</div>
               <p className="text-xs text-gray-600">
                 {saleAmountCents > 0
-                  ? `Invoice up to ${formatCurrency(remainingContractCents)} remaining on this contract.`
+                  ? isInsuranceJob
+                    ? `Insurance job: invoice any amount up to the full contract value of ${formatCurrency(saleAmountCents)}.`
+                    : `Invoice up to ${formatCurrency(remainingContractCents)} remaining on this contract.`
                   : 'Enter any amount for this invoice.'}
               </p>
               <div>
@@ -229,12 +241,23 @@ export default function CreateInvoiceModal({
           <button
             onClick={() => handleCreate('standard')}
             disabled={creating}
-            className="w-full p-4 border border-gray-300 rounded-lg hover:bg-gray-50 text-left transition disabled:opacity-50"
+            className={`w-full p-4 rounded-lg text-left transition disabled:opacity-50 ${
+              isInsuranceJob
+                ? 'border-2 border-violet-500 hover:bg-violet-50'
+                : 'border border-gray-300 hover:bg-gray-50'
+            }`}
           >
-            <div className="font-medium text-gray-900">Full Contract Invoice</div>
+            <div className="font-medium text-gray-900">
+              {isInsuranceJob ? 'Insurance Full Invoice' : 'Full Contract Invoice'}
+            </div>
             <div className="text-sm text-gray-900">
               {formatCurrency(saleAmountCents)} - Full contract amount
             </div>
+            {isInsuranceJob && (
+              <div className="text-xs text-violet-700 mt-1">
+                Bills the full approved job amount even if a deposit invoice already exists.
+              </div>
+            )}
             {depositInfo.hasDeposit && !depositInfo.hasActiveDepositInvoice && (
               <div className="text-xs text-amber-600 mt-1">
                 ⚠ Deposit payment will not be auto-applied
