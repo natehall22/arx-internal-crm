@@ -8,7 +8,9 @@ import {
 import {
   getInspectionOutcomeConfig,
   getInspectionOutcomeInsideSalesHandoff,
+  inspectionOutcomeRoutesToInsideSalesDidntSit,
   normalizeInspectionOutcomeId,
+  normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
 
 export async function GET(request: NextRequest) {
@@ -60,6 +62,15 @@ export async function GET(request: NextRequest) {
           .maybeSingle()
         orgSettings = orgRow?.settings ?? null
         orgSettingsByOrgId.set(opportunity.org_id, orgSettings)
+      }
+
+      if (
+        inspectionOutcomeRoutesToInsideSalesDidntSit(
+          normalizeInspectionOutcomeRows(orgSettings?.inspection_outcomes),
+          opportunity.inspection_outcome
+        )
+      ) {
+        continue
       }
 
       const insideSalesHandoff = getInspectionOutcomeInsideSalesHandoff(

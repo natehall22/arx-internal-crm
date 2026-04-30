@@ -1,6 +1,7 @@
 import {
   DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
   getInspectionOutcomeInsideSalesHandoff,
+  inspectionOutcomeRoutesToInsideSalesDidntSit,
   normalizeInspectionOutcomeId,
   normalizeInspectionOutcomeRows,
   type InspectionOutcomeConfigRow,
@@ -84,7 +85,9 @@ function delayedHandoffPastDueEmptyPipeline(
   const pipelineStage = normalize(opportunity.pipeline_stage)
   if (pipelineStage) return false
   const oid = normalizeInspectionOutcomeId(opportunity.inspection_outcome)
-  if (!oid || oid === 'not_home') return false
+  if (!oid || inspectionOutcomeRoutesToInsideSalesDidntSit(orgInspectionOutcomes, opportunity.inspection_outcome)) {
+    return false
+  }
   const handoff = getInspectionOutcomeInsideSalesHandoff(inspectionRows(orgInspectionOutcomes), oid)
   if (!handoff.enabled || handoff.delayDays === null) return false
   if (!opportunity.inspection_outcome_at) return false
@@ -99,7 +102,9 @@ function delayedHandoffStillGraceEmptyPipeline(
   const pipelineStage = normalize(opportunity.pipeline_stage)
   if (pipelineStage) return false
   const oid = normalizeInspectionOutcomeId(opportunity.inspection_outcome)
-  if (!oid || oid === 'not_home') return false
+  if (!oid || inspectionOutcomeRoutesToInsideSalesDidntSit(orgInspectionOutcomes, opportunity.inspection_outcome)) {
+    return false
+  }
   const handoff = getInspectionOutcomeInsideSalesHandoff(inspectionRows(orgInspectionOutcomes), oid)
   if (!handoff.enabled || handoff.delayDays === null) return false
   if (!opportunity.inspection_outcome_at) return false
@@ -168,7 +173,7 @@ export function getInsideSalesFollowUpKind(
   if (
     pipelineStage === DIDNT_SIT_PIPELINE_PREFIX ||
     pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`) ||
-    normalize(opportunity.inspection_outcome) === 'not_home'
+    inspectionOutcomeRoutesToInsideSalesDidntSit(orgInspectionOutcomes, opportunity.inspection_outcome)
   ) {
     return 'didnt_sit'
   }
@@ -200,8 +205,10 @@ export function hasActiveInsideSalesFollowUp(
 
   if (repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes)) return true
 
-  const outcome = normalize(opportunity.inspection_outcome)
-  return outcome === 'not_home' || delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)
+  return (
+    inspectionOutcomeRoutesToInsideSalesDidntSit(orgInspectionOutcomes, opportunity.inspection_outcome) ||
+    delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)
+  )
 }
 
 export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, pipelinePrefix: string) {
@@ -238,8 +245,9 @@ export function getInsideSalesFollowUpStatus(
   if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) {
     return repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ? 'new' : 'rep_working'
   }
-  const outcome = normalize(opportunity.inspection_outcome)
-  if (outcome === 'not_home') return 'new'
+  if (inspectionOutcomeRoutesToInsideSalesDidntSit(orgInspectionOutcomes, opportunity.inspection_outcome)) {
+    return 'new'
+  }
   if (delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) return 'rep_working'
   if (delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)) return 'new'
   return null

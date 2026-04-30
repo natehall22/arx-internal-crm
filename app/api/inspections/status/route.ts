@@ -16,6 +16,7 @@ import {
   DEFAULT_INSPECTION_OUTCOMES,
   getInspectionOutcomeConfig,
   getInspectionOutcomeInsideSalesHandoff,
+  inspectionOutcomeRoutesToInsideSalesDidntSit,
   normalizeInspectionOutcomeId,
   normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
@@ -379,7 +380,7 @@ export async function POST(request: NextRequest) {
     )
     const outcomeConfig = getInspectionOutcomeConfig(inspectionOutcomes, outcome)
     const insideSalesHandoffConfig = getInspectionOutcomeInsideSalesHandoff(inspectionOutcomes, outcome)
-    const isNotHomeOutcome = normalizeInspectionOutcomeId(outcome) === 'not_home'
+    const isNotHomeOutcome = inspectionOutcomeRoutesToInsideSalesDidntSit(inspectionOutcomes, outcome)
     const isInsuranceOutcome = normalizeInspectionOutcomeId(outcome) === 'insurance_follow_up'
     const delayedInsideSalesHandoffEnabled =
       !isNotHomeOutcome && insideSalesHandoffConfig.enabled && insideSalesHandoffConfig.delayDays !== null
@@ -564,7 +565,11 @@ export async function POST(request: NextRequest) {
     if (appointment_id) {
       const appointmentUpdate: Record<string, unknown> = {
         status:
-          outcome === 'sale' ? 'completed' : outcome === 'not_home' ? 'no_show' : 'completed',
+          outcome === 'sale'
+            ? 'completed'
+            : inspectionOutcomeRoutesToInsideSalesDidntSit(inspectionOutcomes, outcome)
+              ? 'no_show'
+              : 'completed',
       }
       if (opportunityId) {
         appointmentUpdate.opportunity_id = opportunityId

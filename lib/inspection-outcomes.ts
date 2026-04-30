@@ -202,6 +202,28 @@ export function getInspectionOutcomeInsideSalesHandoff(
   }
 }
 
+/**
+ * True when this inspection outcome should route to the immediate inside-sales “didn’t sit” pipeline.
+ * Matches default id `not_home` and admin rows that keep the default “Not Home” label but use a custom id.
+ */
+export function inspectionOutcomeRoutesToInsideSalesDidntSit(
+  orgRows: InspectionOutcomeConfigRow[] | null | undefined,
+  outcomeId: string | null | undefined
+): boolean {
+  const idNorm = normalizeInspectionOutcomeId(outcomeId)
+  if (!idNorm) return false
+  if (idNorm === 'not_home') return true
+  const cfg = getInspectionOutcomeConfig(orgRows, outcomeId)
+  if (!cfg || cfg.active === false) return false
+  const defaultNotHome = DEFAULT_INSPECTION_OUTCOMES.find(
+    (o) => normalizeInspectionOutcomeId(o.id) === 'not_home'
+  )
+  if (!defaultNotHome) return false
+  const a = (cfg.label || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  const b = (defaultNotHome.label || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  return a === b && a.length > 0
+}
+
 /** Normalized outcome ids that count as a "sit" for Team Stats (admin Inspection outcomes). */
 export function getSitOutcomeNormalizedIdSet(
   orgRows: InspectionOutcomeConfigRow[] | null | undefined
