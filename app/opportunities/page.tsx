@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import {
   DEFAULT_INSPECTION_OUTCOMES,
   sortInspectionOutcomes,
@@ -21,6 +22,30 @@ import {
   type OpportunityListRow as Opportunity,
 } from '@/components/opportunities/opportunity-list-shared'
 
+type InsideSalesActivity = {
+  id: string
+  type: string
+  body: string | null
+  created_at: string
+  users?: { full_name?: string | null } | { full_name?: string | null }[] | null
+}
+
+type InsideSalesItem = {
+  id: string
+  status: string | null
+  address_text: string | null
+  project_type: string | null
+  inspection_notes: string | null
+  follow_up_at: string | null
+  customerName: string
+  customerPhone: string | null
+  followUpKind: 'didnt_sit' | 'insurance'
+  followUpStatus: string | null
+  assignedToName: string | null
+  closerName: string | null
+  activities: InsideSalesActivity[]
+}
+
 export default function OpportunitiesPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -29,21 +54,26 @@ export default function OpportunitiesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showFilters, setShowFilters] = useState(false)
+  const [insideSalesItems, setInsideSalesItems] = useState<InsideSalesItem[]>([])
+  const [insideSalesLoading, setInsideSalesLoading] = useState(true)
+  const [insideSalesError, setInsideSalesError] = useState<string | null>(null)
+  const [insideSalesAccessChecked, setInsideSalesAccessChecked] = useState(false)
+  const [canViewInsideSalesTab, setCanViewInsideSalesTab] = useState(false)
+  const [canSelfAssignInsideSales, setCanSelfAssignInsideSales] = useState(false)
   const [inspectionOutcomeRows, setInspectionOutcomeRows] = useState<InspectionOutcomeConfigRow[]>(() =>
     sortInspectionOutcomes([...DEFAULT_INSPECTION_OUTCOMES], { includeInactive: true })
   )
-  const filters = useMemo(
-    () => filtersFromSearchParams(searchParams),
-    [searchParams]
-  )
+
+  const filters = useMemo(() => filtersFromSearchParams(searchParams), [searchParams])
+  const activeView = searchParams.get('view') === 'inside_sales' ? 'inside_sales' : 'all'
 
   const outcomeLookup = useMemo(() => {
-    const m = new Map<string, InspectionOutcomeConfigRow>()
-    for (const r of inspectionOutcomeRows) {
-      m.set(r.id, r)
-      m.set(r.id.toLowerCase(), r)
+    const map = new Map<string, InspectionOutcomeConfigRow>()
+    for (const row of inspectionOutcomeRows) {
+      map.set(row.id, row)
+      map.set(row.id.toLowerCase(), row)
     }
-    return m
+    return map
   }, [inspectionOutcomeRows])
 
   useEffect(() => {
@@ -59,7 +89,7 @@ export default function OpportunitiesPage() {
           setInspectionOutcomeRows(data.outcomes)
         }
       } catch {
-        // keep empty lookup; labels fall back to inspectionOutcomeLabels / title case
+        // keep defaults
       }
     })()
     return () => {
@@ -71,20 +101,31 @@ export default function OpportunitiesPage() {
     loadOpportunities()
   }, [])
 
+  useEffect(() => {
+    loadInsideSales()
+  }, [])
+
+  useEffect(() => {
+    if (insideSalesAccessChecked && activeView === 'inside_sales' && !canViewInsideSalesTab) {
+      const next = new URLSearchParams(searchParams.toString())
+      next.delete('view')
+      router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
+    }
+  }, [activeView, canViewInsideSalesTab, insideSalesAccessChecked, pathname, router, searchParams])
+
   const loadOpportunities = async () => {
     setLoading(true)
     setError(null)
-    
+
     try {
-      const url = '/api/opportunities?full=true'
-      const response = await fetch(url, { credentials: 'same-origin' })
+      const response = await fetch('/api/opportunities?full=true', { credentials: 'same-origin' })
       if (!response.ok) {
-        const data = await response.json()
+        const data = await response.json().catch(() => ({}))
         setError(data.error || 'Failed to load opportunities')
         setOpportunities([])
         return
       }
-      
+
       const { opportunities: opps } = await response.json()
       setOpportunities(opps || [])
     } catch (err) {
@@ -96,25 +137,116 @@ export default function OpportunitiesPage() {
     }
   }
 
+  const loadInsideSales = async () => {
+    setInsideSalesLoading(true)
+    setInsideSalesError(null)
+
+    try {
+      const response = await fetch('/api/opportunities/inside-sales', {
+        credentials: 'same-origin',
+      })
+
+      if (response.status === 403) {
+        setCanViewInsideSalesTab(false)
+        setCanSelfAssignInsideSales(false)
+        setInsideSalesItems([])
+        return
+      }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to load inside sales queue')
+      }
+
+      const data = await response.json()
+      setCanViewInsideSalesTab(Boolean(data.canView))
+      setCanSelfAssignInsideSales(Boolean(data.canSelfAssign))
+      setInsideSalesItems(Array.isArray(data.items) ? data.items : [])
+    } catch (err) {
+      console.error('Error loading inside sales queue:', err)
+      setInsideSalesError(err instanceof Error ? err.message : 'Failed to load inside sales queue')
+      setInsideSalesItems([])
+    } finally {
+      setInsideSalesAccessChecked(true)
+      setInsideSalesLoading(false)
+    }
+  }
+
   const filteredOpportunities = useMemo(
     () => applyOpportunityListFilters(opportunities, filters),
     [opportunities, filters]
   )
 
+  const filteredInsideSalesItems = useMemo(() => {
+    const query = filters.q.trim().toLowerCase()
+    const status = filters.status.trim().toLowerCase()
+    const projectType = filters.project_type.trim().toLowerCase()
+    const queueType = filters.inspection_outcome.trim().toLowerCase()
+
+    return insideSalesItems.filter((item) => {
+      if (query) {
+        const matchesQuery = [
+          item.customerName,
+          item.customerPhone,
+          item.address_text,
+          item.assignedToName,
+          item.closerName,
+        ].some((value) => String(value || '').toLowerCase().includes(query))
+        if (!matchesQuery) return false
+      }
+
+      if (status && String(item.status || '').toLowerCase() !== status) return false
+      if (projectType && String(item.project_type || '').toLowerCase() !== projectType) return false
+
+      if (queueType && queueType !== 'none' && item.followUpKind !== queueType) return false
+      if (queueType === 'none') return false
+
+      return true
+    })
+  }, [filters, insideSalesItems])
+
   const setFilter = (key: 'q' | 'status' | 'inspection_outcome' | 'project_type', value: string) => {
     const nextFilters = { ...filters, [key]: value }
     const query = buildOpportunityListQuery(nextFilters)
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    const next = query ? new URLSearchParams(query) : new URLSearchParams()
+    if (activeView === 'inside_sales') next.set('view', 'inside_sales')
+    router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
   }
 
   const clearFilters = () => {
     const query = buildOpportunityListQuery(EMPTY_OPPORTUNITY_LIST_FILTERS)
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    const next = query ? new URLSearchParams(query) : new URLSearchParams()
+    if (activeView === 'inside_sales') next.set('view', 'inside_sales')
+    router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
+  }
+
+  const setView = (view: 'all' | 'inside_sales') => {
+    const next = new URLSearchParams(searchParams.toString())
+    if (view === 'inside_sales') {
+      next.set('view', 'inside_sales')
+    } else {
+      next.delete('view')
+    }
+    router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
   }
 
   const hasActiveFilters =
     filters.q || filters.status || filters.inspection_outcome || filters.project_type
   const detailQueryString = buildOpportunityListQuery(filters, { queue: '1' })
+  const insideSalesDetailQueryString = useMemo(() => {
+    const next = new URLSearchParams()
+    next.set('view', 'inside_sales')
+    if (filters.q) next.set('q', filters.q)
+    if (filters.status) next.set('status', filters.status)
+    if (filters.inspection_outcome) next.set('inspection_outcome', filters.inspection_outcome)
+    if (filters.project_type) next.set('project_type', filters.project_type)
+    return next.toString()
+  }, [filters])
+  const insideSalesCounts = {
+    total: insideSalesItems.length,
+    didntSit: insideSalesItems.filter((item) => item.followUpKind === 'didnt_sit').length,
+    insurance: insideSalesItems.filter((item) => item.followUpKind === 'insurance').length,
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -123,9 +255,36 @@ export default function OpportunitiesPage() {
         <div className="flex justify-between items-center mb-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Opportunities</h1>
-            <p className="text-gray-500 mt-1 text-sm">{filteredOpportunities.length} opportunities</p>
+            <p className="text-gray-500 mt-1 text-sm">
+              {activeView === 'inside_sales'
+                ? `${filteredInsideSalesItems.length} inside sales follow-ups`
+                : `${filteredOpportunities.length} opportunities`}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setView('all')}
+                className={`rounded-full px-3 py-2 text-sm font-medium ${
+                  activeView === 'all' ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
+                }`}
+              >
+                All Opportunities
+              </button>
+              {insideSalesAccessChecked && canViewInsideSalesTab && (
+                <button
+                  type="button"
+                  onClick={() => setView('inside_sales')}
+                  className={`rounded-full px-3 py-2 text-sm font-medium ${
+                    activeView === 'inside_sales'
+                      ? 'bg-amber-500 text-white'
+                      : 'border border-gray-200 bg-white text-gray-700'
+                  }`}
+                >
+                  Inside Sales ({insideSalesCounts.total})
+                </button>
+              )}
+            </div>
           </div>
-          {/* Mobile filter toggle */}
           <button
             onClick={() => setShowFilters(!showFilters)}
             className="md:hidden flex items-center gap-1.5 px-3 py-2 bg-white border rounded-lg text-sm text-gray-700 shadow-sm"
@@ -138,14 +297,13 @@ export default function OpportunitiesPage() {
           </button>
         </div>
 
-        {/* Filters — always visible on desktop, toggleable on mobile */}
         <div className={`bg-white shadow rounded-lg p-4 mb-4 sm:mb-6 ${showFilters ? 'block' : 'hidden'} md:block`}>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
             <div className="sm:col-span-2 lg:col-span-1">
               <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
               <input
                 type="text"
-                placeholder="Name, address..."
+                placeholder={activeView === 'inside_sales' ? 'Name, phone, address...' : 'Name, address...'}
                 value={filters.q}
                 onChange={(e) => setFilter('q', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
@@ -167,27 +325,39 @@ export default function OpportunitiesPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Inspection Result</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                {activeView === 'inside_sales' ? 'Queue Type' : 'Inspection Result'}
+              </label>
               <select
                 value={filters.inspection_outcome}
                 onChange={(e) => setFilter('inspection_outcome', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
-                <option value="">All Results</option>
-                <option value="none">No Inspection Yet</option>
-                {filters.inspection_outcome &&
-                  filters.inspection_outcome !== 'none' &&
-                  !inspectionOutcomeRows.some((o) => o.id === filters.inspection_outcome) && (
-                    <option value={filters.inspection_outcome}>
-                      {filters.inspection_outcome.replace(/_/g, ' ')} (legacy)
-                    </option>
-                  )}
-                {inspectionOutcomeRows.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                    {o.active === false ? ' — inactive' : ''}
-                  </option>
-                ))}
+                {activeView === 'inside_sales' ? (
+                  <>
+                    <option value="">All Queue Types</option>
+                    <option value="didnt_sit">Didn&apos;t Sit</option>
+                    <option value="insurance">Insurance Follow-Up</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="">All Results</option>
+                    <option value="none">No Inspection Yet</option>
+                    {filters.inspection_outcome &&
+                      filters.inspection_outcome !== 'none' &&
+                      !inspectionOutcomeRows.some((o) => o.id === filters.inspection_outcome) && (
+                        <option value={filters.inspection_outcome}>
+                          {filters.inspection_outcome.replace(/_/g, ' ')} (legacy)
+                        </option>
+                      )}
+                    {inspectionOutcomeRows.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                        {o.active === false ? ' — inactive' : ''}
+                      </option>
+                    ))}
+                  </>
+                )}
               </select>
             </div>
             <div>
@@ -223,12 +393,114 @@ export default function OpportunitiesPage() {
           </div>
         )}
 
+        {activeView === 'inside_sales' && insideSalesError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+            {insideSalesError}
+          </div>
+        )}
+
         <div className="bg-white shadow rounded-lg overflow-hidden">
-          {loading ? (
+          {activeView === 'inside_sales' ? (
+            insideSalesLoading ? (
+              <div className="p-8 text-center text-gray-500">Loading inside sales queue...</div>
+            ) : filteredInsideSalesItems.length > 0 ? (
+              <div className="p-4 sm:p-6 space-y-4">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                    <p className="text-sm font-medium text-gray-500">Queue size</p>
+                    <p className="mt-2 text-3xl font-bold text-gray-900">{insideSalesCounts.total}</p>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-amber-800">Didn&apos;t sit</p>
+                    <p className="mt-2 text-3xl font-bold text-amber-950">{insideSalesCounts.didntSit}</p>
+                  </div>
+                  <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-cyan-800">Insurance follow-up</p>
+                    <p className="mt-2 text-3xl font-bold text-cyan-950">{insideSalesCounts.insurance}</p>
+                  </div>
+                </div>
+
+                {filteredInsideSalesItems.map((item) => {
+                  const kindLabel =
+                    item.followUpKind === 'insurance' ? 'Insurance Follow-Up' : "Didn't Sit"
+                  const kindClasses =
+                    item.followUpKind === 'insurance'
+                      ? 'bg-cyan-100 text-cyan-800'
+                      : 'bg-amber-100 text-amber-800'
+
+                  return (
+                    <div key={item.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kindClasses}`}>
+                              {kindLabel}
+                            </span>
+                            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 capitalize">
+                              {String(item.followUpStatus || 'new').replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          <h2 className="mt-3 text-lg font-semibold text-gray-900">{item.customerName}</h2>
+                          <p className="mt-1 text-sm text-gray-600">{item.address_text || 'No address'}</p>
+                        </div>
+                        <div className="grid gap-3 text-sm sm:grid-cols-2 lg:min-w-[320px]">
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Phone</p>
+                            <p className="mt-1 font-medium text-gray-900">{item.customerPhone || 'No phone'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Assigned</p>
+                            <p className="mt-1 font-medium text-gray-900">{item.assignedToName || 'Unassigned'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Closer</p>
+                            <p className="mt-1 font-medium text-gray-900">{item.closerName || '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Next Follow-Up</p>
+                            <p className="mt-1 font-medium text-gray-900">
+                              {item.follow_up_at ? new Date(item.follow_up_at).toLocaleString() : 'Needs scheduling'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <Link
+                          href={`/opportunities/${item.id}${insideSalesDetailQueryString ? `?${insideSalesDetailQueryString}` : ''}`}
+                          className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          Open opportunity
+                        </Link>
+                      </div>
+
+                      <InsideSalesFollowUpDrawer
+                        opportunityId={item.id}
+                        customerName={item.customerName}
+                        customerPhone={item.customerPhone}
+                        followUpKind={item.followUpKind}
+                        assignedToName={item.assignedToName}
+                        statusLabel={String(item.followUpStatus || 'new').replace(/_/g, ' ')}
+                        nextFollowUpAt={item.follow_up_at}
+                        closerNotes={item.inspection_notes}
+                        visible
+                        canManage
+                        canSelfAssign={canSelfAssignInsideSales}
+                        activities={item.activities}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-gray-500">
+                {hasActiveFilters ? 'No inside sales follow-ups match your filters.' : 'No active inside sales follow-ups.'}
+              </div>
+            )
+          ) : loading ? (
             <div className="p-8 text-center text-gray-500">Loading opportunities...</div>
           ) : (
             <>
-              {/* Mobile cards — full card is tappable */}
               <div className="md:hidden divide-y divide-gray-100">
                 {filteredOpportunities.length > 0 ? (
                   filteredOpportunities.map((opportunity) => {
@@ -243,7 +515,6 @@ export default function OpportunitiesPage() {
                         href={`/opportunities/${opportunity.id}${detailQueryString ? `?${detailQueryString}` : ''}`}
                         className="block px-4 py-4 hover:bg-gray-50 active:bg-gray-100 transition"
                       >
-                        {/* Name + status badge */}
                         <div className="flex items-start justify-between gap-3 mb-1">
                           <p className="font-semibold text-gray-900 text-base leading-snug">{customerName}</p>
                           <span className={`shrink-0 px-2.5 py-0.5 text-xs font-semibold rounded-full capitalize ${
@@ -252,11 +523,7 @@ export default function OpportunitiesPage() {
                             {(opportunity.status || '—').replace(/_/g, ' ')}
                           </span>
                         </div>
-
-                        {/* Address */}
                         <p className="text-sm text-gray-500 mb-2 truncate">{opportunity.address_text || 'No address'}</p>
-
-                        {/* Type + inspection outcome */}
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600 capitalize">
                             {opportunity.project_type}
@@ -274,8 +541,6 @@ export default function OpportunitiesPage() {
                             </span>
                           )}
                         </div>
-
-                        {/* Assigned rep */}
                         {opportunity.users?.full_name && (
                           <p className="text-xs text-gray-400 mt-2">{opportunity.users.full_name}</p>
                         )}
@@ -294,104 +559,101 @@ export default function OpportunitiesPage() {
                 )}
               </div>
 
-              {/* Desktop/tablet table */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full min-w-[980px] divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Lead / Customer
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Address
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Type
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Inspection Result
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Assigned
-                    </th>
-                    <th className="sticky right-0 z-10 bg-gray-50 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredOpportunities.length > 0 ? (
-                    filteredOpportunities.map((opportunity) => {
-                      const outcomeInfo = getInspectionOutcomeDisplay(
-                        opportunity.inspection_outcome,
-                        outcomeLookup
-                      )
-                      return (
-                        <tr key={opportunity.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {opportunity.leads?.homeowner_name ||
-                                opportunity.customers?.name ||
-                                'N/A'}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="text-sm text-gray-900 max-w-xs truncate">
-                              {opportunity.address_text || 'N/A'}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
-                              {opportunity.project_type}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
-                              statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
-                            }`}>
-                              {(opportunity.status || '—').replace(/_/g, ' ')}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {outcomeInfo ? (
-                              <span
-                                className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                  outcomeInfo.style ? '' : outcomeInfo.color
-                                }`}
-                                style={outcomeInfo.style}
-                              >
-                                {outcomeInfo.label}
-                              </span>
-                            ) : (
-                              <span className="text-sm text-gray-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {opportunity.users?.full_name || 'Unassigned'}
-                          </td>
-                          <td className="sticky right-0 bg-white px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <Link
-                              href={`/opportunities/${opportunity.id}${detailQueryString ? `?${detailQueryString}` : ''}`}
-                              className="inline-flex min-h-[36px] items-center px-2 py-1 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900"
-                            >
-                              View
-                            </Link>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  ) : (
+                  <thead className="bg-gray-50">
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                        {hasActiveFilters ? 'No opportunities match your filters' : 'No opportunities found'}
-                      </td>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Lead / Customer
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Address
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Type
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Inspection Result
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Assigned
+                      </th>
+                      <th className="sticky right-0 z-10 bg-gray-50 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredOpportunities.length > 0 ? (
+                      filteredOpportunities.map((opportunity) => {
+                        const outcomeInfo = getInspectionOutcomeDisplay(
+                          opportunity.inspection_outcome,
+                          outcomeLookup
+                        )
+                        return (
+                          <tr key={opportunity.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">
+                                {opportunity.leads?.homeowner_name || opportunity.customers?.name || 'N/A'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="text-sm text-gray-900 max-w-xs truncate">
+                                {opportunity.address_text || 'N/A'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
+                                {opportunity.project_type}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
+                                statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {(opportunity.status || '—').replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {outcomeInfo ? (
+                                <span
+                                  className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                    outcomeInfo.style ? '' : outcomeInfo.color
+                                  }`}
+                                  style={outcomeInfo.style}
+                                >
+                                  {outcomeInfo.label}
+                                </span>
+                              ) : (
+                                <span className="text-sm text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {opportunity.users?.full_name || 'Unassigned'}
+                            </td>
+                            <td className="sticky right-0 bg-white px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <Link
+                                href={`/opportunities/${opportunity.id}${detailQueryString ? `?${detailQueryString}` : ''}`}
+                                className="inline-flex min-h-[36px] items-center px-2 py-1 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900"
+                              >
+                                View
+                              </Link>
+                            </td>
+                          </tr>
+                        )
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                          {hasActiveFilters ? 'No opportunities match your filters' : 'No opportunities found'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </>
           )}

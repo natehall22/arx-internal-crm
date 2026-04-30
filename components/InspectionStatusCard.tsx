@@ -360,7 +360,7 @@ export default function InspectionStatusCard({
               <h3 className="text-sm font-semibold text-violet-900 mb-1">Insurance follow-up grace period</h3>
               <p className="text-xs text-violet-800">
                 Submit this and you can keep working the lead for up to 7 days. If it is still unresolved after
-                that, it moves into the inside sales follow-up workflow.
+                that, it moves into the inside sales queue.
               </p>
             </div>
           )}

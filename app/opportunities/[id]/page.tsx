@@ -17,15 +17,12 @@ import DeleteProposalButton from '@/components/opportunities/DeleteProposalButto
 import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
-import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import OpportunityQueueSidebar from '@/components/opportunities/OpportunityQueueSidebar'
 import {
   canViewInsideSalesFollowUp,
   getInsideSalesFollowUpKind,
-  getInsideSalesFollowUpStatus,
   hasRepWorkingInsuranceFollowUp,
   hasActiveInsideSalesFollowUp,
-  isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 import {
   buildOpportunityListQuery,
@@ -43,7 +40,12 @@ export default async function OpportunityDetailPage({
   const queueFilters = filtersFromSearchParams(searchParams || {})
   const queueQueryString = buildOpportunityListQuery(queueFilters)
   const queueEnabled = String(searchParams?.queue || '') === '1'
-  const backHref = queueQueryString ? `/opportunities?${queueQueryString}` : '/opportunities'
+  const insideSalesView = String(searchParams?.view || '') === 'inside_sales'
+  const backParams = new URLSearchParams(queueQueryString)
+  if (insideSalesView) {
+    backParams.set('view', 'inside_sales')
+  }
+  const backHref = backParams.toString() ? `/opportunities?${backParams.toString()}` : '/opportunities'
   // Use service client to bypass RLS
   const supabase = createServiceClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -113,16 +115,6 @@ export default async function OpportunityDetailPage({
     viewerCustomRole = customRoleData
   }
 
-  let followUpAssignedUser: { full_name: string | null } | null = null
-  if (opportunity.assigned_user_id) {
-    const { data: assignedUserData } = await supabase
-      .from('users')
-      .select('full_name')
-      .eq('id', opportunity.assigned_user_id)
-      .maybeSingle()
-    followUpAssignedUser = assignedUserData
-  }
-
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
   const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
   const hasInsideSalesFollowUp = hasActiveInsideSalesFollowUp(opportunity)
@@ -135,12 +127,6 @@ export default async function OpportunityDetailPage({
         customRoleDisplayName: viewerCustomRole?.display_name || null,
       })
     : false
-  const canSelfAssignInsideSalesFollowUp = isInsideSalesRoleLike({
-    role: profile.role,
-    customRoleName: viewerCustomRole?.name || null,
-    customRoleDisplayName: viewerCustomRole?.display_name || null,
-  })
-  const insideSalesFollowUpStatus = getInsideSalesFollowUpStatus(opportunity)
   const insuranceGraceDeadlineLabel =
     hasRepWorkingInsuranceGrace && opportunity.follow_up_at
       ? new Date(opportunity.follow_up_at).toLocaleString()
@@ -372,9 +358,15 @@ export default async function OpportunityDetailPage({
     nextStep = {
       icon: '📞',
       title: 'Inside Sales Follow-Up Active',
-      body: 'The customer did not sit. Inside sales should work the follow-up and log call results here until it is ready to be rescheduled.',
+      body: 'The customer did not sit. Inside sales should work this from the inside sales queue until it is ready to be rescheduled.',
       bg: 'bg-amber-50 border-amber-200',
       titleColor: 'text-amber-900',
+      ...(canViewInsideSalesQueue
+        ? {
+            link: `/opportunities?view=inside_sales&q=${encodeURIComponent(customerName)}`,
+            linkLabel: 'Open inside sales queue',
+          }
+        : {}),
     }
   } else if (
     hasRepWorkingInsuranceGrace &&
@@ -396,9 +388,15 @@ export default async function OpportunityDetailPage({
     nextStep = {
       icon: '🛡️',
       title: 'Inside Sales Follow-Up Active',
-      body: 'Inside sales should keep working this follow-up until it is ready to be scheduled back to a closer or inspector.',
+      body: 'Inside sales should keep working this from the inside sales queue until it is ready to be scheduled back out.',
       bg: 'bg-violet-50 border-violet-200',
       titleColor: 'text-violet-900',
+      ...(canViewInsideSalesQueue
+        ? {
+            link: `/opportunities?view=inside_sales&q=${encodeURIComponent(customerName)}`,
+            linkLabel: 'Open inside sales queue',
+          }
+        : {}),
     }
   } else if (opportunity.inspection_outcome === 'rescheduled' || opportunity.inspection_outcome === 'not_home') {
     // Inspection couldn't happen — needs reschedule
@@ -478,7 +476,11 @@ export default async function OpportunityDetailPage({
                 href={backHref}
                 className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
               >
-                {queueEnabled ? '← Back to Filtered Opportunities' : '← Back to Opportunities'}
+                {insideSalesView
+                  ? '← Back to Inside Sales'
+                  : queueEnabled
+                    ? '← Back to Filtered Opportunities'
+                    : '← Back to Opportunities'}
               </Link>
             </div>
 
@@ -505,8 +507,12 @@ export default async function OpportunityDetailPage({
                       Rep Working Insurance
                     </span>
                   )}
-                  {hasInsideSalesFollowUp && !canViewInsideSalesQueue && (
-                    <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                  {hasInsideSalesFollowUp && (
+                    <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${
+                      insideSalesFollowUpKind === 'insurance'
+                        ? 'bg-violet-100 text-violet-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
                       Inside Sales Follow-Up Active
                     </span>
                   )}
@@ -617,23 +623,6 @@ export default async function OpportunityDetailPage({
               </div>
             </div>
           </div>
-        )}
-
-        {hasInsideSalesFollowUp && insideSalesFollowUpKind && (
-          <InsideSalesFollowUpDrawer
-            opportunityId={params.id}
-            customerName={customerName}
-            customerPhone={customerPhone}
-            followUpKind={insideSalesFollowUpKind}
-            assignedToName={followUpAssignedUser?.full_name || null}
-            statusLabel={insideSalesFollowUpStatus?.replace(/_/g, ' ') || 'new'}
-            nextFollowUpAt={opportunity.follow_up_at || null}
-            closerNotes={opportunity.inspection_notes || null}
-            visible
-            canManage={canViewInsideSalesQueue}
-            canSelfAssign={canSelfAssignInsideSalesFollowUp}
-            activities={(activities || []) as any[]}
-          />
         )}
 
         {/* Canvass Notes Section */}

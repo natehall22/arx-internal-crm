@@ -559,7 +559,7 @@ export default function AppointmentFeedbackPage() {
               <h3 className="font-medium text-purple-800 mb-2">Insurance follow-up grace period</h3>
               <p className="text-sm text-purple-700">
                 You can keep working this insurance lead for up to 7 days. If it is still not resolved after that,
-                it moves into the inside sales follow-up workflow.
+                it moves into the inside sales queue.
               </p>
             </div>
           )}
