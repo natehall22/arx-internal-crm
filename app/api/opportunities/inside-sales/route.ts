@@ -176,7 +176,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    function mergeInspectionDisplay(opportunity: any) {
+    const mergeInspectionDisplay = (opportunity: any) => {
       const candidates: Array<{ outcome: string; notes: string | null; created_at: string }> = []
 
       const byOpportunity = inspectionMap.get(opportunity.id)
