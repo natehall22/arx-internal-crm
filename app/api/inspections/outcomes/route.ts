@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
-  DEFAULT_INSPECTION_OUTCOMES,
+  mergeOrgInspectionOutcomesWithDefaults,
   sortInspectionOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
@@ -92,10 +92,8 @@ export async function GET(request: NextRequest) {
 
     const includeInactive = request.nextUrl.searchParams.get('include_inactive') === '1'
     const raw = org?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
-    const outcomes: InspectionOutcomeConfigRow[] =
-      Array.isArray(raw) && raw.length > 0
-        ? sortInspectionOutcomes(raw, { includeInactive })
-        : sortInspectionOutcomes(DEFAULT_INSPECTION_OUTCOMES, { includeInactive })
+    const merged = mergeOrgInspectionOutcomesWithDefaults(raw)
+    const outcomes = sortInspectionOutcomes(merged, { includeInactive })
 
     return NextResponse.json({ outcomes })
   } catch (error) {

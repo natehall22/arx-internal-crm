@@ -7,7 +7,7 @@ import {
 } from '@/lib/effective-inspection-state'
 import {
   getInspectionOutcomeConfig,
-  normalizeInspectionOutcomeRows,
+  mergeOrgInspectionOutcomesWithDefaults,
 } from '@/lib/inspection-outcomes'
 import {
   canViewInsideSalesFollowUp,
@@ -143,12 +143,14 @@ export async function GET(request: NextRequest) {
       .neq('status', 'won')
       .neq('status', 'lost')
       .order('follow_up_at', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      // PostgREST default max rows (~1000) can omit queue items after sort; raise explicitly (bounded).
+      .limit(8000),
       adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
     ])
 
     const inspectionOutcomeSettings = orgRow?.settings?.inspection_outcomes
-    const inspectionOutcomeRows = normalizeInspectionOutcomeRows(inspectionOutcomeSettings)
+    const inspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
 
     const rawOpportunities = opportunities || []
     const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)

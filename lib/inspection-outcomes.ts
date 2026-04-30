@@ -190,6 +190,31 @@ export function normalizeInspectionOutcomeRows(
   return rows.map((row, index) => normalizeInspectionOutcomeRow(row, index))
 }
 
+/**
+ * Org `settings.inspection_outcomes` is often partial; opportunities may still use canonical ids.
+ * Merge any built-in defaults missing from the saved list so API consumers get one catalog (org wins on same id).
+ */
+export function mergeOrgInspectionOutcomesWithDefaults(
+  rows: InspectionOutcomeConfigRow[] | null | undefined
+): InspectionOutcomeConfigRow[] {
+  const raw = Array.isArray(rows) && rows.length > 0 ? rows : []
+  if (raw.length === 0) {
+    return DEFAULT_INSPECTION_OUTCOMES.map((row, index) => normalizeInspectionOutcomeRow(row, index))
+  }
+  const seen = new Set(raw.map((r) => normalizeInspectionOutcomeId(r.id)))
+  const merged: InspectionOutcomeConfigRow[] = raw.map((row, index) =>
+    normalizeInspectionOutcomeRow(row, index)
+  )
+  for (const def of DEFAULT_INSPECTION_OUTCOMES) {
+    const id = normalizeInspectionOutcomeId(def.id)
+    if (!seen.has(id)) {
+      merged.push(normalizeInspectionOutcomeRow(def, merged.length))
+      seen.add(id)
+    }
+  }
+  return merged
+}
+
 export function getInspectionOutcomeConfig(
   orgRows: InspectionOutcomeConfigRow[] | null | undefined,
   outcomeId: string | null | undefined
@@ -197,9 +222,14 @@ export function getInspectionOutcomeConfig(
   const normalizedOutcomeId = normalizeInspectionOutcomeId(outcomeId)
   if (!normalizedOutcomeId) return null
   const rows = normalizeInspectionOutcomeRows(orgRows)
-  return (
-    rows.find((row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId) ?? null
+  const fromOrg = rows.find((row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId)
+  if (fromOrg) return fromOrg
+
+  /** Canonical id present on opportunity but omitted from saved org list — use built-in default row. */
+  const fromDefaults = DEFAULT_INSPECTION_OUTCOMES.find(
+    (row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId
   )
+  return fromDefaults ? normalizeInspectionOutcomeRow(fromDefaults, 0) : null
 }
 
 export function getInspectionOutcomeInsideSalesHandoff(
