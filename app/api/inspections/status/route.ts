@@ -20,8 +20,9 @@ import {
   normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
 import {
+  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
-  REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
+  REP_WORKING_HANDOFF_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
@@ -32,12 +33,13 @@ function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undef
 
 function isInsideSalesFollowUpPipelineStage(value: string | null | undefined) {
   const normalized = String(value || '').trim().toLowerCase()
+  const handoff = HANDOFF_INSIDE_SALES_PIPELINE_PREFIX.toLowerCase()
   return (
     normalized === 'inside_sales_didnt_sit' ||
     normalized.startsWith('inside_sales_didnt_sit_') ||
-    normalized === 'inside_sales_insurance_follow_up' ||
-    normalized.startsWith('inside_sales_insurance_follow_up_') ||
-    normalized === REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+    normalized === handoff ||
+    normalized.startsWith(`${handoff}_`) ||
+    normalized === REP_WORKING_HANDOFF_PIPELINE_PREFIX
   )
 }
 
@@ -488,7 +490,7 @@ export async function POST(request: NextRequest) {
           job_source: isInsuranceOutcome ? 'insurance' : 'retail',
           insurance_stage: isInsuranceOutcome ? 'contingency_signed' : null,
           pipeline_stage: delayedInsideSalesHandoffEnabled
-            ? REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+            ? REP_WORKING_HANDOFF_PIPELINE_PREFIX
             : isNotHomeOutcome
               ? 'inside_sales_didnt_sit'
               : null,
@@ -592,7 +594,7 @@ export async function POST(request: NextRequest) {
           opportunityUpdate.job_source = 'insurance'
           opportunityUpdate.insurance_stage = 'contingency_signed'
         }
-        opportunityUpdate.pipeline_stage = REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+        opportunityUpdate.pipeline_stage = REP_WORKING_HANDOFF_PIPELINE_PREFIX
         opportunityUpdate.follow_up_at = delayedInsideSalesHandoffAt
         opportunityUpdate.assigned_user_id = assignedCloserId
       }

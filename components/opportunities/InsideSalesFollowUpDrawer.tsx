@@ -16,7 +16,9 @@ type Props = {
   opportunityId: string
   customerName: string
   customerPhone: string | null
-  followUpKind: 'didnt_sit' | 'insurance'
+  followUpKind: 'didnt_sit' | 'handoff'
+  /** Admin inspection outcome label when followUpKind is handoff */
+  handoffOutcomeLabel?: string | null
   assignedToName: string | null
   statusLabel: string
   nextFollowUpAt: string | null
@@ -38,6 +40,7 @@ export default function InsideSalesFollowUpDrawer({
   customerName,
   customerPhone,
   followUpKind,
+  handoffOutcomeLabel,
   assignedToName,
   statusLabel,
   nextFollowUpAt,
@@ -70,15 +73,18 @@ export default function InsideSalesFollowUpDrawer({
     [activities]
   )
 
-  const followUpBadgeLabel = followUpKind === 'insurance' ? 'Inspection Follow-Up' : "Didn't Sit"
+  const followUpBadgeLabel =
+    followUpKind === 'handoff'
+      ? handoffOutcomeLabel?.trim() || 'Inspection handoff'
+      : "Didn't Sit"
   const launcherLabel =
-    followUpKind === 'insurance'
+    followUpKind === 'handoff'
       ? 'Inside sales follow-up active'
       : 'Inside sales follow-up active'
   const drawerEyebrow =
-    followUpKind === 'insurance' ? 'Inside Sales Follow-Up' : 'Inside Sales Follow-Up'
+    followUpKind === 'handoff' ? 'Inside Sales Follow-Up' : 'Inside Sales Follow-Up'
   const schedulePlaceholder =
-    followUpKind === 'insurance'
+    followUpKind === 'handoff'
       ? 'Example: Customer is ready for the next visit. Review prior notes before arriving and confirm the right decision-maker will be there.'
       : 'Example: Customer available after 6 PM. Wife needs Spanish support. Confirm husband is home before driving out.'
 

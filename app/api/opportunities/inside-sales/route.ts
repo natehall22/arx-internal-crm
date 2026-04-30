@@ -6,6 +6,10 @@ import {
   withEffectiveInspectionFields,
 } from '@/lib/effective-inspection-state'
 import {
+  getInspectionOutcomeConfig,
+  normalizeInspectionOutcomeRows,
+} from '@/lib/inspection-outcomes'
+import {
   canViewInsideSalesFollowUp,
   getInsideSalesFollowUpKind,
   getInsideSalesFollowUpStatus,
@@ -143,6 +147,7 @@ export async function GET(request: NextRequest) {
     ])
 
     const inspectionOutcomeSettings = orgRow?.settings?.inspection_outcomes
+    const inspectionOutcomeRows = normalizeInspectionOutcomeRows(inspectionOutcomeSettings)
 
     const rawOpportunities = opportunities || []
     const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)
@@ -180,6 +185,11 @@ export async function GET(request: NextRequest) {
       .map((opportunity: any) => {
         const lead = Array.isArray(opportunity.leads) ? opportunity.leads[0] : opportunity.leads
         const customer = Array.isArray(opportunity.customers) ? opportunity.customers[0] : opportunity.customers
+        const kind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeSettings)
+        const outcomeCfg =
+          kind === 'handoff'
+            ? getInspectionOutcomeConfig(inspectionOutcomeRows, opportunity.inspection_outcome)
+            : null
         return {
           id: opportunity.id,
           status: opportunity.status,
@@ -191,7 +201,8 @@ export async function GET(request: NextRequest) {
           customerPhone: lead?.phone || customer?.phone || null,
           closerUserId: lead?.closer_user_id || null,
           assigned_user_id: opportunity.assigned_user_id,
-          followUpKind: getInsideSalesFollowUpKind(opportunity, inspectionOutcomeSettings),
+          followUpKind: kind,
+          followUpOutcomeLabel: outcomeCfg?.label ?? null,
           followUpStatus: getInsideSalesFollowUpStatus(opportunity, inspectionOutcomeSettings),
         }
       })
@@ -251,6 +262,7 @@ export async function GET(request: NextRequest) {
       customerName: item.customerName,
       customerPhone: item.customerPhone,
       followUpKind: item.followUpKind,
+      followUpOutcomeLabel: item.followUpOutcomeLabel,
       followUpStatus: item.followUpStatus,
       assignedToName: item.assigned_user_id
         ? userNameMap.get(item.assigned_user_id) || 'Assigned'
@@ -272,7 +284,7 @@ export async function GET(request: NextRequest) {
       counts: {
         total: items.length,
         didntSit: items.filter((item: any) => item.followUpKind === 'didnt_sit').length,
-        insurance: items.filter((item: any) => item.followUpKind === 'insurance').length,
+        handoff: items.filter((item: any) => item.followUpKind === 'handoff').length,
       },
     })
   } catch (error) {

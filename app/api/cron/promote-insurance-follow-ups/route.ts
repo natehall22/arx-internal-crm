@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
-  INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
-  REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
+  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+  REP_WORKING_HANDOFF_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 import {
@@ -72,13 +72,13 @@ export async function GET(request: NextRequest) {
 
       const pipelineStage = String(opportunity.pipeline_stage || '').trim().toLowerCase()
       if (
-        pipelineStage === INSURANCE_FOLLOW_UP_PIPELINE_PREFIX ||
-        pipelineStage.startsWith(`${INSURANCE_FOLLOW_UP_PIPELINE_PREFIX}_`)
+        pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
+        pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)
       ) {
         continue
       }
 
-      if (pipelineStage === REP_WORKING_INSURANCE_FOLLOW_UP_PIPELINE_PREFIX) {
+      if (pipelineStage === REP_WORKING_HANDOFF_PIPELINE_PREFIX) {
         if (Boolean(opportunity.follow_up_at) && String(opportunity.follow_up_at) <= nowIso) {
           overdueOpportunities.push({
             ...opportunity,
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
       const { data: updatedOpportunity, error: updateError } = await admin
         .from('opportunities')
         .update({
-          pipeline_stage: INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
+          pipeline_stage: HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
           assigned_user_id: null,
           follow_up_at: nowIso,
         })
@@ -212,7 +212,7 @@ export async function GET(request: NextRequest) {
               opportunity_id: opportunity.id,
               lead_id: opportunity.lead_id,
               queue_type: normalizeInspectionOutcomeId(opportunity.inspection_outcome) || 'inspection_follow_up',
-              pipeline_stage: INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
+              pipeline_stage: HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
               automated: true,
             },
           }))

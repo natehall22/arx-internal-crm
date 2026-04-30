@@ -10,7 +10,7 @@ import {
   DIDNT_SIT_PIPELINE_PREFIX,
   getInsideSalesFollowUpKind,
   hasActiveInsideSalesFollowUp,
-  INSURANCE_FOLLOW_UP_PIPELINE_PREFIX,
+  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
   pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
@@ -307,8 +307,8 @@ export async function POST(
 
     const followUpKind = getInsideSalesFollowUpKind(opportunityEffective, inspectionOutcomeSettings)
     const pipelinePrefix =
-      followUpKind === 'insurance'
-        ? INSURANCE_FOLLOW_UP_PIPELINE_PREFIX
+      followUpKind === 'handoff'
+        ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
         : DIDNT_SIT_PIPELINE_PREFIX
 
     const body = await request.json()
@@ -533,8 +533,8 @@ export async function POST(
         .update({
           assigned_user_id: opportunity.assigned_user_id || profile.id,
           pipeline_stage:
-            followUpKind === 'insurance'
-              ? `${INSURANCE_FOLLOW_UP_PIPELINE_PREFIX}_scheduled`
+            followUpKind === 'handoff'
+              ? `${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_scheduled`
               : `${DIDNT_SIT_PIPELINE_PREFIX}_rescheduled`,
           follow_up_at: null,
           inspection_outcome: null,
@@ -581,7 +581,7 @@ export async function POST(
     } else {
       updateData.assigned_user_id = opportunity.assigned_user_id || profile.id
       const stageSuffix =
-        action === 'mark_rescheduled' && followUpKind === 'insurance'
+        action === 'mark_rescheduled' && followUpKind === 'handoff'
           ? 'scheduled'
           : PIPELINE_STAGE_SUFFIX_BY_ACTION[action]
       updateData.pipeline_stage = `${pipelinePrefix}_${stageSuffix}`

@@ -39,7 +39,8 @@ type InsideSalesItem = {
   follow_up_at: string | null
   customerName: string
   customerPhone: string | null
-  followUpKind: 'didnt_sit' | 'insurance'
+  followUpKind: 'didnt_sit' | 'handoff'
+  followUpOutcomeLabel?: string | null
   followUpStatus: string | null
   assignedToName: string | null
   closerName: string | null
@@ -181,7 +182,9 @@ export default function OpportunitiesPage() {
     const query = filters.q.trim().toLowerCase()
     const status = filters.status.trim().toLowerCase()
     const projectType = filters.project_type.trim().toLowerCase()
-    const queueType = filters.inspection_outcome.trim().toLowerCase()
+    const queueTypeRaw = filters.inspection_outcome.trim().toLowerCase()
+    const queueType =
+      queueTypeRaw === 'insurance' ? 'handoff' : queueTypeRaw
 
     return insideSalesItems.filter((item) => {
       if (query) {
@@ -245,7 +248,7 @@ export default function OpportunitiesPage() {
   const insideSalesCounts = {
     total: insideSalesItems.length,
     didntSit: insideSalesItems.filter((item) => item.followUpKind === 'didnt_sit').length,
-    insurance: insideSalesItems.filter((item) => item.followUpKind === 'insurance').length,
+    handoff: insideSalesItems.filter((item) => item.followUpKind === 'handoff').length,
   }
 
   return (
@@ -337,7 +340,7 @@ export default function OpportunitiesPage() {
                   <>
                     <option value="">All Queue Types</option>
                     <option value="didnt_sit">Didn&apos;t Sit</option>
-                    <option value="insurance">Insurance Follow-Up</option>
+                    <option value="handoff">Inspection handoff (admin)</option>
                   </>
                 ) : (
                   <>
@@ -415,16 +418,18 @@ export default function OpportunitiesPage() {
                     <p className="mt-2 text-3xl font-bold text-amber-950">{insideSalesCounts.didntSit}</p>
                   </div>
                   <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
-                    <p className="text-sm font-medium text-cyan-800">Insurance follow-up</p>
-                    <p className="mt-2 text-3xl font-bold text-cyan-950">{insideSalesCounts.insurance}</p>
+                    <p className="text-sm font-medium text-cyan-800">Inspection handoff</p>
+                    <p className="mt-2 text-3xl font-bold text-cyan-950">{insideSalesCounts.handoff}</p>
                   </div>
                 </div>
 
                 {filteredInsideSalesItems.map((item) => {
                   const kindLabel =
-                    item.followUpKind === 'insurance' ? 'Insurance Follow-Up' : "Didn't Sit"
+                    item.followUpKind === 'handoff'
+                      ? item.followUpOutcomeLabel || 'Inspection handoff'
+                      : "Didn't Sit"
                   const kindClasses =
-                    item.followUpKind === 'insurance'
+                    item.followUpKind === 'handoff'
                       ? 'bg-cyan-100 text-cyan-800'
                       : 'bg-amber-100 text-amber-800'
 
@@ -479,6 +484,7 @@ export default function OpportunitiesPage() {
                         customerName={item.customerName}
                         customerPhone={item.customerPhone}
                         followUpKind={item.followUpKind}
+                        handoffOutcomeLabel={item.followUpOutcomeLabel ?? null}
                         assignedToName={item.assignedToName}
                         statusLabel={String(item.followUpStatus || 'new').replace(/_/g, ' ')}
                         nextFollowUpAt={item.follow_up_at}

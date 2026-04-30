@@ -17,11 +17,15 @@ import DeleteProposalButton from '@/components/opportunities/DeleteProposalButto
 import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
+import {
+  getInspectionOutcomeConfig,
+  normalizeInspectionOutcomeRows,
+} from '@/lib/inspection-outcomes'
 import OpportunityQueueSidebar from '@/components/opportunities/OpportunityQueueSidebar'
 import {
   canViewInsideSalesFollowUp,
   getInsideSalesFollowUpKind,
-  hasRepWorkingInsuranceFollowUp,
+  hasRepWorkingHandoffFollowUp,
   hasActiveInsideSalesFollowUp,
 } from '@/lib/inside-sales-follow-up'
 import {
@@ -157,7 +161,7 @@ export default async function OpportunityDetailPage({
     opportunityForInspectionUi,
     inspectionOutcomeSettings
   )
-  const hasRepWorkingInsuranceGrace = hasRepWorkingInsuranceFollowUp(
+  const hasRepWorkingHandoffGrace = hasRepWorkingHandoffFollowUp(
     opportunityForInspectionUi,
     inspectionOutcomeSettings
   )
@@ -168,9 +172,18 @@ export default async function OpportunityDetailPage({
         customRoleDisplayName: viewerCustomRole?.display_name || null,
       })
     : false
-  const insuranceGraceDeadlineLabel =
-    hasRepWorkingInsuranceGrace && opportunity.follow_up_at
+  const handoffGraceDeadlineLabel =
+    hasRepWorkingHandoffGrace && opportunity.follow_up_at
       ? new Date(opportunity.follow_up_at).toLocaleString()
+      : null
+
+  const inspectionRowsForBanner = normalizeInspectionOutcomeRows(inspectionOutcomeSettings)
+  const handoffInspectionLabel =
+    insideSalesFollowUpKind === 'handoff'
+      ? getInspectionOutcomeConfig(
+          inspectionRowsForBanner,
+          opportunityForInspectionUi.inspection_outcome
+        )?.label ?? null
       : null
 
   const { data: activities } = await supabase
@@ -397,26 +410,28 @@ export default async function OpportunityDetailPage({
         : {}),
     }
   } else if (
-    hasRepWorkingInsuranceGrace &&
+    hasRepWorkingHandoffGrace &&
     !hasInsideSalesFollowUp
   ) {
     nextStep = {
       icon: '🛡️',
       title: 'Rep Working Follow-Up',
-      body: insuranceGraceDeadlineLabel
-        ? `The rep can keep working this follow-up until ${insuranceGraceDeadlineLabel}. If it is still unresolved after that, inside sales takes over.`
+      body: handoffGraceDeadlineLabel
+        ? `The rep can keep working this follow-up until ${handoffGraceDeadlineLabel}. If it is still unresolved after that, inside sales takes over.`
         : 'The rep can keep working this follow-up for a limited grace period before inside sales takes over.',
       bg: 'bg-violet-50 border-violet-200',
       titleColor: 'text-violet-900',
     }
   } else if (
     hasInsideSalesFollowUp &&
-    insideSalesFollowUpKind === 'insurance'
+    insideSalesFollowUpKind === 'handoff'
   ) {
     nextStep = {
       icon: '🛡️',
       title: 'Inside Sales Follow-Up Active',
-      body: 'Inside sales should keep working this from the inside sales queue until it is ready to be scheduled back out.',
+      body: handoffInspectionLabel
+        ? `Inside sales should work this (${handoffInspectionLabel}) from the inside sales queue until it is ready to be scheduled back out.`
+        : 'Inside sales should keep working this from the inside sales queue until it is ready to be scheduled back out.',
       bg: 'bg-violet-50 border-violet-200',
       titleColor: 'text-violet-900',
       ...(canViewInsideSalesQueue
@@ -530,18 +545,19 @@ export default async function OpportunityDetailPage({
                   <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 capitalize">
                     {opportunity.project_type || '—'}
                   </span>
-                  {hasRepWorkingInsuranceGrace && !hasInsideSalesFollowUp && (
+                  {hasRepWorkingHandoffGrace && !hasInsideSalesFollowUp && (
                     <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-violet-100 text-violet-800">
-                      Rep Working Insurance
+                      Rep working (grace)
                     </span>
                   )}
                   {hasInsideSalesFollowUp && (
                     <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${
-                      insideSalesFollowUpKind === 'insurance'
+                      insideSalesFollowUpKind === 'handoff'
                         ? 'bg-violet-100 text-violet-800'
                         : 'bg-amber-100 text-amber-800'
                     }`}>
                       Inside Sales Follow-Up Active
+                      {handoffInspectionLabel ? ` · ${handoffInspectionLabel}` : ''}
                     </span>
                   )}
                 </div>
