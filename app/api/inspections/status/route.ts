@@ -20,27 +20,11 @@ import {
   normalizeInspectionOutcomeId,
   normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
-import {
-  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
-  REP_WORKING_HANDOFF_PIPELINE_PREFIX,
-} from '@/lib/inside-sales-follow-up'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
   if (row == null) return null
   return Array.isArray(row) ? row[0] ?? null : row
-}
-
-function isInsideSalesFollowUpPipelineStage(value: string | null | undefined) {
-  const normalized = String(value || '').trim().toLowerCase()
-  const handoff = HANDOFF_INSIDE_SALES_PIPELINE_PREFIX.toLowerCase()
-  return (
-    normalized === 'inside_sales_didnt_sit' ||
-    normalized.startsWith('inside_sales_didnt_sit_') ||
-    normalized === handoff ||
-    normalized.startsWith(`${handoff}_`) ||
-    normalized === REP_WORKING_HANDOFF_PIPELINE_PREFIX
-  )
 }
 
 function getAdminClient() {
@@ -382,11 +366,6 @@ export async function POST(request: NextRequest) {
     const isInsuranceOutcome = normalizeInspectionOutcomeId(outcome) === 'insurance_follow_up'
     const delayedInsideSalesHandoffEnabled =
       insideSalesHandoffConfig.enabled && insideSalesHandoffConfig.delayDays !== null
-    const delayedInsideSalesHandoffDays = insideSalesHandoffConfig.delayDays
-    const delayedInsideSalesHandoffAt =
-      delayedInsideSalesHandoffEnabled && delayedInsideSalesHandoffDays !== null
-        ? new Date(Date.now() + delayedInsideSalesHandoffDays * 24 * 60 * 60 * 1000).toISOString()
-        : null
     const shouldCreateOpportunity =
       Boolean(outcomeConfig?.converts_to_opportunity) || delayedInsideSalesHandoffEnabled
 
@@ -488,9 +467,6 @@ export async function POST(request: NextRequest) {
           inspection_notes: notes || null,
           job_source: isInsuranceOutcome ? 'insurance' : 'retail',
           insurance_stage: isInsuranceOutcome ? 'contingency_signed' : null,
-          pipeline_stage: delayedInsideSalesHandoffEnabled ? REP_WORKING_HANDOFF_PIPELINE_PREFIX : null,
-          follow_up_at: delayedInsideSalesHandoffEnabled ? delayedInsideSalesHandoffAt : null,
-          assigned_user_id: delayedInsideSalesHandoffEnabled ? assignedCloserId : closerForOpp,
         })
         .select()
         .single()
@@ -589,12 +565,6 @@ export async function POST(request: NextRequest) {
           opportunityUpdate.job_source = 'insurance'
           opportunityUpdate.insurance_stage = 'contingency_signed'
         }
-        opportunityUpdate.pipeline_stage = REP_WORKING_HANDOFF_PIPELINE_PREFIX
-        opportunityUpdate.follow_up_at = delayedInsideSalesHandoffAt
-        opportunityUpdate.assigned_user_id = assignedCloserId
-      } else if (!delayedInsideSalesHandoffEnabled && isInsideSalesFollowUpPipelineStage(opportunity?.pipeline_stage)) {
-        opportunityUpdate.pipeline_stage = null
-        opportunityUpdate.follow_up_at = null
       }
       // 'not_home' and 'rescheduled' keep status as 'open'
 

@@ -77,6 +77,52 @@ describe('inside sales follow-up queue visibility', () => {
     })
   })
 
+  it('uses admin-configured inside sales delay days for queue callability', () => {
+    const orgOutcomes = DEFAULT_INSPECTION_OUTCOMES.map((outcome) =>
+      outcome.id === 'insurance_follow_up'
+        ? { ...outcome, inside_sales_handoff_enabled: true, inside_sales_handoff_delay_days: 7 }
+        : outcome
+    )
+    const opportunity = {
+      status: 'in_progress',
+      inspection_outcome: 'insurance_follow_up',
+      inspection_outcome_at: '2026-04-30T13:00:00.000Z',
+      pipeline_stage: null,
+      follow_up_at: null,
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, orgOutcomes)).toBe('handoff')
+    expect(hasActiveInsideSalesFollowUp(opportunity, orgOutcomes)).toBe(true)
+    expect(getInsideSalesFollowUpStatus(opportunity, orgOutcomes)).toBe('rep_working')
+    expect(getInsideSalesCallability(opportunity, orgOutcomes)).toEqual({
+      callableNow: false,
+      eligibleAtIso: '2026-05-07T13:00:00.000Z',
+      adminHandoffDelayDays: 7,
+    })
+  })
+
+  it('marks admin-configured handoffs callable after the configured delay passes', () => {
+    const orgOutcomes = DEFAULT_INSPECTION_OUTCOMES.map((outcome) =>
+      outcome.id === 'insurance_follow_up'
+        ? { ...outcome, inside_sales_handoff_enabled: true, inside_sales_handoff_delay_days: 7 }
+        : outcome
+    )
+    const opportunity = {
+      status: 'in_progress',
+      inspection_outcome: 'insurance_follow_up',
+      inspection_outcome_at: '2026-04-23T12:59:59.000Z',
+      pipeline_stage: null,
+      follow_up_at: null,
+    }
+
+    expect(getInsideSalesFollowUpStatus(opportunity, orgOutcomes)).toBe('new')
+    expect(getInsideSalesCallability(opportunity, orgOutcomes)).toEqual({
+      callableNow: true,
+      eligibleAtIso: null,
+      adminHandoffDelayDays: 7,
+    })
+  })
+
   it('does not surface handoffs once resolved', () => {
     const opportunity = {
       status: 'in_progress',
