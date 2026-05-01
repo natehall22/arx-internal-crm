@@ -140,9 +140,6 @@ export async function GET(request: NextRequest) {
         inspection_outcome,
         inspection_outcome_at,
         inspection_notes,
-        pipeline_stage,
-        follow_up_at,
-        assigned_user_id,
         created_at,
         updated_at
       `)
@@ -175,7 +172,12 @@ export async function GET(request: NextRequest) {
     const inspectionOutcomeSettings = getInspectionOutcomeSettings(orgRow?.settings)
     const inspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
 
-    const rawOpportunities = opportunities || []
+    const rawOpportunities = (opportunities || []).map((opportunity: any) => ({
+      ...opportunity,
+      pipeline_stage: opportunity.pipeline_stage ?? null,
+      follow_up_at: opportunity.follow_up_at ?? null,
+      assigned_user_id: opportunity.assigned_user_id ?? null,
+    }))
     const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)
     const leadIds = rawOpportunities.map((opportunity: any) => opportunity.lead_id).filter(Boolean)
     const customerIds = rawOpportunities.map((opportunity: any) => opportunity.customer_id).filter(Boolean)
