@@ -81,49 +81,6 @@ function getAdminClient() {
   })
 }
 
-const OPPORTUNITY_PAGE_SIZE = 1000
-const OPPORTUNITY_SELECT = `
-  id,
-  lead_id,
-  status,
-  address_text,
-  project_type,
-  inspection_outcome,
-  inspection_outcome_at,
-  inspection_notes,
-  pipeline_stage,
-  follow_up_at,
-  assigned_user_id,
-  created_at,
-  updated_at,
-  leads(homeowner_name, phone, closer_user_id),
-  customers(name, phone)
-`
-
-async function fetchOpenOpportunityCandidates(adminClient: ReturnType<typeof getAdminClient>, orgId: string) {
-  const rows: any[] = []
-
-  for (let from = 0; ; from += OPPORTUNITY_PAGE_SIZE) {
-    const to = from + OPPORTUNITY_PAGE_SIZE - 1
-    const { data, error } = await adminClient
-      .from('opportunities')
-      .select(OPPORTUNITY_SELECT)
-      .eq('org_id', orgId)
-      .neq('status', 'won')
-      .neq('status', 'lost')
-      .order('follow_up_at', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: true })
-      .range(from, to)
-
-    if (error) throw error
-    rows.push(...(data || []))
-    if (!data || data.length < OPPORTUNITY_PAGE_SIZE) break
-  }
-
-  return rows
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -162,8 +119,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const [opportunities, { data: orgRow }] = await Promise.all([
-      fetchOpenOpportunityCandidates(adminClient, profile.org_id),
+    const [{ data: opportunities }, { data: orgRow }] = await Promise.all([
+      adminClient
+      .from('opportunities')
+      .select(`
+        id,
+        lead_id,
+        status,
+        address_text,
+        project_type,
+        inspection_outcome,
+        inspection_outcome_at,
+        inspection_notes,
+        pipeline_stage,
+        follow_up_at,
+        assigned_user_id,
+        created_at,
+        updated_at,
+        leads(homeowner_name, phone, closer_user_id),
+        customers(name, phone)
+      `)
+      .eq('org_id', profile.org_id)
+      .neq('status', 'won')
+      .neq('status', 'lost')
+      .order('follow_up_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      // PostgREST default max rows (~1000) can omit queue items after sort; raise explicitly (bounded).
+      .limit(8000),
       adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
     ])
 
