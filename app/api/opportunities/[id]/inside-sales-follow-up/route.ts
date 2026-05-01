@@ -7,12 +7,8 @@ import {
 } from '@/lib/effective-inspection-state'
 import {
   canViewInsideSalesFollowUp,
-  DIDNT_SIT_PIPELINE_PREFIX,
-  getInsideSalesFollowUpKind,
   hasActiveInsideSalesFollowUp,
-  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
-  pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
@@ -95,14 +91,6 @@ type ActionType =
   | 'mark_unresponsive'
   | 'mark_lost'
   | 'schedule_back_to_closer'
-
-const PIPELINE_STAGE_SUFFIX_BY_ACTION: Record<Exclude<ActionType, 'claim_self' | 'schedule_back_to_closer'>, string> = {
-  log_call: 'attempting_contact',
-  log_text: 'attempting_contact',
-  mark_rescheduled: 'rescheduled',
-  mark_unresponsive: 'unresponsive',
-  mark_lost: 'lost',
-}
 
 async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
   const { data: tokenData } = await adminClient
@@ -266,7 +254,7 @@ export async function POST(
     const [{ data: opportunity }, { data: orgRow }] = await Promise.all([
       admin
         .from('opportunities')
-        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, pipeline_stage, assigned_user_id, notes, created_at, updated_at, inspection_notes')
+        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, notes, created_at, updated_at, inspection_notes')
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
         .single(),
@@ -275,6 +263,13 @@ export async function POST(
 
     if (!opportunity) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    const opportunityForFollowUp = {
+      ...opportunity,
+      pipeline_stage: null,
+      assigned_user_id: null,
+      follow_up_at: null,
     }
 
     const inspectionOutcomeSettings = orgRow?.settings?.inspection_outcomes
@@ -297,7 +292,7 @@ export async function POST(
     const inspectionByOpportunityId = mapLatestInspectionByOpportunityId(oppInspectionRows || [])
     const inspectionByLeadId = mapLatestInspectionByLeadId(leadInspectionRows || [])
     const opportunityEffective = withEffectiveInspectionFields(
-      opportunity as any,
+      opportunityForFollowUp as any,
       inspectionByOpportunityId,
       inspectionByLeadId
     )
@@ -306,16 +301,9 @@ export async function POST(
       return NextResponse.json({ error: 'No active inside sales follow-up for this opportunity' }, { status: 400 })
     }
 
-    const followUpKind = getInsideSalesFollowUpKind(opportunityEffective, inspectionOutcomeSettings)
-    const pipelinePrefix =
-      followUpKind === 'handoff'
-        ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
-        : DIDNT_SIT_PIPELINE_PREFIX
-
     const body = await request.json()
     const action = String(body.action || '') as ActionType
     const note = typeof body.note === 'string' ? body.note.trim() : ''
-    const nextFollowUpAt = typeof body.next_follow_up_at === 'string' ? body.next_follow_up_at : null
     const result = typeof body.result === 'string' ? body.result.trim() : ''
     const schedule = body.schedule && typeof body.schedule === 'object' ? body.schedule : null
 
@@ -532,12 +520,6 @@ export async function POST(
       const { data: updatedOpportunity, error: scheduleUpdateError } = await admin
         .from('opportunities')
         .update({
-          assigned_user_id: opportunity.assigned_user_id || profile.id,
-          pipeline_stage:
-            followUpKind === 'handoff'
-              ? `${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_scheduled`
-              : `${DIDNT_SIT_PIPELINE_PREFIX}_rescheduled`,
-          follow_up_at: null,
           inspection_outcome: null,
           inspection_outcome_at: null,
           inspection_notes: null,
@@ -545,7 +527,7 @@ export async function POST(
         })
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
-        .select('id, status, pipeline_stage, follow_up_at, assigned_user_id, notes, inspection_outcome, inspection_outcome_at, inspection_notes')
+        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes')
         .single()
 
       if (scheduleUpdateError || !updatedOpportunity) {
@@ -575,18 +557,9 @@ export async function POST(
       })) {
         return NextResponse.json({ error: 'Only inside sales users can self-assign follow-ups' }, { status: 403 })
       }
-      updateData.assigned_user_id = profile.id
-      updateData.pipeline_stage = pipelineStageForInsideSalesClaim(opportunity, pipelinePrefix)
       activityType = 'status_change'
       activityBody = 'Inside sales follow-up claimed.'
     } else {
-      updateData.assigned_user_id = opportunity.assigned_user_id || profile.id
-      const stageSuffix =
-        action === 'mark_rescheduled' && followUpKind === 'handoff'
-          ? 'scheduled'
-          : PIPELINE_STAGE_SUFFIX_BY_ACTION[action]
-      updateData.pipeline_stage = `${pipelinePrefix}_${stageSuffix}`
-
       if (action === 'log_call' || action === 'log_text') {
         if (!result) {
           return NextResponse.json({ error: 'Please choose a result before saving.' }, { status: 400 })
@@ -596,35 +569,52 @@ export async function POST(
       } else if (action === 'mark_rescheduled') {
         activityType = 'status_change'
         activityBody = `Inside sales marked rescheduled${note ? ` — ${note}` : ''}`
+        updateData.inspection_outcome = null
+        updateData.inspection_outcome_at = null
+        updateData.inspection_notes = null
       } else if (action === 'mark_unresponsive') {
         activityType = 'status_change'
         activityBody = `Inside sales marked unresponsive${note ? ` — ${note}` : ''}`
+        updateData.inspection_outcome = null
+        updateData.inspection_outcome_at = null
+        updateData.inspection_notes = null
       } else if (action === 'mark_lost') {
         activityType = 'status_change'
         activityBody = `Inside sales marked lost${note ? ` — ${note}` : ''}`
         updateData.status = 'lost'
+        updateData.inspection_outcome = null
+        updateData.inspection_outcome_at = null
+        updateData.inspection_notes = null
       }
     }
-
-    updateData.follow_up_at =
-      action === 'mark_rescheduled' || action === 'mark_lost'
-        ? null
-        : nextFollowUpAt || null
 
     if (note) {
       updateData.notes = note
     }
 
-    const { data: updatedOpportunity, error: updateError } = await admin
-      .from('opportunities')
-      .update(updateData)
-      .eq('id', opportunityId)
-      .eq('org_id', profile.org_id)
-      .select('id, status, pipeline_stage, follow_up_at, assigned_user_id, notes')
-      .single()
+    let updatedOpportunity: any = {
+      id: opportunity.id,
+      status: opportunity.status,
+      notes: opportunity.notes ?? null,
+      inspection_outcome: opportunity.inspection_outcome ?? null,
+      inspection_outcome_at: opportunity.inspection_outcome_at ?? null,
+      inspection_notes: opportunity.inspection_notes ?? null,
+    }
 
-    if (updateError || !updatedOpportunity) {
-      return NextResponse.json({ error: 'Failed to update inside sales follow-up' }, { status: 500 })
+    if (Object.keys(updateData).length > 0) {
+      const { data, error: updateError } = await admin
+        .from('opportunities')
+        .update(updateData)
+        .eq('id', opportunityId)
+        .eq('org_id', profile.org_id)
+        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes')
+        .single()
+
+      if (updateError || !data) {
+        return NextResponse.json({ error: 'Failed to update inside sales follow-up' }, { status: 500 })
+      }
+
+      updatedOpportunity = data
     }
 
     if (activityType && activityBody) {
