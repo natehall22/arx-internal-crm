@@ -39,6 +39,25 @@ describe('inside sales follow-up queue visibility', () => {
     })
   })
 
+  it("surfaces didn't-sit follow-ups immediately", () => {
+    const opportunity = {
+      status: 'open',
+      inspection_outcome: 'not_home',
+      inspection_outcome_at: '2026-05-01T13:00:00.000Z',
+      pipeline_stage: null,
+      follow_up_at: null,
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('didnt_sit')
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(true)
+    expect(getInsideSalesFollowUpStatus(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('new')
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
+      callableNow: true,
+      eligibleAtIso: null,
+      adminHandoffDelayDays: null,
+    })
+  })
+
   it('keeps empty-pipeline handoffs visible during the admin wait window', () => {
     const opportunity = {
       status: 'in_progress',

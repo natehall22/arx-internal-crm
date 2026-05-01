@@ -307,6 +307,9 @@ export function getInsideSalesFollowUpStatus(
   if (pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) {
     return pipelineStage.slice(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`.length) || 'new'
   }
+  if (getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes) === 'didnt_sit') {
+    return 'new'
+  }
   if (!inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)) return null
   if (onRepWorkingInsurancePipeline(pipelineStage)) {
     return repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ? 'new' : 'rep_working'
