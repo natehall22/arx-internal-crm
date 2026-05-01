@@ -229,6 +229,7 @@ export function getInsideSalesFollowUpKind(
   orgInspectionOutcomes?: OrgInspectionOutcomesArg
 ): InsideSalesQueueKind | null {
   const pipelineStage = normalize(opportunity.pipeline_stage)
+  const handoffEnabled = inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)
   if (isResolvedInsideSalesPipelineStage(pipelineStage)) return null
   if (
     pipelineStage === DIDNT_SIT_PIPELINE_PREFIX ||
@@ -240,6 +241,8 @@ export function getInsideSalesFollowUpKind(
   if (
     (pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
       pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) ||
+    (handoffEnabled && onRepWorkingInsurancePipeline(pipelineStage)) ||
+    (handoffEnabled && delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) ||
     repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ||
     delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes) ||
     legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)
