@@ -146,7 +146,6 @@ export async function GET(request: NextRequest) {
       .eq('org_id', profile.org_id)
       .neq('status', 'won')
       .neq('status', 'lost')
-      .order('follow_up_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false })
       // PostgREST default max rows (~1000) can omit queue items after sort; raise explicitly (bounded).
       .limit(8000),
