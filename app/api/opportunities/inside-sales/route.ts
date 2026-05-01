@@ -6,6 +6,7 @@ import {
   withEffectiveInspectionFields,
 } from '@/lib/effective-inspection-state'
 import {
+  type InspectionOutcomeConfigRow,
   getInspectionOutcomeConfig,
   mergeOrgInspectionOutcomesWithDefaults,
 } from '@/lib/inspection-outcomes'
@@ -81,6 +82,13 @@ function getAdminClient() {
   })
 }
 
+function getInspectionOutcomeSettings(settings: any): InspectionOutcomeConfigRow[] | null {
+  const raw = settings?.inspection_outcomes
+  if (Array.isArray(raw)) return raw
+  if (Array.isArray(raw?.outcomes)) return raw.outcomes
+  return null
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -119,11 +127,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const [{ data: opportunities }, { data: orgRow }] = await Promise.all([
+    const [{ data: opportunities, error: opportunitiesError }, { data: orgRow, error: orgError }] = await Promise.all([
       adminClient
       .from('opportunities')
       .select(`
         id,
+        customer_id,
         lead_id,
         status,
         address_text,
@@ -135,9 +144,7 @@ export async function GET(request: NextRequest) {
         follow_up_at,
         assigned_user_id,
         created_at,
-        updated_at,
-        leads(homeowner_name, phone, closer_user_id),
-        customers(name, phone)
+        updated_at
       `)
       .eq('org_id', profile.org_id)
       .neq('status', 'won')
@@ -149,12 +156,69 @@ export async function GET(request: NextRequest) {
       adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
     ])
 
-    const inspectionOutcomeSettings = orgRow?.settings?.inspection_outcomes
+    if (opportunitiesError) {
+      console.error('Inside sales opportunities fetch error:', opportunitiesError)
+      return NextResponse.json(
+        { error: `Failed to fetch inside sales opportunities: ${opportunitiesError.message}` },
+        { status: 500 }
+      )
+    }
+
+    if (orgError) {
+      console.error('Inside sales org settings fetch error:', orgError)
+      return NextResponse.json(
+        { error: `Failed to fetch inside sales settings: ${orgError.message}` },
+        { status: 500 }
+      )
+    }
+
+    const inspectionOutcomeSettings = getInspectionOutcomeSettings(orgRow?.settings)
     const inspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
 
     const rawOpportunities = opportunities || []
     const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)
     const leadIds = rawOpportunities.map((opportunity: any) => opportunity.lead_id).filter(Boolean)
+    const customerIds = rawOpportunities.map((opportunity: any) => opportunity.customer_id).filter(Boolean)
+
+    const leadMap = new Map<string, any>()
+    if (leadIds.length > 0) {
+      const { data: leads, error: leadsError } = await adminClient
+        .from('leads')
+        .select('id, homeowner_name, phone, closer_user_id')
+        .in('id', leadIds)
+
+      if (leadsError) {
+        console.error('Inside sales leads fetch error:', leadsError)
+        return NextResponse.json(
+          { error: `Failed to fetch inside sales leads: ${leadsError.message}` },
+          { status: 500 }
+        )
+      }
+
+      for (const lead of leads || []) {
+        leadMap.set(lead.id, lead)
+      }
+    }
+
+    const customerMap = new Map<string, any>()
+    if (customerIds.length > 0) {
+      const { data: customers, error: customersError } = await adminClient
+        .from('customers')
+        .select('id, name, phone')
+        .in('id', customerIds)
+
+      if (customersError) {
+        console.error('Inside sales customers fetch error:', customersError)
+        return NextResponse.json(
+          { error: `Failed to fetch inside sales customers: ${customersError.message}` },
+          { status: 500 }
+        )
+      }
+
+      for (const customer of customers || []) {
+        customerMap.set(customer.id, customer)
+      }
+    }
 
     let inspectionMap = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
     if (opportunityIds.length > 0) {
@@ -183,17 +247,17 @@ export async function GET(request: NextRequest) {
         withEffectiveInspectionFields(opportunity, inspectionMap, leadInspectionMap)
       )
       .filter((opportunity: any) =>
-        hasActiveInsideSalesFollowUp(opportunity, inspectionOutcomeSettings)
+        hasActiveInsideSalesFollowUp(opportunity, inspectionOutcomeRows)
       )
       .map((opportunity: any) => {
-        const lead = Array.isArray(opportunity.leads) ? opportunity.leads[0] : opportunity.leads
-        const customer = Array.isArray(opportunity.customers) ? opportunity.customers[0] : opportunity.customers
-        const kind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeSettings)
+        const lead = opportunity.lead_id ? leadMap.get(opportunity.lead_id) : null
+        const customer = opportunity.customer_id ? customerMap.get(opportunity.customer_id) : null
+        const kind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeRows)
         const outcomeCfg =
           kind === 'handoff'
             ? getInspectionOutcomeConfig(inspectionOutcomeRows, opportunity.inspection_outcome)
             : null
-        const callability = getInsideSalesCallability(opportunity, inspectionOutcomeSettings)
+        const callability = getInsideSalesCallability(opportunity, inspectionOutcomeRows)
         return {
           id: opportunity.id,
           status: opportunity.status,
@@ -207,7 +271,7 @@ export async function GET(request: NextRequest) {
           assigned_user_id: opportunity.assigned_user_id,
           followUpKind: kind,
           followUpOutcomeLabel: outcomeCfg?.label ?? null,
-          followUpStatus: getInsideSalesFollowUpStatus(opportunity, inspectionOutcomeSettings),
+          followUpStatus: getInsideSalesFollowUpStatus(opportunity, inspectionOutcomeRows),
           callableNow: callability?.callableNow ?? true,
           eligibleAtIso: callability?.eligibleAtIso ?? null,
           adminHandoffDelayDays: callability?.adminHandoffDelayDays ?? null,
