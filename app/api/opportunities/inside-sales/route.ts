@@ -109,7 +109,7 @@ async function fetchOpenOpportunityCandidates(adminClient: ReturnType<typeof get
       .from('opportunities')
       .select(OPPORTUNITY_SELECT)
       .eq('org_id', orgId)
-      .or('status.is.null,status.not.in.(won,lost)')
+      .not('status', 'in', '("won","lost")')
       .order('follow_up_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false })
       .order('id', { ascending: true })
