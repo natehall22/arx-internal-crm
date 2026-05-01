@@ -85,7 +85,11 @@ export default function OpportunitiesPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/opportunities?full=true', { credentials: 'same-origin' })
+      const response = await fetch('/api/opportunities?full=true', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         setError(data.error || 'Failed to load opportunities')
@@ -109,8 +113,10 @@ export default function OpportunitiesPage() {
     setInsideSalesError(null)
 
     try {
-      const response = await fetch('/api/opportunities/inside-sales', {
+      const response = await fetch(`/api/opportunities/inside-sales?_t=${Date.now()}`, {
         credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
       })
 
       if (response.status === 403) {

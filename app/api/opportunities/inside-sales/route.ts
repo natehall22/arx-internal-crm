@@ -293,26 +293,42 @@ export async function GET(request: NextRequest) {
 
     const readyCount = items.filter((item: any) => item.callableNow).length
 
-    return NextResponse.json({
-      canView: true,
-      canSelfAssign: isInsideSalesRoleLike({
-        role: profile.role,
-        customRoleName: customRole?.name || null,
-        customRoleDisplayName: customRole?.display_name || null,
-      }),
-      items,
-      counts: {
-        total: items.length,
-        readyToCall: readyCount,
-        didntSit: items.filter((item: any) => item.followUpKind === 'didnt_sit').length,
-        handoff: items.filter((item: any) => item.followUpKind === 'handoff').length,
+    return NextResponse.json(
+      {
+        canView: true,
+        canSelfAssign: isInsideSalesRoleLike({
+          role: profile.role,
+          customRoleName: customRole?.name || null,
+          customRoleDisplayName: customRole?.display_name || null,
+        }),
+        items,
+        counts: {
+          total: items.length,
+          readyToCall: readyCount,
+          didntSit: items.filter((item: any) => item.followUpKind === 'didnt_sit').length,
+          handoff: items.filter((item: any) => item.followUpKind === 'handoff').length,
+        },
       },
-    })
+      {
+        headers: {
+          'Cache-Control': 'private, no-store, no-cache, must-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    )
   } catch (error) {
     console.error('Inside sales queue API error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to load inside sales queue' },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          'Cache-Control': 'private, no-store, no-cache, must-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
     )
   }
 }

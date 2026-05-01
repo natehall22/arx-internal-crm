@@ -67,8 +67,10 @@ export default function OpportunityQueueSidebar({ currentOpportunityId, filters 
       setLoading(true)
       setError(null)
       try {
-        const response = await fetch('/api/opportunities?full=true', {
+        const response = await fetch(`/api/opportunities?full=true&_t=${Date.now()}`, {
           credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
