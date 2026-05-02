@@ -205,6 +205,7 @@ export default function UsersPage() {
     setFormRegionId('')
     setFormManagerId('')
     setFormCanvassVisibility('org')
+    setFormDashboardView('sales')
     setSelectedPreset('')
     setCreatePermissions(new Set())
     setError(null)
@@ -220,6 +221,7 @@ export default function UsersPage() {
     const preset = permissionPresets.find(p => p.id === presetId)
     if (preset) {
       setFormRole(preset.base_role as UserRole)
+      setFormDashboardView(preset.base_role === 'operations' ? 'ops' : 'sales')
       // Get permission IDs from preset
       const permIds = new Set<string>()
       preset.preset_permissions.forEach(pp => {
@@ -285,6 +287,7 @@ export default function UsersPage() {
           region_id: formRegionId || null,
           manager_user_id: formManagerId || null,
           canvass_pin_visibility: formCanvassVisibility,
+          dashboard_view: formDashboardView,
           permission_ids: Array.from(createPermissions),
         }),
       })
@@ -1148,6 +1151,40 @@ export default function UsersPage() {
                       <p className="text-xs text-gray-500 mt-1">
                         Select who this user reports to for commission overrides and team structure.
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Dashboard View */}
+                  <div className="border-t pt-4">
+                    <h3 className="text-sm font-medium text-gray-900 mb-2">First Login Dashboard</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Choose the first dashboard this person sees after signing in.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFormDashboardView('sales')}
+                        className={`p-3 rounded-lg border text-sm font-medium transition-all text-left ${
+                          formDashboardView === 'sales'
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="block">Sales Dashboard</span>
+                        <span className="block text-xs font-normal opacity-80">Reps, setters, closers, and sales managers</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormDashboardView('ops')}
+                        className={`p-3 rounded-lg border text-sm font-medium transition-all text-left ${
+                          formDashboardView === 'ops'
+                            ? 'border-purple-500 bg-purple-50 text-purple-700'
+                            : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="block">Ops Dashboard</span>
+                        <span className="block text-xs font-normal opacity-80">Office, production, and operations staff</span>
+                      </button>
                     </div>
                   </div>
 

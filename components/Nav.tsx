@@ -51,29 +51,24 @@ export default function Nav() {
             .select('*')
             .eq('id', profile.org_id)
             .single()
-          
-          console.log('Nav: Full org data:', JSON.stringify(org, null, 2))
-          console.log('Nav: Org error:', orgError)
-          
+
+          if (orgError) {
+            console.error('Nav: failed to load org branding', orgError)
+          }
+
           if (org) {
             if (org.name) {
-              console.log('Nav: Setting company name to:', org.name)
               setCompanyName(org.name)
             }
             // Check for logo_url in column or settings
             const logoUrl = org.logo_url || (org.settings as any)?.logo_url
-            console.log('Nav: logo_url column:', org.logo_url)
-            console.log('Nav: settings.logo_url:', (org.settings as any)?.logo_url)
-            console.log('Nav: Final logoUrl:', logoUrl)
             if (logoUrl) {
               // Add cache-busting timestamp for logo
               const logoWithCacheBust = logoUrl.includes('?') 
                 ? `${logoUrl}&_t=${Date.now()}` 
                 : `${logoUrl}?_t=${Date.now()}`
-              console.log('Nav: Setting logo with cache bust:', logoWithCacheBust)
               setCompanyLogo(logoWithCacheBust)
             } else {
-              console.log('Nav: No logo URL found, setting to null')
               setCompanyLogo(null)
             }
           }

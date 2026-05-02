@@ -105,6 +105,7 @@ export async function POST(request: NextRequest) {
       org_id,
       permission_ids,
       canvass_pin_visibility,
+      dashboard_view,
     } = body
 
     if (!email || !password || !full_name) {
@@ -158,6 +159,7 @@ export async function POST(request: NextRequest) {
         org_id: targetOrgId,
         active: true,
         canvass_pin_visibility: canvass_pin_visibility || 'org',
+        dashboard_view: dashboard_view === 'ops' ? 'ops' : 'sales',
       })
 
     if (profileError) {
