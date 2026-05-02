@@ -139,11 +139,10 @@ export function calculateCommissionFromPlanForSale(input: {
       const maxV = row.max_volume == null ? null : Number(row.max_volume)
       if (cmp >= minV && (maxV == null || cmp <= maxV)) {
         if (row.bonus_type === 'percentage') {
-          volumeBonusRate = roundMoney(Number(row.bonus_value) || 0)
+          volumeBonusRate = roundMoney(volumeBonusRate + (Number(row.bonus_value) || 0))
         } else if (row.bonus_type === 'flat') {
-          volumeBonusFlat = roundMoney(Number(row.bonus_value) || 0)
+          volumeBonusFlat = roundMoney(volumeBonusFlat + (Number(row.bonus_value) || 0))
         }
-        break
       }
     }
   }

@@ -79,6 +79,16 @@ export async function GET(request: NextRequest) {
 
     const supabase = getAdminClient()
 
+    const { data: profile } = await supabase
+      .from('users')
+      .select('org_id')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
     // Calculate this week's boundaries (Sunday to Saturday)
     const now = new Date()
     const dayOfWeek = now.getDay()
@@ -95,13 +105,27 @@ export async function GET(request: NextRequest) {
     // Check if user has a comp plan assigned
     const { data: userCompPlan } = await supabase
       .from('user_comp_plans')
-      .select('id')
+      .select('id, comp_plans(is_active)')
       .eq('user_id', user.id)
-      .is('effective_to', null)
+      .eq('org_id', profile.org_id)
+      .lte('effective_from', weekEndStr)
+      .or(`effective_to.is.null,effective_to.gte.${weekStartStr}`)
+      .order('effective_from', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    const hasCompPlan = !!userCompPlan
+    let hasCompPlan = !!userCompPlan && (userCompPlan.comp_plans as any)?.is_active !== false
+    if (!hasCompPlan) {
+      const { data: defaultPlan } = await supabase
+        .from('comp_plans')
+        .select('id')
+        .eq('org_id', profile.org_id)
+        .eq('is_default', true)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle()
+      hasCompPlan = !!defaultPlan
+    }
 
     // Get this week's commissions
     const { data: commissions } = await supabase

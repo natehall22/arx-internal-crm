@@ -58,14 +58,18 @@ function resolveExportBounds(
     ) {
       let s = localYmdToStartIso(startParam)
       let e = localYmdToEndIso(endParam)
+      let labelStart = startParam
+      let labelEnd = endParam
       if (new Date(s) > new Date(e)) {
         s = localYmdToStartIso(endParam)
         e = localYmdToEndIso(startParam)
+        labelStart = endParam
+        labelEnd = startParam
       }
       return {
         startIso: s,
         endIso: e,
-        label: `${startParam}_to_${endParam}`,
+        label: `${labelStart}_to_${labelEnd}`,
       }
     }
     const now = new Date()

@@ -88,7 +88,7 @@ export default function CommissionEstimatorPage() {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('id, org_id, role, full_name, manager_id')
+      .select('id, org_id, role, full_name, manager_user_id')
       .eq('id', user.id)
       .single()
 
@@ -99,18 +99,22 @@ export default function CommissionEstimatorPage() {
 
     setCurrentUser(profile)
     setIsManager(isManagerSpoEligibleRole(profile.role))
+    const todayStr = new Date().toISOString().split('T')[0]
 
     // Get user's comp plan
     const { data: userCompPlan } = await supabase
       .from('user_comp_plans')
       .select('*, comp_plans(*)')
       .eq('user_id', user.id)
-      .lte('effective_from', new Date().toISOString().split('T')[0])
+      .eq('org_id', profile.org_id)
+      .lte('effective_from', todayStr)
+      .or(`effective_to.is.null,effective_to.gte.${todayStr}`)
       .order('effective_from', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
 
-    if (userCompPlan?.comp_plans) {
+    const assignedPlan = userCompPlan?.comp_plans as any
+    if (assignedPlan && assignedPlan.is_active !== false) {
       setCompPlan(userCompPlan.comp_plans as CompPlan)
     } else {
       // Try to get default plan
@@ -133,7 +137,7 @@ export default function CommissionEstimatorPage() {
         .from('users')
         .select('id, full_name, role')
         .eq('org_id', profile.org_id)
-        .eq('manager_id', user.id)
+        .eq('manager_user_id', user.id)
         .eq('active', true)
 
       setTeamMembers(team || [])

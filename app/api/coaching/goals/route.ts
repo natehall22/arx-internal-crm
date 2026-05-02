@@ -30,10 +30,14 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     // Also fetch the user's comp plan for commission rate pre-fill
+    const todayStr = new Date().toISOString().split('T')[0]
     const { data: userCompPlan } = await supabase
       .from('user_comp_plans')
-      .select('override_percentage, comp_plans(plan_type, base_percentage, flat_amount, flat_rate)')
+      .select('override_percentage, comp_plans(plan_type, base_percentage, flat_amount, flat_rate, is_active)')
       .eq('user_id', userId)
+      .eq('org_id', profile.org_id)
+      .lte('effective_from', todayStr)
+      .or(`effective_to.is.null,effective_to.gte.${todayStr}`)
       .order('effective_from', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -42,7 +46,7 @@ export async function GET(request: NextRequest) {
       ? (userCompPlan!.comp_plans as any[])[0]
       : userCompPlan?.comp_plans as any
     let commissionRate: number | null = null
-    if (plan?.plan_type === 'percentage' || plan?.base_percentage) {
+    if (plan?.is_active !== false && (plan?.plan_type === 'percentage' || plan?.base_percentage)) {
       commissionRate = userCompPlan?.override_percentage ?? plan?.base_percentage ?? null
     }
 

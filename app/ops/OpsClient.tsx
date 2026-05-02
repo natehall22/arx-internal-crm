@@ -103,6 +103,14 @@ function sortSoldColumn(jobs: OpsBoardJob[]): OpsBoardJob[] {
   })
 }
 
+function formatJobTypeLabel(jobType: string): string {
+  return jobType
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId, canViewProfitability }: OpsClientProps) {
   const router = useRouter()
   const [jobs, setJobs] = useState<OpsBoardJob[]>(initialJobs)
@@ -225,6 +233,21 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
     [activeJobs, filterType, searchQuery]
   )
 
+  const jobTypeOptions = useMemo(() => {
+    const preferredOrder = ['roofing', 'siding', 'windows', 'mixed']
+    const seen = new Set(jobs.map((job) => job.job_type).filter(Boolean))
+    return Array.from(seen).sort((a, b) => {
+      const aIndex = preferredOrder.indexOf(a)
+      const bIndex = preferredOrder.indexOf(b)
+      if (aIndex !== -1 || bIndex !== -1) {
+        if (aIndex === -1) return 1
+        if (bIndex === -1) return -1
+        return aIndex - bIndex
+      }
+      return a.localeCompare(b)
+    })
+  }, [jobs])
+
   const jobsByBoardStatus = useMemo(() => {
     const base: Record<BoardColumnStatus, OpsBoardJob[]> = {
       sold: [],
@@ -244,8 +267,12 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   }, [filteredActiveJobs])
 
   const filteredCompletedJobs = useMemo(
-    () => completedJobs.filter((job) => matchesActiveSearch(job, completedSearchQuery)),
-    [completedJobs, completedSearchQuery]
+    () =>
+      completedJobs.filter((job) => {
+        if (filterType !== 'all' && job.job_type !== filterType) return false
+        return matchesActiveSearch(job, completedSearchQuery)
+      }),
+    [completedJobs, filterType, completedSearchQuery]
   )
 
   const stats = useMemo(
@@ -255,15 +282,14 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
       scheduled: jobsByBoardStatus.scheduled.length,
       inProgress: jobsByBoardStatus.in_progress.length,
       complete: jobsByBoardStatus.complete.length,
-      totalValue: activeJobs.reduce((sum, j) => sum + (j.sale_amount || 0), 0),
+      totalValue: filteredActiveJobs.reduce((sum, j) => sum + (j.sale_amount || 0), 0),
     }),
-    [jobsByBoardStatus, activeJobs]
+    [jobsByBoardStatus, filteredActiveJobs]
   )
 
   const knownGrossProfit = useMemo(() => {
     if (!canViewProfitability) return null
-    return jobs
-      .filter((j) => j.status !== 'collected')
+    return filteredActiveJobs
       .filter((j) => typeof j.labor_cost === 'number' && typeof j.material_cost === 'number')
       .reduce(
         (sum, j) =>
@@ -271,7 +297,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           ((j.sale_amount || 0) - ((j.labor_cost || 0) + (j.material_cost || 0) + (j.dealer_fee_amount || 0))),
         0
       )
-  }, [jobs, canViewProfitability])
+  }, [filteredActiveJobs, canViewProfitability])
 
   const openScheduleModal = useCallback((job: OpsBoardJob, mode: 'schedule' | 'reassign' = 'schedule') => {
     setScheduleModalMode(mode)
@@ -408,6 +434,8 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
               <input
+                id="ops-job-search"
+                name="ops-job-search"
                 type="text"
                 placeholder="Search by job number, address, or customer..."
                 value={searchQuery}
@@ -417,15 +445,18 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             </div>
             <div className="flex gap-3">
               <select
+                id="ops-job-type-filter"
+                name="ops-job-type-filter"
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
                 className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
               >
                 <option value="all">All Types</option>
-                <option value="roofing">Roofing</option>
-                <option value="siding">Siding</option>
-                <option value="windows">Windows</option>
-                <option value="mixed">Mixed</option>
+                {jobTypeOptions.map((jobType) => (
+                  <option key={jobType} value={jobType}>
+                    {formatJobTypeLabel(jobType)}
+                  </option>
+                ))}
               </select>
               <div className="flex border border-gray-300 rounded-lg overflow-hidden">
                 <button
@@ -743,6 +774,8 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             </div>
             <div className="w-full sm:w-[360px]">
               <input
+                id="ops-completed-search"
+                name="ops-completed-search"
                 type="text"
                 placeholder="Search completed by job #, customer, or address..."
                 value={completedSearchQuery}

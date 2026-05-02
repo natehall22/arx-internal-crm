@@ -42,12 +42,19 @@ type DateRange = '7d' | '30d' | '90d' | 'ytd' | 'all' | 'custom'
 type OutcomeMetricRow = {
   inspection_outcome: string | null
   inspection_outcome_at?: string | null
+  owner_user_id?: string | null
+  setter_user_id?: string | null
 }
 
-type ReportProjectRow = { status?: string | null }
+type ReportProjectRow = { status?: string | null; owner_user_id?: string | null }
 
 function userOutcomeColumn(role: string | null | undefined) {
   return isSetterLikeRole(role || '') ? 'setter_user_id' : 'owner_user_id'
+}
+
+function includesScopedUser(row: { owner_user_id?: string | null; setter_user_id?: string | null }, scopedUserIds: Set<string> | null) {
+  if (!scopedUserIds) return true
+  return scopedUserIds.has(row.owner_user_id || '') || scopedUserIds.has(row.setter_user_id || '')
 }
 
 /** Same ids as report builder — drives GET date filter via POST override */
@@ -189,9 +196,42 @@ export default function ReportsPage() {
     const { start: dateStart, end: dateEnd } = getDateBounds()
     const scope = getReportScope(currentUser.role as UserRole)
     const orgId = currentUser.org_id
+    let scopedUserIds: Set<string> | null = null
+
+    if (scope === 'own') {
+      scopedUserIds = new Set([currentUser.id])
+    } else if (scope === 'team') {
+      const { data: teamUsers } = currentUser.team_id
+        ? await supabase
+          .from('users')
+          .select('id')
+          .eq('org_id', orgId)
+          .eq('team_id', currentUser.team_id)
+        : { data: [{ id: currentUser.id }] }
+      scopedUserIds = new Set((teamUsers || []).map((u) => u.id as string))
+    } else if (scope === 'region') {
+      if (currentUser.region_id) {
+        const { data: regionTeams } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('org_id', orgId)
+          .eq('region_id', currentUser.region_id)
+        const teamIds = (regionTeams || []).map((t) => t.id as string)
+        const { data: regionUsers } = teamIds.length > 0
+          ? await supabase
+            .from('users')
+            .select('id')
+            .eq('org_id', orgId)
+            .in('team_id', teamIds)
+          : { data: [] }
+        scopedUserIds = new Set((regionUsers || []).map((u) => u.id as string))
+      } else {
+        scopedUserIds = new Set([currentUser.id])
+      }
+    }
 
     // Load org-level metrics
-    const [leadsRes, oppsRes, outcomeOppsRes, signedContractsRes, appointmentsRes, projectsRes, statusUpdatesRes, orgRes] = await Promise.all([
+    const [leadsRes, oppsRes, outcomeOppsRes, signedContractsRes, appointmentsRes, projectsRes, outcomesRes] = await Promise.all([
       withDateColumn(
         supabase
           .from('leads')
@@ -246,43 +286,49 @@ export default function ReportsPage() {
       withDateColumn(
         supabase
           .from('projects')
-          .select('id, status, created_at')
+          .select('id, status, created_at, owner_user_id')
           .eq('org_id', orgId),
         'created_at',
         dateStart,
         dateEnd,
       ),
-      withDateColumn(
-        supabase
-          .from('inspection_status_updates')
-          .select('id, outcome, completed_at, closer_user_id')
-          .eq('org_id', orgId),
-        'completed_at',
-        dateStart,
-        dateEnd,
-      ),
-      supabase
-        .from('orgs')
-        .select('settings')
-        .eq('id', orgId)
-        .single(),
+      fetch('/api/inspections/outcomes')
+        .then(async (res) => (res.ok ? await res.json() : { outcomes: undefined }))
+        .catch(() => ({ outcomes: undefined })),
     ])
 
     const leads = (leadsRes.data || []) as CanvassMetricsLeadRow[]
-    const opps = oppsRes.data || []
+    const opps = (oppsRes.data || []) as { owner_user_id?: string | null; setter_user_id?: string | null }[]
     const outcomeOpps = (outcomeOppsRes.data || []) as OutcomeMetricRow[]
     const signedSales = getAttributedInstallationSales(
       signedContractsRes.data as InstallationSaleContractRow[] | null
     )
-    const appointments = appointmentsRes.data || []
+    const appointments = (appointmentsRes.data || []) as { canvasser_user_id?: string | null }[]
     const projects = (projectsRes.data || []) as ReportProjectRow[]
-    const statusUpdates = statusUpdatesRes.data || []
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
-      orgRes.data?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
+      outcomesRes?.outcomes as InspectionOutcomeConfigRow[] | undefined
     )
     const contactDispositionIdSet = getContactDispositionIdSet(
-      orgRes.data?.settings?.canvass_dispositions as any[] | undefined
+      undefined
     )
+    const scopedLeads = scopedUserIds
+      ? leads.filter((l) => scopedUserIds.has(getAttributedCanvassLeadUserId(l) || ''))
+      : leads
+    const scopedOpps = scopedUserIds
+      ? opps.filter((o) => scopedUserIds.has(o.owner_user_id || ''))
+      : opps
+    const scopedOutcomeOpps = scopedUserIds
+      ? outcomeOpps.filter((o) => includesScopedUser(o, scopedUserIds))
+      : outcomeOpps
+    const scopedSignedSales = scopedUserIds
+      ? signedSales.filter((s) => includesScopedUser(s, scopedUserIds))
+      : signedSales
+    const scopedAppointments = scopedUserIds
+      ? appointments.filter((a) => scopedUserIds.has(a.canvasser_user_id || ''))
+      : appointments
+    const scopedProjects = scopedUserIds
+      ? projects.filter((p) => scopedUserIds.has(p.owner_user_id || ''))
+      : projects
     const calculateCloseMetrics = (rows: OutcomeMetricRow[], salesRows = signedSales) => {
       const inspectionsRun = rows.filter(o =>
         sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
@@ -295,15 +341,15 @@ export default function ReportsPage() {
       }
     }
 
-    const orgCloseMetrics = calculateCloseMetrics(outcomeOpps)
+    const orgCloseMetrics = calculateCloseMetrics(scopedOutcomeOpps, scopedSignedSales)
 
     const orgMetricsData: ReportMetrics = {
-      doorsKnocked: leads.filter(isCanvassDoorLead).length,
-      contacts: leads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
-      inspectionsSet: appointments.length,
-      opportunitiesCreated: opps.length,
+      doorsKnocked: scopedLeads.filter(isCanvassDoorLead).length,
+      contacts: scopedLeads.filter(l => isCanvassDoorLead(l) && isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length,
+      inspectionsSet: scopedAppointments.length,
+      opportunitiesCreated: scopedOpps.length,
       contractsSigned: orgCloseMetrics.sales,
-      projectsCompleted: projects.filter(p => p.status === 'complete').length,
+      projectsCompleted: scopedProjects.filter(p => p.status === 'complete').length,
       inspectionsRun: orgCloseMetrics.inspectionsRun,
       closeRate: orgCloseMetrics.closeRate,
     }
@@ -312,7 +358,7 @@ export default function ReportsPage() {
 
     // Calculate close rate history by week
     const weeklyData: Record<string, { inspections: number; sales: number }> = {}
-    outcomeOpps.forEach(opp => {
+    scopedOutcomeOpps.forEach(opp => {
       const date = new Date(opp.inspection_outcome_at!)
       const weekStart = new Date(date)
       weekStart.setDate(date.getDate() - date.getDay())
@@ -325,7 +371,7 @@ export default function ReportsPage() {
         weeklyData[weekKey].inspections++
       }
     })
-    signedSales.forEach(sale => {
+    scopedSignedSales.forEach(sale => {
       if (!sale.signed_at) return
       const date = new Date(sale.signed_at)
       const weekStart = new Date(date)
@@ -759,7 +805,7 @@ export default function ReportsPage() {
               </div>
             )}
             {can.exportReports(currentUser?.role as UserRole) && activeTab === 'overview' && (
-              <Link
+              <a
                 href={
                   dateRange === 'custom'
                     ? `/api/reports/export?range=custom&start=${encodeURIComponent(customDateStart)}&end=${encodeURIComponent(customDateEnd)}`
@@ -768,7 +814,7 @@ export default function ReportsPage() {
                 className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm"
               >
                 Export Excel
-              </Link>
+              </a>
             )}
             <Link
               href="/reports/builder"

@@ -53,6 +53,14 @@ function getAuthClient(request: NextRequest) {
   return { client, accessToken }
 }
 
+function canEditReport(input: {
+  report: { created_by?: string | null }
+  userId: string
+  role?: string | null
+}) {
+  return input.role === 'admin' || input.report.created_by === input.userId
+}
+
 // GET - Load user profile and initial data
 export async function GET(request: NextRequest) {
   try {
@@ -157,6 +165,21 @@ export async function POST(request: NextRequest) {
       : config
     
     if (editId) {
+      const { data: existingReport, error: existingError } = await adminClient
+        .from('custom_reports')
+        .select('id, org_id, created_by')
+        .eq('id', editId)
+        .eq('org_id', profile.org_id)
+        .single()
+
+      if (existingError || !existingReport) {
+        return NextResponse.json({ error: 'Report not found' }, { status: 404 })
+      }
+
+      if (!canEditReport({ report: existingReport, userId: user.id, role: profile.role })) {
+        return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
+      }
+
       // Update existing report
       const { error: updateError } = await adminClient
         .from('custom_reports')
@@ -171,6 +194,7 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', editId)
+        .eq('org_id', profile.org_id)
       
       if (updateError) {
         console.error('Update report error:', updateError)

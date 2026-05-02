@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { getReportScope } from '@/lib/permissions'
+import type { UserRole } from '@/lib/types/database'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +14,105 @@ const VALID_CUSTOM_REPORT_DATE_RANGES = new Set([
   'ytd',
   'all',
 ])
+
+type ReportAccessProfile = {
+  role: string
+  custom_role_id?: string | null
+}
+
+type ReportAccessRow = {
+  role?: string | null
+  custom_role_id?: string | null
+  can_view?: boolean | null
+  can_edit?: boolean | null
+}
+
+function canAccessReport(input: {
+  report: { created_by?: string | null; is_public?: boolean | null }
+  userId: string
+  profile: ReportAccessProfile
+  roleAccess?: ReportAccessRow[]
+  requireEdit?: boolean
+}) {
+  const { report, userId, profile, roleAccess = [], requireEdit = false } = input
+  if (profile.role === 'admin') return true
+  if (report.created_by === userId) return true
+  if (!requireEdit && report.is_public) return true
+
+  return roleAccess.some((ra) => {
+    const roleMatches = ra.role === profile.role || ra.custom_role_id === profile.custom_role_id
+    if (!roleMatches) return false
+    return requireEdit ? ra.can_edit === true : ra.can_view === true
+  })
+}
+
+async function getScopedUserIds(supabase: ReturnType<typeof getAdminClient>, profile: {
+  role: string
+  org_id: string
+  id?: string
+  team_id?: string | null
+  region_id?: string | null
+}) {
+  const scope = getReportScope(profile.role as UserRole)
+  if (scope === 'all') return null
+  if (scope === 'own') return profile.id ? [profile.id] : []
+
+  if (scope === 'team') {
+    if (!profile.team_id) return profile.id ? [profile.id] : []
+    const { data } = await supabase
+      .from('users')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('team_id', profile.team_id)
+    return (data || []).map((u) => u.id as string)
+  }
+
+  if (scope === 'region') {
+    if (!profile.region_id) return profile.id ? [profile.id] : []
+    const { data: teams } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .eq('region_id', profile.region_id)
+    const teamIds = (teams || []).map((t) => t.id as string)
+    if (teamIds.length === 0) return []
+    const { data } = await supabase
+      .from('users')
+      .select('id')
+      .eq('org_id', profile.org_id)
+      .in('team_id', teamIds)
+    return (data || []).map((u) => u.id as string)
+  }
+
+  return profile.id ? [profile.id] : []
+}
+
+function applyReportScope(query: any, dataSource: string, scopedUserIds: string[] | null) {
+  if (scopedUserIds === null) return query
+  if (scopedUserIds.length === 0) return query.limit(0)
+
+  const list = scopedUserIds.join(',')
+  switch (dataSource) {
+    case 'leads':
+    case 'canvass_activity':
+      return query.or(`owner_user_id.in.(${list}),pin_attributed_user_id.in.(${list})`)
+    case 'opportunities':
+      return query.or(`owner_user_id.in.(${list}),setter_user_id.in.(${list})`)
+    case 'appointments':
+      return query.or(`canvasser_user_id.in.(${list}),closer_user_id.in.(${list})`)
+    case 'projects':
+      return query.in('owner_user_id', scopedUserIds)
+    case 'inspection_outcomes':
+      return query.or(`closer_user_id.in.(${list}),setter_user_id.in.(${list})`)
+    default:
+      return query
+  }
+}
+
+function getReportDateColumn(dataSource: string): string {
+  if (dataSource === 'inspection_outcomes') return 'completed_at'
+  return 'created_at'
+}
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -214,7 +315,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('org_id, role, team_id, region_id')
+      .select('id, org_id, role, custom_role_id, team_id, region_id')
       .eq('id', user.id)
       .single()
 
@@ -240,10 +341,20 @@ export async function POST(request: NextRequest) {
       .from('custom_reports')
       .select('*')
       .eq('id', report_id)
+      .eq('org_id', profile.org_id)
       .single()
 
     if (reportError || !report) {
       return NextResponse.json({ error: 'Report not found' }, { status: 404 })
+    }
+
+    const { data: roleAccess } = await supabase
+      .from('report_role_access')
+      .select('role, custom_role_id, can_view, can_edit')
+      .eq('report_id', report.id)
+
+    if (!canAccessReport({ report, userId: user.id, profile, roleAccess: roleAccess || [] })) {
+      return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
     }
 
     // Calculate date filter
@@ -280,6 +391,7 @@ export async function POST(request: NextRequest) {
     const dataSource = report.data_source
     const groupBy = report.config?.groupBy
     const aggregation = report.config?.aggregation || 'count'
+    const dateColumn = getReportDateColumn(dataSource)
 
     // Build and execute query based on data source
     let data: any[] = []
@@ -330,7 +442,10 @@ export async function POST(request: NextRequest) {
       .from(tableName)
       .select(selectFields)
       .eq('org_id', profile.org_id)
-      .gte('created_at', dateFilter)
+      .gte(dateColumn, dateFilter)
+
+    const scopedUserIds = await getScopedUserIds(supabase, profile)
+    query = applyReportScope(query, dataSource, scopedUserIds)
 
     // Apply additional filter for canvass_activity
     if (additionalFilter) {
@@ -406,6 +521,7 @@ export async function POST(request: NextRequest) {
         address,
         status: r.status || r.canvass_disposition || r.outcome,
         created_at: r.created_at,
+        completed_at: r.completed_at,
         scheduled_at: r.scheduled_at || r.scheduled_for,
         phone: r.phone,
         email: r.email,
@@ -552,15 +668,16 @@ export async function DELETE(request: NextRequest) {
     // Verify the report exists and belongs to user's org
     const { data: report, error: reportError } = await adminClient
       .from('custom_reports')
-      .select('id, created_by, org_id')
+      .select('id, created_by, org_id, is_public')
       .eq('id', reportId)
+      .eq('org_id', profile.org_id)
       .single()
 
     if (reportError || !report) {
       return NextResponse.json({ error: 'Report not found' }, { status: 404 })
     }
 
-    // Check if user can delete (must be creator or admin)
+    // Check if user can delete (must be creator or admin in the same org)
     const canDelete = report.created_by === user.id || profile.role === 'admin'
     
     if (!canDelete) {

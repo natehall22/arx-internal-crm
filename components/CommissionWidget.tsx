@@ -183,6 +183,7 @@ export default function CommissionWidget() {
 
     // Check if user has a comp plan assigned and get details
     if (profile?.org_id) {
+      const todayStr = new Date().toISOString().split('T')[0]
       // Use select(*) to get all available columns without failing on missing ones
       const { data: userCompPlan, error: compPlanError } = await supabase
         .from('user_comp_plans')
@@ -194,6 +195,8 @@ export default function CommissionWidget() {
         `)
         .eq('user_id', user.id)
         .eq('org_id', profile.org_id)
+        .lte('effective_from', todayStr)
+        .or(`effective_to.is.null,effective_to.gte.${todayStr}`)
         .order('effective_from', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -202,40 +205,39 @@ export default function CommissionWidget() {
         console.error('Error fetching comp plan:', compPlanError)
       }
       
-      // Check if assignment is currently active
-      if (userCompPlan?.comp_plans) {
-        // Parse dates - effective_from is a DATE (not datetime), so compare dates only
-        const now = new Date()
-        const todayStr = now.toISOString().split('T')[0] // YYYY-MM-DD
-        const effectiveFromStr = userCompPlan.effective_from // Already YYYY-MM-DD from DB
-        const effectiveToStr = userCompPlan.effective_to
-        
-        // Plan is active if: effective_from <= today AND (no end date OR end date >= today)
-        const isActive = effectiveFromStr <= todayStr && (!effectiveToStr || effectiveToStr >= todayStr)
-        
-        if (isActive) {
-          setHasCompPlan(true)
-          const plan = userCompPlan.comp_plans as any
-          setCompPlanDetails({
-            id: plan.id,
-            name: plan.name,
-            plan_type: plan.plan_type || 'percentage',
-            base_percentage: plan.base_percentage,
-            flat_rate: plan.flat_rate,
-            flat_amount: plan.flat_amount,
-            hourly_rate: plan.hourly_rate,
-            unit_rate: plan.unit_rate,
-            unit_type: plan.unit_type,
-            hybrid_components: plan.hybrid_components || null,
-            volume_bonuses: plan.volume_bonuses || [],
-            team_overrides: plan.team_overrides || [],
-            readme: plan.readme,
-          })
-        } else {
-          setHasCompPlan(false)
-        }
+      let plan = userCompPlan?.comp_plans as any
+      if (!plan) {
+        const { data: defaultPlan } = await supabase
+          .from('comp_plans')
+          .select('*')
+          .eq('org_id', profile.org_id)
+          .eq('is_default', true)
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle()
+        plan = defaultPlan
+      }
+
+      if (plan && plan.is_active !== false) {
+        setHasCompPlan(true)
+        setCompPlanDetails({
+          id: plan.id,
+          name: plan.name,
+          plan_type: plan.plan_type || 'percentage',
+          base_percentage: plan.base_percentage,
+          flat_rate: plan.flat_rate,
+          flat_amount: plan.flat_amount,
+          hourly_rate: plan.hourly_rate,
+          unit_rate: plan.unit_rate,
+          unit_type: plan.unit_type,
+          hybrid_components: plan.hybrid_components || null,
+          volume_bonuses: plan.volume_bonuses || [],
+          team_overrides: plan.team_overrides || [],
+          readme: plan.readme,
+        })
       } else {
         setHasCompPlan(false)
+        setCompPlanDetails(null)
       }
     }
 

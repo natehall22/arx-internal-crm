@@ -79,11 +79,26 @@ export async function GET(request: NextRequest) {
 
     const supabase = getAdminClient()
 
+    const { data: profile } = await supabase
+      .from('users')
+      .select('org_id')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0]
+
     // Get the user's active comp plan assignment using service role (bypasses RLS)
     const { data: userCompPlan, error } = await supabase
       .from('user_comp_plans')
       .select('*, comp_plans(*)')
       .eq('user_id', user.id)
+      .eq('org_id', profile.org_id)
+      .lte('effective_from', todayStr)
+      .or(`effective_to.is.null,effective_to.gte.${todayStr}`)
       .order('effective_from', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -93,20 +108,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch comp plan' }, { status: 500 })
     }
 
-    if (!userCompPlan?.comp_plans) {
-      return NextResponse.json({ hasCompPlan: false, compPlan: null })
-    }
+    let plan = userCompPlan?.comp_plans as any
+    let assignment = userCompPlan
 
-    // Check if plan is active (not expired)
-    const now = new Date()
-    const todayStr = now.toISOString().split('T')[0]
-    const effectiveToStr = userCompPlan.effective_to
-    
-    if (effectiveToStr && effectiveToStr < todayStr) {
-      return NextResponse.json({ hasCompPlan: false, compPlan: null, reason: 'expired' })
-    }
+    if (!plan) {
+      const { data: defaultPlan } = await supabase
+        .from('comp_plans')
+        .select('*')
+        .eq('org_id', profile.org_id)
+        .eq('is_default', true)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle()
 
-    const plan = userCompPlan.comp_plans as any
+      if (!defaultPlan) {
+        return NextResponse.json({ hasCompPlan: false, compPlan: null })
+      }
+
+      plan = defaultPlan
+      assignment = null
+    } else if (plan.is_active === false) {
+      return NextResponse.json({ hasCompPlan: false, compPlan: null, reason: 'inactive' })
+    }
 
     return NextResponse.json({
       hasCompPlan: true,
@@ -129,9 +152,9 @@ export async function GET(request: NextRequest) {
         readme: plan.readme,
       },
       assignment: {
-        effective_from: userCompPlan.effective_from,
-        effective_to: userCompPlan.effective_to,
-        override_percentage: userCompPlan.override_percentage,
+        effective_from: assignment?.effective_from ?? todayStr,
+        effective_to: assignment?.effective_to ?? null,
+        override_percentage: assignment?.override_percentage ?? null,
       }
     })
 
