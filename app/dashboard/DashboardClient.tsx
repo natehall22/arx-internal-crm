@@ -1004,16 +1004,16 @@ export default function DashboardClient({
           </div>
         )}
 
-        {/* This Week's Pay - Prominent Display for all users */}
+        {/* Estimated pay - prominent display for reps */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 text-white">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-indigo-100 text-xs sm:text-sm font-medium mb-1">This Week's Estimated Pay</p>
+              <p className="text-indigo-100 text-xs sm:text-sm font-medium mb-1">Estimated Pay This Week</p>
               <p className="text-2xl sm:text-4xl font-bold">${weeklyPay.toLocaleString()}</p>
               {hasCompPlan === false ? (
-                <p className="text-indigo-200 text-xs mt-1 sm:mt-2">No comp plan assigned - contact your manager</p>
+                <p className="text-indigo-200 text-xs mt-1 sm:mt-2">Ask a manager to assign your comp plan.</p>
               ) : (
-                <p className="text-indigo-200 text-xs mt-1 sm:mt-2">Based on closed sales this week</p>
+                <p className="text-indigo-200 text-xs mt-1 sm:mt-2">Based on funded/closed work this week.</p>
               )}
             </div>
             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 ml-3">
@@ -1056,15 +1056,17 @@ export default function DashboardClient({
         {canViewTeamLeaderboard && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 sm:mb-8 overflow-hidden">
             <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team performance</h2>
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Team scoreboard</h2>
               <div className="flex items-center gap-2 sm:gap-3">
                 <div className="text-xs sm:text-sm text-gray-500 text-right sm:text-left">
                   <span className="whitespace-nowrap">{teamMemberCount} reps</span>
                   {isManager && distinctDealCounts && !loadingStats && (
-                    <span className="block sm:inline sm:ml-2 text-gray-400 text-[11px] sm:text-xs mt-0.5 sm:mt-0">
-                      Unique: {distinctDealCounts.sitOpportunitiesInPeriod} sit ·{' '}
-                      {distinctDealCounts.saleOpportunitiesInPeriod} sale (same deal can credit setter and
-                      closer; do not sum both tables)
+                    <span
+                      className="block sm:inline sm:ml-2 text-gray-400 text-[11px] sm:text-xs mt-0.5 sm:mt-0"
+                      title="Setter and closer tables can both credit the same job, so unique totals are shown separately."
+                    >
+                      Unique: {distinctDealCounts.sitOpportunitiesInPeriod} sits ·{' '}
+                      {distinctDealCounts.saleOpportunitiesInPeriod} sales
                     </span>
                   )}
                 </div>
@@ -1473,7 +1475,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Progress vs goals</h2>
               <p className="text-xs text-gray-500 mb-3 sm:mb-4 capitalize">
-                Same period as stats above ({timeFrameLabel[timeFrame]}). Goals are your weekly targets from settings, scaled to this period.
+                Your pace for {timeFrameLabel[timeFrame]} against the goals in settings.
               </p>
               <ProgressBar
                 label="Doors Knocked"

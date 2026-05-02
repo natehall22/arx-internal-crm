@@ -138,7 +138,8 @@ export default async function OpsDashboardPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Operations Dashboard</h1>
-            <p className="text-gray-500">
+            <p className="text-gray-500 text-sm sm:text-base">
+              Today&apos;s installs, materials, crews, and job movement ·{' '}
               {today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
