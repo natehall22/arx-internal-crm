@@ -9,6 +9,17 @@ interface Props {
   existingJobNumber?: string | null
   /** When true, links and redirects go to `/ops/jobs/...` (owner, admin, operations). */
   canOpenOpsJobDetail?: boolean
+  /** Prefilled contract total (latest change order or signed installation agreement). Server still resolves if left blank. */
+  defaultSaleAmount?: number | null
+}
+
+function formatDefaultAmount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return ''
+  return String(roundMoney(value))
+}
+
+function roundMoney(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100
 }
 
 export default function SendToOpsButton({
@@ -16,22 +27,32 @@ export default function SendToOpsButton({
   existingJobId,
   existingJobNumber,
   canOpenOpsJobDetail = false,
+  defaultSaleAmount = null,
 }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [saleAmount, setSaleAmount] = useState('')
 
+  const openModal = () => {
+    setSaleAmount(formatDefaultAmount(Number(defaultSaleAmount)))
+    setShowModal(true)
+  }
+
   const handleSendToOps = async () => {
     setLoading(true)
 
     try {
+      const parsed = saleAmount.trim() === '' ? null : Number.parseFloat(saleAmount)
+      const salePayload =
+        parsed != null && Number.isFinite(parsed) ? roundMoney(parsed) : null
+
       const response = await fetch('/api/ops/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project_id: projectId,
-          sale_amount: saleAmount ? parseFloat(saleAmount) : null,
+          sale_amount: salePayload,
         }),
       })
 
@@ -91,7 +112,7 @@ export default function SendToOpsButton({
   return (
     <>
       <button
-        onClick={() => setShowModal(true)}
+        onClick={openModal}
         className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -112,7 +133,7 @@ export default function SendToOpsButton({
             <div className="p-6">
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sale Amount (optional)
+                  Contract / sale amount
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-2 text-gray-500">$</span>
@@ -126,7 +147,10 @@ export default function SendToOpsButton({
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Enter the contract/sale amount for this job
+                  Prefilled from the signed installation agreement or latest change order when available. Leave
+                  blank to use the same automatic total the server calculates. Dealer fee, financing program, and
+                  payroll snapshot fields are taken from the accepted proposal when that proposal carries
+                  financing (the agreement PDF often does not include loan details).
                 </p>
               </div>
             </div>

@@ -293,6 +293,11 @@ export default async function ProjectDetailPage({
     ? changeOrders[changeOrders.length - 1].updated_total
     : (originalContract?.project_cost || productionJob?.sale_amount || 0)
 
+  const suggestedSendToOpsSale =
+    currentContractTotal != null && Number(currentContractTotal) > 0
+      ? Number(currentContractTotal)
+      : null
+
   const updateAddress = async (formData: FormData) => {
     'use server'
     const { profile } = await requireAuth()
@@ -355,6 +360,7 @@ export default async function ProjectDetailPage({
                   existingJobId={productionJob?.id}
                   existingJobNumber={productionJob?.job_number}
                   canOpenOpsJobDetail={showOpsJobLinks}
+                  defaultSaleAmount={suggestedSendToOpsSale}
                 />
               )}
               <ProjectReviewButton

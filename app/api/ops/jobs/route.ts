@@ -9,6 +9,11 @@ import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
 } from '@/lib/ops-board-sold-squares'
+import { resolveProductionJobFinancials } from '@/lib/resolve-production-job-sale-from-project'
+
+function roundMoney(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100
+}
 
 function sanitizeJobsForRole(jobs: any[], role: string) {
   if (role === 'admin') return jobs
@@ -127,7 +132,7 @@ export async function POST(request: Request) {
     const signedInstallationContract = installationContractFilter
       ? await adminClient
           .from('order_form_contracts')
-          .select('id, proposal_id')
+          .select('id, proposal_id, project_cost, payment_method')
           .eq('org_id', profile.org_id)
           .eq('agreement_type', 'installation')
           .eq('status', 'completed')
@@ -148,6 +153,31 @@ export async function POST(request: Request) {
       acceptedProposalId = signedInstallationProposalId
     }
 
+    const installationSnapshot = signedInstallationContract.data
+      ? {
+          project_cost: Number(signedInstallationContract.data.project_cost) || 0,
+          payment_method: signedInstallationContract.data.payment_method ?? null,
+          proposal_id: signedInstallationContract.data.proposal_id ?? null,
+        }
+      : null
+
+    const resolvedFinancials = await resolveProductionJobFinancials(adminClient, {
+      orgId: profile.org_id,
+      projectId: project_id,
+      acceptedProposalId,
+      installationContract: installationSnapshot,
+    })
+
+    const rawBodySale = sale_amount
+    const clientProvidedSale =
+      rawBodySale !== undefined &&
+      rawBodySale !== null &&
+      !(typeof rawBodySale === 'string' && rawBodySale.trim() === '') &&
+      Number.isFinite(Number(rawBodySale))
+    const finalSaleAmount = clientProvidedSale
+      ? roundMoney(Number(rawBodySale))
+      : resolvedFinancials.sale_amount
+
     // Create the production job
     const { data: newJob, error: createError } = await adminClient
       .from('production_jobs')
@@ -162,7 +192,12 @@ export async function POST(request: Request) {
         accepted_proposal_id: acceptedProposalId,
         salesperson_id: project.owner_user_id,
         sale_date: new Date().toISOString().split('T')[0],
-        sale_amount: sale_amount || null,
+        sale_amount: finalSaleAmount,
+        dealer_fee_amount: resolvedFinancials.dealer_fee_amount,
+        dealer_fee_percent: resolvedFinancials.dealer_fee_percent,
+        financing_program_id: resolvedFinancials.financing_program_id,
+        commission_pre_tax_subtotal: resolvedFinancials.commission_pre_tax_subtotal,
+        commission_comp_base: resolvedFinancials.commission_comp_base,
         created_by: user.id,
         job_source: opportunityForSource?.job_source || 'retail',
         insurance_stage: opportunityForSource?.job_source === 'insurance'
