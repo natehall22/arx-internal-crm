@@ -68,6 +68,204 @@ interface TeamMemberStat {
 
 type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all'
 
+interface AttachedSale {
+  id: string
+  customerName: string
+  projectAddress: string
+  saleAmount: number
+  signedAt: string | null
+  attachment: string
+  setterName: string | null
+  closerName: string | null
+  jobId: string | null
+  jobNumber: string | null
+  jobStatus: string
+  statusLabel: string
+  progressPercent: number
+  progressTone: string
+  scheduledDate: string | null
+  completedAt: string | null
+}
+
+interface AttachedSalesResponse {
+  sales: AttachedSale[]
+  summary: {
+    count: number
+    shown: number
+    totalVolume: number
+    averageProgress: number
+  }
+}
+
+const attachedSalesToneClasses: Record<string, { bar: string; chip: string; dot: string }> = {
+  blue: { bar: 'bg-blue-500', chip: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
+  amber: { bar: 'bg-amber-500', chip: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  indigo: { bar: 'bg-indigo-500', chip: 'bg-indigo-50 text-indigo-700 border-indigo-200', dot: 'bg-indigo-500' },
+  cyan: { bar: 'bg-cyan-500', chip: 'bg-cyan-50 text-cyan-700 border-cyan-200', dot: 'bg-cyan-500' },
+  emerald: { bar: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  green: { bar: 'bg-green-500', chip: 'bg-green-50 text-green-700 border-green-200', dot: 'bg-green-500' },
+  rose: { bar: 'bg-rose-500', chip: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500' },
+}
+
+function formatAttachedSalesMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0))
+}
+
+function formatAttachedSalesDate(value: string | null) {
+  if (!value) return 'Not dated'
+  return new Date(value).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'America/New_York',
+  })
+}
+
+function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
+  const [data, setData] = useState<AttachedSalesResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadAttachedSales() {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const res = await fetch(`/api/dashboard/attached-sales?timeframe=${encodeURIComponent(timeFrame)}`)
+        const json = await res.json()
+
+        if (!res.ok) throw new Error(json?.error || 'Failed to load attached sales')
+        if (!cancelled) setData(json)
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Failed to load attached sales:', err)
+          setError('Attached sales could not be loaded.')
+          setData(null)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    loadAttachedSales()
+    return () => {
+      cancelled = true
+    }
+  }, [timeFrame])
+
+  const sales = data?.sales || []
+  const summary = data?.summary
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 sm:mb-8 overflow-hidden">
+      <div className="p-3 sm:p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900">Attached sales pipeline</h2>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+            Signed installation sales tied to you or your team as they move through production.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-3">
+          <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Sales</p>
+            <p className="text-sm font-semibold text-gray-900">{summary?.count ?? 0}</p>
+          </div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Volume</p>
+            <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(summary?.totalVolume ?? 0)}</p>
+          </div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Progress</p>
+            <p className="text-sm font-semibold text-gray-900">{summary?.averageProgress ?? 0}%</p>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="p-4 space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-gray-100 p-3 animate-pulse">
+              <div className="flex justify-between gap-3 mb-3">
+                <div className="h-4 bg-gray-200 rounded w-1/3" />
+                <div className="h-4 bg-gray-100 rounded w-20" />
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div className="p-4 text-sm text-rose-700 bg-rose-50">{error}</div>
+      ) : sales.length === 0 ? (
+        <div className="p-6 text-center text-sm text-gray-500">
+          No attached installation sales in this period yet.
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {sales.map((sale) => {
+            const tone = attachedSalesToneClasses[sale.progressTone] || attachedSalesToneClasses.blue
+            const people = [sale.setterName ? `Setter: ${sale.setterName}` : null, sale.closerName ? `Closer: ${sale.closerName}` : null]
+              .filter(Boolean)
+              .join(' · ')
+
+            return (
+              <div key={sale.id} className="p-3 sm:p-4">
+                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-gray-900 truncate">{sale.customerName}</p>
+                      <span className="text-xs font-medium text-gray-500">{sale.attachment}</span>
+                      {sale.jobNumber && (
+                        <span className="text-xs text-gray-400">{sale.jobNumber}</span>
+                      )}
+                    </div>
+                    <p className="text-xs sm:text-sm text-gray-600 truncate mt-0.5">
+                      <span className="font-medium text-gray-700">Address:</span>{' '}
+                      {sale.projectAddress || 'No address on contract'}
+                    </p>
+                    {people && <p className="text-xs text-gray-400 mt-1 truncate">{people}</p>}
+                  </div>
+                  <div className="flex items-center justify-between lg:justify-end gap-3 flex-shrink-0">
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-gray-900">{formatAttachedSalesMoney(sale.saleAmount)}</p>
+                      <p className="text-xs text-gray-400">Signed {formatAttachedSalesDate(sale.signedAt)}</p>
+                    </div>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${tone.chip}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+                      {sale.statusLabel}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="h-2.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${tone.bar} transition-all duration-700 ease-out`}
+                      style={{ width: `${Math.max(8, Math.min(sale.progressPercent, 100))}%` }}
+                    />
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Signed</span>
+                    <span>Materials</span>
+                    <span>Scheduled</span>
+                    <span>Complete</span>
+                    <span>Collected</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Dashboard goal fields in settings are weekly; scale for day/month/quarter/year views. */
 function scaledGoalFromWeekly(weeklyGoal: number, tf: TimeFrame): number {
   const w = Math.max(0, Number(weeklyGoal) || 0)
@@ -1003,6 +1201,8 @@ export default function DashboardClient({
             </div>
           </div>
         )}
+
+        <AttachedSalesTracker timeFrame={timeFrame} />
 
         {/* Estimated pay - prominent display for reps */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 text-white">
