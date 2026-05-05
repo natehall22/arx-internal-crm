@@ -113,6 +113,37 @@ function lastNameFor(name: string): string {
   return parts.length ? parts[parts.length - 1] : '—'
 }
 
+function rowToneClass(status: string): string {
+  if (status === 'Reconciled & Closed') {
+    return 'border-l-4 border-emerald-500 bg-emerald-50 hover:bg-emerald-100/80'
+  }
+  if (status === 'Deposit Received') {
+    return 'border-l-4 border-amber-400 bg-amber-50 hover:bg-amber-100/80'
+  }
+  return 'border-l-4 border-sky-400 bg-white hover:bg-sky-50'
+}
+
+function statusPillClass(status: string): string {
+  if (status === 'Reconciled & Closed') {
+    return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'
+  }
+  if (status === 'Deposit Received') {
+    return 'bg-amber-100 text-amber-900 ring-1 ring-amber-200'
+  }
+  return 'bg-sky-100 text-sky-800 ring-1 ring-sky-200'
+}
+
+function profitToneClass(percent: number | null): string {
+  if (percent == null) return 'text-gray-700'
+  if (percent >= 35) return 'bg-emerald-100 text-emerald-900'
+  if (percent >= 20) return 'bg-amber-100 text-amber-900'
+  return 'bg-rose-100 text-rose-900'
+}
+
+function moneyToneClass(value: number): string {
+  return value < 0 ? 'text-rose-700' : 'text-gray-900'
+}
+
 export default async function AdminJobProfitTrackerPage({
   searchParams,
 }: {
@@ -415,29 +446,25 @@ export default async function AdminJobProfitTrackerPage({
 
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            ['Contract', totals.contract],
-            ['Finance costs', totals.finance],
-            ['Expenses', totals.expenses],
-            ['Gross profit', totals.gross],
-            ['Net profit', totals.net],
-          ].map(([label, value]) => (
-            <div key={String(label)} className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
-              <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums text-gray-900">
-                {formatMoney(Number(value))}
+            { label: 'Contract', value: totals.contract, className: 'border-sky-200 bg-sky-50 text-sky-950' },
+            { label: 'Finance costs', value: totals.finance, className: 'border-indigo-200 bg-indigo-50 text-indigo-950' },
+            { label: 'Expenses', value: totals.expenses, className: 'border-amber-200 bg-amber-50 text-amber-950' },
+            { label: 'Gross profit', value: totals.gross, className: 'border-emerald-200 bg-emerald-50 text-emerald-950' },
+            { label: 'Net profit', value: totals.net, className: 'border-teal-200 bg-teal-50 text-teal-950' },
+          ].map((item) => (
+            <div key={item.label} className={`rounded-lg border px-4 py-3 shadow-sm ${item.className}`}>
+              <div className="text-xs font-medium uppercase tracking-wide opacity-70">{item.label}</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums">
+                {formatMoney(item.value)}
               </div>
             </div>
           ))}
         </div>
 
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-            {rows.length} job{rows.length === 1 ? '' : 's'} shown. Commission columns mirror the sheet rates:
-            setter 5%, closer 7%, sales 6%, OPP 9%, owner draw 20% of gross.
-          </div>
           <div className="overflow-x-auto">
             <table className="min-w-[1500px] text-sm">
-              <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+              <thead className="bg-[#4a6080] text-left text-xs uppercase tracking-wide text-white">
                 <tr>
                   <th className="px-3 py-2 font-semibold">#</th>
                   <th className="px-3 py-2 font-semibold">Last name</th>
@@ -472,7 +499,7 @@ export default async function AdminJobProfitTrackerPage({
                   </tr>
                 ) : (
                   rows.map((row) => (
-                    <tr key={row.job.id} className="hover:bg-indigo-50/40">
+                    <tr key={row.job.id} className={rowToneClass(row.trackerStatus)}>
                       <td className="px-3 py-2 text-gray-500">{row.index}</td>
                       <td className="px-3 py-2 font-medium text-gray-900">
                         <Link href={`/ops/jobs/${row.job.id}`} className="hover:text-indigo-700">
@@ -497,23 +524,31 @@ export default async function AdminJobProfitTrackerPage({
                       <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.closerCommission)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.salesCommission)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.opp)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums text-gray-900">
+                      <td className={`px-3 py-2 text-right font-semibold tabular-nums ${moneyToneClass(row.grossProfit)}`}>
                         {formatMoney(row.grossProfit)}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatPercent(row.grossProfitPercent)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        <span className={`inline-block rounded px-2 py-1 font-medium ${profitToneClass(row.grossProfitPercent)}`}>
+                          {formatPercent(row.grossProfitPercent)}
+                        </span>
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.ownerDraw)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.ownerDrawPerOwner)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums text-gray-900">
+                      <td className={`px-3 py-2 text-right font-semibold tabular-nums ${moneyToneClass(row.netProfit)}`}>
                         {formatMoney(row.netProfit)}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatPercent(row.netPercent)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        <span className={`inline-block rounded px-2 py-1 font-medium ${profitToneClass(row.netPercent)}`}>
+                          {formatPercent(row.netPercent)}
+                        </span>
+                      </td>
                       <td className="max-w-[220px] px-3 py-2 text-xs text-gray-600">
                         <div className="truncate" title={row.job.internal_notes || undefined}>
                           {row.job.internal_notes || '—'}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-gray-700">
-                        <span className="whitespace-nowrap rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+                        <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${statusPillClass(row.trackerStatus)}`}>
                           {row.trackerStatus}
                         </span>
                       </td>
