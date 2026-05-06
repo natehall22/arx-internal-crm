@@ -114,8 +114,16 @@ function formatJobTypeLabel(jobType: string): string {
 export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId, canViewProfitability }: OpsClientProps) {
   const router = useRouter()
   const [jobs, setJobs] = useState<OpsBoardJob[]>(initialJobs)
-  const [crews] = useState<Crew[]>(initialCrews)
-  const [subs] = useState<SubContractor[]>(initialSubs)
+  const [crews, setCrews] = useState<Crew[]>(initialCrews)
+  const [subs, setSubs] = useState<SubContractor[]>(initialSubs)
+
+  useEffect(() => {
+    setCrews(initialCrews)
+  }, [initialCrews])
+
+  useEffect(() => {
+    setSubs(initialSubs)
+  }, [initialSubs])
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
 
   // Default to list view on mobile — board's 5 columns stack awkwardly on small screens
@@ -299,7 +307,17 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
       )
   }, [filteredActiveJobs, canViewProfitability])
 
-  const openScheduleModal = useCallback((job: OpsBoardJob, mode: 'schedule' | 'reassign' = 'schedule') => {
+  const openScheduleModal = useCallback(async (job: OpsBoardJob, mode: 'schedule' | 'reassign' = 'schedule') => {
+    try {
+      const res = await fetch('/api/ops/scheduling-assignees')
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.crews)) setCrews(data.crews)
+        if (Array.isArray(data.subs)) setSubs(data.subs)
+      }
+    } catch {
+      /* keep lists from last server render */
+    }
     setScheduleModalMode(mode)
     setSelectedJob(job)
     setShowScheduleModal(true)

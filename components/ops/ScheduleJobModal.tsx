@@ -37,6 +37,37 @@ interface Props {
   mode?: 'schedule' | 'reassign'
 }
 
+/** Match admin-entered service labels (e.g. "Gutter", "Gutters") to job_type slugs (e.g. gutters). */
+export function subServicesMatchJobType(services: string[] | null | undefined, jobType: string): boolean {
+  if (!services || services.length === 0) return true
+  const j = jobType.toLowerCase().trim()
+  if (!j || j === 'mixed') return true
+
+  const variants: string[] = [j]
+  const jAlt = j.endsWith('s') && j.length > 2 ? j.slice(0, -1) : `${j}s`
+  if (!variants.includes(jAlt)) variants.push(jAlt)
+
+  const cap = jobType.charAt(0).toUpperCase() + jobType.slice(1).toLowerCase()
+  const capVariants: string[] = [cap]
+  const capAlt = cap.endsWith('s') && cap.length > 2 ? cap.slice(0, -1) : `${cap}s`
+  if (!capVariants.includes(capAlt)) capVariants.push(capAlt)
+
+  return services.some((raw) => {
+    const s = raw.trim()
+    if (!s) return false
+    const low = s.toLowerCase()
+    for (let i = 0; i < variants.length; i++) {
+      const v = variants[i]
+      if (v && low.includes(v)) return true
+    }
+    for (let i = 0; i < capVariants.length; i++) {
+      const c = capVariants[i]
+      if (c && s.includes(c)) return true
+    }
+    return false
+  })
+}
+
 export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mode = 'schedule' }: Props) {
   const isReassignOnly = mode === 'reassign'
   const [assigneeType, setAssigneeType] = useState<'crew' | 'sub'>(
@@ -55,15 +86,7 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mo
     return crew.crew_type === job.job_type
   })
 
-  // Filter subs by services
-  const relevantSubs = subs.filter(sub => {
-    if (!sub.services || sub.services.length === 0) return true
-    const jobTypeCapitalized = job.job_type.charAt(0).toUpperCase() + job.job_type.slice(1)
-    return sub.services.some(s => 
-      s.toLowerCase().includes(job.job_type.toLowerCase()) ||
-      s.includes(jobTypeCapitalized)
-    )
-  })
+  const relevantSubs = subs.filter((sub) => subServicesMatchJobType(sub.services, job.job_type))
 
   const handleSave = async () => {
     if (!isReassignOnly && !scheduledDate) {
@@ -302,7 +325,11 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mo
               <div className="space-y-2">
                 {relevantSubs.length === 0 ? (
                   <div className="text-center py-6 bg-gray-50 rounded-lg">
-                    <p className="text-gray-500 text-sm">No sub-contractors available</p>
+                    <p className="text-gray-500 text-sm">No sub-contractors match this job type.</p>
+                    <p className="text-gray-400 text-xs mt-1 px-2">
+                      On Admin → Sub-Contractors, tag the company with a matching service (e.g. Gutters), or leave
+                      services empty to allow all job types. Opening this dialog refreshes the list.
+                    </p>
                     <a href="/admin/subs" className="text-indigo-600 text-sm hover:underline">
                       Add a sub-contractor →
                     </a>

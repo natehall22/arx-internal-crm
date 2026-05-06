@@ -521,8 +521,25 @@ export default function JobDetailClient({
   const [savingLaborCost, setSavingLaborCost] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [scheduleModalMode, setScheduleModalMode] = useState<'schedule' | 'reassign'>('schedule')
+  const [scheduleCrews, setScheduleCrews] = useState<Crew[]>(crews)
+  const [scheduleSubs, setScheduleSubs] = useState<SubContractor[]>(subs)
 
-  const openScheduleModal = useCallback((mode: 'schedule' | 'reassign' = 'schedule') => {
+  useEffect(() => {
+    setScheduleCrews(crews)
+    setScheduleSubs(subs)
+  }, [crews, subs])
+
+  const openScheduleModal = useCallback(async (mode: 'schedule' | 'reassign' = 'schedule') => {
+    try {
+      const res = await fetch('/api/ops/scheduling-assignees')
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.crews)) setScheduleCrews(data.crews)
+        if (Array.isArray(data.subs)) setScheduleSubs(data.subs)
+      }
+    } catch {
+      /* keep lists from last server render */
+    }
     setScheduleModalMode(mode)
     setShowScheduleModal(true)
   }, [])
@@ -2171,8 +2188,8 @@ export default function JobDetailClient({
             assigned_sub_id: job.assigned_sub?.id || null,
             customer: job.customer,
           }}
-          crews={crews}
-          subs={subs}
+          crews={scheduleCrews}
+          subs={scheduleSubs}
           onClose={() => {
             setShowScheduleModal(false)
             setScheduleModalMode('schedule')
