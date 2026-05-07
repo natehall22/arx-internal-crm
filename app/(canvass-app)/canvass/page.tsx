@@ -310,7 +310,27 @@ export default function CanvassPage() {
     if (selectedPin) {
       // Update existing pin via API
       let apiSuccess = false
-      if (isOnline && selectedPin.synced) {
+      const wantsSchedule = Boolean(leadData.schedule_inspection)
+
+      // Inspection scheduling must persist via API — never treat flaky "offline" or unsynced pins as success.
+      if (wantsSchedule) {
+        if (!isOnline) {
+          alert(
+            'Inspection scheduling needs a working internet connection. Connect and try again, or save the lead without scheduling.'
+          )
+          return
+        }
+        if (!selectedPin.synced) {
+          alert(
+            'This lead has not finished saving to the server yet. Wait a moment, then open the pin again and schedule.'
+          )
+          return
+        }
+      }
+
+      const shouldCallUpdateApi = wantsSchedule || (isOnline && selectedPin.synced)
+
+      if (shouldCallUpdateApi) {
         try {
           const response = await fetch('/api/canvass/lead', {
             method: 'POST',
@@ -361,7 +381,7 @@ export default function CanvassPage() {
           alert('Failed to save changes. Please check your connection.')
         }
       } else {
-        // Offline mode - will sync later
+        // Offline / unsynced: local-only updates only when not scheduling (guarded above).
         apiSuccess = true
       }
       
@@ -380,6 +400,14 @@ export default function CanvassPage() {
       updateViewportPin(toViewportPin(updatedPin))
     } else if (newPinLocation) {
       let createFailed = false
+
+      if (leadData.schedule_inspection && !isOnline) {
+        alert(
+          'Inspection scheduling needs a working internet connection. Save the pin first when you are back online, then schedule.'
+        )
+        return
+      }
+
       // Create new pin
       const newPin: CanvassPin = {
         id: `offline_${Date.now()}`,
@@ -454,11 +482,18 @@ export default function CanvassPage() {
           }
         } catch (error) {
           console.error('Failed to create lead:', error)
-          // Network error - save to offline store so pin persists
-          addLead(newPin)
+          if (leadData.schedule_inspection) {
+            alert(
+              'Could not schedule the inspection (network error). Your appointment was not booked — please try again.'
+            )
+            createFailed = true
+          } else {
+            // Network error — queue basic lead for sync (no schedule payload in offline queue)
+            addLead(newPin)
+          }
         }
       } else {
-        // Save to offline store (scheduling not available offline)
+        // Offline: non-scheduled pins only (scheduling blocked above)
         addLead(newPin)
       }
 
