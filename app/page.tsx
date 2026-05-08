@@ -1,632 +1,446 @@
 import Link from 'next/link'
-import Image from 'next/image'
+
+const metrics = [
+  { label: 'Speed to lead', value: '< 60s', detail: 'Route every new lead before momentum dies.' },
+  { label: 'Field visibility', value: 'Live', detail: 'See teams, visits, and opportunities in one place.' },
+  { label: 'Revenue handoff', value: '1 flow', detail: 'Move from inquiry to quote to job without re-entry.' },
+]
+
+const pipelineSteps = [
+  { label: 'Lead captured', value: 'Website, phone, or ad source', tone: 'bg-sky-500' },
+  { label: 'Owner assigned', value: 'Round robin: best-fit team', tone: 'bg-emerald-500' },
+  { label: 'Visit booked', value: 'Today, 4:30 PM', tone: 'bg-amber-400' },
+  { label: 'Estimate ready', value: 'Photos, notes, scope, history', tone: 'bg-rose-500' },
+]
+
+const features = [
+  {
+    title: 'Canvassing that managers can trust',
+    description: 'Map territories, capture field activity, and keep every opportunity tied to the rep, team, source, and next action.',
+  },
+  {
+    title: 'Scheduling built for service teams',
+    description: 'Book visits into real availability, protect drive time, and keep office, sales, and field teams aligned automatically.',
+  },
+  {
+    title: 'Outcome feedback without the chase',
+    description: 'Your team logs results from the field so managers know what moved, what stalled, and what needs attention next.',
+  },
+  {
+    title: 'Proposals, contracts, and jobs connected',
+    description: 'Keep scope, photos, measurements, contracts, invoices, and operations context moving with the customer record.',
+  },
+]
+
+const roles = [
+  {
+    role: 'Owners',
+    promise: 'Know what is happening before the end-of-day meeting.',
+    points: ['Revenue pipeline by source', 'Team performance trends', 'Job and fulfillment visibility'],
+  },
+  {
+    role: 'Sales managers',
+    promise: 'Coach from real behavior, not scattered updates.',
+    points: ['Rep and estimator scorecards', 'Open follow-up queues', 'Calendar and attribution clarity'],
+  },
+  {
+    role: 'Field teams',
+    promise: 'Move fast from the driveway without fighting software.',
+    points: ['Mobile field workflow', 'One-tap lead updates', 'Instant handoff notifications'],
+  },
+]
+
+const outcomes = [
+  'Fewer forgotten follow-ups',
+  'Cleaner office-to-field handoffs',
+  'Less spreadsheet cleanup',
+  'Faster job intake after a signed agreement',
+  'Custom reporting around your process',
+  'A team that can see the same truth',
+]
+
+const serviceTypes = ['HVAC', 'Roofing', 'Restoration', 'Plumbing', 'Electrical', 'Solar', 'Windows', 'Landscaping']
+
+function CheckIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.31a1 1 0 0 1-1.42.002L3.29 9.206a1 1 0 1 1 1.42-1.408l4.04 4.09 6.54-6.592a1 1 0 0 1 1.414-.006Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  )
+}
+
+function ArrowIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M3 10a1 1 0 0 1 1-1h9.586l-3.293-3.293a1 1 0 1 1 1.414-1.414l5 5a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414-1.414L13.586 11H4a1 1 0 0 1-1-1Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  )
+}
+
+function ProductPreview() {
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-950 shadow-2xl shadow-cyan-500/20 ring-1 ring-cyan-300/10">
+      <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-cyan-400/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-24 left-8 h-56 w-56 rounded-full bg-amber-300/20 blur-3xl" />
+      <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+        </div>
+        <span className="text-xs font-medium text-slate-400">ARX command center</span>
+      </div>
+
+      <div className="grid gap-0 md:grid-cols-[0.9fr_1.35fr]">
+        <div className="border-b border-slate-800 bg-slate-900/70 p-5 md:border-b-0 md:border-r">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Today</p>
+              <h3 className="mt-1 text-lg font-semibold text-white">Revenue lane</h3>
+            </div>
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+              Live
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {pipelineSteps.map((step) => (
+              <div key={step.label} className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2.5 w-2.5 rounded-full ${step.tone}`} />
+                  <p className="text-sm font-semibold text-white">{step.label}</p>
+                </div>
+                <p className="mt-2 text-sm text-slate-400">{step.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-[radial-gradient(circle_at_25%_20%,rgba(251,191,36,0.14),transparent_28%),radial-gradient(circle_at_80%_0%,rgba(56,189,248,0.16),transparent_26%),linear-gradient(135deg,#020617,#111827)] p-5">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              ['New leads', '27', '+9 today'],
+              ['Visits', '14', '6 need briefs'],
+              ['Open value', '$486k', 'active pipeline'],
+            ].map(([label, value, detail]) => (
+              <div key={label} className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
+                <p className="text-xs text-slate-400">{label}</p>
+                <p className="mt-2 text-2xl font-bold text-white">{value}</p>
+                <p className="mt-1 text-xs text-emerald-200">{detail}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.06] p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Team heat map</p>
+                <p className="text-xs text-slate-400">Leads, visits, estimates, and booked jobs</p>
+              </div>
+              <span className="text-xs font-medium text-amber-200">Active market</span>
+            </div>
+            <div className="relative h-52 overflow-hidden rounded-lg bg-slate-900">
+              <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(148,163,184,0.2)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.2)_1px,transparent_1px)] [background-size:32px_32px]" />
+              {[
+                ['left-[18%] top-[24%] bg-emerald-400', 'Booked'],
+                ['left-[42%] top-[36%] bg-amber-300', 'Follow-up'],
+                ['left-[68%] top-[22%] bg-sky-400', 'New'],
+                ['left-[56%] top-[66%] bg-rose-400', 'Hot'],
+                ['left-[24%] top-[70%] bg-emerald-400', 'Booked'],
+              ].map(([position, label]) => (
+                <div key={`${position}-${label}`} className={`absolute ${position}`}>
+                  <span className="relative flex h-4 w-4">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-25" />
+                    <span className={`relative inline-flex h-4 w-4 rounded-full ${position.split(' ').at(-1)}`} />
+                  </span>
+                </div>
+              ))}
+              <div className="absolute bottom-4 left-4 right-4 rounded-lg border border-white/10 bg-slate-950/80 p-3 backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Next best action</p>
+                <p className="mt-1 text-sm font-medium text-white">Send estimate brief before the 4:30 customer visit.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-white">
-      {/* Navigation */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-lg">A</span>
+    <main className="min-h-screen bg-slate-950 text-slate-950">
+      <header className="fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
+          <Link href="/" className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-400 text-lg font-black text-slate-950 shadow-lg shadow-amber-400/25">
+              A
             </div>
-            <span className="text-xl font-bold text-gray-900">ARX CRM</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Features</a>
-            <a href="#solutions" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Solutions</a>
-            <a href="#pricing" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Pricing</a>
-            <a href="#contact" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Contact</a>
+            <div>
+              <p className="text-base font-black leading-none tracking-tight text-white">ARX</p>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">Service Growth OS</p>
+            </div>
+          </Link>
+
+          <nav className="hidden items-center gap-7 md:flex">
+            <a href="#platform" className="text-sm font-semibold text-slate-300 transition hover:text-white">Platform</a>
+            <a href="#teams" className="text-sm font-semibold text-slate-300 transition hover:text-white">Teams</a>
+            <a href="#outcomes" className="text-sm font-semibold text-slate-300 transition hover:text-white">Outcomes</a>
+            <a href="#demo" className="text-sm font-semibold text-slate-300 transition hover:text-white">Presentation</a>
           </nav>
+
           <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="text-sm font-semibold text-gray-700 hover:text-gray-900 transition-colors"
-            >
-              Sign In
+            <Link href="/login" className="hidden text-sm font-bold text-slate-300 transition hover:text-white sm:inline">
+              Sign in
             </Link>
             <Link
               href="/trial"
-              className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm"
+              className="rounded-lg bg-amber-400 px-4 py-2.5 text-sm font-black text-slate-950 shadow-sm shadow-amber-300/40 transition hover:bg-amber-300"
             >
-              Start Free Trial
+              Schedule presentation
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="pt-32 pb-20 px-6 bg-gradient-to-b from-slate-50 to-white">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center max-w-4xl mx-auto">
-            <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full text-sm font-medium mb-6">
-              <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></span>
-              Built for Roofing & Exterior Contractors
+      <section className="relative overflow-hidden pt-28 text-white">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(251,191,36,0.28),transparent_24%),radial-gradient(circle_at_82%_24%,rgba(34,211,238,0.26),transparent_28%),linear-gradient(125deg,#020617_0%,#0f172a_44%,#111827_100%)]" />
+        <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(255,255,255,0.14)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.14)_1px,transparent_1px)] [background-size:44px_44px]" />
+        <div className="absolute -left-24 top-32 h-96 w-96 rounded-full bg-amber-300/20 blur-3xl" />
+        <div className="absolute -right-24 bottom-10 h-[34rem] w-[34rem] rounded-full bg-cyan-300/20 blur-3xl" />
+
+        <div className="relative mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-10 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:pb-24 lg:pt-16">
+          <div className="flex flex-col justify-center">
+            <div className="mb-6 inline-flex w-fit items-center gap-3 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold text-cyan-100 shadow-sm backdrop-blur">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/70" />
+              Custom-built for service companies that sell in the field
             </div>
-            <h1 className="text-5xl md:text-6xl font-bold text-gray-900 leading-tight tracking-tight">
-              The CRM That Actually
-              <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent"> Closes Deals</span>
+            <h1 className="max-w-4xl text-5xl font-black leading-[0.92] tracking-tight text-white sm:text-6xl lg:text-7xl">
+              Own every lead from first call to finished job.
             </h1>
-            <p className="mt-6 text-xl text-gray-600 leading-relaxed max-w-2xl mx-auto">
-              Stop losing leads to spreadsheets and sticky notes. ARX CRM gives your team one system to canvass, schedule, inspect, and close—with real-time visibility from door knock to signed contract.
+            <p className="mt-7 max-w-2xl text-lg leading-8 text-slate-200 sm:text-xl">
+              ARX helps service businesses install a custom CRM around the way they actually sell, schedule, estimate, dispatch, fulfill, and follow up.
             </p>
-            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              {serviceTypes.map((type) => (
+                <span key={type} className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-white/85">
+                  {type}
+                </span>
+              ))}
+            </div>
+
+            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/trial"
-                className="w-full sm:w-auto rounded-xl bg-indigo-600 px-8 py-4 text-base font-semibold text-white hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-200"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-400 px-6 py-4 text-base font-black text-slate-950 shadow-xl shadow-amber-400/25 transition hover:bg-amber-300"
               >
-                Start Your Free 14-Day Trial
+                Schedule a custom setup call
+                <ArrowIcon />
               </Link>
               <a
                 href="#demo"
-                className="w-full sm:w-auto rounded-xl border-2 border-gray-200 px-8 py-4 text-base font-semibold text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+                className="inline-flex items-center justify-center rounded-lg border border-white/20 bg-white/10 px-6 py-4 text-base font-black text-white backdrop-blur transition hover:bg-white/15"
               >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                </svg>
-                Watch Demo
+                See how pricing works
               </a>
             </div>
-            <p className="mt-6 text-sm text-gray-500">No credit card required • Setup in under 5 minutes</p>
+
+            <div className="mt-10 grid gap-3 sm:grid-cols-3">
+              {metrics.map((metric) => (
+                <div key={metric.label} className="rounded-lg border border-white/15 bg-white/10 p-4 shadow-sm backdrop-blur">
+                  <p className="text-2xl font-black text-white">{metric.value}</p>
+                  <p className="mt-1 text-sm font-bold text-cyan-100">{metric.label}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-300">{metric.detail}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Hero Image/Dashboard Preview */}
-          <div className="mt-16 relative">
-            <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent z-10 pointer-events-none h-32 bottom-0 top-auto"></div>
-            <div className="rounded-2xl border border-gray-200 shadow-2xl shadow-gray-200/50 overflow-hidden bg-gray-900">
-              <div className="flex items-center gap-2 px-4 py-3 bg-gray-800 border-b border-gray-700">
-                <div className="flex gap-1.5">
-                  <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                  <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                  <div className="w-3 h-3 rounded-full bg-green-500"></div>
+          <div className="relative lg:pt-8">
+            <div className="absolute -left-6 top-0 hidden rotate-[-5deg] rounded-lg border border-amber-300/40 bg-amber-300 px-4 py-3 text-sm font-black text-slate-950 shadow-2xl shadow-amber-300/20 lg:block">
+              Custom setup, not a template
+            </div>
+            <div className="absolute -right-4 bottom-8 z-10 hidden rotate-[4deg] rounded-lg border border-cyan-300/30 bg-cyan-300 px-4 py-3 text-sm font-black text-slate-950 shadow-2xl shadow-cyan-300/20 lg:block">
+              Pricing by presentation
+            </div>
+            <ProductPreview />
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-slate-200 bg-white px-5 py-8 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-6 md:grid-cols-[0.8fr_1.2fr] md:items-center">
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">The expensive problem</p>
+          <p className="text-2xl font-black leading-tight text-slate-950 md:text-3xl">
+            Most service companies do not need another generic CRM. They need a custom operating system that matches how their customers, crews, sales team, and jobs actually move.
+          </p>
+        </div>
+      </section>
+
+      <section id="platform" className="px-5 py-20 lg:px-8 lg:py-28">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-3xl">
+            <p className="text-sm font-black uppercase tracking-[0.2em] text-sky-700">Platform</p>
+            <h2 className="mt-4 text-4xl font-black tracking-tight text-slate-950 md:text-5xl">
+              Designed around the way service revenue actually moves.
+            </h2>
+          </div>
+
+          <div className="mt-12 grid gap-4 md:grid-cols-2">
+            {features.map((feature, index) => (
+              <div key={feature.title} className="rounded-lg border border-slate-200 bg-white p-7 shadow-sm">
+                <div className="mb-8 flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-sm font-black text-white">
+                  0{index + 1}
                 </div>
-                <div className="flex-1 text-center">
-                  <span className="text-xs text-gray-400">ARX CRM Dashboard</span>
-                </div>
+                <h3 className="text-xl font-black text-slate-950">{feature.title}</h3>
+                <p className="mt-3 text-base leading-7 text-slate-600">{feature.description}</p>
               </div>
-              <div className="aspect-[16/9] bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-                <div className="text-center p-8">
-                  <div className="grid grid-cols-4 gap-4 max-w-3xl mx-auto mb-8">
-                    {[
-                      { label: 'Doors Knocked', value: '2,847', change: '+12%' },
-                      { label: 'Inspections Set', value: '342', change: '+8%' },
-                      { label: 'Close Rate', value: '34%', change: '+5%' },
-                      { label: 'Revenue', value: '$1.2M', change: '+18%' },
-                    ].map((stat) => (
-                      <div key={stat.label} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                        <p className="text-xs text-slate-400 uppercase tracking-wide">{stat.label}</p>
-                        <p className="text-2xl font-bold text-white mt-1">{stat.value}</p>
-                        <p className="text-xs text-green-400 mt-1">{stat.change} this month</p>
-                      </div>
-                    ))}
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="teams" className="bg-slate-950 px-5 py-20 text-white lg:px-8 lg:py-28">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-300">For the whole team</p>
+              <h2 className="mt-4 text-4xl font-black tracking-tight md:text-5xl">
+                Everyone sees the same playbook.
+              </h2>
+              <p className="mt-5 text-lg leading-8 text-slate-300">
+                The promise is simple: stop asking five people for the status of one customer. ARX keeps each handoff visible and accountable.
+              </p>
+            </div>
+
+            <div className="grid gap-4">
+              {roles.map((role) => (
+                <div key={role.role} className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-[0.18em] text-slate-400">{role.role}</p>
+                      <h3 className="mt-2 text-2xl font-black text-white">{role.promise}</h3>
+                    </div>
+                    <div className="grid gap-2 sm:min-w-64">
+                      {role.points.map((point) => (
+                        <div key={point} className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+                          <CheckIcon className="h-4 w-4 text-emerald-300" />
+                          {point}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <p className="text-slate-400 text-sm">Real-time metrics that drive accountability</p>
                 </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Social Proof Bar */}
-      <section className="py-12 bg-gray-50 border-y border-gray-100">
-        <div className="mx-auto max-w-7xl px-6">
-          <p className="text-center text-sm font-medium text-gray-500 mb-8">TRUSTED BY LEADING ROOFING COMPANIES</p>
-          <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-6 opacity-60">
-            {['Premier Roofing', 'Storm Guard', 'Elite Exteriors', 'Apex Home Solutions', 'Titan Roofing'].map((company) => (
-              <span key={company} className="text-xl font-bold text-gray-400">{company}</span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Problem/Solution Section */}
-      <section className="py-24 px-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Your Sales Team Deserves Better Than Spreadsheets
+      <section id="outcomes" className="px-5 py-20 lg:px-8 lg:py-28">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.2em] text-rose-700">What changes</p>
+            <h2 className="mt-4 text-4xl font-black tracking-tight text-slate-950 md:text-5xl">
+              Sell control, clarity, and a setup built around them.
             </h2>
-            <p className="mt-4 text-lg text-gray-600">
-              Most roofing CRMs are built by software people who've never knocked a door. We built ARX from the field up.
+            <p className="mt-5 text-lg leading-8 text-slate-600">
+              Service-company buyers are not shopping for another dashboard. They are trying to stop revenue from slipping through messy handoffs. ARX starts with a scheduled presentation, then maps the platform to the customer's actual workflow.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-            {/* Before */}
-            <div className="bg-red-50 rounded-2xl p-8 border border-red-100">
-              <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mb-6">
-                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Without ARX CRM</h3>
-              <ul className="space-y-3">
-                {[
-                  'Leads fall through the cracks',
-                  'No visibility into setter performance',
-                  'Manual calendar coordination',
-                  'Closers miss inspection windows',
-                  'Commission disputes every pay period',
-                  'Hours wasted on data entry',
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-3 text-gray-700">
-                    <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* After */}
-            <div className="bg-green-50 rounded-2xl p-8 border border-green-100">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mb-6">
-                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">With ARX CRM</h3>
-              <ul className="space-y-3">
-                {[
-                  'Every lead tracked from knock to close',
-                  'Real-time leaderboards and KPIs',
-                  'Auto-sync with Google Calendar',
-                  'Instant inspection feedback to setters',
-                  'Automated commission calculations',
-                  'Mobile-first canvassing app',
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-3 text-gray-700">
-                    <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="py-24 px-6 bg-slate-900">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <p className="text-indigo-400 font-semibold text-sm uppercase tracking-wide mb-3">Features</p>
-            <h2 className="text-3xl md:text-4xl font-bold text-white">
-              Everything You Need to Scale Your Sales Operation
-            </h2>
-            <p className="mt-4 text-lg text-slate-400">
-              From the first door knock to the signed contract, ARX CRM keeps your entire team aligned and accountable.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[
-              {
-                icon: (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                ),
-                title: 'GPS Canvassing',
-                description: 'Drop pins on a live map as you knock. See team coverage in real-time. Never double-knock a neighborhood again.',
-              },
-              {
-                icon: (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                ),
-                title: 'Smart Scheduling',
-                description: 'Round-robin assignment with calendar sync. Setters book directly into closer availability. Zero phone tag.',
-              },
-              {
-                icon: (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                ),
-                title: 'Performance Dashboards',
-                description: 'Track doors knocked, contacts made, inspections set, and close rates. Daily, weekly, monthly—your choice.',
-              },
-              {
-                icon: (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                  </svg>
-                ),
-                title: 'Instant Feedback Loop',
-                description: 'Closers submit inspection results, setters get notified immediately. No more "what happened to my lead?"',
-              },
-              {
-                icon: (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ),
-                title: 'Commission Tracking',
-                description: 'Flexible comp plans for setters and closers. Volume bonuses, overrides, splits—all calculated automatically.',
-              },
-              {
-                icon: (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                ),
-                title: 'Proposals & Contracts',
-                description: 'Generate professional proposals from your pricebook. E-signatures built in. Close deals on the spot.',
-              },
-            ].map((feature) => (
-              <div key={feature.title} className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700 hover:border-slate-600 transition-colors">
-                <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-400 mb-4">
-                  {feature.icon}
-                </div>
-                <h3 className="text-lg font-semibold text-white mb-2">{feature.title}</h3>
-                <p className="text-slate-400 text-sm leading-relaxed">{feature.description}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {outcomes.map((outcome) => (
+              <div key={outcome} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <CheckIcon className="mt-0.5 h-5 w-5 flex-none text-emerald-600" />
+                <p className="font-bold leading-6 text-slate-800">{outcome}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Solutions by Role */}
-      <section id="solutions" className="py-24 px-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-wide mb-3">Solutions</p>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Built for Every Role on Your Team
-            </h2>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                role: 'Sales Managers',
-                description: 'Finally see what your team is actually doing. Real-time visibility into activity, pipeline, and performance.',
-                features: ['Team leaderboards', 'Activity tracking', 'Pipeline forecasting', 'Custom reports'],
-                color: 'indigo',
-              },
-              {
-                role: 'Setters / Canvassers',
-                description: 'A mobile app that works as hard as you do. Drop pins, schedule inspections, and track your numbers.',
-                features: ['GPS mapping', 'One-tap scheduling', 'Commission visibility', 'Instant feedback'],
-                color: 'emerald',
-              },
-              {
-                role: 'Closers',
-                description: 'Walk into every inspection prepared. Customer history, notes, and proposal tools at your fingertips.',
-                features: ['Lead context', 'Calendar sync', 'Mobile proposals', 'E-signatures'],
-                color: 'violet',
-              },
-            ].map((solution) => (
-              <div key={solution.role} className="bg-white rounded-2xl p-8 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                <div className={`w-12 h-12 bg-${solution.color}-100 rounded-xl flex items-center justify-center mb-6`}>
-                  <span className={`text-${solution.color}-600 text-xl font-bold`}>{solution.role[0]}</span>
-                </div>
-                <h3 className="text-xl font-bold text-gray-900 mb-3">{solution.role}</h3>
-                <p className="text-gray-600 mb-6">{solution.description}</p>
-                <ul className="space-y-2">
-                  {solution.features.map((feature) => (
-                    <li key={feature} className="flex items-center gap-2 text-sm text-gray-700">
-                      <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonial */}
-      <section className="py-24 px-6 bg-indigo-600">
-        <div className="mx-auto max-w-4xl text-center">
-          <svg className="w-12 h-12 text-indigo-300 mx-auto mb-6" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z" />
-          </svg>
-          <blockquote className="text-2xl md:text-3xl font-medium text-white leading-relaxed">
-            "We went from tracking leads in Google Sheets to closing 40% more deals in 90 days. ARX CRM paid for itself in the first month."
-          </blockquote>
-          <div className="mt-8">
-            <p className="text-white font-semibold">Mike Richardson</p>
-            <p className="text-indigo-200">Owner, Richardson Roofing • Charlotte, NC</p>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing Section */}
-      <section id="pricing" className="py-24 px-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-wide mb-3">Pricing</p>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Simple, Transparent Pricing
-            </h2>
-            <p className="mt-4 text-lg text-gray-600">
-              No hidden fees. No long-term contracts. Cancel anytime.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {[
-              {
-                name: 'Starter',
-                price: '$99',
-                period: '/month',
-                description: 'Perfect for small teams getting started',
-                features: ['Up to 5 users', 'GPS canvassing', 'Basic scheduling', 'Email support'],
-                cta: 'Start Free Trial',
-                featured: false,
-              },
-              {
-                name: 'Professional',
-                price: '$249',
-                period: '/month',
-                description: 'For growing teams that need more power',
-                features: ['Up to 20 users', 'Everything in Starter', 'Round-robin scheduling', 'Commission tracking', 'Custom reports', 'Priority support'],
-                cta: 'Start Free Trial',
-                featured: true,
-              },
-              {
-                name: 'Enterprise',
-                price: 'Custom',
-                period: '',
-                description: 'For large organizations with complex needs',
-                features: ['Unlimited users', 'Everything in Professional', 'API access', 'Custom integrations', 'Dedicated success manager', 'SLA guarantee'],
-                cta: 'Contact Sales',
-                featured: false,
-              },
-            ].map((plan) => (
-              <div
-                key={plan.name}
-                className={`rounded-2xl p-8 ${
-                  plan.featured
-                    ? 'bg-indigo-600 text-white ring-4 ring-indigo-600 ring-offset-4'
-                    : 'bg-white border border-gray-200'
-                }`}
-              >
-                <h3 className={`text-lg font-semibold ${plan.featured ? 'text-indigo-100' : 'text-gray-500'}`}>
-                  {plan.name}
-                </h3>
-                <div className="mt-4 flex items-baseline">
-                  <span className={`text-4xl font-bold ${plan.featured ? 'text-white' : 'text-gray-900'}`}>
-                    {plan.price}
-                  </span>
-                  <span className={`ml-1 ${plan.featured ? 'text-indigo-200' : 'text-gray-500'}`}>
-                    {plan.period}
-                  </span>
-                </div>
-                <p className={`mt-2 text-sm ${plan.featured ? 'text-indigo-100' : 'text-gray-600'}`}>
-                  {plan.description}
-                </p>
-                <ul className="mt-6 space-y-3">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-3">
-                      <svg
-                        className={`w-5 h-5 flex-shrink-0 ${plan.featured ? 'text-indigo-200' : 'text-green-500'}`}
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      <span className={`text-sm ${plan.featured ? 'text-white' : 'text-gray-700'}`}>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
+      <section id="demo" className="px-5 pb-20 lg:px-8 lg:pb-28">
+        <div className="mx-auto overflow-hidden rounded-lg bg-slate-950 text-white shadow-2xl shadow-slate-950/20">
+          <div className="grid gap-0 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="p-8 sm:p-12 lg:p-16">
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-300">Ready for customers</p>
+              <h2 className="mt-4 text-4xl font-black tracking-tight md:text-5xl">
+                Pricing comes after the fit is clear.
+              </h2>
+              <p className="mt-5 text-lg leading-8 text-slate-300">
+                Every service company is different, so the next step is a scheduled presentation. We walk the customer through the platform, identify their custom setup, and price the engagement around their company.
+              </p>
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href={plan.name === 'Enterprise' ? '#contact' : '/trial'}
-                  className={`mt-8 block w-full rounded-lg py-3 text-center text-sm font-semibold transition-colors ${
-                    plan.featured
-                      ? 'bg-white text-indigo-600 hover:bg-indigo-50'
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  }`}
+                  href="/trial"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-400 px-6 py-4 text-base font-black text-slate-950 transition hover:bg-amber-300"
                 >
-                  {plan.cta}
+                  Schedule presentation
+                  <ArrowIcon />
+                </Link>
+                <Link
+                  href="/login"
+                  className="inline-flex items-center justify-center rounded-lg border border-white/20 px-6 py-4 text-base font-black text-white transition hover:bg-white/10"
+                >
+                  Sign in
                 </Link>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
+            </div>
 
-      {/* CTA Section */}
-      <section className="py-24 px-6 bg-slate-900">
-        <div className="mx-auto max-w-4xl text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-white">
-            Ready to Close More Deals?
-          </h2>
-          <p className="mt-4 text-lg text-slate-400">
-            Join hundreds of roofing companies already using ARX CRM to grow their business.
-          </p>
-          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/trial"
-              className="w-full sm:w-auto rounded-xl bg-indigo-600 px-8 py-4 text-base font-semibold text-white hover:bg-indigo-700 transition-all"
-            >
-              Start Your Free Trial
-            </Link>
-            <a
-              href="#contact"
-              className="w-full sm:w-auto rounded-xl border border-slate-600 px-8 py-4 text-base font-semibold text-white hover:border-slate-500 hover:bg-slate-800 transition-all"
-            >
-              Schedule a Demo
-            </a>
-          </div>
-        </div>
-      </section>
-
-      {/* Contact Section */}
-      <section id="contact" className="py-24 px-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="grid md:grid-cols-2 gap-16">
-            <div>
-              <p className="text-indigo-600 font-semibold text-sm uppercase tracking-wide mb-3">Contact Us</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-                Let's Talk About Your Business
-              </h2>
-              <p className="mt-4 text-lg text-gray-600">
-                Whether you're running a 5-person crew or a 50-person operation, we'd love to show you how ARX CRM can help you grow.
-              </p>
-              <div className="mt-8 space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Email</p>
-                    <p className="font-medium text-gray-900">info@arxroofing.com</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Phone</p>
-                    <p className="font-medium text-gray-900">(704) 555-0123</p>
-                  </div>
+            <div className="border-t border-white/10 bg-white/[0.04] p-8 sm:p-12 lg:border-l lg:border-t-0">
+              <div className="rounded-lg border border-white/10 bg-slate-900 p-5">
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-slate-400">Demo agenda</p>
+                <div className="mt-6 space-y-5">
+                  {[
+                    ['01', 'Understand the company, team, and lead sources'],
+                    ['02', 'Map the sales, scheduling, and field workflow'],
+                    ['03', 'Show the custom CRM setup that fits'],
+                    ['04', 'Present pricing based on the actual scope'],
+                  ].map(([number, label]) => (
+                    <div key={number} className="flex gap-4">
+                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-white text-sm font-black text-slate-950">
+                        {number}
+                      </span>
+                      <p className="pt-1.5 text-base font-semibold text-slate-200">{label}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-            <div className="bg-gray-50 rounded-2xl p-8">
-              <form className="space-y-6">
-                <div className="grid sm:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
-                      placeholder="John"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
-                      placeholder="Smith"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                  <input
-                    type="email"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
-                    placeholder="john@company.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Company</label>
-                  <input
-                    type="text"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
-                    placeholder="Your Roofing Company"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Team Size</label>
-                  <select className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-indigo-500 focus:ring-indigo-500">
-                    <option>1-5 people</option>
-                    <option>6-15 people</option>
-                    <option>16-30 people</option>
-                    <option>31-50 people</option>
-                    <option>50+ people</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
-                  <textarea
-                    rows={4}
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
-                    placeholder="Tell us about your business..."
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
-                >
-                  Send Message
-                </button>
-              </form>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-slate-950 py-16 px-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="grid md:grid-cols-4 gap-12">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-xl flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">A</span>
-                </div>
-                <span className="text-xl font-bold text-white">ARX CRM</span>
-              </div>
-              <p className="text-slate-400 max-w-md">
-                The CRM built specifically for roofing and exterior contractors. From door knock to signed contract, we've got you covered.
-              </p>
+      <footer className="border-t border-slate-200 bg-white px-5 py-10 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-950 text-lg font-black text-white">
+              A
             </div>
             <div>
-              <h4 className="text-white font-semibold mb-4">Product</h4>
-              <ul className="space-y-3">
-                <li><a href="#features" className="text-slate-400 hover:text-white transition-colors">Features</a></li>
-                <li><a href="#pricing" className="text-slate-400 hover:text-white transition-colors">Pricing</a></li>
-                <li><a href="#" className="text-slate-400 hover:text-white transition-colors">Integrations</a></li>
-                <li><a href="#" className="text-slate-400 hover:text-white transition-colors">Changelog</a></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-white font-semibold mb-4">Company</h4>
-              <ul className="space-y-3">
-                <li><a href="#" className="text-slate-400 hover:text-white transition-colors">About</a></li>
-                <li><a href="#contact" className="text-slate-400 hover:text-white transition-colors">Contact</a></li>
-                <li><a href="#" className="text-slate-400 hover:text-white transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="text-slate-400 hover:text-white transition-colors">Terms of Service</a></li>
-              </ul>
+              <p className="font-black text-slate-950">ARX Service Growth OS</p>
+              <p className="text-sm text-slate-500">Custom CRM setup for service companies.</p>
             </div>
           </div>
-          <div className="mt-12 pt-8 border-t border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-slate-500 text-sm">© 2026 ARX CRM. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              <a href="#" className="text-slate-400 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/>
-                </svg>
-              </a>
-              <a href="#" className="text-slate-400 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
-                </svg>
-              </a>
-              <a href="#" className="text-slate-400 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                </svg>
-              </a>
-            </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-slate-500">
+            <a href="#platform" className="hover:text-slate-950">Platform</a>
+            <a href="#teams" className="hover:text-slate-950">Teams</a>
+            <a href="#demo" className="hover:text-slate-950">Demo</a>
+            <Link href="/privacy" className="hover:text-slate-950">Privacy</Link>
+            <Link href="/terms" className="hover:text-slate-950">Terms</Link>
           </div>
         </div>
       </footer>
-    </div>
+    </main>
   )
 }
