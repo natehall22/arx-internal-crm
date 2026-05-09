@@ -136,4 +136,36 @@ describe('inside sales follow-up queue visibility', () => {
     expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(false)
     expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBeNull()
   })
+
+  it('surfaces close-feedback handoffs even without an inspection outcome', () => {
+    const opportunity = {
+      status: 'in_progress',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: 'inside_sales_insurance_follow_up',
+      follow_up_at: '2026-05-01T13:00:00.000Z',
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('handoff')
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(true)
+    expect(getInsideSalesFollowUpStatus(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('new')
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
+      callableNow: true,
+      eligibleAtIso: null,
+      adminHandoffDelayDays: null,
+    })
+  })
+
+  it('does not surface close-feedback handoffs when the opportunity is lost', () => {
+    const opportunity = {
+      status: 'lost',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: 'inside_sales_insurance_follow_up',
+      follow_up_at: '2026-05-01T13:00:00.000Z',
+    }
+
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(false)
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBeNull()
+  })
 })

@@ -1,8 +1,17 @@
 import type { InspectionOutcomeConfigRow } from '@/lib/inspection-outcomes'
-import { sortInspectionOutcomes } from '@/lib/inspection-outcomes'
+import {
+  DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+  normalizeInspectionOutcomeId,
+  sortInspectionOutcomes,
+} from '@/lib/inspection-outcomes'
 
-/** Same row shape as inspection outcomes; `converts_to_opportunity` is stored for UI parity but ignored for close feedback server logic. */
-export type CloseOutcomeConfigRow = InspectionOutcomeConfigRow
+export type CloseOutcomeAction = 'none' | 'won' | 'lost'
+
+/** Same base row shape as inspection outcomes, with close-feedback routing fields. */
+export type CloseOutcomeConfigRow = InspectionOutcomeConfigRow & {
+  /** Close feedback server action. Future outcomes should use this instead of relying on reserved ids. */
+  close_action?: CloseOutcomeAction
+}
 
 /** Default close feedback outcomes — keep ids stable for server behavior (`sold`, `said_no`, `insurance_follow_up`). */
 export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
@@ -14,6 +23,7 @@ export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
     icon: '✅',
     active: true,
     converts_to_opportunity: false,
+    close_action: 'won',
     sort_order: 0,
   },
   {
@@ -24,6 +34,9 @@ export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
     icon: '🔄',
     active: true,
     converts_to_opportunity: false,
+    inside_sales_handoff_enabled: true,
+    inside_sales_handoff_delay_days: DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+    close_action: 'none',
     sort_order: 1,
   },
   {
@@ -34,6 +47,9 @@ export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
     icon: '📋',
     active: true,
     converts_to_opportunity: false,
+    inside_sales_handoff_enabled: true,
+    inside_sales_handoff_delay_days: DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+    close_action: 'none',
     sort_order: 2,
   },
   {
@@ -44,6 +60,9 @@ export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
     icon: '📅',
     active: true,
     converts_to_opportunity: false,
+    inside_sales_handoff_enabled: true,
+    inside_sales_handoff_delay_days: DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+    close_action: 'none',
     sort_order: 3,
   },
   {
@@ -54,6 +73,7 @@ export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
     icon: '❌',
     active: true,
     converts_to_opportunity: false,
+    close_action: 'lost',
     sort_order: 4,
   },
   {
@@ -64,6 +84,9 @@ export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
     icon: '❓',
     active: true,
     converts_to_opportunity: false,
+    inside_sales_handoff_enabled: true,
+    inside_sales_handoff_delay_days: DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+    close_action: 'none',
     sort_order: 5,
   },
   {
@@ -74,15 +97,124 @@ export const DEFAULT_CLOSE_OUTCOMES: CloseOutcomeConfigRow[] = [
     icon: '🔃',
     active: true,
     converts_to_opportunity: false,
+    inside_sales_handoff_enabled: true,
+    inside_sales_handoff_delay_days: DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+    close_action: 'none',
     sort_order: 6,
   },
 ]
+
+function normalizeDelayDays(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.max(0, Math.floor(value))
+}
+
+function closeOutcomeLabelKey(label: string | null | undefined): string {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+function fallbackCloseAction(row: Pick<CloseOutcomeConfigRow, 'id' | 'label'>): CloseOutcomeAction {
+  const id = normalizeInspectionOutcomeId(row.id)
+  const label = closeOutcomeLabelKey(row.label)
+  if (id === 'sold' || label === 'sold') return 'won'
+  if (id === 'said_no' || id === 'lost' || label === 'said no' || label === 'lost') return 'lost'
+  return 'none'
+}
+
+export function normalizeCloseOutcomeRow(
+  row: CloseOutcomeConfigRow,
+  index = 0
+): CloseOutcomeConfigRow {
+  const fallbackById = DEFAULT_CLOSE_OUTCOMES.find(
+    (candidate) => normalizeInspectionOutcomeId(candidate.id) === normalizeInspectionOutcomeId(row.id)
+  )
+  const fallbackByLabel =
+    !fallbackById && row.label
+      ? DEFAULT_CLOSE_OUTCOMES.find(
+          (candidate) => closeOutcomeLabelKey(candidate.label) === closeOutcomeLabelKey(row.label)
+        )
+      : undefined
+  const fallback = fallbackById ?? fallbackByLabel
+  const closeAction =
+    row.close_action === 'won' || row.close_action === 'lost' || row.close_action === 'none'
+      ? row.close_action
+      : fallback?.close_action ?? fallbackCloseAction(row)
+  const handoffEnabled =
+    closeAction === 'none' &&
+    row.inside_sales_handoff_enabled !== false &&
+    (row.inside_sales_handoff_enabled === true ||
+      row.inside_sales_handoff_enabled === undefined ||
+      fallback?.inside_sales_handoff_enabled === true)
+  const fallbackDelay =
+    normalizeDelayDays(fallback?.inside_sales_handoff_delay_days) ??
+    DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS
+  const explicitDelay = normalizeDelayDays(row.inside_sales_handoff_delay_days)
+
+  return {
+    ...row,
+    close_action: closeAction,
+    inside_sales_handoff_enabled: handoffEnabled,
+    inside_sales_handoff_delay_days: handoffEnabled ? explicitDelay ?? fallbackDelay : null,
+    sort_order: typeof row.sort_order === 'number' ? row.sort_order : fallback?.sort_order ?? index,
+  }
+}
+
+export function normalizeCloseOutcomeRows(
+  rows: CloseOutcomeConfigRow[] | null | undefined
+): CloseOutcomeConfigRow[] {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return DEFAULT_CLOSE_OUTCOMES.map((row, index) => normalizeCloseOutcomeRow(row, index))
+  }
+  return rows.map((row, index) => normalizeCloseOutcomeRow(row, index))
+}
+
+export function getCloseOutcomeConfig(
+  rows: CloseOutcomeConfigRow[] | null | undefined,
+  outcomeId: string | null | undefined
+): CloseOutcomeConfigRow | null {
+  const normalizedOutcomeId = normalizeInspectionOutcomeId(outcomeId)
+  if (!normalizedOutcomeId) return null
+  const normalizedRows = normalizeCloseOutcomeRows(rows)
+  return (
+    normalizedRows.find((row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId) ??
+    DEFAULT_CLOSE_OUTCOMES.map((row, index) => normalizeCloseOutcomeRow(row, index)).find(
+      (row) => normalizeInspectionOutcomeId(row.id) === normalizedOutcomeId
+    ) ??
+    null
+  )
+}
+
+export function getCloseOutcomeAction(
+  rows: CloseOutcomeConfigRow[] | null | undefined,
+  outcomeId: string | null | undefined
+): CloseOutcomeAction {
+  const config = getCloseOutcomeConfig(rows, outcomeId)
+  if (config?.close_action) return config.close_action
+  return fallbackCloseAction({ id: outcomeId || '', label: outcomeId || '' })
+}
+
+export function getCloseOutcomeInsideSalesHandoff(
+  rows: CloseOutcomeConfigRow[] | null | undefined,
+  outcomeId: string | null | undefined
+): { enabled: boolean; delayDays: number | null } {
+  const config = getCloseOutcomeConfig(rows, outcomeId)
+  if (!config?.inside_sales_handoff_enabled) return { enabled: false, delayDays: null }
+  return {
+    enabled: true,
+    delayDays:
+      normalizeDelayDays(config.inside_sales_handoff_delay_days) ??
+      DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
+  }
+}
 
 export function sortCloseOutcomes(
   rows: CloseOutcomeConfigRow[],
   options?: { includeInactive?: boolean }
 ): CloseOutcomeConfigRow[] {
-  return sortInspectionOutcomes(rows, options)
+  return sortInspectionOutcomes(normalizeCloseOutcomeRows(rows), options)
 }
 
 export function resolveCloseOutcomeLabel(
@@ -92,8 +224,8 @@ export function resolveCloseOutcomeLabel(
   if (!outcome) return 'Recorded'
   const rows =
     Array.isArray(configured) && configured.length > 0
-      ? configured
-      : DEFAULT_CLOSE_OUTCOMES
+      ? normalizeCloseOutcomeRows(configured)
+      : normalizeCloseOutcomeRows(DEFAULT_CLOSE_OUTCOMES)
   const found = rows.find((r) => r.id.toLowerCase() === outcome.toLowerCase())
   if (found?.label) return found.label
   return outcome.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -104,7 +236,7 @@ export function getValidCloseOutcomeIdsFromSettings(
 ): string[] {
   const rows =
     Array.isArray(configured) && configured.length > 0
-      ? configured
-      : DEFAULT_CLOSE_OUTCOMES
+      ? normalizeCloseOutcomeRows(configured as CloseOutcomeConfigRow[])
+      : normalizeCloseOutcomeRows(DEFAULT_CLOSE_OUTCOMES)
   return rows.map((r) => r.id).filter(Boolean)
 }

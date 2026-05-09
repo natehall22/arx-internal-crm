@@ -140,6 +140,9 @@ export async function GET(request: NextRequest) {
         inspection_outcome,
         inspection_outcome_at,
         inspection_notes,
+        pipeline_stage,
+        follow_up_at,
+        assigned_user_id,
         created_at,
         updated_at
       `)

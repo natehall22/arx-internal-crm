@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { getValidCloseOutcomeIdsFromSettings } from '@/lib/close-outcomes'
+import {
+  getCloseOutcomeAction,
+  getCloseOutcomeInsideSalesHandoff,
+  getValidCloseOutcomeIdsFromSettings,
+  type CloseOutcomeConfigRow,
+} from '@/lib/close-outcomes'
+import {
+  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+  REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+} from '@/lib/inside-sales-follow-up'
 import { sendSetterEmail } from '@/lib/setter-email'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import {
@@ -117,9 +126,8 @@ export async function POST(request: NextRequest) {
       .eq('id', profile.org_id)
       .single()
 
-    const validCloseIds = getValidCloseOutcomeIdsFromSettings(
-      orgForOutcomes?.settings?.close_outcomes as { id: string }[] | undefined
-    )
+    const closeOutcomeRows = orgForOutcomes?.settings?.close_outcomes as CloseOutcomeConfigRow[] | undefined
+    const validCloseIds = getValidCloseOutcomeIdsFromSettings(closeOutcomeRows)
     const outcomeNorm = String(outcome).toLowerCase()
     const outcomeAllowed = validCloseIds.some((id) => id.toLowerCase() === outcomeNorm)
     if (!outcomeAllowed) {
@@ -149,7 +157,7 @@ export async function POST(request: NextRequest) {
 
     const { data: opportunity, error: oppError } = await admin
       .from('opportunities')
-      .select('id, org_id, owner_user_id, lead_id')
+      .select('id, org_id, owner_user_id, lead_id, status')
       .eq('id', opportunityId)
       .eq('org_id', profile.org_id)
       .maybeSingle()
@@ -254,10 +262,23 @@ export async function POST(request: NextRequest) {
     }
 
     const oppUpdate: Record<string, unknown> = {}
-    if (outcomeNorm === 'sold') {
+    const closeAction = getCloseOutcomeAction(closeOutcomeRows, outcome)
+    const insideSalesHandoff = getCloseOutcomeInsideSalesHandoff(closeOutcomeRows, outcome)
+    const closesAsSold = closeAction === 'won'
+    const closesAsLost = closeAction === 'lost'
+    const opportunityAlreadyFinal = opportunity.status === 'won' || opportunity.status === 'lost'
+
+    if (closesAsSold) {
       oppUpdate.status = 'won'
-    } else if (outcomeNorm === 'said_no') {
+    } else if (closesAsLost) {
       oppUpdate.status = 'lost'
+    } else if (!opportunityAlreadyFinal && insideSalesHandoff.enabled) {
+      const delayDays = insideSalesHandoff.delayDays ?? 0
+      const followUpAt = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000).toISOString()
+      oppUpdate.pipeline_stage =
+        delayDays > 0 ? REP_WORKING_HANDOFF_PIPELINE_PREFIX : HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
+      oppUpdate.assigned_user_id = null
+      oppUpdate.follow_up_at = followUpAt
     }
     if (outcomeNorm === 'insurance_follow_up' || outcomeNorm === 'waiting_on_insurance') {
       oppUpdate.job_source = 'insurance'

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Image from 'next/image'
-import { DEFAULT_CLOSE_OUTCOMES } from '@/lib/close-outcomes'
+import { DEFAULT_CLOSE_OUTCOMES, normalizeCloseOutcomeRows } from '@/lib/close-outcomes'
 import {
   DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
   DEFAULT_INSPECTION_OUTCOMES,
@@ -65,6 +65,7 @@ interface InspectionOutcomeType {
   counts_as_sit?: boolean
   inside_sales_handoff_enabled?: boolean
   inside_sales_handoff_delay_days?: number | null
+  close_action?: 'none' | 'won' | 'lost'
   sort_order: number
 }
 
@@ -176,16 +177,7 @@ export default function AdminSettingsPage() {
   const [showAddInspectionOutcome, setShowAddInspectionOutcome] = useState(false)
 
   const [closeOutcomes, setCloseOutcomes] = useState<InspectionOutcomeType[]>(
-    DEFAULT_CLOSE_OUTCOMES.map((o, i) => ({
-      id: o.id,
-      label: o.label,
-      description: o.description,
-      color: o.color,
-      icon: o.icon,
-      active: o.active,
-      converts_to_opportunity: o.converts_to_opportunity,
-      sort_order: o.sort_order ?? i,
-    }))
+    normalizeCloseOutcomeRows(DEFAULT_CLOSE_OUTCOMES)
   )
   const [editingCloseOutcome, setEditingCloseOutcome] = useState<InspectionOutcomeType | null>(null)
   const [showAddCloseOutcome, setShowAddCloseOutcome] = useState(false)
@@ -586,7 +578,7 @@ export default function AdminSettingsPage() {
       }
 
       if (data.settings?.close_outcomes) {
-        setCloseOutcomes(data.settings.close_outcomes)
+        setCloseOutcomes(normalizeCloseOutcomeRows(data.settings.close_outcomes))
       }
       
       // Load appointment types from org settings
@@ -2511,6 +2503,9 @@ export default function AdminSettingsPage() {
                       icon: '•',
                       active: true,
                       converts_to_opportunity: false,
+                      close_action: 'none',
+                      inside_sales_handoff_enabled: true,
+                      inside_sales_handoff_delay_days: DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS,
                       sort_order: closeOutcomes.length,
                     })
                     setShowAddCloseOutcome(true)
@@ -2546,7 +2541,7 @@ export default function AdminSettingsPage() {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Icon</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Creates opportunity</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Routing</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
@@ -2568,22 +2563,16 @@ export default function AdminSettingsPage() {
                         <td className="px-4 py-3">
                           <span className="text-sm text-gray-600">{outcome.description}</span>
                         </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCloseOutcomes(prev => prev.map(o =>
-                                o.id === outcome.id ? { ...o, converts_to_opportunity: !o.converts_to_opportunity } : o
-                              ))
-                            }}
-                            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                              outcome.converts_to_opportunity
-                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                            }`}
-                          >
-                            {outcome.converts_to_opportunity ? '✓ Yes' : 'No'}
-                          </button>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-gray-700">
+                            {outcome.close_action === 'won'
+                              ? 'Mark won'
+                              : outcome.close_action === 'lost'
+                                ? 'Mark lost'
+                                : outcome.inside_sales_handoff_enabled
+                                  ? `Inside Sales after ${outcome.inside_sales_handoff_delay_days ?? DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS} day${(outcome.inside_sales_handoff_delay_days ?? DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS) === 1 ? '' : 's'}`
+                                  : 'No status change'}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -2632,7 +2621,7 @@ export default function AdminSettingsPage() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                           type: 'close_outcomes',
-                          close_outcomes: closeOutcomes,
+                          close_outcomes: normalizeCloseOutcomeRows(closeOutcomes),
                         }),
                       })
 
@@ -2716,6 +2705,96 @@ export default function AdminSettingsPage() {
                           ))}
                         </div>
                       </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Close result</label>
+                        <select
+                          value={editingCloseOutcome.close_action ?? 'none'}
+                          onChange={(e) =>
+                            setEditingCloseOutcome((prev) => {
+                              if (!prev) return null
+                              const closeAction = e.target.value as 'none' | 'won' | 'lost'
+                              return {
+                                ...prev,
+                                close_action: closeAction,
+                                inside_sales_handoff_enabled:
+                                  closeAction === 'none' ? prev.inside_sales_handoff_enabled : false,
+                                inside_sales_handoff_delay_days:
+                                  closeAction === 'none'
+                                    ? prev.inside_sales_handoff_delay_days
+                                    : null,
+                              }
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-4 py-2 text-gray-900"
+                        >
+                          <option value="none">No status change</option>
+                          <option value="won">Mark opportunity won</option>
+                          <option value="lost">Mark opportunity lost</option>
+                        </select>
+                        <p className="mt-2 text-xs text-gray-500">
+                          Use this for final close results. Non-final outcomes can still route to Inside Sales below.
+                        </p>
+                      </div>
+
+                      {editingCloseOutcome.close_action !== 'won' && editingCloseOutcome.close_action !== 'lost' && (
+                        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              id="close-outcome-inside-sales"
+                              checked={!!editingCloseOutcome.inside_sales_handoff_enabled}
+                              onChange={(e) =>
+                                setEditingCloseOutcome((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        inside_sales_handoff_enabled: e.target.checked,
+                                        inside_sales_handoff_delay_days: e.target.checked
+                                          ? prev.inside_sales_handoff_delay_days ?? DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS
+                                          : null,
+                                      }
+                                    : null
+                                )
+                              }
+                              className="mt-1 h-5 w-5 rounded border-gray-300 text-violet-600"
+                            />
+                            <label htmlFor="close-outcome-inside-sales" className="flex-1 text-sm text-gray-700">
+                              <span className="font-medium">Send to Inside Sales</span>
+                              <p className="mt-0.5 text-xs text-gray-500">
+                                If this outcome is not resolved by the selected time, keep it in the follow-up queue for Inside Sales.
+                              </p>
+                            </label>
+                          </div>
+
+                          {editingCloseOutcome.inside_sales_handoff_enabled && (
+                            <div className="mt-3">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Send after how many days?
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={editingCloseOutcome.inside_sales_handoff_delay_days ?? DEFAULT_INSIDE_SALES_HANDOFF_DELAY_DAYS}
+                                onChange={(e) =>
+                                  setEditingCloseOutcome((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          inside_sales_handoff_delay_days: Math.max(
+                                            0,
+                                            Math.floor(Number(e.target.value) || 0)
+                                          ),
+                                        }
+                                      : null
+                                  )
+                                }
+                                className="w-full rounded-lg border border-gray-300 px-4 py-2 text-gray-900"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
                         <input
                           type="checkbox"
@@ -2726,7 +2805,7 @@ export default function AdminSettingsPage() {
                         />
                         <label htmlFor="close-outcome-converts" className="text-sm text-gray-700">
                           <span className="font-medium">Creates opportunity</span>
-                          <p className="text-gray-500 text-xs mt-0.5">Not used for close feedback; optional for reporting.</p>
+                          <p className="text-gray-500 text-xs mt-0.5">Kept for reporting compatibility; close feedback already has an opportunity.</p>
                         </label>
                       </div>
                       <div className="flex items-center gap-3">
