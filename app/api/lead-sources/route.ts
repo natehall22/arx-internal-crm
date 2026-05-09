@@ -30,8 +30,7 @@ export async function GET() {
     .select(`
       *,
       campaigns (id, name),
-      auto_assign_user:users!lead_sources_auto_assign_user_id_fkey (id, full_name, email),
-      auto_assign_team:teams!lead_sources_auto_assign_team_id_fkey (id, name)
+      auto_assign_user:users!lead_sources_auto_assign_user_id_fkey (id, full_name, email)
     `)
     .eq('org_id', profile.org_id)
     .order('name')
@@ -69,10 +68,6 @@ export async function POST(request: NextRequest) {
     default_campaign_id,
     field_mapping,
     auto_assign_user_id,
-    auto_assign_team_id,
-    round_robin_enabled,
-    notify_on_new_lead,
-    notification_emails,
   } = body
 
   if (!name?.trim()) {
@@ -92,10 +87,6 @@ export async function POST(request: NextRequest) {
       default_campaign_id: default_campaign_id || null,
       field_mapping: field_mapping || null,
       auto_assign_user_id: auto_assign_user_id || null,
-      auto_assign_team_id: auto_assign_team_id || null,
-      round_robin_enabled: round_robin_enabled || false,
-      notify_on_new_lead: notify_on_new_lead !== false,
-      notification_emails: notification_emails || null,
     })
     .select()
     .single()
@@ -130,7 +121,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { id, ...updates } = body
+  const { id } = body
 
   if (!id) {
     return NextResponse.json({ error: 'Lead source ID is required' }, { status: 400 })
@@ -150,7 +141,15 @@ export async function PUT(request: NextRequest) {
 
   const { error } = await supabase
     .from('lead_sources')
-    .update(updates)
+    .update({
+      name: typeof body.name === 'string' ? body.name.trim() : undefined,
+      source_type: body.source_type,
+      default_campaign_id: body.default_campaign_id || null,
+      field_mapping: body.field_mapping || null,
+      auto_assign_user_id: body.auto_assign_user_id || null,
+      webhook_enabled: body.webhook_enabled,
+      is_active: body.is_active,
+    })
     .eq('id', id)
 
   if (error) {

@@ -37,26 +37,17 @@ type LeadSource = {
   webhook_enabled: boolean
   default_campaign_id: string | null
   auto_assign_user_id: string | null
-  auto_assign_team_id: string | null
-  round_robin_enabled: boolean
-  notify_on_new_lead: boolean
   is_active: boolean
   total_leads_received: number
   last_lead_at: string | null
   campaigns: { id: string; name: string } | null
   auto_assign_user: { id: string; full_name: string; email: string } | null
-  auto_assign_team: { id: string; name: string } | null
 }
 
 type User = {
   id: string
   full_name: string
   email: string
-}
-
-type Team = {
-  id: string
-  name: string
 }
 
 const sourceTypes = [
@@ -87,7 +78,6 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [leadSources, setLeadSources] = useState<LeadSource[]>([])
   const [users, setUsers] = useState<User[]>([])
-  const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
   
   // Campaign modal state
@@ -116,9 +106,6 @@ export default function CampaignsPage() {
     source_type: 'website',
     default_campaign_id: '',
     auto_assign_user_id: '',
-    auto_assign_team_id: '',
-    round_robin_enabled: false,
-    notify_on_new_lead: true,
   })
   
   const [saving, setSaving] = useState(false)
@@ -150,22 +137,18 @@ export default function CampaignsPage() {
         return
       }
 
-      const [campaignsRes, sourcesRes, usersRes, teamsRes] = await Promise.all([
-        supabase.from('campaigns').select('*').eq('org_id', profile.org_id).order('created_at', { ascending: false }),
-        supabase.from('lead_sources').select(`
-          *,
-          campaigns (id, name),
-          auto_assign_user:users!lead_sources_auto_assign_user_id_fkey (id, full_name, email),
-          auto_assign_team:teams!lead_sources_auto_assign_team_id_fkey (id, name)
-        `).eq('org_id', profile.org_id).order('name'),
+      const [campaignsRes, sourcesRes, usersRes] = await Promise.all([
+        fetch('/api/campaigns'),
+        fetch('/api/lead-sources'),
         supabase.from('users').select('id, full_name, email').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
-        supabase.from('teams').select('id, name').eq('org_id', profile.org_id).order('name'),
       ])
 
-      setCampaigns(campaignsRes.data || [])
-      setLeadSources(sourcesRes.data || [])
+      const campaignsJson = campaignsRes.ok ? await campaignsRes.json() : { campaigns: [] }
+      const sourcesJson = sourcesRes.ok ? await sourcesRes.json() : { leadSources: [] }
+
+      setCampaigns(campaignsJson.campaigns || [])
+      setLeadSources(sourcesJson.leadSources || [])
       setUsers(usersRes.data || [])
-      setTeams(teamsRes.data || [])
     } catch (err) {
       console.error('Error loading campaigns data:', err)
     } finally {
@@ -292,9 +275,6 @@ export default function CampaignsPage() {
         source_type: source.source_type,
         default_campaign_id: source.default_campaign_id || '',
         auto_assign_user_id: source.auto_assign_user_id || '',
-        auto_assign_team_id: source.auto_assign_team_id || '',
-        round_robin_enabled: source.round_robin_enabled,
-        notify_on_new_lead: source.notify_on_new_lead,
       })
     } else {
       setEditingSource(null)
@@ -303,9 +283,6 @@ export default function CampaignsPage() {
         source_type: 'website',
         default_campaign_id: '',
         auto_assign_user_id: '',
-        auto_assign_team_id: '',
-        round_robin_enabled: false,
-        notify_on_new_lead: true,
       })
     }
     setError(null)
@@ -327,9 +304,6 @@ export default function CampaignsPage() {
       source_type: sourceForm.source_type,
       default_campaign_id: sourceForm.default_campaign_id || null,
       auto_assign_user_id: sourceForm.auto_assign_user_id || null,
-      auto_assign_team_id: sourceForm.auto_assign_team_id || null,
-      round_robin_enabled: sourceForm.round_robin_enabled,
-      notify_on_new_lead: sourceForm.notify_on_new_lead,
     }
 
     const response = await fetch('/api/lead-sources', {
@@ -679,14 +653,8 @@ export default function CampaignsPage() {
                       <div>
                         <p className="text-gray-500">Auto-Assign To</p>
                         <p className="font-medium">
-                          {source.auto_assign_user?.full_name || 
-                           source.auto_assign_team?.name || 
-                           (source.round_robin_enabled ? 'Round Robin' : 'Queue')}
+                          {source.auto_assign_user?.full_name || 'Queue'}
                         </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Notifications</p>
-                        <p className="font-medium">{source.notify_on_new_lead ? 'Enabled' : 'Disabled'}</p>
                       </div>
                       <div>
                         <p className="text-gray-500">Webhook</p>
@@ -954,42 +922,7 @@ export default function CampaignsPage() {
                       </select>
                     </div>
 
-                    <div>
-                      <label className="block text-sm text-gray-700 mb-1">Or assign to Team</label>
-                      <select
-                        value={sourceForm.auto_assign_team_id}
-                        onChange={(e) => setSourceForm({ ...sourceForm, auto_assign_team_id: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
-                      >
-                        <option value="">No team assignment</option>
-                        {teams.map((team) => (
-                          <option key={team.id} value={team.id}>{team.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={sourceForm.round_robin_enabled}
-                        onChange={(e) => setSourceForm({ ...sourceForm, round_robin_enabled: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-                      />
-                      <span className="text-sm text-gray-700">Enable round-robin assignment</span>
-                    </label>
                   </div>
-                </div>
-
-                <div className="border-t pt-4">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={sourceForm.notify_on_new_lead}
-                      onChange={(e) => setSourceForm({ ...sourceForm, notify_on_new_lead: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-                    />
-                    <span className="text-sm text-gray-700">Send notifications for new leads</span>
-                  </label>
                 </div>
               </div>
 
