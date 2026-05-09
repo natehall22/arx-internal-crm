@@ -139,7 +139,7 @@ Insurance Contingency Agreement
 `
 
 const REPAIR_TERMS = `
-Repair agreement — plain language
+Repair agreement
 
 • Only the work and price shown here. Roofing, gutters, siding, or other repairs—only what is listed. Not a full roof or full job unless we write that.
 
