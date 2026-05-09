@@ -317,6 +317,7 @@ export default function RoofMeasurePage() {
   const facetsRef = useRef<RoofFacet[]>([])
   const linearFeaturesRef = useRef<LinearFeature[]>([])
   const polylinesRef = useRef<Map<string, any>>(new Map())
+  const pendingOpportunityMapFocusRef = useRef<{ lat: number; lng: number } | null>(null)
   /** Summed Solar `ground_area` (sq ft). Overlapping segment quads sum above this — we scale totals to match. */
   const solarGroundFootprintReferenceRef = useRef<number | null>(null)
   /**
@@ -438,6 +439,13 @@ export default function RoofMeasurePage() {
     }
   }, [mapsLoaded, address])
 
+  useEffect(() => {
+    if (!mapsLoaded || !googleMapRef.current || !pendingOpportunityMapFocusRef.current) return
+    const { lat, lng } = pendingOpportunityMapFocusRef.current
+    pendingOpportunityMapFocusRef.current = null
+    focusMapOnProperty(googleMapRef.current, lat, lng)
+  }, [mapsLoaded])
+
   // New search → allow auto-detect to run again
   useEffect(() => {
     if (!searchedAddress) return
@@ -464,7 +472,7 @@ export default function RoofMeasurePage() {
       if (autoDetectRequestKeyRef.current === requestKey) return
 
       autoDetectRequestKeyRef.current = requestKey
-      detectRoofWithAI(true)
+      detectRoofWithAI(false)
     }, 550)
 
     return () => window.clearTimeout(timeoutId)
@@ -475,9 +483,25 @@ export default function RoofMeasurePage() {
       const response = await fetch(`/api/measurements?opportunity_id=${oppId}`)
       if (response.ok) {
         const { opportunity } = await response.json()
+        const oppLat = Number(opportunity?.lat)
+        const oppLng = Number(opportunity?.lng)
+        const hasStoredLocation = Number.isFinite(oppLat) && Number.isFinite(oppLng)
+
         if (opportunity?.address_text) {
           setAddress(opportunity.address_text)
-          // Auto-search will happen via the mapsLoaded effect
+          if (hasStoredLocation) {
+            setSearchedAddress(opportunity.address_text)
+          }
+        }
+
+        if (hasStoredLocation) {
+          const target = { lat: oppLat, lng: oppLng }
+          setMapCenter(target)
+          pendingOpportunityMapFocusRef.current = target
+          if (googleMapRef.current) {
+            pendingOpportunityMapFocusRef.current = null
+            focusMapOnProperty(googleMapRef.current, target.lat, target.lng)
+          }
         }
       }
     } catch (error) {
@@ -1758,7 +1782,7 @@ export default function RoofMeasurePage() {
 
     if (
       !fromOpenAiVision &&
-      (src === 'solar_bbox' || src === 'solar_mask') &&
+      (src === 'solar_bbox' || src === 'solar_mask_plane' || src === 'solar_mask_whole') &&
       currentFacets.length > 0
     ) {
       validationNotes.push(
@@ -2033,10 +2057,16 @@ export default function RoofMeasurePage() {
     // Helper to ensure no NaN values
     const safeNum = (n: number, fallback = 0) => isNaN(n) || !isFinite(n) ? fallback : n
     
+    const currentMapCenter = googleMapRef.current?.getCenter?.()
+    const measurementLat =
+      currentMapCenter && typeof currentMapCenter.lat === 'function' ? currentMapCenter.lat() : mapCenter.lat
+    const measurementLng =
+      currentMapCenter && typeof currentMapCenter.lng === 'function' ? currentMapCenter.lng() : mapCenter.lng
+
     setMeasurements({
       address: searchedAddress,
-      lat: mapCenter.lat,
-      lng: mapCenter.lng,
+      lat: measurementLat,
+      lng: measurementLng,
       flat_area_sqft: safeNum(flatArea),
       total_area_sqft: safeNum(totalArea),
       total_squares: safeNum(Math.round(totalArea / 100 * 100) / 100),

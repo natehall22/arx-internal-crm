@@ -466,7 +466,7 @@ function facetsFromSplitMask(options: {
       suggested_azimuth_degrees: seg?.azimuth_degrees ?? null,
       suggested_ground_area_sqft:
         typeof seg?.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
-      facet_source: 'solar_mask',
+      facet_source: 'solar_mask_plane',
     })
   }
 
@@ -477,7 +477,7 @@ const PIN_MATCH_MAX_METERS = 24
 const HOUSE_CLUSTER_MAX_METERS = 22
 
 /** Keep only facets that plausibly belong to the user’s pin; otherwise fail closed. */
-function filterSplitFacetsByPin(
+export function filterSplitFacetsByPin(
   facets: SolarMaskFacetPayload[],
   ref: { lat: number; lng: number }
 ): SolarMaskFacetPayload[] {
@@ -632,11 +632,10 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       return b.areaPx - a.areaPx
     })
 
-    const scored = scoredAll.filter(
-      (x) => x.containsPin || x.dist <= 45 || rings.length <= 2
-    )
+    const scored = scoredAll.filter((x) => x.containsPin || x.dist <= PIN_MATCH_MAX_METERS)
+    if (scored.length === 0) return null
 
-    const picked = (scored.length > 0 ? scored : scoredAll)
+    const picked = scored
       .slice(0, MAX_FACETS)
       .map((x) => ({ ring: x.ring, dist: x.dist, areaPx: x.areaPx }))
 
@@ -669,11 +668,10 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         confidence: 0.92,
         estimated_sq_ft: estSqFt > 0 ? estSqFt : null,
         solar_segment_index: seg?.segment_index ?? null,
-        suggested_pitch_degrees: seg?.pitch_degrees ?? null,
-        suggested_azimuth_degrees: seg?.azimuth_degrees ?? null,
-        suggested_ground_area_sqft:
-          typeof seg?.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
-        facet_source: 'solar_mask',
+        suggested_pitch_degrees: null,
+        suggested_azimuth_degrees: null,
+        suggested_ground_area_sqft: null,
+        facet_source: 'solar_mask_whole',
       })
     }
 
