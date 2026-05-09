@@ -129,7 +129,6 @@ export default function AdminIntegrationsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [integrations, setIntegrations] = useState<Integration[]>([])
-  const [orgId, setOrgId] = useState<string>('')
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
@@ -164,7 +163,6 @@ export default function AdminIntegrationsPage() {
       
       const data = await response.json()
       setIntegrations(data.integrations || [])
-      setOrgId(data.orgId || '')
       setLoading(false)
     } catch (error) {
       console.error('Error loading integrations:', error)
@@ -547,99 +545,6 @@ export default function AdminIntegrationsPage() {
                 </div>
               )
             })}
-          </div>
-        </div>
-
-        {/* Website Lead Webhook */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Website Lead Integration</h2>
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center text-2xl">
-                🌐
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-900">Webhook for Website Leads</h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  Connect your website (Lovable, Webflow, WordPress, etc.) to automatically create leads in your CRM.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Webhook URL</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/leads` : '/api/webhooks/leads'}
-                    className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-mono"
-                  />
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/leads`)
-                      alert('Webhook URL copied!')
-                    }}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Your Org ID</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={orgId || 'Loading...'}
-                    className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-mono"
-                  />
-                  <button
-                    onClick={() => {
-                      if (orgId) {
-                        navigator.clipboard.writeText(orgId)
-                        alert('Org ID copied!')
-                      }
-                    }}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
-                  >
-                    Copy
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Include this in your webhook payload as "org_id"</p>
-              </div>
-
-              <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-800 font-medium mb-2">How to connect your website:</p>
-                <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
-                  <li>Copy the webhook URL above</li>
-                  <li>In your website builder, add a webhook action to your contact form</li>
-                  <li>Set the method to POST and paste the webhook URL</li>
-                  <li>Map your form fields: name, email, phone, address, message</li>
-                  <li>Add org_id to the payload (required)</li>
-                </ol>
-              </div>
-
-              <details className="group">
-                <summary className="cursor-pointer text-sm font-medium text-indigo-600 hover:text-indigo-800">
-                  View example payload →
-                </summary>
-                <pre className="mt-2 p-4 bg-gray-900 text-green-400 rounded-lg text-xs overflow-x-auto">
-{`{
-  "org_id": "${orgId || 'your-org-id'}",
-  "name": "John Smith",
-  "phone": "555-123-4567",
-  "email": "john@example.com",
-  "address": "123 Main St, City, ST 12345",
-  "source": "web",
-  "message": "I need a roof inspection"
-}`}
-                </pre>
-              </details>
-            </div>
           </div>
         </div>
 
