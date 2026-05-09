@@ -8,7 +8,7 @@ interface ContractListItemProps {
     customer_signed_at: string | null
     pdf_url: string | null
     created_at: string
-    agreement_type?: 'installation' | 'contingency' | null
+    agreement_type?: 'installation' | 'contingency' | 'repair' | null
   }
 }
 
@@ -20,7 +20,12 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
   }
 
   const isCompleted = contract.status === 'completed'
-  const label = contract.agreement_type === 'contingency' ? 'Insurance Contingency' : 'Installation Agreement'
+  const label =
+    contract.agreement_type === 'contingency'
+      ? 'Insurance Contingency'
+      : contract.agreement_type === 'repair'
+        ? 'Repair Agreement'
+        : 'Installation Agreement'
 
   return (
     <div className={`p-4 border rounded-lg ${isCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50'}`}>

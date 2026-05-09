@@ -229,9 +229,157 @@ function generateContingencyPdf(contract: ContractData): Buffer {
   return Buffer.from(doc.output('arraybuffer'))
 }
 
+function generateRepairPdf(contract: ContractData): Buffer {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+  const pageWidth = 612
+  const pageHeight = 792
+  const margin = 42
+  const contentWidth = pageWidth - margin * 2
+  let y = margin
+
+  const addWrapped = (text: string, fontSize = 8.5, gap = 9) => {
+    doc.setFontSize(fontSize)
+    const lines = wrapText(doc, text, contentWidth)
+    for (const line of lines) {
+      doc.text(line, margin, y)
+      y += gap
+    }
+  }
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(17)
+  doc.text('ARX ROOFING & EXTERIORS LLC', pageWidth / 2, y, { align: 'center' })
+  y += 15
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text('4101 Woodbury Terrace NW, Concord, NC 28027 | 704-313-8834 | info@arxroofing.com', pageWidth / 2, y, { align: 'center' })
+  y += 24
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(15)
+  doc.text('Repair Agreement', pageWidth / 2, y, { align: 'center' })
+  y += 22
+
+  doc.setFontSize(9)
+  doc.text('Customer & property', margin, y)
+  y += 4
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 12
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Customer: ${contract.customer_name || ''}`, margin, y)
+  y += 12
+  doc.text(`Property: ${contract.project_address || ''}`, margin, y)
+  y += 12
+  doc.text(`Phone: ${contract.customer_phone || ''}`, margin, y)
+  doc.text(`Email: ${contract.customer_email || ''}`, 300, y)
+  y += 18
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('Work and price', margin, y)
+  y += 4
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 12
+  doc.setFont('helvetica', 'normal')
+  const scope = [
+    contract.scope_roof_replacement && 'Roof Replacement',
+    contract.scope_roof_repair && 'Roof Repair',
+    contract.scope_gutters && 'Gutters',
+    contract.scope_siding && 'Siding',
+    contract.scope_other,
+  ].filter(Boolean).join(', ') || 'As listed above'
+
+  addWrapped(`Work: ${scope}`)
+  addWrapped(`Price: ${formatCurrency(contract.project_cost)}`)
+  if (contract.payment_method) {
+    addWrapped(`Payment: ${contract.payment_method}${contract.finance_company ? ` (${contract.finance_company})` : ''}`)
+  }
+  if (contract.deposit_amount) {
+    addWrapped(`Deposit: ${formatCurrency(contract.deposit_amount)}`)
+  }
+  if (contract.est_completion_date) {
+    addWrapped(`Finish by about: ${formatDate(contract.est_completion_date)}`)
+  }
+  if (contract.exclusions) addWrapped(`Not included: ${contract.exclusions}`)
+  if (contract.notes) addWrapped(`Notes: ${contract.notes}`)
+  y += 6
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('Terms', margin, y)
+  y += 4
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 10
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7.5)
+  const terms = [
+    '1. Only the work and price on this page count. That can be roofing, gutters, siding, or other repairs—whatever is listed. Not a whole new roof or whole building unless we say so in writing.',
+    '2. Anything not listed needs a written change order before we do it.',
+    '3. ARX only stands behind the work ARX does here—not old damage, hidden issues, other parts of the home, or other companies\' work.',
+    '4. Dates are approximate. Rain, supplies, permits, or access can slow things down.',
+    '5. You pay what this page says. With insurance, you still pay deductible, upgrades, and what insurance does not pay unless we agree in writing.',
+    '6. You let us into the work area. We may take photos or measurements for the job and our files.',
+    '7. Signing on a phone or computer still counts.',
+  ]
+  for (const term of terms) addWrapped(term, 7.5, 8)
+  doc.setFontSize(9)
+  y += 6
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.text(`Initials: ${contract.customer_initials_change_orders || '____'}`, margin, y)
+  y += 22
+  if (contract.payment_method === 'insurance' && contract.customer_initials_insurance) {
+    doc.text(`Initials (insurance): ${contract.customer_initials_insurance}`, margin, y)
+    y += 22
+  }
+
+  const leftCol = margin
+  const rightCol = 320
+  doc.text('Customer', leftCol, y)
+  doc.text('ARX Roofing & Exteriors', rightCol, y)
+  y += 14
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Print Name: ${contract.customer_print_name || ''}`, leftCol, y)
+  doc.text(`Print Name: ${contract.rep_name || ''}`, rightCol, y)
+  y += 14
+  doc.text('Signature:', leftCol, y)
+  doc.text('Signature:', rightCol, y)
+  y += 4
+  doc.rect(leftCol, y, 150, 38)
+  doc.rect(rightCol, y, 150, 38)
+  if (contract.customer_signature_data) {
+    try {
+      doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 34)
+    } catch {
+      doc.text('[Signature on file]', leftCol + 10, y + 22)
+    }
+  }
+  if (contract.rep_signature_data) {
+    try {
+      doc.addImage(contract.rep_signature_data, 'PNG', rightCol + 2, y + 2, 146, 34)
+    } catch {
+      doc.text('[Signature on file]', rightCol + 10, y + 22)
+    }
+  }
+  y += 48
+  doc.text(`Date: ${formatDate(contract.customer_signed_at)}`, leftCol, y)
+  doc.text(`Title: ${contract.rep_title || ''}`, rightCol, y)
+  y += 14
+  doc.text(`Signed IP: ${contract.customer_ip || ''}`, leftCol, y)
+  doc.text(`Date: ${formatDate(contract.rep_signed_at)}`, rightCol, y)
+
+  doc.setFontSize(7)
+  doc.setTextColor(100)
+  doc.text('Page 1 of 1 | ARX Roofing & Exteriors LLC', pageWidth / 2, pageHeight - 24, { align: 'center' })
+
+  return Buffer.from(doc.output('arraybuffer'))
+}
+
 export async function generateContractPdf(contract: ContractData): Promise<Buffer> {
   if (contract.agreement_type === 'contingency') {
     return generateContingencyPdf(contract)
+  }
+  if (contract.agreement_type === 'repair') {
+    return generateRepairPdf(contract)
   }
 
   const doc = new jsPDF({

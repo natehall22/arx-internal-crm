@@ -37,22 +37,44 @@ export async function POST(request: NextRequest) {
       repSignature,
     } = body
 
-    const safeAgreementType = agreementType === 'contingency' ? 'contingency' : 'installation'
+    const safeAgreementType =
+      agreementType === 'contingency'
+        ? 'contingency'
+        : agreementType === 'repair'
+          ? 'repair'
+          : 'installation'
     const safeProjectCost = safeAgreementType === 'contingency' ? 0 : Number(projectCost || 0)
     const safeDepositAmount = safeAgreementType === 'contingency' ? 0 : Number(depositAmount || 0)
     const safePaymentMethod = safeAgreementType === 'contingency' ? 'insurance' : (paymentMethod || 'cash')
-    const safeTotalSquares = safeAgreementType === 'contingency' ? null : (totalSquares || null)
-    const safeRoofingMaterial = safeAgreementType === 'contingency' ? null : (roofingMaterial || null)
+    const safeTotalSquares =
+      safeAgreementType === 'contingency' || safeAgreementType === 'repair'
+        ? null
+        : (totalSquares || null)
+    const safeRoofingMaterial =
+      safeAgreementType === 'contingency' || safeAgreementType === 'repair'
+        ? null
+        : (roofingMaterial || null)
     const safeEstCompletionDate = safeAgreementType === 'contingency' ? null : (estCompletionDate || null)
     const safeExclusions = safeAgreementType === 'contingency' ? null : (exclusions || null)
-    const safeAdditionalProducts = safeAgreementType === 'contingency' ? null : (additionalProducts || null)
-    const agreementLabel = safeAgreementType === 'contingency'
-      ? 'Insurance Contingency Agreement'
-      : 'Installation Agreement'
+    const safeAdditionalProducts =
+      safeAgreementType === 'contingency' || safeAgreementType === 'repair'
+        ? null
+        : (additionalProducts || null)
+    const agreementLabel =
+      safeAgreementType === 'contingency'
+        ? 'Insurance Contingency Agreement'
+        : safeAgreementType === 'repair'
+          ? 'Repair Agreement'
+          : 'Installation Agreement'
 
-    if (!customerName || !projectAddress || (safeAgreementType === 'installation' && !safeProjectCost)) {
+    const needsProjectPrice = safeAgreementType === 'installation' || safeAgreementType === 'repair'
+    if (!customerName || !projectAddress || (needsProjectPrice && !safeProjectCost)) {
       return NextResponse.json(
-        { error: safeAgreementType === 'installation' ? 'Customer name, project address, and project cost are required' : 'Customer name and project address are required' },
+        {
+          error: needsProjectPrice
+            ? 'Customer name, project address, and project cost are required'
+            : 'Customer name and project address are required',
+        },
         { status: 400 }
       )
     }
@@ -104,7 +126,10 @@ export async function POST(request: NextRequest) {
         scope_siding: scopeSiding || false,
         scope_other: scopeOther || null,
         payment_method: safePaymentMethod,
-        finance_company: safeAgreementType === 'installation' ? (financeCompany || null) : null,
+        finance_company:
+          safeAgreementType === 'installation' || safeAgreementType === 'repair'
+            ? (financeCompany || null)
+            : null,
         deposit_amount: safeDepositAmount,
         est_completion_date: safeEstCompletionDate,
         exclusions: safeExclusions,
@@ -154,7 +179,7 @@ Your ${agreementLabel} is ready. Please review and sign it using the link below:
 ${signingUrl}
 
 Project: ${projectAddress}
-${safeAgreementType === 'installation' ? `Amount: $${safeProjectCost.toLocaleString()}` : 'Amount: Not required until final Installation Agreement'}
+${safeAgreementType !== 'contingency' ? `Amount: $${safeProjectCost.toLocaleString()}` : 'Amount: Not required until final Installation Agreement'}
 
 This link expires in 7 days.
 
@@ -190,7 +215,7 @@ Questions? Call 704-313-8834 or email info@arxroofing.com
 <tr><td style="font-size:14px;color:#666;">
 <strong style="color:#333;">Project:</strong> ${projectAddress}<br>
 <strong style="color:#333;">Agreement:</strong> ${agreementLabel}<br>
-<strong style="color:#333;">Amount:</strong> ${safeAgreementType === 'installation' ? `$${safeProjectCost.toLocaleString()}` : 'Not required until final Installation Agreement'}
+<strong style="color:#333;">Amount:</strong> ${safeAgreementType !== 'contingency' ? `$${safeProjectCost.toLocaleString()}` : 'Not required until final Installation Agreement'}
 </td></tr>
 </table>
 </td></tr>

@@ -5,7 +5,7 @@ import SignaturePad from '@/components/contracts/SignaturePad'
 
 interface Contract {
   id: string
-  agreement_type?: 'installation' | 'contingency'
+  agreement_type?: 'installation' | 'contingency' | 'repair'
   customer_name: string
   customer_email: string
   customer_phone: string
@@ -138,9 +138,32 @@ Insurance Contingency Agreement
 8. Photos And Communication. Customer authorizes ARX to take photos/video for claim documentation, quality control, training, and project records.
 `
 
+const REPAIR_TERMS = `
+Repair agreement — plain language
+
+• Only the work and price shown here. Roofing, gutters, siding, or other repairs—only what is listed. Not a full roof or full job unless we write that.
+
+• Extra work needs a change order first.
+
+• ARX is responsible only for ARX’s work here—not old damage, hidden problems, or other areas.
+
+• Dates are rough; weather and delays happen.
+
+• You pay the price. With insurance, you still cover deductible and what insurance won’t pay unless we agree otherwise.
+
+• We need access; we may take photos for the job and our records.
+
+• Electronic signatures count.
+`
+
 export default function CustomerSigningForm({ contract, token }: CustomerSigningFormProps) {
   const isContingency = contract.agreement_type === 'contingency'
-  const agreementLabel = isContingency ? 'Insurance Contingency Agreement' : 'Installation Agreement'
+  const isRepair = contract.agreement_type === 'repair'
+  const agreementLabel = isContingency
+    ? 'Insurance Contingency Agreement'
+    : isRepair
+      ? 'Repair Agreement'
+      : 'Installation Agreement'
   const [preferredContact, setPreferredContact] = useState<'phone' | 'email'>('phone')
   const [printName, setPrintName] = useState('')
   const [signature, setSignature] = useState<string | null>(null)
@@ -173,11 +196,20 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
         setError('Please initial the insurance contingency acknowledgement')
         return
       }
+    } else if (isRepair) {
+      if (!initialsChangeOrders) {
+        setError('Please add your initials')
+        return
+      }
+      if (contract.payment_method === 'insurance' && !initialsInsurance) {
+        setError('Please initial the insurance acknowledgement section')
+        return
+      }
     } else if (!initialsChangeOrders || !initialsPropertyCondition || !initialsLandscaping) {
       setError('Please initial all acknowledgement sections')
       return
     }
-    if (!isContingency && contract.payment_method === 'insurance' && !initialsInsurance) {
+    if (!isContingency && !isRepair && contract.payment_method === 'insurance' && !initialsInsurance) {
       setError('Please initial the insurance acknowledgement section')
       return
     }
@@ -194,8 +226,8 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
           printName,
           signature,
           initialsChangeOrders: isContingency ? null : initialsChangeOrders,
-          initialsPropertyCondition: isContingency ? null : initialsPropertyCondition,
-          initialsLandscaping: isContingency ? null : initialsLandscaping,
+          initialsPropertyCondition: isContingency || isRepair ? null : initialsPropertyCondition,
+          initialsLandscaping: isContingency || isRepair ? null : initialsLandscaping,
           initialsInsurance: (isContingency || contract.payment_method === 'insurance') ? initialsInsurance : null,
         }),
       })
@@ -332,7 +364,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
             {/* Project Details */}
             <section>
-              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">{isContingency ? 'Claim Details' : 'Project Details'}</h2>
+              <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">{isContingency ? 'Claim Details' : isRepair ? 'Work & price' : 'Project Details'}</h2>
               <div className="space-y-3 text-sm">
                 <div>
                   <span className="text-gray-500">Scope Of Work:</span>
@@ -344,13 +376,13 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     {contract.scope_other && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">{contract.scope_other}</span>}
                   </div>
                 </div>
-                {!isContingency && contract.roofing_material && (
+                {!isContingency && !isRepair && contract.roofing_material && (
                   <div>
                     <span className="text-gray-500">Primary Roofing System:</span>
                     <span className="ml-2 font-medium text-black">{contract.roofing_material}</span>
                   </div>
                 )}
-                {!isContingency && contract.total_squares && (
+                {!isContingency && !isRepair && contract.total_squares && (
                   <div>
                     <span className="text-gray-500">Total Squares:</span>
                     <span className="ml-2 font-medium text-black">{contract.total_squares}</span>
@@ -436,7 +468,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               </button>
               {showTerms && (
                 <div className="mt-4 p-4 bg-gray-50 rounded-lg max-h-96 overflow-y-auto text-sm text-gray-700 whitespace-pre-wrap">
-                  {isContingency ? CONTINGENCY_TERMS : TERMS_AND_CONDITIONS}
+                  {isContingency ? CONTINGENCY_TERMS : isRepair ? REPAIR_TERMS : TERMS_AND_CONDITIONS}
                 </div>
               )}
             </section>
@@ -444,10 +476,31 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
             {/* Customer Acknowledgements */}
             <section>
               <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Customer Acknowledgements</h2>
-              <p className="text-sm text-gray-600 mb-4">Please initial each acknowledgement below:</p>
+              <p className="text-sm text-gray-600 mb-4">
+                {isRepair
+                  ? 'Add your initials below. If paying with insurance, initial that line too.'
+                  : 'Please initial each acknowledgement below:'}
+              </p>
               
               <div className="space-y-4">
-                {!isContingency && (
+                {isRepair && (
+                  <div className="flex items-start gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <input
+                      type="text"
+                      placeholder="Initials"
+                      value={initialsChangeOrders}
+                      onChange={e => setInitialsChangeOrders(e.target.value.toUpperCase())}
+                      className="w-20 px-2 py-1 border border-gray-300 rounded text-center font-medium uppercase text-black bg-white"
+                      style={{ color: '#000000' }}
+                      maxLength={4}
+                    />
+                    <p className="text-sm text-black">
+                      <strong>Scope:</strong> Only the work listed above—not extra work unless it is written in a change order.
+                    </p>
+                  </div>
+                )}
+
+                {!isContingency && !isRepair && (
                   <>
                 <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg">
                   <input
@@ -521,7 +574,15 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Signatures</h2>
               
               <div className="p-4 bg-gray-50 rounded-lg mb-6 text-sm text-black">
-                By signing below, the undersigned represents that he or she has read this Agreement in its entirety and agrees to be bound by its terms.
+                {isRepair ? (
+                  <p>
+                    By signing, you agree to the work and price shown—for this job only. Anything else needs a change order.
+                  </p>
+                ) : (
+                  <p>
+                    By signing below, the undersigned represents that he or she has read this Agreement in its entirety and agrees to be bound by its terms.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

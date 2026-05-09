@@ -20,7 +20,7 @@ interface ContractModalProps {
 }
 
 interface ContractFormData {
-  agreementType: 'installation' | 'contingency'
+  agreementType: 'installation' | 'contingency' | 'repair'
   customerName: string
   customerEmail: string
   customerPhone: string
@@ -120,9 +120,11 @@ export default function ContractModal({
           setError('Please fill in customer name and project address')
           return false
         }
-        if (formData.agreementType === 'installation' && !formData.projectCost) {
-          setError('Please enter the project cost')
-          return false
+        if (formData.agreementType === 'installation' || formData.agreementType === 'repair') {
+          if (!formData.projectCost) {
+            setError('Please enter the project cost')
+            return false
+          }
         }
         break
       case 2:
@@ -254,7 +256,7 @@ export default function ContractModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Agreement Type *
                   </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <button
                       type="button"
                       onClick={() => handleInputChange('agreementType', 'installation')}
@@ -266,6 +268,21 @@ export default function ContractModal({
                     >
                       <p className="font-semibold text-gray-900">Installation Agreement</p>
                       <p className="text-sm text-gray-600 mt-1">Final signed agreement after scope and price are ready.</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleInputChange('agreementType', 'repair')
+                        handleInputChange('scopeRoofReplacement', false)
+                      }}
+                      className={`text-left border rounded-lg p-4 ${
+                        formData.agreementType === 'repair'
+                          ? 'border-indigo-600 bg-indigo-50'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <p className="font-semibold text-gray-900">Repair Agreement</p>
+                      <p className="text-sm text-gray-600 mt-1">Small jobs: roof, gutters, siding, etc.—only what you list.</p>
                     </button>
                     <button
                       type="button"
@@ -467,6 +484,57 @@ export default function ContractModal({
                     </div>
                   </>
                 )}
+
+                {formData.agreementType === 'repair' && (
+                  <>
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                      <p className="text-sm text-slate-800">
+                        Only list the work you are selling. The agreement matches what is checked and written above.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Project Cost (repair total) *
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2 text-gray-500">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formData.projectCost}
+                            onChange={e => handleInputChange('projectCost', parseFloat(e.target.value) || 0)}
+                            className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Est. Completion Date
+                        </label>
+                        <input
+                          type="date"
+                          value={formData.estCompletionDate}
+                          onChange={e => handleInputChange('estCompletionDate', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Exclusions / site notes
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={formData.exclusions}
+                        onChange={e => handleInputChange('exclusions', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="What is not included, access notes, etc."
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -479,7 +547,7 @@ export default function ContractModal({
                     </p>
                   </div>
                 )}
-                {formData.agreementType === 'installation' && (
+                {(formData.agreementType === 'installation' || formData.agreementType === 'repair') && (
                   <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -544,7 +612,7 @@ export default function ContractModal({
                   </>
                 )}
 
-                {formData.agreementType === 'installation' && (
+                {(formData.agreementType === 'installation' || formData.agreementType === 'repair') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Deposit (Due At Signing)
@@ -638,7 +706,13 @@ export default function ContractModal({
                   <div className="p-4">
                     <h4 className="font-medium text-gray-900 mb-2">Customer & Project</h4>
                     <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div><span className="text-gray-500">Type:</span> {formData.agreementType === 'contingency' ? 'Insurance Contingency' : 'Installation Agreement'}</div>
+                      <div><span className="text-gray-500">Type:</span>{' '}
+                        {formData.agreementType === 'contingency'
+                          ? 'Insurance Contingency'
+                          : formData.agreementType === 'repair'
+                            ? 'Repair Agreement'
+                            : 'Installation Agreement'}
+                      </div>
                       <div><span className="text-gray-500">Name:</span> {formData.customerName}</div>
                       <div><span className="text-gray-500">Address:</span> {formData.projectAddress}</div>
                       <div><span className="text-gray-500">Phone:</span> {formData.customerPhone || 'N/A'}</div>
@@ -660,7 +734,7 @@ export default function ContractModal({
                     )}
                   </div>
 
-                  {formData.agreementType === 'installation' ? (
+                  {formData.agreementType === 'installation' || formData.agreementType === 'repair' ? (
                     <div className="p-4">
                       <h4 className="font-medium text-gray-900 mb-2">Payment</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm">
@@ -671,6 +745,9 @@ export default function ContractModal({
                           <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>
                         )}
                       </div>
+                      {formData.agreementType === 'repair' && formData.exclusions && (
+                        <p className="text-sm mt-2 text-gray-700"><span className="text-gray-500">Notes / exclusions:</span> {formData.exclusions}</p>
+                      )}
                     </div>
                   ) : (
                     <div className="p-4">

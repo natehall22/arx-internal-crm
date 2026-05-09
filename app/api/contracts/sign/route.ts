@@ -193,9 +193,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const agreementType = contract.agreement_type === 'contingency' ? 'contingency' : 'installation'
-    const isContingency = agreementType === 'contingency'
-    const agreementLabel = isContingency ? 'Insurance Contingency Agreement' : 'Installation Agreement'
+    const rawAgreementType = contract.agreement_type || 'installation'
+    const isContingency = rawAgreementType === 'contingency'
+    const isRepair = rawAgreementType === 'repair'
+    const isInstallationAgreement = rawAgreementType === 'installation'
+    const agreementLabel = isContingency
+      ? 'Insurance Contingency Agreement'
+      : isRepair
+        ? 'Repair Agreement'
+        : 'Installation Agreement'
 
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 
                      request.headers.get('x-real-ip') || 
@@ -283,7 +289,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Push "sale" to canvass map (green $ pin) — same moment as sales-org blast email below
-      if (resolvedLeadId) {
+      if (resolvedLeadId && isInstallationAgreement) {
         const { error: leadSaleErr } = await supabase
           .from('leads')
           .update({ installation_agreement_signed_at: customerSignedAt })
@@ -317,7 +323,7 @@ export async function POST(request: NextRequest) {
           .from('order_form_contracts')
           .select('id, pdf_storage_path')
           .eq('opportunity_id', contract.opportunity_id)
-          .eq('agreement_type', agreementType)
+          .eq('agreement_type', rawAgreementType)
           .neq('id', contract.id)
 
         if (olderContracts && olderContracts.length > 0) {
@@ -370,7 +376,8 @@ export async function POST(request: NextRequest) {
       
       console.log('[Contract Sign] PDF generated, size:', pdfBuffer.length, 'bytes')
       
-      const fileName = `${isContingency ? 'contingency' : 'contract'}_${contract.id}_${Date.now()}.pdf`
+      const fileNamePrefix = isContingency ? 'contingency' : isRepair ? 'repair_agreement' : 'contract'
+      const fileName = `${fileNamePrefix}_${contract.id}_${Date.now()}.pdf`
       pdfStoragePath = `org/${contract.org_id}/contracts/${fileName}`
 
       // Try files bucket first (more reliable)
@@ -678,7 +685,7 @@ export async function POST(request: NextRequest) {
                   project_id: projectId,
                   user_id: contract.created_by,
                   type: 'status_change',
-                  body: `Production job ${newJob.job_number} auto-created from signed Installation Agreement.`,
+                  body: `Production job ${newJob.job_number} auto-created from signed ${agreementLabel}.`,
                 })
               }
             } else {
@@ -873,7 +880,7 @@ export async function POST(request: NextRequest) {
                 project_id: projectId,
                 user_id: contract.created_by,
                 type: 'status_change',
-                body: `Production job ${newJob.job_number} auto-created from signed Installation Agreement.`,
+                body: `Production job ${newJob.job_number} auto-created from signed ${agreementLabel}.`,
               })
             }
           } else {
