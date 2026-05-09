@@ -1088,7 +1088,7 @@ export async function POST(request: Request) {
         const mapCandidates = facetsFiltered.length > 0 ? facetsFiltered : solarFacets
         const maskAlreadyPinFiltered =
           mapCandidates.length > 0 &&
-          mapCandidates.every((f) => f.facet_source === 'solar_mask')
+          mapCandidates.every((f) => f.facet_source === 'solar_mask_plane')
         const targetFacets = maskAlreadyPinFiltered
           ? mapCandidates
           : filterFacetsToRequestedStructure(mapCandidates, requestedCenter)
@@ -1125,11 +1125,16 @@ export async function POST(request: Request) {
           })
         }
 
+        const rawFacetSource = facetsOut[0]?.facet_source
         const facetSource =
-          facetsOut[0]?.facet_source === 'solar_mask' ? 'solar_mask' : 'solar_bbox'
+          rawFacetSource === 'solar_mask_plane' || rawFacetSource === 'solar_mask_whole'
+            ? rawFacetSource
+            : 'solar_bbox'
         const solarNotes =
-          facetSource === 'solar_mask'
+          facetSource === 'solar_mask_plane'
             ? 'Roof planes from Google Solar mask (GeoTIFF), split by Solar segment centers so outlines follow real edges instead of axis-aligned boxes. Drag corners to fine-tune. Use “AI trace roof” only if you need GPT from a static map (OpenAI cost).'
+            : facetSource === 'solar_mask_whole'
+              ? 'Roof outline loaded from Google Solar mask (GeoTIFF). It matched the map pin, but Solar did not provide reliable per-plane splits, so review the outline, split roof planes manually, and set pitch before quoting.'
             : 'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).'
         const notes = dropped_note ? `${dropped_note} ${solarNotes}` : solarNotes
 
@@ -1363,7 +1368,7 @@ export async function POST(request: Request) {
           modelSolarIdx !== null && modelSolarIdx >= 0
             ? solarSegments.find((s) => s.segment_index === modelSolarIdx)
             : null
-        const pitchSegment = segmentByModelIndex || nearestSolarSegment
+        const pitchSegment = modelSolarIdx === -1 ? null : segmentByModelIndex || nearestSolarSegment
 
         const solarSegmentIndexOut =
           modelSolarIdx === -1
