@@ -46,6 +46,39 @@ function pickMappedField(body: Record<string, any>, mapping: Record<string, stri
   return undefined
 }
 
+async function insertLeadWithSchemaFallback(adminClient: ReturnType<typeof getAdminClient>, leadData: Record<string, any>) {
+  const insertData: Record<string, any> = { ...leadData, channel: 'inbound' }
+  let lastError: any = null
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { data, error } = await adminClient
+      .from('leads')
+      .insert(insertData)
+      .select('id')
+      .single()
+
+    if (!error) return { lead: data as { id: string }, error: null }
+
+    lastError = error
+    const missingColumn = error.message?.match(/Could not find the '([^']+)' column/)?.[1]
+    if (missingColumn && missingColumn in insertData) {
+      console.log(`Lead webhook insert: dropping unavailable optional column "${missingColumn}"`)
+      delete insertData[missingColumn]
+      continue
+    }
+
+    if ((error.message?.includes('channel') || error.code === '42703') && 'channel' in insertData) {
+      console.log('Lead webhook insert: channel column not found, inserting without it')
+      delete insertData.channel
+      continue
+    }
+
+    break
+  }
+
+  return { lead: null, error: lastError }
+}
+
 // POST - Create a new lead from external source
 export async function POST(request: NextRequest) {
   console.log('=== Webhook Lead Request ===')
@@ -229,40 +262,10 @@ export async function POST(request: NextRequest) {
       campaign_id: leadSource?.default_campaign_id || null,
       source_type: leadSource?.source_type || null,
       external_lead_id: body.external_lead_id || body.externalLeadId || body.id || null,
-      landing_page: body.landing_page || body.landingPage || null,
-      referrer_url: body.referrer_url || body.referrerUrl || body.referrer || null,
       raw_payload: body,
     }
 
-    // Try to create the lead with channel field first
-    let lead: { id: string } | null = null
-    let leadError: any = null
-
-    // First attempt: with channel field
-    const { data: leadWithChannel, error: errorWithChannel } = await adminClient
-      .from('leads')
-      .insert({ ...leadData, channel: 'inbound' })
-      .select('id')
-      .single()
-
-    if (errorWithChannel) {
-      // If channel column doesn't exist, try without it
-      if (errorWithChannel.message?.includes('channel') || errorWithChannel.code === '42703') {
-        console.log('Channel column not found, inserting without it')
-        const { data: leadWithoutChannel, error: errorWithoutChannel } = await adminClient
-          .from('leads')
-          .insert(leadData)
-          .select('id')
-          .single()
-        
-        lead = leadWithoutChannel
-        leadError = errorWithoutChannel
-      } else {
-        leadError = errorWithChannel
-      }
-    } else {
-      lead = leadWithChannel
-    }
+    const { lead, error: leadError } = await insertLeadWithSchemaFallback(adminClient, leadData)
 
     if (leadError) {
       console.error('Lead creation error:', leadError)
