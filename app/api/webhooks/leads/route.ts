@@ -79,6 +79,31 @@ async function insertLeadWithSchemaFallback(adminClient: ReturnType<typeof getAd
   return { lead: null, error: lastError }
 }
 
+async function syncCampaignLeadTotal(adminClient: ReturnType<typeof getAdminClient>, orgId: string, campaignId: string | null | undefined) {
+  if (!campaignId) return
+
+  const { count, error: countError } = await adminClient
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('campaign_id', campaignId)
+
+  if (countError) {
+    console.log('Could not count campaign leads:', countError)
+    return
+  }
+
+  const { error: updateError } = await adminClient
+    .from('campaigns')
+    .update({ total_leads: count || 0 })
+    .eq('org_id', orgId)
+    .eq('id', campaignId)
+
+  if (updateError) {
+    console.log('Could not update campaign lead total:', updateError)
+  }
+}
+
 // POST - Create a new lead from external source
 export async function POST(request: NextRequest) {
   console.log('=== Webhook Lead Request ===')
@@ -318,6 +343,8 @@ export async function POST(request: NextRequest) {
         console.log('Could not update lead source stats:', sourceUpdateError)
       }
     }
+
+    await syncCampaignLeadTotal(adminClient, org_id, leadData.campaign_id)
 
     // Create an activity for the new lead (use 'note' type which is valid in the enum)
     try {
