@@ -118,29 +118,10 @@ export default function CampaignsPage() {
   const loadData = async () => {
     try {
       const supabase = createClientBrowser()
-      
-      // Get current user's org_id first
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setLoading(false)
-        return
-      }
-      
-      const { data: profile } = await supabase
-        .from('users')
-        .select('org_id')
-        .eq('id', user.id)
-        .single()
-      
-      if (!profile?.org_id) {
-        setLoading(false)
-        return
-      }
 
-      const [campaignsRes, sourcesRes, usersRes] = await Promise.all([
+      const [campaignsRes, sourcesRes] = await Promise.all([
         fetch('/api/campaigns'),
         fetch('/api/lead-sources'),
-        supabase.from('users').select('id, full_name, email').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
       ])
 
       const campaignsJson = campaignsRes.ok ? await campaignsRes.json() : { campaigns: [] }
@@ -148,7 +129,27 @@ export default function CampaignsPage() {
 
       setCampaigns(campaignsJson.campaigns || [])
       setLeadSources(sourcesJson.leadSources || [])
-      setUsers(usersRes.data || [])
+
+      // User options are helpful for assignment, but they should not block the campaign list.
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('users')
+          .select('org_id')
+          .eq('id', user.id)
+          .single()
+
+        if (profile?.org_id) {
+          const { data: userRows } = await supabase
+            .from('users')
+            .select('id, full_name, email')
+            .eq('org_id', profile.org_id)
+            .eq('active', true)
+            .order('full_name')
+
+          setUsers(userRows || [])
+        }
+      }
     } catch (err) {
       console.error('Error loading campaigns data:', err)
     } finally {
