@@ -471,7 +471,6 @@ export default function Home() {
           <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-slate-500">
             <a href="#platform" className="hover:text-slate-950">Platform</a>
             <a href="#fit" className="hover:text-slate-950">Fit</a>
-            <Link href="/privacy" className="hover:text-slate-950">Privacy</Link>
             <Link href="/terms" className="hover:text-slate-950">Terms</Link>
           </div>
         </div>
