@@ -86,10 +86,17 @@ const teamScale = [
   'Growth decisions come from numbers, not pressure',
 ]
 
+const heroProof = [
+  'CRM',
+  'Estimating',
+  'Job costing',
+  'Ops handoff',
+]
+
 const proof = [
   ['< 60 sec', 'lead routing target'],
-  ['1 record', 'from inquiry to job'],
-  ['Live view', 'sales, office, and ops'],
+  ['1 file', 'call to install'],
+  ['Live view', 'sales + ops'],
 ]
 
 function ArrowIcon({ className = 'h-5 w-5' }: { className?: string }) {
@@ -106,13 +113,13 @@ function ArrowIcon({ className = 'h-5 w-5' }: { className?: string }) {
 
 function ProductSignal() {
   return (
-    <div className="relative bg-slate-950 p-3 shadow-2xl shadow-slate-950/20">
+    <div className="relative bg-slate-950 p-2 shadow-2xl shadow-slate-950/20">
       <div className="absolute -right-3 top-8 hidden bg-[#9b3f2f] px-4 py-2 text-xs font-black uppercase text-white lg:block">
         Shop file
       </div>
 
       <div className="border border-slate-800 bg-[#f7f3ea]">
-        <div className="relative h-64 overflow-hidden border-b border-slate-800 sm:h-72">
+        <div className="relative h-48 overflow-hidden border-b border-slate-800 sm:h-56">
           <Image
             src="/landing/field-file-hero.png"
             alt="Roofing job paperwork, measurements, and a phone on a truck tailgate"
@@ -122,36 +129,36 @@ function ProductSignal() {
             className="object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-slate-950/65 via-slate-950/10 to-transparent" />
-          <div className="absolute bottom-5 left-5 max-w-sm text-white">
+          <div className="absolute bottom-4 left-4 max-w-sm text-white">
             <p className="text-xs font-black uppercase text-amber-200">Real shop rhythm</p>
-            <p className="mt-2 text-2xl font-black leading-7">Paperwork, phone calls, field notes, one living record.</p>
+            <p className="mt-2 text-xl font-black leading-6">Paperwork, phone calls, field notes, one living record.</p>
           </div>
         </div>
 
         <div className="grid lg:grid-cols-[0.78fr_1.22fr]">
-          <aside className="border-b border-slate-300 bg-[#e9dcc1] p-5 lg:border-b-0 lg:border-r">
+          <aside className="border-b border-slate-300 bg-[#e9dcc1] p-4 lg:border-b-0 lg:border-r">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase text-slate-600">Today&apos;s job file</p>
-                <h3 className="mt-3 text-4xl font-black leading-none text-slate-950">Cullingford Lane</h3>
+                <h3 className="mt-2 text-3xl font-black leading-none text-slate-950">Cullingford Lane</h3>
               </div>
               <span className="border-2 border-[#9b3f2f] px-3 py-2 text-xs font-black uppercase text-[#9b3f2f]">
                 Booked
               </span>
             </div>
 
-            <div className="mt-8 grid gap-3">
+            <div className="mt-5 grid gap-2">
               {proof.map(([value, label]) => (
-                <div key={label} className="border border-slate-300 bg-[#f7f3ea] p-4">
-                  <p className="text-3xl font-black text-slate-950">{value}</p>
+                <div key={label} className="border border-slate-300 bg-[#f7f3ea] p-3">
+                  <p className="text-2xl font-black text-slate-950">{value}</p>
                   <p className="mt-1 text-xs font-bold text-slate-600">{label}</p>
                 </div>
               ))}
             </div>
 
-            <div className="mt-8 border-t border-slate-400 pt-5">
+            <div className="mt-5 border-t border-slate-400 pt-4">
               <p className="text-xs font-black uppercase text-slate-600">No loose ends</p>
-              <p className="mt-3 text-base font-bold leading-7 text-slate-800">
+              <p className="mt-2 text-sm font-bold leading-6 text-slate-800">
                 The customer story moves as one file, from first call to install packet, with room for custom setup and coaching where the shop needs it.
               </p>
             </div>
@@ -160,20 +167,20 @@ function ProductSignal() {
           <div className="bg-white">
             <div className="grid grid-cols-3 border-b border-slate-200">
               {capabilities.map((item) => (
-                <div key={item} className="border-r border-slate-200 px-3 py-3 text-center text-xs font-black uppercase text-slate-600 last:border-r-0 lg:px-4">
+                <div key={item} className="border-r border-slate-200 px-3 py-2.5 text-center text-xs font-black uppercase text-slate-600 last:border-r-0 lg:px-4">
                   {item}
                 </div>
               ))}
             </div>
 
-            <div className="p-5">
-              <div className="grid gap-4">
+            <div className="p-4">
+              <div className="grid gap-3">
                 {operatingRows.map((row) => (
-                  <div key={row.label} className="grid gap-4 border border-slate-200 bg-white p-4 shadow-sm shadow-slate-950/5 sm:grid-cols-[1fr_auto]">
+                  <div key={row.label} className="grid gap-3 border border-slate-200 bg-white p-3 shadow-sm shadow-slate-950/5 sm:grid-cols-[1fr_auto]">
                     <div className="flex gap-4">
-                      <span className={`mt-1 h-4 w-4 flex-none ${row.accent}`} />
+                      <span className={`mt-1 h-3.5 w-3.5 flex-none ${row.accent}`} />
                       <div>
-                        <p className="text-lg font-black leading-6 text-slate-950">{row.label}</p>
+                        <p className="text-base font-black leading-6 text-slate-950">{row.label}</p>
                         <p className="mt-1 text-sm font-semibold text-slate-500">{row.owner}</p>
                       </div>
                     </div>
@@ -185,19 +192,19 @@ function ProductSignal() {
                 ))}
               </div>
 
-              <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_0.86fr]">
-                <div className="border border-slate-200 bg-slate-950 p-5 text-white">
+              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_0.86fr]">
+                <div className="border border-slate-200 bg-slate-950 p-4 text-white">
                   <p className="text-xs font-black uppercase text-cyan-200">Next move</p>
-                  <p className="mt-3 text-2xl font-black leading-8">Confirm roof measurements before the 4:30 visit.</p>
-                  <div className="mt-6 h-2 bg-slate-800">
+                  <p className="mt-2 text-xl font-black leading-7">Confirm roof measurements before the 4:30 visit.</p>
+                  <div className="mt-4 h-2 bg-slate-800">
                     <div className="h-2 w-[74%] bg-amber-400" />
                   </div>
                   <p className="mt-3 text-xs font-semibold text-slate-400">Ops packet readiness: 74%</p>
                 </div>
 
-                <div className="border border-slate-200 bg-[#f7f3ea] p-5">
+                <div className="border border-slate-200 bg-[#f7f3ea] p-4">
                   <p className="text-xs font-black uppercase text-slate-600">Handoff trail</p>
-                  <div className="mt-5 space-y-4">
+                  <div className="mt-4 space-y-3">
                     {['Call logged', 'Setter assigned', 'Visit brief drafted', 'Photos requested'].map((item) => (
                       <div key={item} className="flex items-center gap-3">
                         <span className="h-2.5 w-2.5 bg-[#9b3f2f]" />
@@ -221,12 +228,18 @@ export default function Home() {
       <header className="sticky top-0 z-50 border-b border-slate-900/10 bg-[#f7f3ea]/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
           <Link href="/" className="flex items-center gap-3" aria-label="ARX home">
-            <span className="flex h-10 w-10 items-center justify-center bg-slate-950 text-base font-black text-white">
-              A
+            <span className="relative flex h-12 w-12 items-center justify-center overflow-hidden bg-slate-950">
+              <Image
+                src="/brand/arx-shield.png"
+                alt=""
+                fill
+                sizes="48px"
+                className="object-cover"
+              />
             </span>
             <span>
               <span className="block text-base font-black leading-none text-slate-950">ARX</span>
-              <span className="mt-1 block text-xs font-bold text-slate-500">CRM for service shops</span>
+              <span className="mt-1 block text-xs font-bold text-slate-500">Premium CRM for service shops</span>
             </span>
           </Link>
 
@@ -252,25 +265,22 @@ export default function Home() {
 
       <section className="relative overflow-hidden border-b border-slate-900/10">
         <div className="absolute inset-x-0 top-0 h-24 bg-[#e9dcc1]" />
-        <div className="relative mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-14 lg:grid-cols-[0.86fr_1.14fr] lg:px-8 lg:pb-20 lg:pt-20">
-          <div className="flex flex-col justify-center">
+        <div className="relative mx-auto grid max-w-7xl gap-10 px-5 pb-12 pt-10 lg:grid-cols-[0.92fr_1.08fr] lg:px-8 lg:pb-16 lg:pt-16">
+          <div className="flex flex-col justify-start lg:pt-8">
             <p className="mb-5 max-w-xl text-sm font-black uppercase text-[#9b3f2f]">
-              For owner-operated service shops
+              Premium systems for owner-operated service shops
             </p>
-            <h1 className="max-w-3xl text-5xl font-black leading-none text-slate-950 sm:text-6xl lg:text-7xl">
-              Run the day without running it from memory.
+            <h1 className="max-w-3xl text-5xl font-black leading-none text-slate-950 sm:text-6xl lg:text-[4rem]">
+              Run the shop on systems, not memory.
             </h1>
-            <p className="mt-7 max-w-2xl text-lg leading-8 text-slate-700 sm:text-xl">
-              ARX gives small service companies one practical place for the calls, estimates, field notes, photos, contracts, job costs, and expenses that usually get spread across phones, paper, and somebody&apos;s head.
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-700">
+              ARX gives service shops one serious operating system for calls, estimates, field notes, contracts, job costs, expenses, and the handoffs that usually live in somebody&apos;s head.
             </p>
-            <p className="mt-4 max-w-2xl text-base font-bold leading-7 text-slate-700">
-              Setup can include custom development, and some plans include business coaching for owners who want help understanding their numbers and scaling sales and operations together as one team.
-            </p>
-            <p className="mt-6 max-w-2xl text-2xl font-black leading-8 text-slate-950">
-              A business is only as strong as the systems it runs on.
+            <p className="mt-3 max-w-2xl text-base font-bold leading-7 text-slate-700">
+              Custom setup, custom development where needed, and optional coaching to help owners scale sales and operations together.
             </p>
 
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/trial"
                 className="inline-flex items-center justify-center gap-2 bg-slate-950 px-6 py-4 text-base font-black text-white transition hover:bg-slate-800"
@@ -286,9 +296,21 @@ export default function Home() {
               </a>
             </div>
 
-            <div className="mt-10 max-w-xl border-l-4 border-[#9b3f2f] pl-5">
-              <p className="text-sm font-bold leading-6 text-slate-600">
-                It should feel familiar on day one: the same job jacket your team already understands, only live, searchable, and harder to lose.
+            <div className="mt-5 grid max-w-2xl grid-cols-2 gap-px bg-slate-300 sm:grid-cols-4">
+              {heroProof.map((item) => (
+                <div key={item} className="bg-white px-3 py-3 text-center text-xs font-black uppercase text-slate-700">
+                  {item}
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-4 max-w-2xl text-xl font-black leading-8 text-slate-950">
+              A business is only as strong as the systems it runs on.
+            </p>
+
+            <div className="mt-5 max-w-xl border-l-4 border-[#9b3f2f] pl-5">
+              <p className="text-sm font-black leading-6 text-slate-700">
+                Enterprise-grade systems, built and priced for real local shops.
               </p>
             </div>
           </div>
