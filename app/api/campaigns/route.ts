@@ -51,7 +51,33 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ campaigns })
+  const campaignIds = (campaigns || []).map((campaign) => campaign.id)
+  let leadCounts = new Map<string, number>()
+
+  if (campaignIds.length > 0) {
+    const { data: leadRows, error: leadCountError } = await supabase
+      .from('leads')
+      .select('campaign_id')
+      .eq('org_id', profile.org_id)
+      .in('campaign_id', campaignIds)
+
+    if (leadCountError) {
+      return NextResponse.json({ error: leadCountError.message }, { status: 500 })
+    }
+
+    leadCounts = new Map<string, number>()
+    for (const row of leadRows || []) {
+      if (!row.campaign_id) continue
+      leadCounts.set(row.campaign_id, (leadCounts.get(row.campaign_id) || 0) + 1)
+    }
+  }
+
+  return NextResponse.json({
+    campaigns: (campaigns || []).map((campaign) => ({
+      ...campaign,
+      total_leads: leadCounts.get(campaign.id) || 0,
+    })),
+  })
 }
 
 // POST - Create a new campaign

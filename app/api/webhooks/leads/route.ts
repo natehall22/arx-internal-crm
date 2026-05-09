@@ -170,6 +170,25 @@ export async function POST(request: NextRequest) {
 
     console.log('Found org:', org.id)
 
+    if (!leadSource) {
+      const { data: defaultSource, error: defaultSourceError } = await adminClient
+        .from('lead_sources')
+        .select('id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active')
+        .eq('org_id', org_id)
+        .eq('source_type', 'website')
+        .eq('is_active', true)
+        .eq('webhook_enabled', true)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      if (defaultSourceError) {
+        console.log('Could not load default website lead source:', defaultSourceError)
+      } else if (defaultSource) {
+        leadSource = defaultSource as LeadSourceConfig
+      }
+    }
+
     // Extract contact info - handle many common field name variations
     const fieldMapping = leadSource?.field_mapping
     const firstName = pickMappedField(body, fieldMapping, 'first_name') || body.first_name || body.firstName || body.firstname || body.fname || body.given_name || ''
