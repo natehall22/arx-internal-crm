@@ -28,45 +28,82 @@ function getMailTransport() {
   })
 }
 
+type LeadSourceConfig = {
+  id: string
+  org_id: string
+  name: string
+  source_type: string | null
+  default_campaign_id: string | null
+  field_mapping: Record<string, string> | null
+  auto_assign_user_id: string | null
+  webhook_enabled: boolean
+  is_active: boolean
+}
+
+function pickMappedField(body: Record<string, any>, mapping: Record<string, string> | null | undefined, target: string) {
+  const mappedKey = mapping?.[target]
+  if (mappedKey && body[mappedKey] != null) return body[mappedKey]
+  return undefined
+}
+
 // POST - Create a new lead from external source
 export async function POST(request: NextRequest) {
   console.log('=== Webhook Lead Request ===')
   
   try {
-    // Check for API key authentication
-    const authHeader = request.headers.get('authorization')
-    const apiKey = request.headers.get('x-api-key')
-    const webhookSecret = process.env.WEBHOOK_SECRET || process.env.LEADS_WEBHOOK_SECRET
-
-    if (!webhookSecret) {
-      console.error('WEBHOOK_SECRET is not configured — rejecting request')
-      return NextResponse.json({ error: 'Webhook endpoint is not configured' }, { status: 503 })
-    }
-
-    const providedKey = authHeader?.replace('Bearer ', '') || apiKey
-    if (!providedKey || providedKey !== webhookSecret) {
-      console.error('Invalid or missing API key')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     let body: any
     try {
       body = await request.json()
       console.log('Received payload:', JSON.stringify(body, null, 2))
     } catch (parseError) {
       console.error('Failed to parse JSON body:', parseError)
-      return NextResponse.json({ 
-        error: 'Invalid JSON in request body' 
+      return NextResponse.json({
+        error: 'Invalid JSON in request body'
       }, { status: 400 })
+    }
+
+    const adminClient = getAdminClient()
+
+    // Check for API key authentication
+    const authHeader = request.headers.get('authorization')
+    const apiKey = request.headers.get('x-api-key')
+    const sourceToken = request.nextUrl.searchParams.get('token') || request.headers.get('x-webhook-token')
+    const webhookSecret = process.env.WEBHOOK_SECRET || process.env.LEADS_WEBHOOK_SECRET
+
+    let leadSource: LeadSourceConfig | null = null
+    if (sourceToken) {
+      const { data, error } = await adminClient
+        .from('lead_sources')
+        .select('id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active')
+        .eq('webhook_token', sourceToken)
+        .single()
+
+      if (error || !data) {
+        console.error('Invalid lead source token:', error)
+        return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 })
+      }
+
+      if (!data.webhook_enabled || !data.is_active) {
+        console.error('Lead source webhook is disabled:', data.id)
+        return NextResponse.json({ error: 'Webhook is disabled for this lead source' }, { status: 403 })
+      }
+
+      leadSource = data as LeadSourceConfig
+    }
+
+    const providedKey = authHeader?.replace('Bearer ', '') || apiKey
+    if (webhookSecret && !leadSource && (!providedKey || providedKey !== webhookSecret)) {
+      console.error('Invalid or missing API key')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     
     // Extract org_id first (required)
-    const org_id = body.org_id || body.orgId || body.organization_id
+    const org_id = leadSource?.org_id || body.org_id || body.orgId || body.organization_id
 
     if (!org_id) {
       console.error('Missing org_id in payload')
-      return NextResponse.json({ 
-        error: 'org_id is required. Get your org_id from the admin settings.' 
+      return NextResponse.json({
+        error: 'org_id is required unless using a lead source webhook token.'
       }, { status: 400 })
     }
 
@@ -78,8 +115,6 @@ export async function POST(request: NextRequest) {
         error: 'Invalid org_id format. Must be a valid UUID.' 
       }, { status: 400 })
     }
-
-    const adminClient = getAdminClient()
 
     // Verify org exists
     const { data: org, error: orgError } = await adminClient
@@ -103,9 +138,10 @@ export async function POST(request: NextRequest) {
     console.log('Found org:', org.id)
 
     // Extract contact info - handle many common field name variations
-    const firstName = body.first_name || body.firstName || body.firstname || body.fname || body.given_name || ''
-    const lastName = body.last_name || body.lastName || body.lastname || body.lname || body.family_name || body.surname || ''
-    const fullNameDirect = body.name || body.full_name || body.fullName || body.homeowner_name || body.homeownerName || body.customer_name || body.customerName || ''
+    const fieldMapping = leadSource?.field_mapping
+    const firstName = pickMappedField(body, fieldMapping, 'first_name') || body.first_name || body.firstName || body.firstname || body.fname || body.given_name || ''
+    const lastName = pickMappedField(body, fieldMapping, 'last_name') || body.last_name || body.lastName || body.lastname || body.lname || body.family_name || body.surname || ''
+    const fullNameDirect = pickMappedField(body, fieldMapping, 'name') || body.name || body.full_name || body.fullName || body.homeowner_name || body.homeownerName || body.customer_name || body.customerName || ''
     
     // Build the full name - prefer direct full name, otherwise combine first + last
     let fullName = fullNameDirect.trim()
@@ -116,17 +152,17 @@ export async function POST(request: NextRequest) {
     console.log('Name fields:', { firstName, lastName, fullNameDirect, resolvedFullName: fullName })
 
     // Extract phone - handle variations
-    const phone = body.phone || body.phone_number || body.phoneNumber || body.telephone || body.tel || body.mobile || body.cell || ''
+    const phone = pickMappedField(body, fieldMapping, 'phone') || body.phone || body.phone_number || body.phoneNumber || body.telephone || body.tel || body.mobile || body.cell || ''
 
     // Extract email - handle variations  
-    const email = body.email || body.email_address || body.emailAddress || body.e_mail || ''
+    const email = pickMappedField(body, fieldMapping, 'email') || body.email || body.email_address || body.emailAddress || body.e_mail || ''
 
     // Extract address - handle variations
     const street = body.street || body.street_address || body.streetAddress || body.address1 || body.address_line_1 || ''
     const city = body.city || ''
     const state = body.state || body.province || body.region || ''
     const zip = body.zip || body.zipcode || body.zip_code || body.postal_code || body.postalCode || ''
-    const addressDirect = body.address || body.address_text || body.full_address || body.fullAddress || ''
+    const addressDirect = pickMappedField(body, fieldMapping, 'address') || body.address || body.address_text || body.full_address || body.fullAddress || ''
 
     // Build the full address
     let fullAddress = addressDirect.trim()
@@ -135,9 +171,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract optional fields
-    const source = body.source || body.lead_source || body.leadSource || 'web'
-    const notes = body.notes || body.note || ''
-    const message = body.message || body.comments || body.comment || body.inquiry || body.description || ''
+    const source = leadSource?.name || body.source || body.lead_source || body.leadSource || 'web'
+    const notes = pickMappedField(body, fieldMapping, 'notes') || body.notes || body.note || ''
+    const message = pickMappedField(body, fieldMapping, 'message') || body.message || body.comments || body.comment || body.inquiry || body.description || ''
     const service_type = body.service_type || body.serviceType || body.service || ''
     const project_type = body.project_type || body.projectType || body.project || ''
     const custom_fields = body.custom_fields || body.customFields || body.custom || body.metadata || null
@@ -161,7 +197,9 @@ export async function POST(request: NextRequest) {
 
     // Find the user assigned to web leads (if configured in org settings)
     let ownerUserId: string | null = null
-    if (org.settings?.web_leads_owner_id) {
+    if (leadSource?.auto_assign_user_id) {
+      ownerUserId = leadSource.auto_assign_user_id
+    } else if (org.settings?.web_leads_owner_id) {
       ownerUserId = org.settings.web_leads_owner_id
     } else {
       // Default to first admin user in the org
@@ -187,6 +225,13 @@ export async function POST(request: NextRequest) {
       source: source || 'web',
       status: 'new',
       notes: leadNotes.trim() || null,
+      lead_source_id: leadSource?.id || null,
+      campaign_id: leadSource?.default_campaign_id || null,
+      source_type: leadSource?.source_type || null,
+      external_lead_id: body.external_lead_id || body.externalLeadId || body.id || null,
+      landing_page: body.landing_page || body.landingPage || null,
+      referrer_url: body.referrer_url || body.referrerUrl || body.referrer || null,
+      raw_payload: body,
     }
 
     // Try to create the lead with channel field first
@@ -230,6 +275,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         error: 'Failed to create lead: Unknown error' 
       }, { status: 500 })
+    }
+
+    if (leadSource) {
+      try {
+        const { data: sourceStats } = await adminClient
+          .from('lead_sources')
+          .select('total_leads_received')
+          .eq('id', leadSource.id)
+          .single()
+
+        await adminClient
+          .from('lead_sources')
+          .update({
+            total_leads_received: Number(sourceStats?.total_leads_received || 0) + 1,
+            last_lead_at: new Date().toISOString(),
+          })
+          .eq('id', leadSource.id)
+      } catch (sourceUpdateError) {
+        console.log('Could not update lead source stats:', sourceUpdateError)
+      }
     }
 
     // Create an activity for the new lead (use 'note' type which is valid in the enum)
@@ -316,8 +381,8 @@ export async function GET(request: NextRequest) {
     endpoint: '/api/webhooks/leads',
     method: 'POST',
     description: 'Webhook endpoint for receiving leads from external sources',
-    authentication: 'Bearer token or x-api-key header with WEBHOOK_SECRET (optional)',
-    required_fields: ['org_id'],
+    authentication: 'Use a lead source URL with ?token=..., or Bearer/x-api-key when WEBHOOK_SECRET is configured. If no secret is configured, org_id payload intake is allowed.',
+    required_fields: ['org_id unless using a lead source token'],
     field_mappings: {
       org_id: ['org_id', 'orgId', 'organization_id'],
       name: ['name', 'full_name', 'fullName', 'homeowner_name', 'customer_name', 'first_name + last_name'],
