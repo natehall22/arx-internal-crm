@@ -380,7 +380,7 @@ export default function CampaignsPage() {
   }
 
   const formatCurrency = (value: number | null) => {
-    if (value === null) return '-'
+    if (value === null || !Number.isFinite(value)) return '-'
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
   }
 
