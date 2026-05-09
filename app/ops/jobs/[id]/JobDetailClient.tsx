@@ -115,7 +115,7 @@ interface Job {
     payment_method?: string | null
     sold_roof_squares?: number | null
   } | null
-  installation_agreement?: { pdf_url: string | null; status: string } | null
+  installation_agreement?: { pdf_url: string | null; status: string; agreement_type?: string | null } | null
   sold_scope?: JobSoldScope | null
 }
 
@@ -2118,7 +2118,7 @@ export default function JobDetailClient({
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Related</h2>
               <div className="space-y-1">
-                {/* Installation Agreement - from order_form_contracts */}
+                {/* Sale agreement - from order_form_contracts */}
                 {job.installation_agreement && job.installation_agreement.status === 'completed' && (
                   job.installation_agreement.pdf_url ? (
                     <a
@@ -2130,7 +2130,7 @@ export default function JobDetailClient({
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      View Installation Agreement
+                      View {job.installation_agreement.agreement_type === 'repair' ? 'Repair Agreement' : 'Installation Agreement'}
                     </a>
                   ) : (
                     <div className="min-h-[44px] flex items-center gap-2 text-sm text-gray-500 mb-3">

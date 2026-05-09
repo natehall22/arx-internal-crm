@@ -101,25 +101,27 @@ export default async function ProjectDetailPage({
     .eq('project_id', params.id)
     .single()
 
-  // Fetch Installation Agreement PDF from order_form_contracts
+  // Fetch signed sale agreement PDF from order_form_contracts
   // Try multiple methods to find the contract
-  let installationAgreement: { pdf_url: string | null; status: string } | null = null
+  let installationAgreement: { pdf_url: string | null; status: string; agreement_type?: string | null } | null = null
   
   try {
     // Method 1: Find contract by matching project address to contract project_address
-    const { data: contractsByAddress } = await supabase
-      .from('order_form_contracts')
-      .select('pdf_url, status')
-      .eq('org_id', profile.org_id)
-      .eq('project_address', project.address_text)
-      .eq('status', 'completed')
-      .order('created_at', { ascending: false })
-      .limit(1)
+      const { data: contractsByAddress } = await supabase
+        .from('order_form_contracts')
+        .select('pdf_url, status, agreement_type')
+        .eq('org_id', profile.org_id)
+        .eq('project_address', project.address_text)
+        .eq('status', 'completed')
+        .in('agreement_type', ['installation', 'repair'])
+        .order('created_at', { ascending: false })
+        .limit(1)
     
     if (contractsByAddress && contractsByAddress.length > 0) {
       installationAgreement = {
         pdf_url: contractsByAddress[0].pdf_url,
-        status: contractsByAddress[0].status
+        status: contractsByAddress[0].status,
+        agreement_type: contractsByAddress[0].agreement_type,
       }
     }
     
@@ -137,16 +139,18 @@ export default async function ProjectDetailPage({
         
         const { data: contracts } = await supabase
           .from('order_form_contracts')
-          .select('pdf_url, status')
+          .select('pdf_url, status, agreement_type')
           .eq('opportunity_id', opportunityId)
           .eq('status', 'completed')
+          .in('agreement_type', ['installation', 'repair'])
           .order('created_at', { ascending: false })
           .limit(1)
         
         if (contracts && contracts.length > 0) {
           installationAgreement = {
             pdf_url: contracts[0].pdf_url,
-            status: contracts[0].status
+            status: contracts[0].status,
+            agreement_type: contracts[0].agreement_type,
           }
         }
       }
@@ -156,7 +160,7 @@ export default async function ProjectDetailPage({
     console.log('Could not fetch installation agreement:', e)
   }
 
-  // Fetch original contract details for change orders
+  // Fetch original sale agreement details for change orders
   let originalContract: {
     id: string
     project_cost: number
@@ -172,6 +176,7 @@ export default async function ProjectDetailPage({
       .eq('org_id', profile.org_id)
       .eq('project_address', project.address_text)
       .eq('status', 'completed')
+      .in('agreement_type', ['installation', 'repair'])
       .order('created_at', { ascending: false })
       .limit(1)
 
@@ -194,6 +199,7 @@ export default async function ProjectDetailPage({
           .select('id, project_cost, created_at, payment_method')
           .eq('opportunity_id', opportunities[0].id)
           .eq('status', 'completed')
+          .in('agreement_type', ['installation', 'repair'])
           .order('created_at', { ascending: false })
           .limit(1)
 
@@ -297,6 +303,8 @@ export default async function ProjectDetailPage({
     currentContractTotal != null && Number(currentContractTotal) > 0
       ? Number(currentContractTotal)
       : null
+  const agreementLabel =
+    installationAgreement?.agreement_type === 'repair' ? 'Repair Agreement' : 'Installation Agreement'
 
   const updateAddress = async (formData: FormData) => {
     'use server'
@@ -506,11 +514,11 @@ export default async function ProjectDetailPage({
           </div>
         )}
 
-        {/* Installation Agreement - from order_form_contracts */}
+        {/* Sale agreement - from order_form_contracts */}
         {installationAgreement && (
           <div className="bg-white shadow rounded-lg p-6 mb-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">Installation Agreement</h2>
+              <h2 className="text-xl font-bold text-gray-900">{agreementLabel}</h2>
               {installationAgreement.pdf_url ? (
                 <a
                   href={installationAgreement.pdf_url}
@@ -521,7 +529,7 @@ export default async function ProjectDetailPage({
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                  View Installation Agreement
+                  View {agreementLabel}
                 </a>
               ) : (
                 <span className="text-sm text-gray-500 flex items-center gap-2">

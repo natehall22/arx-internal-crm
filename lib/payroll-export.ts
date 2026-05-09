@@ -5,6 +5,7 @@ import {
   normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 
 export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' | 'owner' }
 
@@ -243,7 +244,7 @@ export async function buildMonthlyTierMetricMaps(
     .from('order_form_contracts')
     .select('customer_signed_at, opportunity_id, opportunities!inner(owner_user_id, org_id)')
     .eq('org_id', orgId)
-    .eq('agreement_type', 'installation')
+    .in('agreement_type', SALE_AGREEMENT_TYPES)
     .eq('status', 'completed')
     .not('customer_signed_at', 'is', null)
     .gte('customer_signed_at', startIso)

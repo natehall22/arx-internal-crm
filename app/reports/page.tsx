@@ -16,6 +16,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  SALE_AGREEMENT_TYPES,
   type CanvassMetricsLeadRow,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
@@ -266,7 +267,7 @@ export default function ReportsPage() {
           .from('order_form_contracts')
           .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
           .eq('org_id', orgId)
-          .eq('agreement_type', 'installation')
+          .in('agreement_type', SALE_AGREEMENT_TYPES)
           .eq('status', 'completed')
           .not('customer_signed_at', 'is', null)
           .order('customer_signed_at', { ascending: false }),

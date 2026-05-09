@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -243,7 +244,7 @@ export async function GET() {
         .from('order_form_contracts')
         .select('id, opportunity_id, proposal_id, customer_name, project_address, project_cost, customer_signed_at')
         .eq('org_id', profile.org_id)
-        .eq('agreement_type', 'installation')
+        .in('agreement_type', SALE_AGREEMENT_TYPES)
         .eq('status', 'completed')
         .in('proposal_id', proposalIds)
 
@@ -268,7 +269,7 @@ export async function GET() {
         .from('order_form_contracts')
         .select('id, opportunity_id, proposal_id, customer_name, project_address, project_cost, customer_signed_at')
         .eq('org_id', profile.org_id)
-        .eq('agreement_type', 'installation')
+        .in('agreement_type', SALE_AGREEMENT_TYPES)
         .eq('status', 'completed')
         .in('opportunity_id', missingContractOpportunityIds)
 

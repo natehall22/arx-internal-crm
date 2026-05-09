@@ -20,6 +20,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  SALE_AGREEMENT_TYPES,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
@@ -148,12 +149,12 @@ export default async function DashboardPage() {
   }
   const { data: allLeads, error: leadsError } = await leadsQuery
 
-  // Sales are signed Installation Agreements. Inspection feedback outcomes only drive sits/no-sits.
+  // Sales are signed Installation or Repair Agreements. Inspection feedback outcomes only drive sits/no-sits.
   const { data: salesContracts } = await supabase
     .from('order_form_contracts')
     .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
     .eq('org_id', profile.org_id)
-    .eq('agreement_type', 'installation')
+    .in('agreement_type', SALE_AGREEMENT_TYPES)
     .eq('status', 'completed')
     .not('customer_signed_at', 'is', null)
     .gte('customer_signed_at', weekStart.toISOString())

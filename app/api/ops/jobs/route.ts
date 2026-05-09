@@ -5,6 +5,7 @@ import { importProjectReviewNoteToJob } from '@/lib/project-review'
 import { canAccessJobBoard } from '@/lib/permissions'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
         )
       : null
 
-    const installationContractFilter =
+    const saleAgreementFilter =
       acceptedProposalId && project.opportunity_id
         ? `proposal_id.eq.${acceptedProposalId},opportunity_id.eq.${project.opportunity_id}`
         : acceptedProposalId
@@ -122,42 +123,58 @@ export async function POST(request: Request) {
 
     const hasLegacySignedContract = Boolean(project.contract_uploaded_at || project.contract_pdf_path)
 
-    if (!installationContractFilter && !hasLegacySignedContract) {
+    let signedSaleAgreement: {
+      id: string
+      proposal_id: string | null
+      project_cost: number | string | null
+      payment_method: string | null
+    } | null = null
+
+    if (saleAgreementFilter) {
+      const { data } = await adminClient
+        .from('order_form_contracts')
+        .select('id, proposal_id, project_cost, payment_method')
+        .eq('org_id', profile.org_id)
+        .in('agreement_type', SALE_AGREEMENT_TYPES)
+        .eq('status', 'completed')
+        .or(saleAgreementFilter)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      signedSaleAgreement = data ?? null
+    }
+
+    if (!signedSaleAgreement && project.address_text) {
+      const { data } = await adminClient
+        .from('order_form_contracts')
+        .select('id, proposal_id, project_cost, payment_method')
+        .eq('org_id', profile.org_id)
+        .in('agreement_type', SALE_AGREEMENT_TYPES)
+        .eq('status', 'completed')
+        .eq('project_address', project.address_text)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      signedSaleAgreement = data ?? null
+    }
+
+    if (!signedSaleAgreement && !hasLegacySignedContract) {
       return NextResponse.json(
-        { error: 'Jobs can only be pushed to the job board after a signed Installation Agreement.' },
+        { error: 'Jobs can only be pushed to the job board after a signed Installation or Repair Agreement.' },
         { status: 400 }
       )
     }
 
-    const signedInstallationContract = installationContractFilter
-      ? await adminClient
-          .from('order_form_contracts')
-          .select('id, proposal_id, project_cost, payment_method')
-          .eq('org_id', profile.org_id)
-          .eq('agreement_type', 'installation')
-          .eq('status', 'completed')
-          .or(installationContractFilter)
-          .limit(1)
-          .maybeSingle()
-      : { data: null }
-
-    if (!signedInstallationContract.data && !hasLegacySignedContract) {
-      return NextResponse.json(
-        { error: 'Jobs can only be pushed to the job board after a signed Installation Agreement.' },
-        { status: 400 }
-      )
+    const signedSaleAgreementProposalId = signedSaleAgreement?.proposal_id || null
+    if (signedSaleAgreementProposalId) {
+      acceptedProposalId = signedSaleAgreementProposalId
     }
 
-    const signedInstallationProposalId = signedInstallationContract.data?.proposal_id || null
-    if (signedInstallationProposalId) {
-      acceptedProposalId = signedInstallationProposalId
-    }
-
-    const installationSnapshot = signedInstallationContract.data
+    const saleAgreementSnapshot = signedSaleAgreement
       ? {
-          project_cost: Number(signedInstallationContract.data.project_cost) || 0,
-          payment_method: signedInstallationContract.data.payment_method ?? null,
-          proposal_id: signedInstallationContract.data.proposal_id ?? null,
+          project_cost: Number(signedSaleAgreement.project_cost) || 0,
+          payment_method: signedSaleAgreement.payment_method ?? null,
+          proposal_id: signedSaleAgreement.proposal_id ?? null,
         }
       : null
 
@@ -165,7 +182,7 @@ export async function POST(request: Request) {
       orgId: profile.org_id,
       projectId: project_id,
       acceptedProposalId,
-      installationContract: installationSnapshot,
+      installationContract: saleAgreementSnapshot,
     })
 
     const rawBodySale = sale_amount
