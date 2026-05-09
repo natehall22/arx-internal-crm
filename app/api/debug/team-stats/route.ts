@@ -6,6 +6,7 @@ import {
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
+  SALE_AGREEMENT_TYPES,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
@@ -233,7 +234,7 @@ export async function GET(request: NextRequest) {
       .from('order_form_contracts')
       .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
       .eq('org_id', profile.org_id)
-      .eq('agreement_type', 'installation')
+      .in('agreement_type', SALE_AGREEMENT_TYPES)
       .eq('status', 'completed')
       .not('customer_signed_at', 'is', null)
       .gte('customer_signed_at', start.toISOString())
@@ -280,7 +281,7 @@ export async function GET(request: NextRequest) {
         return !isContactDisposition(lead.canvass_disposition, contactDispositionIdSet)
       }).length
 
-      // SALES (completed Installation Agreement)
+      // SALES (completed Installation or Repair Agreement)
       const memberOwnedOpps = opportunities?.filter(o => o.owner_user_id === member.id) || []
       const sales = signedSales.filter(o => o.owner_user_id === member.id).length
       const totalInspectionsRun = memberOwnedOpps.filter(o => o.inspection_outcome).length

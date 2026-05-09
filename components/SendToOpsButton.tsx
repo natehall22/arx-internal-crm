@@ -147,7 +147,7 @@ export default function SendToOpsButton({
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Prefilled from the signed installation agreement or latest change order when available. Leave
+                  Prefilled from the signed agreement or latest change order when available. Leave
                   blank to use the same automatic total the server calculates. Dealer fee, financing program, and
                   payroll snapshot fields are taken from the accepted proposal when that proposal carries
                   financing (the agreement PDF often does not include loan details).

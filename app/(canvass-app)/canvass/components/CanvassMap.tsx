@@ -473,7 +473,7 @@ export default function CanvassMap({
           label: label ?? undefined,
           zIndex: sale ? 700 : undefined,
           title: hasInstallationSalePin(pin)
-            ? `${getPinTitle(pin)} — Sold (Installation Agreement)`
+            ? `${getPinTitle(pin)} - Sold (signed agreement)`
             : getPinTitle(pin),
           optimized: true, // Important for performance with many markers
         })

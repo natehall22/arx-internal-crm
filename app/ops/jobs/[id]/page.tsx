@@ -230,16 +230,17 @@ export default async function JobDetailPage({ params }: PageProps) {
 
   // Find the opportunity_id for this job - needed to find accepted proposals
   let opportunityId: string | null = null
-  // Also track the installation agreement PDF URL
-  let installationAgreement: { pdf_url: string | null; status: string } | null = null
+  // Also track the signed sale agreement PDF URL
+  let installationAgreement: { pdf_url: string | null; status: string; agreement_type?: string | null } | null = null
   
   if (jobRes.data.project_id) {
     // Check order_form_contracts for the opportunity that created this project
     try {
       const { data: contracts } = await supabase
         .from('order_form_contracts')
-        .select('opportunity_id, pdf_url, status')
+        .select('opportunity_id, pdf_url, status, agreement_type')
         .eq('status', 'completed')
+        .in('agreement_type', ['installation', 'repair'])
         .not('opportunity_id', 'is', null)
       
       if (contracts && contracts.length > 0) {
@@ -257,7 +258,8 @@ export default async function JobDetailPage({ params }: PageProps) {
               // Found the matching contract - store the PDF URL
               installationAgreement = {
                 pdf_url: contract.pdf_url,
-                status: contract.status
+                status: contract.status,
+                agreement_type: contract.agreement_type,
               }
               break
             }
@@ -280,21 +282,23 @@ export default async function JobDetailPage({ params }: PageProps) {
       if (opportunities && opportunities.length > 0) {
         opportunityId = opportunities[0].id
         
-        // Also try to get the installation agreement for this opportunity
+        // Also try to get the signed sale agreement for this opportunity
         if (!installationAgreement) {
           try {
             const { data: contractData } = await supabase
               .from('order_form_contracts')
-              .select('pdf_url, status')
+              .select('pdf_url, status, agreement_type')
               .eq('opportunity_id', opportunityId)
               .eq('status', 'completed')
+              .in('agreement_type', ['installation', 'repair'])
               .order('created_at', { ascending: false })
               .limit(1)
             
             if (contractData && contractData.length > 0) {
               installationAgreement = {
                 pdf_url: contractData[0].pdf_url,
-                status: contractData[0].status
+                status: contractData[0].status,
+                agreement_type: contractData[0].agreement_type,
               }
             }
           } catch (e) {

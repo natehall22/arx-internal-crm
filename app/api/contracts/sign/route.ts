@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
     const rawAgreementType = contract.agreement_type || 'installation'
     const isContingency = rawAgreementType === 'contingency'
     const isRepair = rawAgreementType === 'repair'
-    const isInstallationAgreement = rawAgreementType === 'installation'
+    const isSaleAgreement = rawAgreementType === 'installation' || rawAgreementType === 'repair'
     const agreementLabel = isContingency
       ? 'Insurance Contingency Agreement'
       : isRepair
@@ -288,8 +288,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Push "sale" to canvass map (green $ pin) — same moment as sales-org blast email below
-      if (resolvedLeadId && isInstallationAgreement) {
+      // Push "sale" to canvass map (green $ pin) — same moment as sales-org blast email below.
+      if (resolvedLeadId && isSaleAgreement) {
         const { error: leadSaleErr } = await supabase
           .from('leads')
           .update({ installation_agreement_signed_at: customerSignedAt })
@@ -297,7 +297,7 @@ export async function POST(request: NextRequest) {
           .eq('org_id', contract.org_id)
 
         if (leadSaleErr) {
-          console.error('[Contract Sign] installation_agreement_signed_at on lead:', leadSaleErr)
+          console.error('[Contract Sign] sale agreement signed marker on lead:', leadSaleErr)
         }
       }
 
@@ -568,7 +568,7 @@ export async function POST(request: NextRequest) {
             wonUpdate.job_source = 'insurance'
             wonUpdate.insurance_stage = oppForProject?.insurance_stage || 'contingency_signed'
           }
-          // Dashboard sales metrics count this completed Installation Agreement.
+          // Dashboard sales metrics count this completed sale agreement.
           // Leave inspection_outcome alone so sits/no-sits stay tied to inspection feedback settings.
           await supabase.from('opportunities').update(wonUpdate).eq('id', contract.opportunity_id)
         }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { PROPOSAL_DELETE_PRIVILEGED_ROLES } from '@/lib/proposal-delete-access'
+import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 
 export const dynamic = 'force-dynamic'
@@ -158,12 +159,12 @@ export async function GET(
       measurement = measurementData
     }
 
-    const { data: signedInstallationContract } = await adminClient
+    const { data: signedSaleAgreement } = await adminClient
       .from('order_form_contracts')
       .select('id')
       .eq('org_id', profile.org_id)
       .eq('proposal_id', params.id)
-      .eq('agreement_type', 'installation')
+      .in('agreement_type', SALE_AGREEMENT_TYPES)
       .eq('status', 'completed')
       .limit(1)
       .maybeSingle()
@@ -174,7 +175,7 @@ export async function GET(
       company,
       rep: proposalForClient.users,
       measurement,
-      has_completed_installation_contract: Boolean(signedInstallationContract),
+      has_completed_installation_contract: Boolean(signedSaleAgreement),
       role: profile.role,
       current_user_id: user.id,
     })
@@ -238,19 +239,19 @@ export async function PATCH(
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
-    const { data: signedInstallationContract } = await adminClient
+    const { data: signedSaleAgreement } = await adminClient
       .from('order_form_contracts')
       .select('id')
       .eq('org_id', profile.org_id)
       .eq('proposal_id', params.id)
-      .eq('agreement_type', 'installation')
+      .in('agreement_type', SALE_AGREEMENT_TYPES)
       .eq('status', 'completed')
       .limit(1)
       .maybeSingle()
 
-    if (signedInstallationContract) {
+    if (signedSaleAgreement) {
       return NextResponse.json(
-        { error: 'Cannot edit a proposal after a signed Installation Agreement exists' },
+        { error: 'Cannot edit a proposal after a signed Installation or Repair Agreement exists' },
         { status: 400 }
       )
     }

@@ -1171,7 +1171,7 @@ export default function ProposalDetailPage() {
                     </svg>
                     <span>
                       {hasCompletedInstallationContract
-                        ? 'Locked after signed Installation Agreement'
+                        ? 'Locked after signed sale agreement'
                         : 'Toggle visibility for customer proposal'}
                     </span>
                   </div>
