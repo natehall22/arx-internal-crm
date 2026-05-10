@@ -325,7 +325,7 @@ function buildSolarPlaneFacetPayloads(
       id: `solar_plane_${seg.segment_index}`,
       vertices: [],
       lat_lng_vertices: latLngVertices,
-      confidence: 0.88,
+      confidence: 0.35,
       estimated_sq_ft: estSqFt,
       solar_segment_index: seg.segment_index,
       suggested_pitch_degrees: seg.pitch_degrees,
