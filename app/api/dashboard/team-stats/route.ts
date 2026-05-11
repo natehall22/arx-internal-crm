@@ -8,7 +8,12 @@ import {
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
-import { getContactDispositionIdSet } from '@/lib/sales-metrics'
+import {
+  getAttributedSaleAgreements,
+  getContactDispositionIdSet,
+  SALE_AGREEMENT_TYPES,
+  type SaleAgreementContractRow,
+} from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -254,10 +259,8 @@ export async function GET(request: NextRequest) {
       effRows,
       sitSetterRows,
       sitOwnerRows,
-      salesSetterRows,
-      salesOwnerRows,
       sitDistinctRes,
-      saleDistinctRes,
+      saleContractsRes,
     ] = await Promise.all([
       supabase.rpc('dashboard_door_leads_by_owner', {
         p_org_id: pOrg,
@@ -310,18 +313,6 @@ export async function GET(request: NextRequest) {
             p_member_ids: memberIds,
             p_normalized_outcomes: normOutcomes,
           }),
-      supabase.rpc('dashboard_install_sales_by_setter', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_member_ids: memberIds,
-      }),
-      supabase.rpc('dashboard_install_sales_by_owner', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_member_ids: memberIds,
-      }),
       normOutcomes.length === 0
         ? Promise.resolve({ data: 0, error: null })
         : supabase.rpc('dashboard_distinct_sit_opp_count', {
@@ -331,12 +322,15 @@ export async function GET(request: NextRequest) {
             p_member_ids: memberIds,
             p_normalized_outcomes: normOutcomes,
           }),
-      supabase.rpc('dashboard_distinct_sale_opp_count', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_member_ids: memberIds,
-      }),
+      supabase
+        .from('order_form_contracts')
+        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+        .eq('org_id', pOrg)
+        .in('agreement_type', SALE_AGREEMENT_TYPES)
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', pStart)
+        .lt('customer_signed_at', pEnd),
     ])
 
     const rpcErr =
@@ -347,10 +341,8 @@ export async function GET(request: NextRequest) {
       effRows.error ||
       sitSetterRows.error ||
       sitOwnerRows.error ||
-      salesSetterRows.error ||
-      salesOwnerRows.error ||
       sitDistinctRes.error ||
-      saleDistinctRes.error
+      saleContractsRes.error
     if (rpcErr) throw rpcErr
 
     type RpcRow = { owner_id?: string; setter_id?: string; canvasser_id?: string; closer_id?: string; cnt: number | string }
@@ -384,13 +376,21 @@ export async function GET(request: NextRequest) {
     for (const r of (sitOwnerRows.data || []) as RpcRow[]) {
       if (r.owner_id) sitByOwner.set(r.owner_id, num(r.cnt))
     }
+    const memberIdSet = new Set(memberIds)
+    const saleAgreements = getAttributedSaleAgreements(
+      saleContractsRes.data as SaleAgreementContractRow[] | null
+    ).filter((sale) => {
+      return memberIdSet.has(sale.owner_user_id || '') || memberIdSet.has(sale.setter_user_id || '')
+    })
     const salesBySetter = new Map<string, number>()
-    for (const r of (salesSetterRows.data || []) as RpcRow[]) {
-      if (r.setter_id) salesBySetter.set(r.setter_id, num(r.cnt))
-    }
     const salesByOwner = new Map<string, number>()
-    for (const r of (salesOwnerRows.data || []) as RpcRow[]) {
-      if (r.owner_id) salesByOwner.set(r.owner_id, num(r.cnt))
+    for (const sale of saleAgreements) {
+      if (sale.setter_user_id && memberIdSet.has(sale.setter_user_id)) {
+        salesBySetter.set(sale.setter_user_id, (salesBySetter.get(sale.setter_user_id) ?? 0) + 1)
+      }
+      if (sale.owner_user_id && memberIdSet.has(sale.owner_user_id)) {
+        salesByOwner.set(sale.owner_user_id, (salesByOwner.get(sale.owner_user_id) ?? 0) + 1)
+      }
     }
 
     const teamMemberStatsAll: TeamStatRow[] = members.map((member) => {
@@ -468,7 +468,7 @@ export async function GET(request: NextRequest) {
 
     const distinctDealCounts = {
       sitOpportunitiesInPeriod: Number(sitDistinctRes.data ?? 0),
-      saleOpportunitiesInPeriod: Number(saleDistinctRes.data ?? 0),
+      saleOpportunitiesInPeriod: new Set(saleAgreements.map((sale) => sale.opportunity_id || sale.id)).size,
     }
 
     const response: any = {

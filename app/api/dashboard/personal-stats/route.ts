@@ -8,7 +8,12 @@ import {
 } from '@/lib/inspection-outcomes'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
-import { getContactDispositionIdSet } from '@/lib/sales-metrics'
+import {
+  getAttributedSaleAgreements,
+  getContactDispositionIdSet,
+  SALE_AGREEMENT_TYPES,
+  type SaleAgreementContractRow,
+} from '@/lib/sales-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,7 +71,7 @@ export async function GET(request: NextRequest) {
     const [
       doorRes,
       contactRes,
-      salesRes,
+      salesContractsRes,
       sitsRes,
       inspRes,
       effRes,
@@ -86,13 +91,15 @@ export async function GET(request: NextRequest) {
             p_scope_user_ids: scopeForRpc,
             p_disposition_ids: dispositionIds,
           }),
-      supabase.rpc('dashboard_count_install_sales_scoped', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_scope_user_ids: scopeForRpc,
-        p_attribute_by_setter: isSetter,
-      }),
+      supabase
+        .from('order_form_contracts')
+        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+        .eq('org_id', pOrg)
+        .in('agreement_type', SALE_AGREEMENT_TYPES)
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', pStart)
+        .lt('customer_signed_at', pEnd),
       normOutcomes.length === 0
         ? Promise.resolve({ data: 0, error: null })
         : supabase.rpc('dashboard_count_sits_scoped', {
@@ -109,14 +116,23 @@ export async function GET(request: NextRequest) {
 
     if (doorRes.error) throw doorRes.error
     if (contactRes.error) throw contactRes.error
-    if (salesRes.error) throw salesRes.error
+    if (salesContractsRes.error) throw salesContractsRes.error
     if (sitsRes.error) throw sitsRes.error
     if (inspRes.error) throw inspRes.error
     if (effRes.error) throw effRes.error
 
     const doorsKnocked = Number(doorRes.data ?? 0)
     const contacts = Number(contactRes.data ?? 0)
-    const sales = Number(salesRes.data ?? 0)
+    const saleAgreements = getAttributedSaleAgreements(
+      salesContractsRes.data as SaleAgreementContractRow[] | null
+    )
+    const sales = orgWideKpis
+      ? saleAgreements.length
+      : saleAgreements.filter((sale) =>
+          isSetter
+            ? sale.setter_user_id === profile.id
+            : sale.owner_user_id === profile.id
+        ).length
     const sits = Number(sitsRes.data ?? 0)
     const inspectionsSet = inspRes.count ?? 0
     const apptCount = effRes.count ?? 0
