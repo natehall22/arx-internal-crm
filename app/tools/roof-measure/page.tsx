@@ -693,6 +693,7 @@ export default function RoofMeasurePage() {
           const lat = place.geometry.location.lat()
           const lng = place.geometry.location.lng()
 
+          resetMeasurementSession()
           setAddress(place.formatted_address || '')
           setSearchedAddress(place.formatted_address || '')
           setMapCenter({ lat, lng })
@@ -741,6 +742,7 @@ export default function RoofMeasurePage() {
 
         console.log('Geocoded address:', results[0].formatted_address, 'at', lat, lng)
 
+        resetMeasurementSession()
         setMapCenter({ lat, lng })
         setSearchedAddress(results[0].formatted_address)
 
@@ -768,6 +770,28 @@ export default function RoofMeasurePage() {
     aiDraftPolygonsRef.current.clear()
     aiDraftBoundaryRef.current.clear()
     aiDraftLinesRef.current.clear()
+  }
+
+  const resetMeasurementSession = () => {
+    polygonsRef.current.forEach((polygon) => polygon.setMap(null))
+    labelsRef.current.forEach((label) => label.setMap(null))
+    polylinesRef.current.forEach((polyline) => polyline.setMap(null))
+    polygonsRef.current.clear()
+    labelsRef.current.clear()
+    polylinesRef.current.clear()
+    clearAIDraftOverlays()
+
+    commitFacets([])
+    commitLinearFeatures([])
+    setMeasurements(null)
+    setSelectedFacet(null)
+    setAiDraftSections([])
+    setAiNotes('')
+    facetGeometrySourceRef.current = null
+    setAiGeometrySource(null)
+    solarGroundFootprintReferenceRef.current = null
+    autoDetectRequestKeyRef.current = null
+    skipAutoDetectAfterFailureRef.current = false
   }
 
   const focusMapOnProperty = (map: any, lat: number, lng: number) => {

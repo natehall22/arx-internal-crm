@@ -5,6 +5,7 @@ import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
 import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
 import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
 import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
+import { isPlaceholderVisionFacet, isStackedBandVisionTrace } from '@/lib/roof-vision-quality'
 
 type PixelPoint = [number, number]
 
@@ -619,34 +620,39 @@ function buildSolarPixelPlaneHints(
 
 /** User-message block for facet detection: Solar bboxes → pixel hints; vision draws real polygons. */
 function buildSolarFacetDetectionPromptText(segments: SolarRoofSegment[], hints: SolarPixelPlaneHint[]): string {
-  if (hints.length === 0) {
-    if (segments.length === 0) {
-      return 'No Google Solar roof-segment data for this location. Infer roof facets only from visible roof edges in the image.'
-    }
-    return `Google Solar lists ${segments.length} segment(s) but none map cleanly to this image frame. Infer roof facets from visible edges only (hips, gables, eaves, rakes, valleys). Do not use axis-aligned placeholder rectangles on lawns or trees.
-Solar summary (no pixel hints):
-${JSON.stringify(
-  segments.slice(0, 20).map((s) => ({
+  if (segments.length === 0) {
+    return 'No Google Solar roof-segment data for this location. Infer roof facets only from visible roof edges in the image.'
+  }
+
+  const solarSummary = segments.slice(0, 20).map((s) => ({
     segment_index: s.segment_index,
     pitch_degrees: s.pitch_degrees,
     azimuth_degrees: s.azimuth_degrees,
+    area_m2: s.area_m2,
+    ground_area_m2: s.ground_area_m2,
   }))
+
+  if (hints.length === 0) {
+    return `Google Solar lists ${segments.length} segment(s) but none map cleanly to this image frame. Infer roof facets from visible edges only (hips, gables, eaves, rakes, valleys). Do not use axis-aligned placeholder rectangles on lawns or trees.
+Solar summary:
+${JSON.stringify(
+  solarSummary
 )}`
   }
 
-  return `Google Solar identified ${hints.length} roof plane(s) for this address. Each entry maps a segment_index to a loose pixel_region in THIS image (same coordinate system as your vertices: x 0..width-1 left→right, y 0..height-1 top→bottom).
+  return `Google Solar identified ${hints.length} roof plane hint(s) for this address, but those hints are NOT drawing boxes and are NOT polygon coordinates. Use them only for rough plane count, pitch, and orientation labels after you have traced visible roof edges.
 
 FACET GEOMETRY (critical):
 - Output **one facet per visible distinct roof plane** in the imagery. If you see **more** planes than Solar hints (common: porch roof, extra gable, or Google merged segments), add facets for those too and set solar_segment_index to **-1** for planes with no matching hint.
 - For each facet that clearly matches a hint, set solar_segment_index to that segment_index (integer).
 - Trace the actual roof outline from the imagery (eaves, rakes, ridges, valleys). Use **at least 5 vertices per facet** (often 6–14 on hips/gables). **Never** default to a 4-corner quadrilateral or axis-aligned rectangle.
-- Do NOT output axis-aligned rectangles, squares, or the pixel_region border as the polygon. The region is only a search hint.
+- Do NOT output stacked horizontal/vertical bands, placeholder strips, grids, axis-aligned rectangles, or Solar bounding boxes. If the roof edge is unclear, return fewer high-confidence facets instead of inventing geometry.
 - Rotate and shear polygons to match the roof in the photo; do not force edges parallel to the image frame unless the roof truly appears that way.
 - Where two planes meet, align shared boundaries; avoid large overlaps between facets. Do not cover trees, driveways, or lawn with roof facets.
-- Do not emit one rectangle per Solar hint if those regions describe the same roof — merge into non-overlapping planes only.
+- Do not emit one shape per Solar hint if those hints describe the same roof — trace visible non-overlapping planes only.
 
-Plane hints:
-${JSON.stringify(hints)}`
+Solar summary:
+${JSON.stringify(solarSummary)}`
 }
 
 /** OpenAI strict JSON schema for roof trace (enforces ≥5 vertices per facet). */
@@ -825,6 +831,7 @@ Rules:
 - The image is high-DPI satellite (logical size given in the user message). x is 0..width-1, y is 0..height-1, (0,0) top-left.
 - Facets: closed polygons tracing **visible** roof edges. Typical planes need 6–14 vertices on hips/gables. Never use only 4 corners unless the roof is literally a featureless rectangle (rare).
 - Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, axis-aligned boxes on lawns, or “default” shapes in empty areas.
+- If the image is too blurry or roof edges are obscured, return fewer facets with lower notes instead of guessing. Never draw stacked color-band shapes just to satisfy the requested number of facets.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
 - Clip each facet to the **roof deck only**: never extend a polygon onto driveway, walkway, porch floor, pool deck, or lawn—even if a Solar pixel_region is loose.
 - Focus on the main residence roof(s); ignore wooded areas unless a roof is clearly visible there.
@@ -1389,6 +1396,14 @@ export async function POST(request: Request) {
       solarFacetPrompt
     )
 
+    const rawFacets = raw.facets || []
+    const stackedBandTrace = isStackedBandVisionTrace(rawFacets)
+    const placeholderRejectedIds = new Set(
+      rawFacets
+        .filter((facet) => isPlaceholderVisionFacet(facet))
+        .map((facet) => facet.id)
+    )
+
     /**
      * Vision runs on the Static Maps bitmap (≤640 logical px, scale 2), not the full browser map div.
      * `map.getBounds()` covers a wider area than that snapshot — linear mapping to full bounds stretched
@@ -1397,8 +1412,17 @@ export async function POST(request: Request) {
     const pixelToGeoForVision = (x: number, y: number) =>
       pixelToLatLng(x, y, geoCenterForPixels.lat, geoCenterForPixels.lng, geoZoomForPixels, visionW, visionH)
 
-    const facetsMapped: FacetResponsePayload[] = (raw.facets || [])
+    let qualityGateNote: string | null = null
+    if (stackedBandTrace) {
+      qualityGateNote =
+        'AI trace was rejected because it looked like stacked placeholder bands instead of real roof planes. No draft geometry was loaded; draw the visible facets manually or retry after centering/zooming tighter on the roof.'
+    } else if (placeholderRejectedIds.size > 0) {
+      qualityGateNote = `${placeholderRejectedIds.size} placeholder-looking AI facet(s) were removed. Review any remaining facets and draw missing roof faces manually.`
+    }
+
+    const facetsMapped: FacetResponsePayload[] = rawFacets
       .filter((facet) => isNearImageCenter(Array.isArray(facet.vertices) ? facet.vertices : []))
+      .filter((facet) => !stackedBandTrace && !placeholderRejectedIds.has(facet.id))
       .map((facet, idx) => {
         const vertices = Array.isArray(facet.vertices) ? facet.vertices : []
         const latLngVertices = vertices.map(([x, y]) => pixelToGeoForVision(Number(x), Number(y)))
@@ -1476,10 +1500,10 @@ export async function POST(request: Request) {
         })
       : facetsDeduped
 
-    const combinedNotes = [raw.notes || '', dropped_note || ''].filter(Boolean).join(' ')
+    const combinedNotes = [raw.notes || '', qualityGateNote || '', dropped_note || ''].filter(Boolean).join(' ')
 
     const normalizeLineGroup = (lines: RawLine[] | undefined, prefix: string) =>
-      (lines || [])
+      (stackedBandTrace ? [] : lines || [])
         .filter((line) => isNearImageCenter(Array.isArray(line.points) ? line.points : []))
         .map((line, idx) => {
           const points = Array.isArray(line.points) ? line.points : []
