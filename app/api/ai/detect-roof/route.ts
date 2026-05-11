@@ -1581,9 +1581,9 @@ export async function POST(request: Request) {
       {
         solarGroundSumFactor: SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION,
         skipSolarFootprintCap: true,
-        minFacetSqFt: 18,
-        duplicateCentroidFt: 2.5,
-        nestedCentroidDuplicateMaxFrac: 0.03,
+        minFacetSqFt: 1,
+        duplicateCentroidFt: 0,
+        nestedCentroidDuplicateMaxFrac: 0,
       }
     )
 
