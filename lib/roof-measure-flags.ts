@@ -1,6 +1,6 @@
 /**
  * OpenAI satellite roof trace (`detectionMode: 'vision'` → `/api/ai/detect-roof`).
- * Off by default to avoid token spend while alignment/quality are improved.
- * Flip to `true` to re-enable the “AI trace roof” control and API branch.
+ * Enabled for reviewed tracing. The UI keeps this as an explicit user action
+ * and does not auto-run OpenAI on page load.
  */
-export const ROOF_MEASURE_VISION_TRACE_ENABLED = false
+export const ROOF_MEASURE_VISION_TRACE_ENABLED = true

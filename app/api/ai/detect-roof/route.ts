@@ -1094,7 +1094,33 @@ export async function POST(request: Request) {
       }
 
       if (solarFacets.length === 0) {
-        solarFacets = buildSolarPlaneFacetPayloads(solarSegments, validBounds)
+        const bboxFacets = buildSolarPlaneFacetPayloads(solarSegments, validBounds)
+        if (bboxFacets.length > 0) {
+          return NextResponse.json({
+            facets: [],
+            ridges: [],
+            valleys: [],
+            step_flashing: [],
+            wall_flashing: [],
+            notes:
+              'Google Solar only returned rough segment boxes here, not roof-face outlines. Use AI trace roof or draw facets manually.',
+            solar_segments: solarSegments,
+            solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
+            requested_center: requestedCenter,
+            capture_center: captureCenter,
+            capture_center_source: alignWithClientMap
+              ? 'requested_center'
+              : usedSolarAnchorFallback || shouldUseSolarAnchor
+                ? 'solar_anchor'
+                : 'requested_center',
+            detection_zoom: normalizedZoom,
+            localization: null,
+            facet_source: 'none',
+            detection_mode: 'solar',
+            openai_calls: 0,
+            static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+          })
+        }
       }
 
       if (solarFacets.length > 0) {

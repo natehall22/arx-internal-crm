@@ -2435,8 +2435,7 @@ export default function RoofMeasurePage() {
             </button>
             {showDrawingToolHints && (
               <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-                Free: uses Solar roof mask when Data Layers are enabled (polygon outlines per plane); otherwise segment
-                bounding boxes. Drag vertices to match imagery. Sections list shows{' '}
+                Free: uses Solar roof mask when Data Layers are enabled. If Solar only has rough boxes, use AI trace or draw facets manually. Sections list shows{' '}
                 <span className="text-cyan-600/90">AI</span> vs <span className="text-gray-400">Drawn</span> when you mix
                 loads and manual edits.
               </p>
@@ -2487,8 +2486,10 @@ export default function RoofMeasurePage() {
                   <p className="text-[10px] text-gray-500 mb-1">
                     Geometry source:{' '}
                     <span className="text-gray-400">
-                      {aiGeometrySource === 'solar_mask'
+                      {aiGeometrySource === 'solar_mask_plane'
                         ? 'Solar mask (GeoTIFF)'
+                        : aiGeometrySource === 'solar_mask_whole'
+                          ? 'Solar roof outline'
                         : aiGeometrySource === 'solar_bbox'
                           ? 'Solar segment boxes (fallback)'
                           : aiGeometrySource === 'vision' || aiGeometrySource === 'vision_solar_guided'
