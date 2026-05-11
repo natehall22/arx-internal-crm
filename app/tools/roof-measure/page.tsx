@@ -37,6 +37,9 @@ interface RoofFacet {
   section_type?: SectionType  // Optional classification for multi-level roofs
   suggested_pitch?: string | null
   suggested_pitch_degrees?: number | null
+  pitch_source?: 'manual' | 'unknown'
+  geometry_source?: string | null
+  geometry_reviewed?: boolean
   color: string
   /** Accepted from AI draft vs drawn with “Draw Facet”. */
   origin?: 'ai_draft' | 'manual_draw'
@@ -83,6 +86,8 @@ interface MeasurementData {
   waste_category: string
   // Metadata
   linear_features?: LinearFeature[]
+  quote_ready?: boolean
+  linear_review_status?: 'measured' | 'missing'
   measurement_confidence: 'high' | 'medium' | 'low'
   validation_notes: string[]
 }
@@ -97,6 +102,7 @@ interface AIDraftSection {
   suggested_pitch?: string | null
   suggested_pitch_degrees?: number | null
   solar_segment_index?: number | null
+  facet_source?: string | null
   status: 'pending' | 'accepted' | 'rejected'
 }
 
@@ -876,7 +882,11 @@ export default function RoofMeasurePage() {
     if (points.length < 3) return
 
     const nextFacet = recalculateFacetFromPoints(currentFacet, points)
-    const nextFacets = facetsRef.current.map((facet) => (facet.id === facetId ? nextFacet : facet))
+    const nextFacets = facetsRef.current.map((facet) =>
+      facet.id === facetId
+        ? { ...nextFacet, geometry_reviewed: true, geometry_source: 'manual_corrected' }
+        : facet
+    )
     commitFacets(nextFacets)
     updateLabelMarkerPosition(facetId, points)
     updateMeasurements(nextFacets, linearFeaturesRef.current)
@@ -1028,6 +1038,7 @@ export default function RoofMeasurePage() {
         suggested_pitch_degrees:
           typeof facet.suggested_pitch_degrees === 'number' ? Number(facet.suggested_pitch_degrees) : null,
         solar_segment_index: typeof facet.solar_segment_index === 'number' ? facet.solar_segment_index : null,
+        facet_source: typeof facet.facet_source === 'string' ? facet.facet_source : null,
         id: facet.id || `ai_facet_${idx + 1}`,
         type: 'facet',
         points: (facet.lat_lng_vertices || []).map((p: any) => [Number(p.lat), Number(p.lng)] as [number, number]),
@@ -1174,6 +1185,9 @@ export default function RoofMeasurePage() {
         section_type: 'main_roof',
         suggested_pitch: draft.suggested_pitch || null,
         suggested_pitch_degrees: draft.suggested_pitch_degrees ?? null,
+        pitch_source: 'unknown',
+        geometry_source: draft.facet_source || facetGeometrySourceRef.current || 'ai_draft',
+        geometry_reviewed: false,
         color: FACET_COLORS[colorIndex],
         origin: 'ai_draft',
       }
@@ -1552,6 +1566,9 @@ export default function RoofMeasurePage() {
       orientation: pendingFacet.orientation!,
       section_type: 'main_roof',
       color: pendingFacet.color!,
+      pitch_source: 'manual',
+      geometry_source: 'manual_draw',
+      geometry_reviewed: true,
       origin: 'manual_draw',
     }
     
@@ -1679,11 +1696,20 @@ export default function RoofMeasurePage() {
         pitch_degrees: option.degrees,
         pitch_multiplier: option.multiplier,
         area_sqft: areaSqft,
+        pitch_source: 'manual' as const,
         suggested_pitch: facet.suggested_pitch,
         suggested_pitch_degrees: facet.suggested_pitch_degrees,
       }
     })
 
+    commitFacets(nextFacets)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
+  }
+
+  const confirmFacetGeometry = (facetId: string) => {
+    const nextFacets = facets.map((facet) =>
+      facet.id === facetId ? { ...facet, geometry_reviewed: true } : facet
+    )
     commitFacets(nextFacets)
     updateMeasurements(nextFacets, linearFeaturesRef.current)
   }
@@ -2053,6 +2079,56 @@ export default function RoofMeasurePage() {
       validationNotes.push('Total measured footprint appears 20%+ above estimated roof footprint. Check for duplicate same-level sections.')
       confidence = 'medium'
     }
+
+    const facetsNeedingGeometryReview = currentFacets.filter((facet) => facet.geometry_reviewed !== true)
+    if (facetsNeedingGeometryReview.length > 0) {
+      validationNotes.push(
+        `Confirm the outline on ${facetsNeedingGeometryReview.length} roof section${facetsNeedingGeometryReview.length === 1 ? '' : 's'} before quoting. AI/Solar outlines are drafts until reviewed.`
+      )
+      confidence = 'low'
+    }
+
+    const facetsWithoutManualPitch = currentFacets.filter((facet) => facet.pitch_source !== 'manual')
+    if (facetsWithoutManualPitch.length > 0) {
+      validationNotes.push(
+        `Confirm slope manually on ${facetsWithoutManualPitch.length} roof section${facetsWithoutManualPitch.length === 1 ? '' : 's'}. Solar slope is only a suggestion.`
+      )
+      confidence = 'low'
+    }
+
+    const unsupportedGeometryFacets = currentFacets.filter(
+      (facet) => facet.geometry_source === 'solar_bbox' || facet.geometry_source === 'solar_mask_whole'
+    )
+    if (unsupportedGeometryFacets.length > 0) {
+      validationNotes.push(
+        'Solar bounding-box / whole-mask geometry is not quote-ready. Trace real roof faces or confirm every outline after correcting vertices.'
+      )
+      confidence = 'low'
+    }
+
+    const measuredRidges = Math.round(manualRidges)
+    const measuredValleys = Math.round(manualValleys)
+    const measuredStepFlashing = Math.round(stepFlashing)
+    const measuredWallFlashing = Math.round(wallFlashing)
+    const measuredEaves = 0
+    const measuredRakes = 0
+    const measuredHips = 0
+    const measuredDripEdge = measuredEaves + measuredRakes
+    const hasMeasuredLinework =
+      measuredRidges > 0 ||
+      measuredValleys > 0 ||
+      measuredStepFlashing > 0 ||
+      measuredWallFlashing > 0
+    if (!hasMeasuredLinework) {
+      validationNotes.push('Linear footage is not auto-estimated. Draw ridge, valley, and flashing lines when those quantities are needed.')
+    }
+
+    const quoteReady =
+      currentFacets.length > 0 &&
+      unsetPitchFacets.length === 0 &&
+      facetsNeedingGeometryReview.length === 0 &&
+      facetsWithoutManualPitch.length === 0 &&
+      unsupportedGeometryFacets.length === 0
     
     // Helper to ensure no NaN values
     const safeNum = (n: number, fallback = 0) => isNaN(n) || !isFinite(n) ? fallback : n
@@ -2074,19 +2150,21 @@ export default function RoofMeasurePage() {
       facets: currentFacets,
       facet_count: facetCount,
       total_perimeter_lf: safeNum(Math.round(totalPerimeter)),
-      ridges_lf: safeNum(ridges),
-      hips_lf: safeNum(hips),
-      valleys_lf: safeNum(valleys),
-      eaves_lf: safeNum(eaves),
-      rakes_lf: safeNum(rakes),
-      drip_edge_lf: safeNum(dripEdge),
-      step_flashing_lf: safeNum(stepFlashing),
-      wall_flashing_lf: safeNum(wallFlashing),
+      ridges_lf: safeNum(measuredRidges),
+      hips_lf: safeNum(measuredHips),
+      valleys_lf: safeNum(measuredValleys),
+      eaves_lf: safeNum(measuredEaves),
+      rakes_lf: safeNum(measuredRakes),
+      drip_edge_lf: safeNum(measuredDripEdge),
+      step_flashing_lf: safeNum(measuredStepFlashing),
+      wall_flashing_lf: safeNum(measuredWallFlashing),
       predominant_pitch: predominantPitch,
       avg_pitch_multiplier: safeNum(Math.round(avgPitchMultiplier * 1000) / 1000, 1),
       suggested_waste: safeNum(wastePercent, 10),
       waste_category: category,
       linear_features: features,
+      quote_ready: quoteReady,
+      linear_review_status: hasMeasuredLinework ? 'measured' : 'missing',
       measurement_confidence: confidence,
       validation_notes: validationNotes,
     })
@@ -2186,6 +2264,18 @@ export default function RoofMeasurePage() {
     const unresolvedPitchCount = facets.filter((facet) => !facet.pitch || facet.pitch === 'Unset').length
     if (unresolvedPitchCount > 0) {
       alert(`Assign pitch to all roof sections before saving. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need slope confirmation.`)
+      return
+    }
+    if (facets.some((facet) => facet.pitch_source !== 'manual')) {
+      alert('Confirm slope manually on every roof section before saving. Solar/AI slope suggestions are not treated as measured slope.')
+      return
+    }
+    if (facets.some((facet) => facet.geometry_reviewed !== true)) {
+      alert('Confirm every roof outline before saving. AI/Solar geometry is only a draft until reviewed.')
+      return
+    }
+    if (facets.some((facet) => facet.geometry_source === 'solar_bbox' || facet.geometry_source === 'solar_mask_whole')) {
+      alert('Solar box/whole-mask geometry is not quote-ready. Correct the outline or draw the roof faces manually before saving.')
       return
     }
 
@@ -2667,6 +2757,18 @@ export default function RoofMeasurePage() {
                         </p>
                       )}
                     </div>
+                    {facet.geometry_reviewed !== true && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          confirmFacetGeometry(facet.id)
+                        }}
+                        className="mt-2 w-full rounded border border-amber-500/50 bg-amber-900/20 px-2 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-900/35"
+                      >
+                        Confirm corrected outline
+                      </button>
+                    )}
                     <div className="mt-2">
                       <label className="text-[11px] text-gray-500">Section Type</label>
                       <select

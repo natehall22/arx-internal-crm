@@ -256,6 +256,7 @@ export default function ProposalBuilderPage() {
       // Apply measurement data (do not auto-fill line items when editing an existing proposal)
       if (data.measurement) {
         setMeasurementData(data.measurement)
+        const measurementQuoteReady = data.measurement.raw_data?.quote_ready === true || data.measurement.status === 'completed'
 
         if (typeof data.measurement.suggested_waste_percent === 'number') {
           const suggested = Number(data.measurement.suggested_waste_percent)
@@ -272,7 +273,7 @@ export default function ProposalBuilderPage() {
           }))
         }
 
-        if (!data.existingProposal) {
+        if (!data.existingProposal && measurementQuoteReady) {
           const squares = data.measurement.total_squares || parseFloat(urlSquares || '0')
           if (squares > 0) {
             autoPopulateLineItems(data.pricebookItems || [], squares)

@@ -81,7 +81,35 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+
+      const hasNonManualPitch = facetRows.some((f: { pitch_source?: string }) => f.pitch_source !== 'manual')
+      if (hasNonManualPitch) {
+        return NextResponse.json(
+          { error: 'Every roof section must have a manually confirmed slope before saving.' },
+          { status: 400 }
+        )
+      }
+
+      const hasUnreviewedGeometry = facetRows.some((f: { geometry_reviewed?: boolean }) => f.geometry_reviewed !== true)
+      if (hasUnreviewedGeometry) {
+        return NextResponse.json(
+          { error: 'Every roof outline must be reviewed before saving.' },
+          { status: 400 }
+        )
+      }
+
+      const hasUnsupportedGeometry = facetRows.some((f: { geometry_source?: string }) =>
+        f.geometry_source === 'solar_bbox' || f.geometry_source === 'solar_mask_whole'
+      )
+      if (hasUnsupportedGeometry) {
+        return NextResponse.json(
+          { error: 'Solar box or whole-mask geometry is not quote-ready. Correct or redraw roof faces before saving.' },
+          { status: 400 }
+        )
+      }
     }
+
+    const quoteReady = measurements?.quote_ready === true
 
     // Save main measurement
     const { data: measurement, error: measurementError } = await adminClient
@@ -94,7 +122,7 @@ export async function POST(request: NextRequest) {
         lat: measurements.lat,
         lng: measurements.lng,
         source: 'in_house',
-        status: 'completed',
+        status: quoteReady ? 'completed' : 'needs_review',
         total_area_sqft: measurements.total_area_sqft,
         total_squares: measurements.total_squares,
         ridges_lf: measurements.ridges_lf,

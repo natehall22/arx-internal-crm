@@ -293,6 +293,7 @@ export async function GET(request: NextRequest) {
         .from('roof_measurements')
         .select('*')
         .eq('opportunity_id', effectiveOpportunityId)
+        .eq('status', 'completed')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
