@@ -1006,6 +1006,72 @@ Rules:
   }
 }
 
+async function callGeometryReviewModel(
+  imageBase64: string,
+  imagePixelDesc: string,
+  targetingNote: string,
+  solarFacetPrompt: string,
+  candidate: RawDetection
+): Promise<RawDetection> {
+  const systemPrompt = `You are a senior roofing measurement QA reviewer.
+You receive a satellite image plus draft roof facet/line JSON from another AI.
+
+Your job is to return corrected JSON that conforms to the response schema:
+- Keep only real visible roof planes on the target house.
+- Rewrite facet vertices so they sit on visible eaves, rakes, ridges, hips, and valleys.
+- Preserve visible dormers, porch roofs, bay roofs, and cross-gables as separate facets.
+- Delete any facet that covers lawn, driveway, trees, deep shadow, neighboring structures, or a generic Solar/box guess.
+- Do not invent a perfect roof report. If an edge is unclear, return the best visible candidate with lower confidence or omit it.
+
+Every facet must have at least 5 vertices. Return strictly valid JSON only.`
+
+  const dataUrl = toDataUrl(imageBase64)
+  const openai = getOpenAI()
+  const candidateJson = JSON.stringify({
+    facets: candidate.facets || [],
+    ridges: candidate.ridges || [],
+    valleys: candidate.valleys || [],
+    step_flashing: candidate.step_flashing || [],
+    wall_flashing: candidate.wall_flashing || [],
+    notes: candidate.notes || '',
+  }).slice(0, 24000)
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'roof_detection_review',
+        strict: true,
+        schema: ROOF_DETECTION_JSON_SCHEMA,
+      },
+    },
+    temperature: 0,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text:
+              `Image pixel dimensions: ${imagePixelDesc}. ${targetingNote}\n\n` +
+              `${solarFacetPrompt}\n\n` +
+              `Draft candidate JSON to review and correct:\n${candidateJson}`,
+          },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      },
+    ],
+    max_tokens: 3600,
+  })
+
+  const content = completion.choices?.[0]?.message?.content || ''
+  const parsed = safeJsonParse<RawDetection>(content)
+  if (!parsed) throw new Error('Invalid JSON from model review')
+  return normalizeStructuredRoofDetection(parsed)
+}
+
 async function callLocalizationModel(
   imageBase64: string,
   solarSegments: SolarRoofSegment[],
@@ -1483,12 +1549,29 @@ export async function POST(request: Request) {
     const solarFacetPrompt = buildSolarFacetDetectionPromptText(solarSegments, solarPixelHints)
     const solarHintCount = solarPixelHints.length
 
-    const raw = await callDetectionModel(
+    const initialRaw = await callDetectionModel(
       detectionImageBase64,
       visionPixelDesc,
       targetingNote,
       solarFacetPrompt
     )
+    let raw = initialRaw
+    let reviewNote = ''
+    if ((initialRaw.facets || []).length > 0) {
+      try {
+        raw = await callGeometryReviewModel(
+          detectionImageBase64,
+          visionPixelDesc,
+          targetingNote,
+          solarFacetPrompt,
+          initialRaw
+        )
+        reviewNote = 'AI geometry review pass applied.'
+      } catch (error) {
+        console.warn('[detect-roof] geometry review failed, using first-pass trace:', error)
+        reviewNote = 'AI geometry review pass failed; using first-pass trace.'
+      }
+    }
 
     const rawFacets = raw.facets || []
     const stackedBandTrace = isStackedBandVisionTrace(rawFacets)
@@ -1606,7 +1689,7 @@ export async function POST(request: Request) {
       solarFootprintDropped > 0
         ? `${solarFootprintDropped} AI facet(s) outside the likely roof footprint were removed.`
         : ''
-    const combinedNotes = [raw.notes || '', qualityGateNote || '', footprintGateNote, dropped_note || '']
+    const combinedNotes = [raw.notes || '', reviewNote, qualityGateNote || '', footprintGateNote, dropped_note || '']
       .filter(Boolean)
       .join(' ')
 
@@ -1652,7 +1735,7 @@ export async function POST(request: Request) {
       localization,
       facet_source: solarHintCount > 0 ? 'vision_solar_guided' : 'vision',
       detection_mode: 'vision',
-      openai_calls: 2,
+      openai_calls: alignWithClientMap ? 2 : 3,
       solar_pixel_hints: solarHintCount,
       static_map_size: { width: visionW, height: visionH, logical: `${logicalSizeW}x${logicalSizeH}` },
     })
