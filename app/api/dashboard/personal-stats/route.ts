@@ -128,11 +128,11 @@ export async function GET(request: NextRequest) {
     )
     const sales = orgWideKpis
       ? saleAgreements.length
-      : saleAgreements.filter((sale) =>
-          isSetter
-            ? sale.setter_user_id === profile.id
-            : sale.owner_user_id === profile.id
-        ).length
+      : new Set(
+          saleAgreements
+            .filter((sale) => sale.setter_user_id === profile.id || sale.owner_user_id === profile.id)
+            .map((sale) => sale.opportunity_id || sale.id)
+        ).size
     const sits = Number(sitsRes.data ?? 0)
     const inspectionsSet = inspRes.count ?? 0
     const apptCount = effRes.count ?? 0

@@ -382,15 +382,17 @@ export async function GET(request: NextRequest) {
     ).filter((sale) => {
       return memberIdSet.has(sale.owner_user_id || '') || memberIdSet.has(sale.setter_user_id || '')
     })
-    const salesBySetter = new Map<string, number>()
-    const salesByOwner = new Map<string, number>()
+    const salesByMember = new Map<string, Set<string>>()
+    const creditSaleToMember = (memberId: string | null, saleKey: string) => {
+      if (!memberId || !memberIdSet.has(memberId)) return
+      const existing = salesByMember.get(memberId) ?? new Set<string>()
+      existing.add(saleKey)
+      salesByMember.set(memberId, existing)
+    }
     for (const sale of saleAgreements) {
-      if (sale.setter_user_id && memberIdSet.has(sale.setter_user_id)) {
-        salesBySetter.set(sale.setter_user_id, (salesBySetter.get(sale.setter_user_id) ?? 0) + 1)
-      }
-      if (sale.owner_user_id && memberIdSet.has(sale.owner_user_id)) {
-        salesByOwner.set(sale.owner_user_id, (salesByOwner.get(sale.owner_user_id) ?? 0) + 1)
-      }
+      const saleKey = sale.opportunity_id || sale.id
+      creditSaleToMember(sale.setter_user_id, saleKey)
+      creditSaleToMember(sale.owner_user_id, saleKey)
     }
 
     const teamMemberStatsAll: TeamStatRow[] = members.map((member) => {
@@ -403,9 +405,7 @@ export async function GET(request: NextRequest) {
       const sits = isSetterLikeRole(member.role)
         ? (sitBySetter.get(member.id) ?? 0)
         : (sitByOwner.get(member.id) ?? 0)
-      const sales = isSetterLikeRole(member.role)
-        ? (salesBySetter.get(member.id) ?? 0)
-        : (salesByOwner.get(member.id) ?? 0)
+      const sales = salesByMember.get(member.id)?.size ?? 0
       const apptsOnCalendar = effByCloser.get(member.id) ?? 0
 
       const closeRate = sits > 0 ? (sales / sits) * 100 : null
