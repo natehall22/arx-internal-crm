@@ -1171,10 +1171,7 @@ export async function POST(request: Request) {
             : facetSource === 'solar_mask_whole'
               ? 'Roof outline loaded from Google Solar mask (GeoTIFF). It matched the map pin, but Solar did not provide reliable per-plane splits, so review the outline, split roof planes manually, and set pitch before quoting.'
             : 'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).'
-        const anchorNote = usedSolarAnchorFallback
-          ? `The address pin was ${Math.round(solarAnchorDistance || 0)}m from Google Solar's building center, so the roof was matched to that Solar building anchor. Verify this is the intended structure.`
-          : ''
-        const notes = [dropped_note, anchorNote, solarNotes].filter(Boolean).join(' ')
+        const notes = [dropped_note, solarNotes].filter(Boolean).join(' ')
 
         return NextResponse.json({
           facets: facetsOut,
