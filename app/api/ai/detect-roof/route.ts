@@ -469,10 +469,15 @@ function dedupeAndCapFacetFootprints(
     /** Vision facet sums often exceed merged Solar `ground_area` total. */
     skipSolarFootprintCap?: boolean
     minFacetSqFt?: number
+    duplicateCentroidFt?: number
+    nestedCentroidDuplicateMaxFrac?: number
   }
 ): { facets: FacetResponsePayload[]; dropped_note: string | null } {
   const solarSumFactor = opts?.solarGroundSumFactor ?? SUM_AREA_VS_SOLAR_GROUND_FACTOR
   const minFacetSqFt = opts?.minFacetSqFt ?? MIN_FACET_SQFT
+  const duplicateCentroidFt = opts?.duplicateCentroidFt ?? DUPLICATE_CENTROID_FT
+  const nestedCentroidDuplicateMaxFrac =
+    opts?.nestedCentroidDuplicateMaxFrac ?? NESTED_CENTROID_DUPLICATE_MAX_FRAC
   const withArea = facets
     .map((f) => ({
       facet: f,
@@ -490,13 +495,13 @@ function dedupeAndCapFacetFootprints(
       if (!pointInPolygonLngLat(centroid, k.facet.lat_lng_vertices)) return false
       const kArea = planarPolygonAreaSqFt(k.facet.lat_lng_vertices)
       if (!(kArea > 0)) return false
-      return area / kArea < NESTED_CENTROID_DUPLICATE_MAX_FRAC
+      return area / kArea < nestedCentroidDuplicateMaxFrac
     })
     if (enclosedAsTinyNested) continue
 
     const nearDuplicate = kept.some((k) => {
       const d = distanceFeet(centroid, k.centroid)
-      if (d > DUPLICATE_CENTROID_FT) return false
+      if (d > duplicateCentroidFt) return false
       const ratio = Math.min(area, k.area) / Math.max(area, k.area)
       return ratio >= DUPLICATE_AREA_RATIO
     })
@@ -1577,6 +1582,8 @@ export async function POST(request: Request) {
         solarGroundSumFactor: SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION,
         skipSolarFootprintCap: true,
         minFacetSqFt: 18,
+        duplicateCentroidFt: 2.5,
+        nestedCentroidDuplicateMaxFrac: 0.03,
       }
     )
 
