@@ -253,6 +253,7 @@ type FacetResponsePayload = {
 /** Bbox quads are not pin-filtered in `lib/solar-roof-mask-facets`; mask split facets already are. */
 const TARGET_PIN_MAX_METERS = 24
 const TARGET_CLUSTER_MAX_METERS = 22
+const SOLAR_ANCHOR_FALLBACK_MAX_METERS = 70
 
 function filterFacetsToRequestedStructure(
   facets: FacetResponsePayload[],
@@ -1055,6 +1056,8 @@ export async function POST(request: Request) {
       const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 
       let solarFacets: FacetResponsePayload[] = []
+      let solarReferenceForFilter = requestedCenter
+      let usedSolarAnchorFallback = false
       if (mapsKey) {
         const maskFacets = await tryFacetPayloadsFromSolarRoofMask({
           lat: captureCenter.lat,
@@ -1067,6 +1070,26 @@ export async function POST(request: Request) {
         })
         if (maskFacets && maskFacets.length > 0) {
           solarFacets = maskFacets as FacetResponsePayload[]
+        }
+        if (
+          solarFacets.length === 0 &&
+          solarContext.anchor &&
+          solarAnchorDistance !== null &&
+          solarAnchorDistance <= SOLAR_ANCHOR_FALLBACK_MAX_METERS
+        ) {
+          const anchorMaskFacets = await tryFacetPayloadsFromSolarRoofMask({
+            lat: solarContext.anchor.lat,
+            lng: solarContext.anchor.lng,
+            apiKey: mapsKey,
+            referenceLat: solarContext.anchor.lat,
+            referenceLng: solarContext.anchor.lng,
+            segments: solarSegments,
+          })
+          if (anchorMaskFacets && anchorMaskFacets.length > 0) {
+            solarFacets = anchorMaskFacets as FacetResponsePayload[]
+            solarReferenceForFilter = solarContext.anchor
+            usedSolarAnchorFallback = true
+          }
         }
       }
 
@@ -1091,9 +1114,21 @@ export async function POST(request: Request) {
           mapCandidates.every((f) => f.facet_source === 'solar_mask_plane')
         const targetFacets = maskAlreadyPinFiltered
           ? mapCandidates
-          : filterFacetsToRequestedStructure(mapCandidates, requestedCenter)
+          : filterFacetsToRequestedStructure(mapCandidates, solarReferenceForFilter)
+        const fallbackTargetFacets =
+          targetFacets.length === 0 &&
+          !usedSolarAnchorFallback &&
+          solarContext.anchor &&
+          solarAnchorDistance !== null &&
+          solarAnchorDistance <= SOLAR_ANCHOR_FALLBACK_MAX_METERS
+            ? filterFacetsToRequestedStructure(mapCandidates, solarContext.anchor)
+            : targetFacets
+        if (fallbackTargetFacets !== targetFacets) {
+          solarReferenceForFilter = solarContext.anchor as { lat: number; lng: number }
+          usedSolarAnchorFallback = true
+        }
         const { facets: facetsOut, dropped_note } = dedupeAndCapFacetFootprints(
-          targetFacets,
+          fallbackTargetFacets,
           validBounds,
           solarGroundFootprintSqFtEarly
         )
@@ -1136,7 +1171,10 @@ export async function POST(request: Request) {
             : facetSource === 'solar_mask_whole'
               ? 'Roof outline loaded from Google Solar mask (GeoTIFF). It matched the map pin, but Solar did not provide reliable per-plane splits, so review the outline, split roof planes manually, and set pitch before quoting.'
             : 'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).'
-        const notes = dropped_note ? `${dropped_note} ${solarNotes}` : solarNotes
+        const anchorNote = usedSolarAnchorFallback
+          ? `The address pin was ${Math.round(solarAnchorDistance || 0)}m from Google Solar's building center, so the roof was matched to that Solar building anchor. Verify this is the intended structure.`
+          : ''
+        const notes = [dropped_note, anchorNote, solarNotes].filter(Boolean).join(' ')
 
         return NextResponse.json({
           facets: facetsOut,
@@ -1148,10 +1186,10 @@ export async function POST(request: Request) {
           solar_segments: solarSegments,
           solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
           requested_center: requestedCenter,
-          capture_center: captureCenter,
+          capture_center: usedSolarAnchorFallback ? solarReferenceForFilter : captureCenter,
           capture_center_source: alignWithClientMap
             ? 'requested_center'
-            : shouldUseSolarAnchor
+            : usedSolarAnchorFallback || shouldUseSolarAnchor
               ? 'solar_anchor'
               : 'requested_center',
           detection_zoom: normalizedZoom,
