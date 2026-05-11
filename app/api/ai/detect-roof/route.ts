@@ -365,6 +365,87 @@ const SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION = 1.48
  */
 const NESTED_CENTROID_DUPLICATE_MAX_FRAC = 0.1
 
+type LatLngBox = { north: number; south: number; east: number; west: number; segmentIndex: number }
+
+function expandLatLngBox(box: LatLngBox, padFraction: number, minPadMeters: number): LatLngBox {
+  const centerLat = (box.north + box.south) / 2
+  const metersPerDegLat = 111320
+  const metersPerDegLng = Math.max(1, 111320 * Math.cos((centerLat * Math.PI) / 180))
+  const minLatPad = minPadMeters / metersPerDegLat
+  const minLngPad = minPadMeters / metersPerDegLng
+  const latPad = Math.max((box.north - box.south) * padFraction, minLatPad)
+  const lngPad = Math.max((box.east - box.west) * padFraction, minLngPad)
+  return {
+    north: box.north + latPad,
+    south: box.south - latPad,
+    east: box.east + lngPad,
+    west: box.west - lngPad,
+    segmentIndex: box.segmentIndex,
+  }
+}
+
+function pointInLatLngBox(point: { lat: number; lng: number }, box: LatLngBox): boolean {
+  return point.lat <= box.north && point.lat >= box.south && point.lng <= box.east && point.lng >= box.west
+}
+
+function solarSegmentBoxes(segments: SolarRoofSegment[]): LatLngBox[] {
+  return segments
+    .map((segment) => {
+      const box = segment.bounding_box
+      if (!box || !(box.ne.lat > box.sw.lat) || !(box.ne.lng > box.sw.lng)) return null
+      return {
+        north: box.ne.lat,
+        south: box.sw.lat,
+        east: box.ne.lng,
+        west: box.sw.lng,
+        segmentIndex: segment.segment_index,
+      }
+    })
+    .filter((box): box is LatLngBox => Boolean(box))
+}
+
+function filterVisionFacetsToSolarFootprint(
+  facets: FacetResponsePayload[],
+  segments: SolarRoofSegment[]
+): { facets: FacetResponsePayload[]; dropped: number } {
+  const boxes = solarSegmentBoxes(segments)
+  if (boxes.length === 0 || facets.length === 0) return { facets, dropped: 0 }
+
+  const generalBoxes = boxes.map((box) => expandLatLngBox(box, 0.7, 11))
+  const matchedBoxes = boxes.map((box) => expandLatLngBox(box, 0.75, 10))
+
+  const kept = facets.filter((facet) => {
+    const vertices = facet.lat_lng_vertices || []
+    if (vertices.length < 3) return false
+
+    const centroid = polygonCentroid(vertices)
+    const specificBoxes =
+      typeof facet.solar_segment_index === 'number'
+        ? matchedBoxes.filter((box) => box.segmentIndex === facet.solar_segment_index)
+        : []
+    const candidateBoxes = specificBoxes.length > 0 ? specificBoxes : generalBoxes
+    const nearSolarRoof =
+      boxes.length > 0 &&
+      boxes.some((box) => {
+        const boxCenter = { lat: (box.north + box.south) / 2, lng: (box.east + box.west) / 2 }
+        return distanceMeters(centroid, boxCenter) <= 13
+      })
+    const vertexInsideRatio =
+      vertices.filter((point) => candidateBoxes.some((box) => pointInLatLngBox(point, box))).length /
+      vertices.length
+    const centroidInside = candidateBoxes.some((box) => pointInLatLngBox(centroid, box))
+    const area = planarPolygonAreaSqFt(vertices)
+
+    if (area <= 90 && nearSolarRoof && vertexInsideRatio >= 0.25) {
+      return true
+    }
+
+    return centroidInside ? vertexInsideRatio >= 0.45 : vertexInsideRatio >= 0.65
+  })
+
+  return { facets: kept, dropped: facets.length - kept.length }
+}
+
 /** Sum of segment ground_area_m² → sq ft (roof footprint; comparable to flat facet totals before pitch). */
 function solarGroundFootprintTotalSqFt(segments: SolarRoofSegment[]): number | null {
   let sumM2 = 0
@@ -383,16 +464,22 @@ function dedupeAndCapFacetFootprints(
   facets: FacetResponsePayload[],
   validBounds: MapBounds | null,
   solarGroundFootprintSqFt: number | null,
-  opts?: { solarGroundSumFactor?: number; /** Vision facet sums often exceed merged Solar `ground_area` total. */ skipSolarFootprintCap?: boolean }
+  opts?: {
+    solarGroundSumFactor?: number
+    /** Vision facet sums often exceed merged Solar `ground_area` total. */
+    skipSolarFootprintCap?: boolean
+    minFacetSqFt?: number
+  }
 ): { facets: FacetResponsePayload[]; dropped_note: string | null } {
   const solarSumFactor = opts?.solarGroundSumFactor ?? SUM_AREA_VS_SOLAR_GROUND_FACTOR
+  const minFacetSqFt = opts?.minFacetSqFt ?? MIN_FACET_SQFT
   const withArea = facets
     .map((f) => ({
       facet: f,
       area: planarPolygonAreaSqFt(f.lat_lng_vertices),
       centroid: polygonCentroid(f.lat_lng_vertices),
     }))
-    .filter((x) => x.facet.lat_lng_vertices.length >= 3 && x.area >= MIN_FACET_SQFT && x.area <= MAX_FACET_SQFT)
+    .filter((x) => x.facet.lat_lng_vertices.length >= 3 && x.area >= minFacetSqFt && x.area <= MAX_FACET_SQFT)
 
   const sorted = [...withArea].sort((a, b) => (b.facet.confidence || 0) - (a.facet.confidence || 0))
   const kept: typeof withArea = []
@@ -644,6 +731,7 @@ ${JSON.stringify(
 
 FACET GEOMETRY (critical):
 - Output **one facet per visible distinct roof plane** in the imagery. If you see **more** planes than Solar hints (common: porch roof, extra gable, or Google merged segments), add facets for those too and set solar_segment_index to **-1** for planes with no matching hint.
+- Include small visible dormer, porch, bay, and cross-gable roof faces as separate facets when they have visible edges, even if they are much smaller than the main roof planes.
 - For each facet that clearly matches a hint, set solar_segment_index to that segment_index (integer).
 - Trace the actual roof outline from the imagery (eaves, rakes, ridges, valleys). Use **at least 5 vertices per facet** (often 6–14 on hips/gables). **Never** default to a 4-corner quadrilateral or axis-aligned rectangle.
 - Do NOT output stacked horizontal/vertical bands, placeholder strips, grids, axis-aligned rectangles, or Solar bounding boxes. If the roof edge is unclear, return fewer high-confidence facets instead of inventing geometry.
@@ -830,6 +918,7 @@ Use solar_segment_index from the user message when a facet matches a listed Sola
 Rules:
 - The image is high-DPI satellite (logical size given in the user message). x is 0..width-1, y is 0..height-1, (0,0) top-left.
 - Facets: closed polygons tracing **visible** roof edges. Typical planes need 6–14 vertices on hips/gables. Never use only 4 corners unless the roof is literally a featureless rectangle (rare).
+- Include visible dormers, porch roofs, bay roofs, and cross-gables as separate roof facets. Do not merge them into the main plane when their edges/pitch break is visible.
 - Draw roof facets only over actual shingle/metal roof surfaces you can see. Do not output placeholder grids, axis-aligned boxes on lawns, or “default” shapes in empty areas.
 - If the image is too blurry or roof edges are obscured, return fewer facets with lower notes instead of guessing. Never draw stacked color-band shapes just to satisfy the requested number of facets.
 - Trace only real roof planes and edges visible in the image; do not invent roofs over trees, driveways, or lawns.
@@ -1487,20 +1576,32 @@ export async function POST(request: Request) {
       {
         solarGroundSumFactor: SUM_AREA_VS_SOLAR_GROUND_FACTOR_VISION,
         skipSolarFootprintCap: true,
+        minFacetSqFt: 18,
       }
     )
 
+    const { facets: roofFootprintFacets, dropped: solarFootprintDropped } = filterVisionFacetsToSolarFootprint(
+      facetsDeduped,
+      solarSegments
+    )
+
     const facetsFiltered = validBounds
-      ? facetsDeduped.filter((facet) => {
+      ? roofFootprintFacets.filter((facet) => {
           const vs = facet.lat_lng_vertices
           if (!vs || vs.length === 0) return false
           const cLat = vs.reduce((s, p) => s + p.lat, 0) / vs.length
           const cLng = vs.reduce((s, p) => s + p.lng, 0) / vs.length
           return centroidInExpandedBounds(cLat, cLng, validBounds, 0.2)
         })
-      : facetsDeduped
+      : roofFootprintFacets
 
-    const combinedNotes = [raw.notes || '', qualityGateNote || '', dropped_note || ''].filter(Boolean).join(' ')
+    const footprintGateNote =
+      solarFootprintDropped > 0
+        ? `${solarFootprintDropped} AI facet(s) outside the likely roof footprint were removed.`
+        : ''
+    const combinedNotes = [raw.notes || '', qualityGateNote || '', footprintGateNote, dropped_note || '']
+      .filter(Boolean)
+      .join(' ')
 
     const normalizeLineGroup = (lines: RawLine[] | undefined, prefix: string) =>
       (stackedBandTrace ? [] : lines || [])
