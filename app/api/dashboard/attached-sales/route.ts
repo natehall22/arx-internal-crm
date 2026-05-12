@@ -1,9 +1,12 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 
 export const dynamic = 'force-dynamic'
+
+const TIMEZONE = 'America/New_York'
 
 const MAX_SALES = 24
 
@@ -170,11 +173,20 @@ function jobCustomerName(job: PipelineJobRow, contract: ContractRow | null) {
   )
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
     const scopeIds = await getManagedScopeUserIds(supabase, profile)
+
+    const timeframe = request.nextUrl.searchParams.get('timeframe') || 'week'
+    const { start: periodStart, end: periodEnd } = getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
+
+    function signedAtInSelectedPeriod(iso: string | null): boolean {
+      if (!iso) return false
+      const t = new Date(iso).getTime()
+      return Number.isFinite(t) && t >= periodStart.getTime() && t < periodEnd.getTime()
+    }
 
     const { data: jobRows, error: jobsError } = await supabase
       .from('production_jobs')
@@ -307,7 +319,7 @@ export async function GET() {
     }
 
     const isManaged = scopeIds === null || (scopeIds?.size || 0) > 1
-    const sales = scopedJobs.slice(0, MAX_SALES).map((job) => {
+    const mappedSales = scopedJobs.map((job) => {
       const project = one(job.project)
       const opportunityId = project?.opportunity_id || ''
       const opp = opportunitiesById.get(opportunityId) || null
@@ -339,6 +351,9 @@ export async function GET() {
         completedAt: job.completed_at,
       }
     })
+
+    const salesInPeriod = mappedSales.filter((sale) => signedAtInSelectedPeriod(sale.signedAt))
+    const sales = salesInPeriod.slice(0, MAX_SALES)
 
     const totalVolume = sales.reduce((sum, sale) => sum + sale.saleAmount, 0)
     const averageProgress =

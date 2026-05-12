@@ -168,7 +168,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900">Attached sales pipeline</h2>
           <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-            Signed installation sales tied to you or your team as they move through production.
+            Signed installation or repair agreements tied to you or your team as they move through production.
           </p>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-3">
@@ -203,7 +203,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
         <div className="p-4 text-sm text-rose-700 bg-rose-50">{error}</div>
       ) : sales.length === 0 ? (
         <div className="p-6 text-center text-sm text-gray-500">
-          No attached installation sales in this period yet.
+          No attached installation or repair sales in this period yet.
         </div>
       ) : (
         <div className="divide-y divide-gray-100">

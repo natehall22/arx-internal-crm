@@ -911,6 +911,23 @@ export async function POST(request: NextRequest) {
         } catch (jobCreationError) {
           console.error('[Contract Sign] Error creating job for existing project:', jobCreationError)
         }
+
+        // Mirror new-project flow: a signed Installation/Repair Agreement must close the deal as won
+        // when we already had a project row (common after inspection pipeline materialized a project).
+        if (contract.opportunity_id && projectId) {
+          const { data: projCust } = await supabase
+            .from('projects')
+            .select('customer_id')
+            .eq('id', projectId)
+            .maybeSingle()
+          const wonCustomerId = projCust?.customer_id ?? oppForProject?.customer_id ?? null
+          const wonUpdate: Record<string, unknown> = { status: 'won', customer_id: wonCustomerId }
+          if (contract.payment_method === 'insurance') {
+            wonUpdate.job_source = 'insurance'
+            wonUpdate.insurance_stage = oppForProject?.insurance_stage || 'contingency_signed'
+          }
+          await supabase.from('opportunities').update(wonUpdate).eq('id', contract.opportunity_id)
+        }
       }
     } catch (projectError) {
       console.error('Error creating project:', projectError)

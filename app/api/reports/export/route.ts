@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
       withDateColumn(
         supabase
           .from('order_form_contracts')
-          .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
+          .select('id, opportunity_id, customer_signed_at, created_by, opportunities(owner_user_id, setter_user_id)')
           .eq('org_id', profile.org_id)
           .in('agreement_type', SALE_AGREEMENT_TYPES)
           .eq('status', 'completed')

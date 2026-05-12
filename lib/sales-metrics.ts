@@ -16,6 +16,8 @@ export type InstallationSaleContractRow = {
   id?: string | null
   opportunity_id?: string | null
   customer_signed_at?: string | null
+  /** Rep who created/sent the contract; used when opportunity owner/setter are unset for KPI attribution. */
+  created_by?: string | null
   opportunity?: {
     owner_user_id?: string | null
     setter_user_id?: string | null
@@ -113,11 +115,17 @@ export function getAttributedInstallationSales(
       ? row.opportunities[0]
       : row.opportunities || row.opportunity || null
 
+    let ownerUserId = joinedOpportunity?.owner_user_id || null
+    let setterUserId = joinedOpportunity?.setter_user_id || null
+    if (!ownerUserId && !setterUserId && row.created_by) {
+      ownerUserId = row.created_by
+    }
+
     sales.push({
       id: row.id || dedupeKey,
       opportunity_id: opportunityId,
-      owner_user_id: joinedOpportunity?.owner_user_id || null,
-      setter_user_id: joinedOpportunity?.setter_user_id || null,
+      owner_user_id: ownerUserId,
+      setter_user_id: setterUserId,
       signed_at: row.customer_signed_at || null,
     })
   }
