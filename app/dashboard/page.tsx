@@ -389,9 +389,11 @@ export default async function DashboardPage() {
         const finalDoors = rawDoors
         const finalContacts = rawContacts
 
-        const memberSales = (salesOpportunities || []).filter(o =>
-          isSetterLikeRole(member.role) ? o.setter_user_id === member.id : o.owner_user_id === member.id
-        )
+        const memberSalesCount = new Set(
+          (salesOpportunities || [])
+            .filter((o) => o.setter_user_id === member.id || o.owner_user_id === member.id)
+            .map((o) => o.opportunity_id || o.id)
+        ).size
 
         const sits = (sitOpportunities || []).filter((o) =>
           isSetterLikeRole(member.role)
@@ -399,7 +401,6 @@ export default async function DashboardPage() {
             : o.owner_user_id === member.id
         ).length
 
-        const memberSalesCount = memberSales.length
         const memberCloseRate = sits > 0 ? (memberSalesCount / sits * 100) : null
         const memberApptsOnCalendar = (apptsForEfficiency || []).filter(
           (a) => a.closer_user_id === member.id
@@ -472,14 +473,20 @@ export default async function DashboardPage() {
   const doorsKnocked = rawDoorsKnocked
   const contacts = rawContacts
   
-  // Sales attribution:
-  // - setter/canvasser users get credit for sales from their sets
-  // - other roles keep closer credit
-  const salesThisWeek = (salesOpportunities || []).filter(o =>
-    isSetterLikeRole(profile.role)
-      ? (isAdmin || o.setter_user_id === profile.id || teamMemberIds.includes(o.setter_user_id || ''))
-      : (isAdmin || o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || ''))
-  ).length
+  // Sales attribution: each signed sale credits both the closer/owner and the setter.
+  const salesThisWeek = new Set(
+    (salesOpportunities || [])
+      .filter((o) => {
+        if (isAdmin) return true
+        return (
+          o.setter_user_id === profile.id ||
+          o.owner_user_id === profile.id ||
+          teamMemberIds.includes(o.setter_user_id || '') ||
+          teamMemberIds.includes(o.owner_user_id || '')
+        )
+      })
+      .map((o) => o.opportunity_id || o.id)
+  ).size
 
   const sitsThisWeek = (sitOpportunities || []).filter((o) => {
     if (isAdmin) return true
