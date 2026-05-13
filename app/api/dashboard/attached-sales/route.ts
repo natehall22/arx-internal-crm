@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
     const timeframe = request.nextUrl.searchParams.get('timeframe') || 'week'
     const { start: periodStart, end: periodEnd } = getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
 
-    function signedAtInSelectedPeriod(iso: string | null): boolean {
+    const signedAtInSelectedPeriod = (iso: string | null): boolean => {
       if (!iso) return false
       const t = new Date(iso).getTime()
       return Number.isFinite(t) && t >= periodStart.getTime() && t < periodEnd.getTime()

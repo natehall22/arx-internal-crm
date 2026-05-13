@@ -11,6 +11,8 @@ interface JobPayrollSentBannerProps {
   payrollSentAt: string | null
   paymentSummary: JobPaymentSummary | null
   saleAmount: number | null
+  /** When true, job may be marked collected despite contract balance (e.g. insurer short-paid depreciation). */
+  allowCloseWithBalance?: boolean | null
   canViewBilling: boolean
   onUpdated: () => void | Promise<void>
 }
@@ -25,6 +27,7 @@ export default function JobPayrollSentBanner({
   payrollSentAt,
   paymentSummary,
   saleAmount,
+  allowCloseWithBalance,
   canViewBilling,
   onUpdated,
 }: JobPayrollSentBannerProps) {
@@ -37,7 +40,10 @@ export default function JobPayrollSentBanner({
 
   const collected = paymentSummary.collected_cents ?? 0
   const fullyPaid = collected >= saleCents
-  if (!fullyPaid) return null
+  const collectedShortClosed =
+    status === 'collected' && Boolean(allowCloseWithBalance) && !fullyPaid
+
+  if (!fullyPaid && !collectedShortClosed) return null
 
   if (status !== 'complete' && status !== 'collected') return null
 
@@ -85,7 +91,14 @@ export default function JobPayrollSentBanner({
               </p>
             ) : (
               <p className="text-sm text-indigo-900/90 mt-0.5">
-                Contract is paid in full. When you&apos;re ready, mark this job as sent to payroll.
+                {collectedShortClosed ? (
+                  <>
+                    Job is marked collected with a documented unpaid balance (e.g. insurer withheld depreciation).
+                    You can still send this job to payroll; record additional payments later if funds arrive.
+                  </>
+                ) : (
+                  <>Contract is paid in full. When you&apos;re ready, mark this job as sent to payroll.</>
+                )}
               </p>
             )}
           </div>

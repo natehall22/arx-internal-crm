@@ -58,6 +58,9 @@ interface Job {
   completion_notes: string | null
   priority: string
   internal_notes: string | null
+  /** Ops acknowledged closing despite contract balance (complete and/or collected short). */
+  allow_close_with_balance?: boolean | null
+  close_balance_reason?: string | null
   labor_cost: number | null
   material_cost: number | null
   dealer_fee_amount?: number | null
@@ -212,7 +215,7 @@ function renderWorkflowButton(
     updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
     handleCompleteClick: () => void
     handleCollectedClick: () => void
-    canMarkCollected: boolean
+    markCollectedDisabled: boolean
     markCollectedTitle?: string
   }
 ) {
@@ -227,7 +230,7 @@ function renderWorkflowButton(
   const pc = isPrimary ? primaryIndigo : outline
   const pcGreen = isPrimary ? primaryGreen : outline
   const pcGray = isPrimary ? primaryGray : outline
-  const { saving, openScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, canMarkCollected, markCollectedTitle } = opts
+  const { saving, openScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
 
   switch (id) {
     case 'schedule':
@@ -290,7 +293,7 @@ function renderWorkflowButton(
           key={id}
           type="button"
           onClick={handleCollectedClick}
-          disabled={saving || !canMarkCollected}
+          disabled={saving || markCollectedDisabled}
           title={markCollectedTitle}
           className={pcGray}
         >
@@ -548,6 +551,7 @@ export default function JobDetailClient({
   const [loadingNotes, setLoadingNotes] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [showCollectModal, setShowCollectModal] = useState(false)
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
   const [autoCollecting, setAutoCollecting] = useState(false)
@@ -928,24 +932,31 @@ export default function JobDetailClient({
 
   const saleAmountCentsForCollected = Math.round((job.sale_amount || 0) * 100)
   const collectedCentsForWorkflow = paymentSummary?.collected_cents ?? 0
-  const canMarkCollected =
-    saleAmountCentsForCollected <= 0 ||
-    (paymentSummary != null && collectedCentsForWorkflow >= saleAmountCentsForCollected)
-  const markCollectedTitle =
-    !canMarkCollected && saleAmountCentsForCollected > 0
-      ? paymentSummary == null
-        ? 'Loading payment summary…'
-        : 'Record payments until the job is fully collected before moving it to the Completed list.'
+  const outstandingCollectBalance =
+    saleAmountCentsForCollected > 0 && collectedCentsForWorkflow < saleAmountCentsForCollected
+
+  const markCollectedDisabled = paymentSummary == null
+  const markCollectedTitle = markCollectedDisabled
+    ? 'Loading payment summary…'
+    : outstandingCollectBalance && !job.allow_close_with_balance
+      ? 'Outstanding balance — confirm to mark collected'
       : undefined
 
+  const handleCollectShortConfirm = async (reason?: string) => {
+    await updateStatus('collected', {
+      allow_close_with_balance: true,
+      close_balance_reason: reason?.trim() || null,
+    })
+    setShowCollectModal(false)
+  }
+
   const handleCollectedClick = () => {
-    if (saleAmountCentsForCollected > 0 && collectedCentsForWorkflow < saleAmountCentsForCollected) {
-      alert(
-        'Record payments until the balance is zero. The Completed list is only for jobs that are fully collected.'
-      )
+    if (paymentSummary == null) return
+    if (!outstandingCollectBalance || job.allow_close_with_balance) {
+      void updateStatus('collected')
       return
     }
-    void updateStatus('collected')
+    setShowCollectModal(true)
   }
 
   const updateMaterialsStatus = async (newStatus: string) => {
@@ -1181,6 +1192,7 @@ export default function JobDetailClient({
           payrollSentAt={job.payroll_sent_at ?? null}
           paymentSummary={paymentSummary}
           saleAmount={job.sale_amount}
+          allowCloseWithBalance={job.allow_close_with_balance ?? false}
           canViewBilling={canViewJobBilling}
           onUpdated={reloadJob}
         />
@@ -1218,7 +1230,7 @@ export default function JobDetailClient({
                 updateStatus,
                 handleCompleteClick,
                 handleCollectedClick,
-                canMarkCollected,
+                markCollectedDisabled,
                 markCollectedTitle,
               }
               const overflowAllowed =
@@ -1489,7 +1501,7 @@ export default function JobDetailClient({
                     updateStatus,
                     handleCompleteClick,
                     handleCollectedClick,
-                    canMarkCollected,
+                    markCollectedDisabled,
                     markCollectedTitle,
                   }
                   const overflowAllowed =
@@ -2210,6 +2222,18 @@ export default function JobDetailClient({
           }
           onClose={() => setShowCompleteModal(false)}
           onConfirm={handleCompleteWithBalance}
+        />
+      )}
+
+      {showCollectModal && (
+        <CompleteJobModal
+          variant="collect"
+          jobId={job.id}
+          remainingCents={
+            Math.round((job.sale_amount || 0) * 100) - (paymentSummary?.collected_cents || 0)
+          }
+          onClose={() => setShowCollectModal(false)}
+          onConfirm={handleCollectShortConfirm}
         />
       )}
     </div>

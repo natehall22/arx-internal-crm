@@ -8,13 +8,16 @@ interface CompleteJobModalProps {
   remainingCents: number
   onClose: () => void
   onConfirm: (reason?: string) => void
+  /** complete = job not done yet; collect = close to payroll despite unpaid contract balance */
+  variant?: 'complete' | 'collect'
 }
 
-export default function CompleteJobModal({ 
-  jobId, 
-  remainingCents, 
-  onClose, 
-  onConfirm 
+export default function CompleteJobModal({
+  jobId: _jobId,
+  remainingCents,
+  onClose,
+  onConfirm,
+  variant = 'complete',
 }: CompleteJobModalProps) {
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
@@ -35,8 +38,14 @@ export default function CompleteJobModal({
             </svg>
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-900">Balance Remaining</h3>
-            <p className="text-sm text-gray-500">This job has an unpaid balance</p>
+            <h3 className="text-lg font-bold text-gray-900">
+              {variant === 'collect' ? 'Outstanding balance' : 'Balance Remaining'}
+            </h3>
+            <p className="text-sm text-gray-500">
+              {variant === 'collect'
+                ? 'Contract is not fully paid — you can still close for payroll'
+                : 'This job has an unpaid balance'}
+            </p>
           </div>
         </div>
 
@@ -50,7 +59,15 @@ export default function CompleteJobModal({
         </div>
 
         <p className="text-sm text-gray-600 mb-4">
-          Are you sure you want to mark this job as complete with an outstanding balance?
+          {variant === 'collect' ? (
+            <>
+              Mark <strong>collected</strong> moves this job to the closed list so payroll can run. The unpaid amount
+              stays on record — you can add another payment later if money comes in (e.g. insurer releases withheld
+              depreciation).
+            </>
+          ) : (
+            <>Are you sure you want to mark this job as complete with an outstanding balance?</>
+          )}
         </p>
 
         <div className="mb-6">
@@ -61,7 +78,11 @@ export default function CompleteJobModal({
             type="text"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g., Payment pending, Insurance claim, etc."
+            placeholder={
+              variant === 'collect'
+                ? 'e.g., Insurance depreciation short-paid — accepting balance'
+                : 'e.g., Payment pending, Insurance claim, etc.'
+            }
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
           />
         </div>
@@ -79,7 +100,13 @@ export default function CompleteJobModal({
             disabled={saving}
             className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 disabled:opacity-50"
           >
-            {saving ? 'Completing...' : 'Complete Anyway'}
+            {saving
+              ? variant === 'collect'
+                ? 'Saving…'
+                : 'Completing...'
+              : variant === 'collect'
+                ? 'Mark collected anyway'
+                : 'Complete Anyway'}
           </button>
         </div>
       </div>

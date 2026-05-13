@@ -158,6 +158,9 @@ const LINEAR_FEATURE_LABELS: Record<string, string> = {
   custom: 'Custom Line',
 }
 
+/** Satellite tiles are often unavailable above ~20; zoom 21+ shows gray “no imagery here” in many regions. */
+const SATELLITE_FOCUS_ZOOM = 20
+
 const SECTION_TYPE_OPTIONS: Array<{ value: SectionType; label: string }> = [
   { value: 'main_roof', label: 'Main Roof' },
   { value: 'upper_roof', label: 'Upper Roof' },
@@ -772,7 +775,7 @@ export default function RoofMeasurePage() {
 
   const focusMapOnProperty = (map: any, lat: number, lng: number) => {
     map.setCenter({ lat, lng })
-    map.setZoom(Math.max(21, Math.round(map.getZoom?.() ?? 21)))
+    map.setZoom(SATELLITE_FOCUS_ZOOM)
 
     google.maps.event.addListenerOnce(map, 'idle', () => {
       const center = map.getCenter()
@@ -782,9 +785,10 @@ export default function RoofMeasurePage() {
         setMapCenter({ lat: center.lat(), lng: center.lng() })
       }
 
-      if (typeof zoom === 'number' && zoom < 21) {
+      // Stay at or below satellite-safe zoom (user gestures / fractional zoom can overshoot).
+      if (typeof zoom === 'number' && zoom > SATELLITE_FOCUS_ZOOM) {
         map.setCenter({ lat, lng })
-        map.setZoom(21)
+        map.setZoom(SATELLITE_FOCUS_ZOOM)
       }
     })
   }
