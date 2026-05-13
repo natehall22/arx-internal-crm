@@ -161,6 +161,23 @@ function coerceCollectedCents(value: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/** Unpaid cents on contract; prefer billing API remaining_cents (same integer math as PATCH). */
+function unpaidContractBalanceCents(args: {
+  paymentSummary: JobPaymentSummary | null
+  contractSaleAmountCents: number
+  recordedCollectedCents: number
+}): number {
+  const { paymentSummary, contractSaleAmountCents, recordedCollectedCents } = args
+  if (paymentSummary) {
+    const fromApi = coerceCollectedCents(paymentSummary.remaining_cents)
+    if (fromApi !== null) {
+      return Math.max(0, fromApi)
+    }
+  }
+  if (contractSaleAmountCents <= 0) return 0
+  return Math.max(0, contractSaleAmountCents - recordedCollectedCents)
+}
+
 /** First incomplete pipeline stage index (0–4), or 4 when fully done. */
 function depositMilestoneMet(job: Job): boolean {
   if (job.status !== 'sold') return true
@@ -658,12 +675,18 @@ export default function JobDetailClient({
     if (job.status !== 'complete') return
     if (autoCollecting) return
 
-    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents = paymentSummary.collected_cents || 0
+    const saleAmountCents = coerceCollectedCents(paymentSummary.sale_amount_cents) ?? 0
+    const remainingFromApi =
+      typeof paymentSummary.remaining_cents === 'number' && Number.isFinite(paymentSummary.remaining_cents)
+        ? Math.max(0, paymentSummary.remaining_cents)
+        : null
 
-    // Only auto-collect for paid jobs with an actual sale amount.
     if (saleAmountCents <= 0) return
-    if (collectedCents < saleAmountCents) return
+
+    const collectedForAuto = coerceCollectedCents(paymentSummary.collected_cents) ?? 0
+    const stillOwed =
+      remainingFromApi !== null ? remainingFromApi : Math.max(0, saleAmountCents - collectedForAuto)
+    if (stillOwed > 0) return
 
     const markCollected = async () => {
       setAutoCollecting(true)
@@ -929,10 +952,14 @@ export default function JobDetailClient({
     coerceCollectedCents(job.collected_cents) ??
     0
 
-  const handleCompleteClick = () => {
-    const remainingCents = contractSaleAmountCents - recordedCollectedCents
+  const unpaidContractCents = unpaidContractBalanceCents({
+    paymentSummary,
+    contractSaleAmountCents,
+    recordedCollectedCents,
+  })
 
-    if (remainingCents > 0) {
+  const handleCompleteClick = () => {
+    if (unpaidContractCents > 0) {
       setShowCompleteModal(true)
     } else {
       updateStatus('complete')
@@ -947,13 +974,9 @@ export default function JobDetailClient({
     setShowCompleteModal(false)
   }
 
-  const outstandingCollectBalance =
-    contractSaleAmountCents > 0 && recordedCollectedCents < contractSaleAmountCents
-  const remainingCollectBalanceCents = Math.max(0, contractSaleAmountCents - recordedCollectedCents)
-
   const markCollectedDisabled = false
   const markCollectedTitle =
-    outstandingCollectBalance && !job.allow_close_with_balance
+    unpaidContractCents > 0 && !job.allow_close_with_balance
       ? 'Outstanding balance — confirm to mark collected'
       : undefined
 
@@ -968,10 +991,26 @@ export default function JobDetailClient({
 
   const handleCollectedClick = () => {
     if (job.status !== 'complete') return
-    if (!outstandingCollectBalance || job.allow_close_with_balance) {
+
+    if (job.allow_close_with_balance) {
       void updateStatus('collected')
       return
     }
+
+    if (contractSaleAmountCents <= 0) {
+      void updateStatus('collected')
+      return
+    }
+
+    /** Only skip the modal when billing summary loaded and confirms nothing owed — otherwise always confirm short-collect */
+    const paymentSummarySaysFullyPaid =
+      paymentSummary != null && unpaidContractCents <= 0
+
+    if (paymentSummarySaysFullyPaid) {
+      void updateStatus('collected')
+      return
+    }
+
     setShowCollectModal(true)
   }
 
@@ -2233,7 +2272,7 @@ export default function JobDetailClient({
       {showCompleteModal && (
         <CompleteJobModal
           jobId={job.id}
-          remainingCents={Math.max(0, contractSaleAmountCents - recordedCollectedCents)}
+          remainingCents={unpaidContractCents}
           onClose={() => setShowCompleteModal(false)}
           onConfirm={handleCompleteWithBalance}
         />
@@ -2243,7 +2282,7 @@ export default function JobDetailClient({
         <CompleteJobModal
           variant="collect"
           jobId={job.id}
-          remainingCents={remainingCollectBalanceCents}
+          remainingCents={unpaidContractCents}
           onClose={() => setShowCollectModal(false)}
           onConfirm={handleCollectShortConfirm}
         />

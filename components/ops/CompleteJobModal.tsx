@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { formatCurrency } from '@/lib/job-payments'
 
 interface CompleteJobModalProps {
@@ -19,8 +20,11 @@ export default function CompleteJobModal({
   onConfirm,
   variant = 'complete',
 }: CompleteJobModalProps) {
+  const [mounted, setMounted] = useState(false)
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => setMounted(true), [])
 
   const handleConfirm = async () => {
     setSaving(true)
@@ -28,8 +32,14 @@ export default function CompleteJobModal({
     setSaving(false)
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  const modalUi = (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose()
+      }}
+    >
       <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
@@ -87,6 +97,14 @@ export default function CompleteJobModal({
           />
         </div>
 
+        {variant === 'collect' && (
+          <p className="text-xs leading-relaxed text-amber-900/90 mb-6 p-3 bg-amber-50/90 border border-amber-200 rounded-lg">
+            <strong className="font-semibold">You are marking collected while this contract still has a balance.</strong>{' '}
+            The owed amount stays visible on the job until you record more payments. Use this only when ops accepts that
+            short-pay; add a brief reason above so the team remembers why.
+          </p>
+        )}
+
         <div className="flex gap-3">
           <button
             onClick={onClose}
@@ -112,4 +130,8 @@ export default function CompleteJobModal({
       </div>
     </div>
   )
+
+  if (!mounted || typeof document === 'undefined') return null
+
+  return createPortal(modalUi, document.body)
 }
