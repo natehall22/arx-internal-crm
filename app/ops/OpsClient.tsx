@@ -11,6 +11,10 @@ import OperationsSnapshotCard, {
   hasOperationsSnapshotData,
 } from '@/components/ops/OperationsSnapshotCard'
 import { OpsBoardJobCard } from '@/components/ops/OpsBoardJobCard'
+import {
+  canShowCompletionCertificateBoardLink,
+  opsJobCompletionCertificateHref,
+} from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
 
 type BoardColumnStatus = Exclude<JobStatus, 'collected'>
@@ -622,6 +626,17 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         View Job →
                       </Link>
                     </div>
+                    {canShowCompletionCertificateBoardLink(job.status) && (
+                      <div className="mt-2 pt-2 border-t border-gray-100">
+                        <Link
+                          href={opsJobCompletionCertificateHref(job.id)}
+                          prefetch={false}
+                          className="block w-full min-h-[44px] flex items-center justify-center text-sm font-medium text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-2 px-3 text-center"
+                        >
+                          Completion certificate — email customer
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -773,6 +788,16 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                           >
                             View
                           </Link>
+                          {canShowCompletionCertificateBoardLink(job.status) && (
+                            <Link
+                              href={opsJobCompletionCertificateHref(job.id)}
+                              prefetch={false}
+                              className="text-xs text-emerald-800 hover:text-emerald-950 font-medium"
+                              title="Generate or email completion certificate"
+                            >
+                              Email certificate
+                            </Link>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -853,9 +878,18 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         </button>
                       )}
                     </div>
-                    <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium sm:ml-auto">
-                      View Job
-                    </Link>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:ml-auto shrink-0">
+                      <Link
+                        href={opsJobCompletionCertificateHref(job.id)}
+                        prefetch={false}
+                        className="text-xs font-medium text-center sm:text-right text-emerald-800 hover:text-emerald-950 py-2 px-2 rounded-lg bg-emerald-50 border border-emerald-200"
+                      >
+                        Email completion certificate
+                      </Link>
+                      <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium text-center py-2">
+                        View Job
+                      </Link>
+                    </div>
                   </div>
                 </div>
               ))
@@ -918,9 +952,19 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800">
-                          View
-                        </Link>
+                        <div className="flex justify-end flex-wrap gap-x-3 gap-y-1">
+                          <Link
+                            href={opsJobCompletionCertificateHref(job.id)}
+                            prefetch={false}
+                            className="text-xs font-medium text-emerald-800 hover:text-emerald-950"
+                            title="Generate or email completion certificate"
+                          >
+                            Email certificate
+                          </Link>
+                          <Link href={`/ops/jobs/${job.id}`} className="text-xs text-indigo-600 hover:text-indigo-800">
+                            View
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))

@@ -1,8 +1,13 @@
 'use client'
 
+import Link from 'next/link'
 import { memo } from 'react'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
 import { hasOperationsSnapshotData } from '@/components/ops/OperationsSnapshotCard'
+import {
+  canShowCompletionCertificateBoardLink,
+  opsJobCompletionCertificateHref,
+} from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
@@ -286,6 +291,18 @@ function OpsBoardJobCardInner({
           </button>
         )}
       </div>
+
+      {canShowCompletionCertificateBoardLink(job.status) && (
+        <div className="mt-2 pt-2 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
+          <Link
+            href={opsJobCompletionCertificateHref(job.id)}
+            prefetch={false}
+            className="block w-full text-center text-xs font-medium text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-2 px-2"
+          >
+            Completion certificate — email customer
+          </Link>
+        </div>
+      )}
     </div>
   )
 }

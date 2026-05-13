@@ -633,22 +633,32 @@ export default function JobDetailClient({
     loadPayments()
   }, [job.id, canViewJobBilling, paymentsRefreshKey])
 
-  // On mobile: deep links / hash → correct tab (initial load + client-side hash changes)
+  // Mobile: hash → tab; all sizes: scroll anchor into view (e.g. completion cert from /ops board deep link)
   useEffect(() => {
-    const applyHashToTab = () => {
-      if (typeof window === 'undefined' || window.innerWidth >= 1024) return
+    const applyHash = () => {
+      if (typeof window === 'undefined') return
       const hash = window.location.hash
-      if (hash === '#materials-section') {
-        setMobileTab('materials')
-      } else if (hash === '#payments-section' || hash === '#invoices-section') {
-        setMobileTab('financials')
-      } else if (hash === '#job-files-workspace-section') {
-        setMobileTab('photos')
+      if (!hash) return
+
+      if (window.innerWidth < 1024) {
+        if (hash === '#materials-section') {
+          setMobileTab('materials')
+        } else if (hash === '#payments-section' || hash === '#invoices-section') {
+          setMobileTab('financials')
+        } else if (hash === '#job-files-workspace-section' || hash === '#completion-certificate-tools') {
+          setMobileTab('photos')
+        }
       }
+
+      const id = hash.slice(1)
+      if (!id) return
+      const scroll = () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      requestAnimationFrame(scroll)
+      setTimeout(scroll, 150)
     }
-    applyHashToTab()
-    window.addEventListener('hashchange', applyHashToTab)
-    return () => window.removeEventListener('hashchange', applyHashToTab)
+    applyHash()
+    window.addEventListener('hashchange', applyHash)
+    return () => window.removeEventListener('hashchange', applyHash)
   }, [])
 
   useEffect(() => {

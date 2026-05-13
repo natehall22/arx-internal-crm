@@ -175,7 +175,14 @@ export default function JobFileWorkspaceCard({
   const [newCostAmount, setNewCostAmount] = useState('')
   const [newCostType, setNewCostType] = useState<string>('material')
   const completionCertificate = documents.find((doc) => doc.category === 'completion_certificate')
-  const canEmailCompletionCertificate = jobStatus === 'complete' || jobStatus === 'collected'
+
+  /** Match API/email route (allows complete | collected); tolerate odd casing/spacing from clients. */
+  const normalizedProductionStatus =
+    typeof jobStatus === 'string'
+      ? jobStatus.trim().toLowerCase().replace(/\s+/g, '_')
+      : ''
+  const canEmailCompletionCertificate =
+    normalizedProductionStatus === 'complete' || normalizedProductionStatus === 'collected'
 
   const loadData = async (aliveRef?: { current: boolean }, options?: { keepLoadedUI?: boolean }) => {
     if (!options?.keepLoadedUI) {
@@ -1106,7 +1113,10 @@ export default function JobFileWorkspaceCard({
               Upload files, set category and role, then save. Drag-and-drop supported.
             </div>
           )}
-          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <div
+            id="completion-certificate-tools"
+            className="mb-3 scroll-mt-28 rounded-lg border border-emerald-200 bg-emerald-50 p-3"
+          >
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-sm font-semibold text-emerald-950">Certificate of Completion</p>
