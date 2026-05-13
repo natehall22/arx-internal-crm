@@ -267,7 +267,7 @@ export async function GET(request: NextRequest) {
     if (effectiveOpportunityId) {
       const { data: opp } = await adminClient
         .from('opportunities')
-        .select('*, leads(*)')
+        .select('*, leads(*), customers(*)')
         .eq('id', effectiveOpportunityId)
         .eq('org_id', profile.org_id)
         .single()

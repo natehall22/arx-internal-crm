@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation'
 import ReferralsSection from '@/components/ReferralsSection'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCustomerButton'
+import CreateAddOnOpportunityButton from '@/components/customers/CreateAddOnOpportunityButton'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 
@@ -308,6 +309,9 @@ export default async function CustomerDetailPage({
 
         {activeTab === 'opportunities' && (
           <div className="space-y-4">
+            <div className="flex justify-end">
+              <CreateAddOnOpportunityButton customerId={params.id} />
+            </div>
             {opportunities && opportunities.length > 0 ? (
               opportunities.map((opportunity: any) => (
                 <div key={opportunity.id} className="bg-white shadow rounded-lg p-6">
