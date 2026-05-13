@@ -154,6 +154,13 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   received: { label: 'Received', color: 'text-green-600' },
 }
 
+/** DB/JSON may surface cents as number or numeric string — keep workflow math + enable checks reliable. */
+function coerceCollectedCents(value: unknown): number | null {
+  if (value == null || value === '') return null
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 /** First incomplete pipeline stage index (0–4), or 4 when fully done. */
 function depositMilestoneMet(job: Job): boolean {
   if (job.status !== 'sold') return true
@@ -914,7 +921,10 @@ export default function JobDetailClient({
 
   const handleCompleteClick = () => {
     const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents = paymentSummary?.collected_cents ?? job.collected_cents ?? 0
+    const collectedCents =
+      coerceCollectedCents(paymentSummary?.collected_cents) ??
+      coerceCollectedCents(job.collected_cents) ??
+      0
     const remainingCents = saleAmountCents - collectedCents
 
     if (remainingCents > 0) {
@@ -933,12 +943,18 @@ export default function JobDetailClient({
   }
 
   const saleAmountCentsForCollected = Math.round((job.sale_amount || 0) * 100)
-  const collectedCentsForWorkflow = paymentSummary?.collected_cents ?? job.collected_cents ?? 0
+  const collectedCentsForWorkflow =
+    coerceCollectedCents(paymentSummary?.collected_cents) ??
+    coerceCollectedCents(job.collected_cents) ??
+    0
   const outstandingCollectBalance =
     saleAmountCentsForCollected > 0 && collectedCentsForWorkflow < saleAmountCentsForCollected
   const remainingCollectBalanceCents = Math.max(0, saleAmountCentsForCollected - collectedCentsForWorkflow)
 
-  const hasPaymentSummaryForWorkflow = paymentSummary != null || typeof job.collected_cents === 'number'
+  const hasPaymentSummaryForWorkflow =
+    paymentSummary != null ||
+    coerceCollectedCents(job.collected_cents) != null ||
+    !canViewJobBilling
   const markCollectedDisabled = !hasPaymentSummaryForWorkflow
   const markCollectedTitle = markCollectedDisabled
     ? 'Loading payment summary…'
@@ -947,9 +963,10 @@ export default function JobDetailClient({
       : undefined
 
   const handleCollectShortConfirm = async (reason?: string) => {
+    const trimmed = reason?.trim()
     await updateStatus('collected', {
       allow_close_with_balance: true,
-      close_balance_reason: reason?.trim() || null,
+      ...(trimmed ? { close_balance_reason: trimmed } : {}),
     })
     setShowCollectModal(false)
   }
@@ -2224,7 +2241,10 @@ export default function JobDetailClient({
           remainingCents={
             Math.max(
               0,
-              Math.round((job.sale_amount || 0) * 100) - (paymentSummary?.collected_cents ?? job.collected_cents ?? 0)
+              Math.round((job.sale_amount || 0) * 100) -
+                (coerceCollectedCents(paymentSummary?.collected_cents) ??
+                  coerceCollectedCents(job.collected_cents) ??
+                  0)
             )
           }
           onClose={() => setShowCompleteModal(false)}

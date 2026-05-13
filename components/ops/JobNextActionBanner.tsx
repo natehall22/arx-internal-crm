@@ -74,7 +74,7 @@ function getNextAction(
     }
   }
 
-  // Complete but balance remaining
+  // Complete but balance remaining — banner scrolls to payments; use workflow "Mark as Collected" to close short.
   if (status === 'complete' && remainingBalance > 0) {
     if (isFinanceJob && !financePaymentSubmitted) {
       return {
