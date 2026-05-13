@@ -9,6 +9,9 @@ import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
 export const COMPLETION_CERTIFICATE_CATEGORY = 'completion_certificate'
 export const COMPLETION_CERTIFICATE_TITLE = 'Certificate of Completion'
 
+/** Printed signature line for Authorized ARX Representative (certificate template). */
+const COMPLETION_CERTIFICATE_AUTH_REP_NAME = 'Nathan Hall'
+
 type JoinedCustomer = { id?: string | null; name?: string | null; email?: string | null; phone?: string | null }
 
 function firstJoin<T>(value: T | T[] | null | undefined): T | null {
@@ -161,7 +164,13 @@ function buildCompletionCertificatePdfBuffer(args: {
   const sigY = Math.min(pageH - margin - innerPad - 60, y + 20)
   const colW = (boxW - 24) / 2
   doc.setDrawColor(17, 24, 39)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(17, 24, 39)
+  doc.text(COMPLETION_CERTIFICATE_AUTH_REP_NAME, boxLeft, sigY - 3)
+  doc.setLineWidth(0.75)
   doc.line(boxLeft, sigY, boxLeft + colW, sigY)
+  doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
   doc.setTextColor(75, 85, 99)
   doc.text('Authorized ARX Representative', boxLeft, sigY + 14)
