@@ -893,9 +893,11 @@ export default function JobDetailClient({
       })
 
       if (!response.ok) {
-        const error = await response.json()
+        let message = 'Failed to update status'
+        const error = await response.json().catch(() => null)
+        if (error?.error && typeof error.error === 'string') message = error.error
         console.error('Failed to update status:', error)
-        alert('Failed to update status')
+        alert(message)
       }
     } catch (error) {
       console.error('Error updating status:', error)
