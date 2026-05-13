@@ -919,13 +919,18 @@ export default function JobDetailClient({
     setSaving(false)
   }
 
+  /** Same sources as PATCH payment check: prefer billing API summary cents, fallback to SSR job sale/collected */
+  const contractSaleAmountCents =
+    coerceCollectedCents(paymentSummary?.sale_amount_cents) ??
+    Math.round((Number(job.sale_amount) || 0) * 100)
+
+  const recordedCollectedCents =
+    coerceCollectedCents(paymentSummary?.collected_cents) ??
+    coerceCollectedCents(job.collected_cents) ??
+    0
+
   const handleCompleteClick = () => {
-    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents =
-      coerceCollectedCents(paymentSummary?.collected_cents) ??
-      coerceCollectedCents(job.collected_cents) ??
-      0
-    const remainingCents = saleAmountCents - collectedCents
+    const remainingCents = contractSaleAmountCents - recordedCollectedCents
 
     if (remainingCents > 0) {
       setShowCompleteModal(true)
@@ -942,23 +947,13 @@ export default function JobDetailClient({
     setShowCompleteModal(false)
   }
 
-  const saleAmountCentsForCollected = Math.round((job.sale_amount || 0) * 100)
-  const collectedCentsForWorkflow =
-    coerceCollectedCents(paymentSummary?.collected_cents) ??
-    coerceCollectedCents(job.collected_cents) ??
-    0
   const outstandingCollectBalance =
-    saleAmountCentsForCollected > 0 && collectedCentsForWorkflow < saleAmountCentsForCollected
-  const remainingCollectBalanceCents = Math.max(0, saleAmountCentsForCollected - collectedCentsForWorkflow)
+    contractSaleAmountCents > 0 && recordedCollectedCents < contractSaleAmountCents
+  const remainingCollectBalanceCents = Math.max(0, contractSaleAmountCents - recordedCollectedCents)
 
-  const hasPaymentSummaryForWorkflow =
-    paymentSummary != null ||
-    coerceCollectedCents(job.collected_cents) != null ||
-    !canViewJobBilling
-  const markCollectedDisabled = !hasPaymentSummaryForWorkflow
-  const markCollectedTitle = markCollectedDisabled
-    ? 'Loading payment summary…'
-    : outstandingCollectBalance && !job.allow_close_with_balance
+  const markCollectedDisabled = false
+  const markCollectedTitle =
+    outstandingCollectBalance && !job.allow_close_with_balance
       ? 'Outstanding balance — confirm to mark collected'
       : undefined
 
@@ -972,7 +967,7 @@ export default function JobDetailClient({
   }
 
   const handleCollectedClick = () => {
-    if (!hasPaymentSummaryForWorkflow) return
+    if (job.status !== 'complete') return
     if (!outstandingCollectBalance || job.allow_close_with_balance) {
       void updateStatus('collected')
       return
@@ -2238,15 +2233,7 @@ export default function JobDetailClient({
       {showCompleteModal && (
         <CompleteJobModal
           jobId={job.id}
-          remainingCents={
-            Math.max(
-              0,
-              Math.round((job.sale_amount || 0) * 100) -
-                (coerceCollectedCents(paymentSummary?.collected_cents) ??
-                  coerceCollectedCents(job.collected_cents) ??
-                  0)
-            )
-          }
+          remainingCents={Math.max(0, contractSaleAmountCents - recordedCollectedCents)}
           onClose={() => setShowCompleteModal(false)}
           onConfirm={handleCompleteWithBalance}
         />
