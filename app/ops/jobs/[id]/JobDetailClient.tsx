@@ -38,6 +38,7 @@ interface Job {
   job_type: string
   address_text: string
   sale_amount: number | null
+  collected_cents?: number | null
   deposit: number | null
   deposit_required_percent: number | null
   finance_submitted_at: string | null
@@ -866,6 +867,7 @@ export default function JobDetailClient({
           customer: customer,
           salesperson: Array.isArray(data.salesperson) ? data.salesperson[0] : data.salesperson,
           project: rawProject,
+          collected_cents: job.collected_cents,
           installation_agreement: job.installation_agreement,
           /** Server job payload does not include opportunity / payroll attribution — preserve from SSR. */
           payroll_attribution: job.payroll_attribution,
@@ -899,7 +901,7 @@ export default function JobDetailClient({
       if (!response.ok) {
         const error = await response.json()
         console.error('Failed to update status:', error)
-        alert('Failed to update status')
+        alert(typeof error.error === 'string' ? error.error : 'Failed to update status')
       }
     } catch (error) {
       console.error('Error updating status:', error)
@@ -912,7 +914,7 @@ export default function JobDetailClient({
 
   const handleCompleteClick = () => {
     const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents = paymentSummary?.collected_cents || 0
+    const collectedCents = paymentSummary?.collected_cents ?? job.collected_cents ?? 0
     const remainingCents = saleAmountCents - collectedCents
 
     if (remainingCents > 0) {
@@ -931,11 +933,13 @@ export default function JobDetailClient({
   }
 
   const saleAmountCentsForCollected = Math.round((job.sale_amount || 0) * 100)
-  const collectedCentsForWorkflow = paymentSummary?.collected_cents ?? 0
+  const collectedCentsForWorkflow = paymentSummary?.collected_cents ?? job.collected_cents ?? 0
   const outstandingCollectBalance =
     saleAmountCentsForCollected > 0 && collectedCentsForWorkflow < saleAmountCentsForCollected
+  const remainingCollectBalanceCents = Math.max(0, saleAmountCentsForCollected - collectedCentsForWorkflow)
 
-  const markCollectedDisabled = paymentSummary == null
+  const hasPaymentSummaryForWorkflow = paymentSummary != null || typeof job.collected_cents === 'number'
+  const markCollectedDisabled = !hasPaymentSummaryForWorkflow
   const markCollectedTitle = markCollectedDisabled
     ? 'Loading payment summary…'
     : outstandingCollectBalance && !job.allow_close_with_balance
@@ -951,7 +955,7 @@ export default function JobDetailClient({
   }
 
   const handleCollectedClick = () => {
-    if (paymentSummary == null) return
+    if (!hasPaymentSummaryForWorkflow) return
     if (!outstandingCollectBalance || job.allow_close_with_balance) {
       void updateStatus('collected')
       return
@@ -2218,7 +2222,10 @@ export default function JobDetailClient({
         <CompleteJobModal
           jobId={job.id}
           remainingCents={
-            Math.round((job.sale_amount || 0) * 100) - (paymentSummary?.collected_cents || 0)
+            Math.max(
+              0,
+              Math.round((job.sale_amount || 0) * 100) - (paymentSummary?.collected_cents ?? job.collected_cents ?? 0)
+            )
           }
           onClose={() => setShowCompleteModal(false)}
           onConfirm={handleCompleteWithBalance}
@@ -2229,9 +2236,7 @@ export default function JobDetailClient({
         <CompleteJobModal
           variant="collect"
           jobId={job.id}
-          remainingCents={
-            Math.round((job.sale_amount || 0) * 100) - (paymentSummary?.collected_cents || 0)
-          }
+          remainingCents={remainingCollectBalanceCents}
           onClose={() => setShowCollectModal(false)}
           onConfirm={handleCollectShortConfirm}
         />
