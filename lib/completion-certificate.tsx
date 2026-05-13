@@ -175,9 +175,18 @@ function buildCompletionCertificatePdfBuffer(args: {
   doc.setTextColor(75, 85, 99)
   doc.text('Authorized ARX Representative', boxLeft, sigY + 14)
 
-  doc.line(boxLeft + colW + 24, sigY, boxLeft + boxW, sigY)
-  doc.text(displayDate(args.generatedDate), boxLeft + colW + 24, sigY + 14)
-  doc.text('Date Issued', boxLeft + colW + 24, sigY + 28)
+  doc.text('Authorized ARX Representative', boxLeft, sigY + 14)
+
+  const dateColLeft = boxLeft + colW + 24
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(17, 24, 39)
+  doc.text(displayDate(args.generatedDate), dateColLeft, sigY - 3)
+  doc.line(dateColLeft, sigY, boxLeft + boxW, sigY)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(75, 85, 99)
+  doc.text('Date Issued', dateColLeft, sigY + 14)
 
   doc.setFontSize(9)
   doc.setTextColor(107, 114, 128)
