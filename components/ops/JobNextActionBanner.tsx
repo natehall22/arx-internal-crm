@@ -74,7 +74,7 @@ function getNextAction(
     }
   }
 
-  // Complete but balance remaining — banner scrolls to payments; use workflow "Mark as Collected" to close short.
+  // Complete but balance remaining — allow ops to close short through the same confirmation flow as the workflow CTA.
   if (status === 'complete' && remainingBalance > 0) {
     if (isFinanceJob && !financePaymentSubmitted) {
       return {
@@ -85,10 +85,10 @@ function getNextAction(
       }
     }
     return {
-      message: `Collect final payment: $${(remainingBalance / 100).toLocaleString()}`,
-      buttonText: 'Record Payment',
+      message: `Outstanding balance: $${(remainingBalance / 100).toLocaleString()}`,
+      buttonText: 'Mark as Collected',
       color: 'amber',
-      action: 'collect',
+      action: 'mark_collected',
     }
   }
 
