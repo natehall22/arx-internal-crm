@@ -5,6 +5,7 @@ import {
   generateCompletionCertificateDocument,
   getExistingCompletionCertificate,
 } from '@/lib/completion-certificate'
+import { pickValidEmail } from '@/lib/setter-email'
 
 export const runtime = 'nodejs'
 
@@ -34,7 +35,7 @@ export async function GET(
     return NextResponse.json({
       document,
       can_send: (job as any).status === 'complete' || (job as any).status === 'collected',
-      default_email: customer?.email || '',
+      default_email: pickValidEmail(customer?.email) ?? '',
     })
   } catch (error: any) {
     return NextResponse.json(

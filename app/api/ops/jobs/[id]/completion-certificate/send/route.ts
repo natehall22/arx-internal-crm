@@ -3,7 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { generateCompletionCertificateDocument } from '@/lib/completion-certificate'
-import { getMailTransport } from '@/lib/setter-email'
+import { getMailTransport, pickValidEmail } from '@/lib/setter-email'
 
 export const runtime = 'nodejs'
 
@@ -19,18 +19,13 @@ export async function POST(
     const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
     const body = await request.json().catch(() => ({}))
-    const email = typeof body?.email === 'string' ? body.email.trim() : ''
-
-    if (!email || !email.includes('@')) {
-      return NextResponse.json({ error: 'Valid email is required' }, { status: 400 })
-    }
     if (!process.env.SMTP_HOST) {
       return NextResponse.json({ error: 'SMTP is not configured' }, { status: 503 })
     }
 
     const { data: job } = await supabase
       .from('production_jobs')
-      .select('id, status, job_number, address_text, customer:customers(name)')
+      .select('id, status, job_number, address_text, customer:customers(name, email)')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -39,6 +34,18 @@ export async function POST(
     if ((job as any).status !== 'complete' && (job as any).status !== 'collected') {
       return NextResponse.json(
         { error: 'Certificate can only be emailed after the job is marked complete' },
+        { status: 400 }
+      )
+    }
+
+    const customer = Array.isArray((job as any).customer) ? (job as any).customer[0] : (job as any).customer
+    const customerEmail = pickValidEmail(customer?.email)
+    if (!customerEmail) {
+      return NextResponse.json(
+        {
+          error:
+            'This job has no customer email on file. Add an email on the customer record, then try again.',
+        },
         { status: 400 }
       )
     }
@@ -61,15 +68,16 @@ export async function POST(
       )
     }
 
-    const customer = Array.isArray((job as any).customer) ? (job as any).customer[0] : (job as any).customer
     const customerName = customer?.name || 'Customer'
     const jobNumber = (job as any).job_number || 'job'
     const address = (job as any).address_text || ''
     const buffer = Buffer.from(await fileData.arrayBuffer())
 
+    const fromAddress = process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>'
+
     await getMailTransport().sendMail({
-      from: 'info@arxroofing.com',
-      to: email,
+      from: fromAddress,
+      to: customerEmail,
       subject: `Certificate of Completion - ${jobNumber}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px; color: #111827;">
@@ -85,7 +93,7 @@ export async function POST(
       attachments: [{ filename: document.filename, content: buffer, contentType: 'application/pdf' }],
     })
 
-    return NextResponse.json({ success: true, document })
+    return NextResponse.json({ success: true, document, sent_to: customerEmail })
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Failed to email completion certificate' },

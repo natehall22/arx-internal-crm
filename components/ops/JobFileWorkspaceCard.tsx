@@ -4,6 +4,7 @@ import type { DragEvent, FormEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { pickValidEmail } from '@/lib/setter-email'
 import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
 
 type PhotoRow = {
@@ -147,7 +148,6 @@ export default function JobFileWorkspaceCard({
   )
   const [uploadingDocument, setUploadingDocument] = useState(false)
   const [certificateBusy, setCertificateBusy] = useState(false)
-  const [certificateEmail, setCertificateEmail] = useState(customerEmail || '')
   const [uploadingCostAttachment, setUploadingCostAttachment] = useState(false)
   const [replacingDocumentId, setReplacingDocumentId] = useState<string | null>(null)
   const [photoTag, setPhotoTag] = useState('general')
@@ -183,6 +183,8 @@ export default function JobFileWorkspaceCard({
       : ''
   const canEmailCompletionCertificate =
     normalizedProductionStatus === 'complete' || normalizedProductionStatus === 'collected'
+
+  const customerCertificateRecipient = useMemo(() => pickValidEmail(customerEmail), [customerEmail])
 
   const loadData = async (aliveRef?: { current: boolean }, options?: { keepLoadedUI?: boolean }) => {
     if (!options?.keepLoadedUI) {
@@ -360,12 +362,6 @@ export default function JobFileWorkspaceCard({
   useEffect(() => {
     if (costLines.length > 0) setShowAddCostForm(false)
   }, [costLines.length])
-
-  useEffect(() => {
-    if (customerEmail && !certificateEmail) {
-      setCertificateEmail(customerEmail)
-    }
-  }, [customerEmail, certificateEmail])
 
   const handlePhotosSelected = async (fileList?: FileList | null) => {
     const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
@@ -654,20 +650,29 @@ export default function JobFileWorkspaceCard({
   }
 
   const handleEmailCompletionCertificate = async () => {
-    const email = certificateEmail.trim()
-    if (!email) {
-      setStatusMessage({ type: 'error', text: 'Enter an email address before sending the certificate.' })
+    if (!customerCertificateRecipient) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Add an email on the customer record before emailing the certificate.',
+      })
       return
     }
     setCertificateBusy(true)
     setStatusMessage(null)
     try {
-      await fetchOpsJson(`/api/ops/jobs/${jobId}/completion-certificate/send`, {
+      const data = await fetchOpsJson(`/api/ops/jobs/${jobId}/completion-certificate/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({}),
       })
-      setStatusMessage({ type: 'success', text: `Certificate emailed to ${email}.` })
+      const sentTo =
+        typeof data.sent_to === 'string' && data.sent_to.trim()
+          ? data.sent_to.trim()
+          : customerCertificateRecipient
+      setStatusMessage({
+        type: 'success',
+        text: `Certificate emailed to the customer at ${sentTo}.`,
+      })
       await loadData(undefined, { keepLoadedUI: true })
     } catch (error: any) {
       setStatusMessage({
@@ -1135,22 +1140,41 @@ export default function JobFileWorkspaceCard({
                 >
                   {certificateBusy ? 'Working...' : completionCertificate ? 'Regenerate' : 'Generate'}
                 </button>
-                <input
-                  type="email"
-                  value={certificateEmail}
-                  onChange={(e) => setCertificateEmail(e.target.value)}
-                  placeholder="customer@example.com"
-                  className="min-h-[38px] w-full sm:w-56 rounded-lg border border-emerald-200 px-3 py-2 text-sm text-gray-900"
-                  disabled={certificateBusy}
-                />
+                <div
+                  className={`min-h-[38px] w-full sm:w-56 rounded-lg border px-3 py-2 text-sm flex flex-col justify-center ${
+                    customerCertificateRecipient
+                      ? 'border-emerald-200 bg-white text-gray-900'
+                      : 'border-amber-200 bg-amber-50/80 text-amber-950'
+                  }`}
+                  title={
+                    customerCertificateRecipient
+                      ? 'Email is always sent to the customer on file'
+                      : 'No valid customer email'
+                  }
+                >
+                  {customerCertificateRecipient ? (
+                    <>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                        Customer
+                      </span>
+                      <span className="truncate">{customerCertificateRecipient}</span>
+                    </>
+                  ) : (
+                    <span className="text-xs leading-snug">No customer email on file — add it on the customer.</span>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={handleEmailCompletionCertificate}
-                  disabled={certificateBusy || !canEmailCompletionCertificate}
+                  disabled={
+                    certificateBusy || !canEmailCompletionCertificate || !customerCertificateRecipient
+                  }
                   title={
-                    canEmailCompletionCertificate
-                      ? undefined
-                      : 'Mark the job complete before emailing the certificate.'
+                    !canEmailCompletionCertificate
+                      ? 'Mark the job complete before emailing the certificate.'
+                      : !customerCertificateRecipient
+                        ? 'Add a customer email on the customer record first.'
+                        : 'Send certificate PDF to the customer'
                   }
                   className="min-h-[38px] px-3 py-2 rounded-lg bg-emerald-700 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
                 >
