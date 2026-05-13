@@ -267,7 +267,8 @@ export async function generateCompletionCertificateDocument(
     customerId: (job as any).customer_id || customer?.id || null,
     linkedRecordType: null,
     linkedRecordId: null,
-    documentRole: 'customer_copy',
+    /** Null when unlinked — DB check documents_linked_role_guard requires this */
+    documentRole: null,
     storagePath,
     filename,
     fileSize: pdfBuffer.length,
