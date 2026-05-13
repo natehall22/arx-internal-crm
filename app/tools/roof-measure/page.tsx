@@ -380,6 +380,9 @@ export default function RoofMeasurePage() {
     
     if (oppId) {
       setOpportunityId(oppId)
+      if (urlAddress) {
+        setAddress(urlAddress)
+      }
       loadOpportunityAddress(oppId)
     } else if (urlAddress) {
       setAddress(urlAddress)
@@ -508,6 +511,8 @@ export default function RoofMeasurePage() {
             pendingOpportunityMapFocusRef.current = null
             focusMapOnProperty(googleMapRef.current, target.lat, target.lng)
           }
+        } else if (opportunity?.address_text && window.google?.maps && googleMapRef.current) {
+          searchAddress(opportunity.address_text)
         }
       }
     } catch (error) {

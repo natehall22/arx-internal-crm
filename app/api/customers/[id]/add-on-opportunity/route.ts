@@ -52,6 +52,31 @@ export async function POST(
       }
     }
 
+    const [{ data: priorOpportunities }, { data: priorProjects }] = await Promise.all([
+      supabase
+        .from('opportunities')
+        .select('address_text, lat, lng, updated_at')
+        .eq('org_id', profile.org_id)
+        .eq('customer_id', customer.id)
+        .order('updated_at', { ascending: false })
+        .limit(1),
+      supabase
+        .from('projects')
+        .select('address_text, lat, lng, updated_at')
+        .eq('org_id', profile.org_id)
+        .eq('customer_id', customer.id)
+        .order('updated_at', { ascending: false })
+        .limit(1),
+    ])
+
+    const sourceLocation =
+      (priorOpportunities || []).find((row) => row.address_text || (row.lat != null && row.lng != null)) ||
+      (priorProjects || []).find((row) => row.address_text || (row.lat != null && row.lng != null))
+    const opportunityAddress = sourceLocation?.address_text || customer.address_text || null
+    const opportunityLat = Number(sourceLocation?.lat)
+    const opportunityLng = Number(sourceLocation?.lng)
+    const hasSourceCoordinates = Number.isFinite(opportunityLat) && Number.isFinite(opportunityLng)
+
     const now = new Date().toISOString()
     const { data: opportunity, error: insertError } = await supabase
       .from('opportunities')
@@ -62,7 +87,9 @@ export async function POST(
         owner_user_id: profile.id,
         status: 'open',
         project_type: 'roofing',
-        address_text: customer.address_text || null,
+        address_text: opportunityAddress,
+        lat: hasSourceCoordinates ? opportunityLat : null,
+        lng: hasSourceCoordinates ? opportunityLng : null,
         notes: `Add-on opportunity created from customer file on ${new Date(now).toLocaleDateString()}. Use this for new post-completion scope with a separate proposal and Installation Agreement.`,
       })
       .select('id')
