@@ -63,9 +63,6 @@ export async function POST(
         status: 'open',
         project_type: 'roofing',
         address_text: customer.address_text || null,
-        contact_name: customer.name || null,
-        contact_email: customer.email || null,
-        contact_phone: customer.phone || null,
         notes: `Add-on opportunity created from customer file on ${new Date(now).toLocaleDateString()}. Use this for new post-completion scope with a separate proposal and Installation Agreement.`,
       })
       .select('id')
