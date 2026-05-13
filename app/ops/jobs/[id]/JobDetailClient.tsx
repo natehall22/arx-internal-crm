@@ -1663,6 +1663,8 @@ export default function JobDetailClient({
               <JobFileWorkspaceCard
                 jobId={job.id}
                 userRole={userRole}
+                jobStatus={job.status}
+                customerEmail={job.customer?.email || null}
                 registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
                 dealerFeeAmount={job.dealer_fee_amount ?? null}
               />

@@ -51,6 +51,8 @@ type JobCostLineQueryRow = {
 interface JobFileWorkspaceCardProps {
   jobId: string
   userRole: string
+  jobStatus?: string | null
+  customerEmail?: string | null
   registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
   dealerFeeAmount?: number | null
 }
@@ -126,6 +128,8 @@ async function fetchOpsJson(url: string, init?: RequestInit): Promise<Record<str
 export default function JobFileWorkspaceCard({
   jobId,
   userRole,
+  jobStatus,
+  customerEmail,
   registerOpenCostAttachmentShortcut,
   dealerFeeAmount,
 }: JobFileWorkspaceCardProps) {
@@ -142,6 +146,8 @@ export default function JobFileWorkspaceCard({
     null
   )
   const [uploadingDocument, setUploadingDocument] = useState(false)
+  const [certificateBusy, setCertificateBusy] = useState(false)
+  const [certificateEmail, setCertificateEmail] = useState(customerEmail || '')
   const [uploadingCostAttachment, setUploadingCostAttachment] = useState(false)
   const [replacingDocumentId, setReplacingDocumentId] = useState<string | null>(null)
   const [photoTag, setPhotoTag] = useState('general')
@@ -168,6 +174,8 @@ export default function JobFileWorkspaceCard({
   const [newCostDescription, setNewCostDescription] = useState('')
   const [newCostAmount, setNewCostAmount] = useState('')
   const [newCostType, setNewCostType] = useState<string>('material')
+  const completionCertificate = documents.find((doc) => doc.category === 'completion_certificate')
+  const canEmailCompletionCertificate = jobStatus === 'complete' || jobStatus === 'collected'
 
   const loadData = async (aliveRef?: { current: boolean }, options?: { keepLoadedUI?: boolean }) => {
     if (!options?.keepLoadedUI) {
@@ -345,6 +353,12 @@ export default function JobFileWorkspaceCard({
   useEffect(() => {
     if (costLines.length > 0) setShowAddCostForm(false)
   }, [costLines.length])
+
+  useEffect(() => {
+    if (customerEmail && !certificateEmail) {
+      setCertificateEmail(customerEmail)
+    }
+  }, [customerEmail, certificateEmail])
 
   const handlePhotosSelected = async (fileList?: FileList | null) => {
     const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
@@ -603,6 +617,58 @@ export default function JobFileWorkspaceCard({
       })
     } finally {
       setReplacingDocumentId(null)
+    }
+  }
+
+  const handleGenerateCompletionCertificate = async (force = false) => {
+    setCertificateBusy(true)
+    setStatusMessage(null)
+    try {
+      await fetchOpsJson(`/api/ops/jobs/${jobId}/completion-certificate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      })
+      setStatusMessage({
+        type: 'success',
+        text: force
+          ? 'Certificate regenerated and attached to the customer file.'
+          : 'Certificate attached to the customer file.',
+      })
+      await loadData(undefined, { keepLoadedUI: true })
+    } catch (error: any) {
+      setStatusMessage({
+        type: 'error',
+        text: error?.message || 'Could not generate certificate.',
+      })
+    } finally {
+      setCertificateBusy(false)
+    }
+  }
+
+  const handleEmailCompletionCertificate = async () => {
+    const email = certificateEmail.trim()
+    if (!email) {
+      setStatusMessage({ type: 'error', text: 'Enter an email address before sending the certificate.' })
+      return
+    }
+    setCertificateBusy(true)
+    setStatusMessage(null)
+    try {
+      await fetchOpsJson(`/api/ops/jobs/${jobId}/completion-certificate/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      setStatusMessage({ type: 'success', text: `Certificate emailed to ${email}.` })
+      await loadData(undefined, { keepLoadedUI: true })
+    } catch (error: any) {
+      setStatusMessage({
+        type: 'error',
+        text: error?.message || 'Could not email certificate.',
+      })
+    } finally {
+      setCertificateBusy(false)
     }
   }
 
@@ -1040,6 +1106,54 @@ export default function JobFileWorkspaceCard({
               Upload files, set category and role, then save. Drag-and-drop supported.
             </div>
           )}
+          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-emerald-950">Certificate of Completion</p>
+                <p className="text-xs text-emerald-800">
+                  {completionCertificate
+                    ? 'Attached in documents for this customer/job.'
+                    : 'Generate a simple proof-of-completion PDF for customer or insurance records.'}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => handleGenerateCompletionCertificate(Boolean(completionCertificate))}
+                  disabled={certificateBusy || tableUnavailable}
+                  className="min-h-[38px] px-3 py-2 rounded-lg border border-emerald-700 bg-white text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  {certificateBusy ? 'Working...' : completionCertificate ? 'Regenerate' : 'Generate'}
+                </button>
+                <input
+                  type="email"
+                  value={certificateEmail}
+                  onChange={(e) => setCertificateEmail(e.target.value)}
+                  placeholder="customer@example.com"
+                  className="min-h-[38px] w-full sm:w-56 rounded-lg border border-emerald-200 px-3 py-2 text-sm text-gray-900"
+                  disabled={certificateBusy}
+                />
+                <button
+                  type="button"
+                  onClick={handleEmailCompletionCertificate}
+                  disabled={certificateBusy || !canEmailCompletionCertificate}
+                  title={
+                    canEmailCompletionCertificate
+                      ? undefined
+                      : 'Mark the job complete before emailing the certificate.'
+                  }
+                  className="min-h-[38px] px-3 py-2 rounded-lg bg-emerald-700 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+                >
+                  Email certificate
+                </button>
+              </div>
+            </div>
+            {!canEmailCompletionCertificate && (
+              <p className="mt-2 text-xs text-emerald-900">
+                Email unlocks after the job is marked complete.
+              </p>
+            )}
+          </div>
           <p className="text-xs text-gray-500 mb-3">Contracts, change orders, and supporting files.</p>
 
           <div
