@@ -26,6 +26,7 @@ import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEdi
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
 import { computeFinancedContractTotal, netCommissionableFromJob } from '@/lib/financing'
+import { canShowCompletionCertificateBoardLink } from '@/lib/ops-completion-cert-link'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
@@ -659,6 +660,19 @@ export default function JobDetailClient({
     applyHash()
     window.addEventListener('hashchange', applyHash)
     return () => window.removeEventListener('hashchange', applyHash)
+  }, [])
+
+  const focusCompletionCertificateTools = useCallback(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setMobileTab('photos')
+    }
+    const scrollToCert = () =>
+      document.getElementById('completion-certificate-tools')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    requestAnimationFrame(scrollToCert)
+    setTimeout(scrollToCert, 220)
   }, [])
 
   useEffect(() => {
@@ -1353,6 +1367,23 @@ export default function JobDetailClient({
           </div>
         </div>
 
+        {/* Completion cert lives under Photos & files on narrow screens — surface it here so it is not buried behind the Photos tab */}
+        {canShowCompletionCertificateBoardLink(job.status) && (
+          <div className="lg:hidden mb-4 rounded-xl border border-emerald-200 bg-emerald-50 shadow-sm p-4">
+            <p className="text-sm font-semibold text-emerald-950">Certificate of Completion</p>
+            <p className="mt-1 text-xs text-emerald-900 leading-relaxed">
+              Generate the PDF and email it to the customer — same tools as on desktop (under Photos & files).
+            </p>
+            <button
+              type="button"
+              onClick={focusCompletionCertificateTools}
+              className="mt-3 w-full min-h-[44px] rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+            >
+              Open certificate tools
+            </button>
+          </div>
+        )}
+
         {/* Mobile tab bar — hidden on desktop */}
         <div className="lg:hidden bg-white border rounded-xl shadow-sm mb-4 overflow-hidden">
           <div className="flex overflow-x-auto">
@@ -1361,7 +1392,7 @@ export default function JobDetailClient({
               { key: 'scope',    label: 'Details' },
               { key: 'materials', label: 'Materials' },
               ...(canViewFinancialTab ? [{ key: 'financials' as const, label: 'Financials' }] : []),
-              { key: 'photos',   label: 'Photos' },
+              { key: 'photos',   label: 'Photos & files' },
               { key: 'notes',    label: 'Notes' },
             ] as const).map((tab) => (
               <button
