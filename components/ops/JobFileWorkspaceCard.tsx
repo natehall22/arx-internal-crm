@@ -4,7 +4,7 @@ import type { DragEvent, FormEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { pickValidEmail } from '@/lib/setter-email'
+import { pickValidEmail } from '@/lib/email-address'
 import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
 
 type PhotoRow = {
