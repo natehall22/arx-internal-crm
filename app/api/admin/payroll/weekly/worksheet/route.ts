@@ -19,6 +19,7 @@ type JobRow = {
   salesperson_id: string | null
   project_id: string | null
   customer_id: string | null
+  allow_close_with_balance?: boolean | null
 }
 
 function saleYmdForCompPlan(d: string | null | undefined): string {
@@ -52,7 +53,9 @@ export async function GET(request: NextRequest) {
 
     const { data: jobs, error: jobsErr } = await supabase
       .from('production_jobs')
-      .select('id, job_number, status, sale_amount, sale_date, completed_at, salesperson_id, project_id, customer_id')
+      .select(
+        'id, job_number, status, sale_amount, sale_date, completed_at, salesperson_id, project_id, customer_id, allow_close_with_balance'
+      )
       .eq('org_id', orgId)
       .order('updated_at', { ascending: false })
       .limit(limit)
@@ -184,7 +187,10 @@ export async function GET(request: NextRequest) {
       })
       const requiredCents = Math.round(requiredDollars * 100)
       const collected = collectedByJob.get(job.id) || 0
-      const funded = requiredCents <= 0 ? true : collected >= requiredCents
+      const funded =
+        requiredCents <= 0 ||
+        collected >= requiredCents ||
+        (job.status === 'collected' && Boolean(job.allow_close_with_balance))
 
       const fullyFundedAt = st?.fully_funded_at
         ? new Date(st.fully_funded_at)

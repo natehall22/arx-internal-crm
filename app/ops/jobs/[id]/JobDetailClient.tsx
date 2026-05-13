@@ -38,6 +38,7 @@ interface Job {
   job_type: string
   address_text: string
   sale_amount: number | null
+  collected_cents?: number | null
   deposit: number | null
   deposit_required_percent: number | null
   finance_submitted_at: string | null
@@ -58,6 +59,9 @@ interface Job {
   completion_notes: string | null
   priority: string
   internal_notes: string | null
+  /** Ops acknowledged closing despite contract balance (complete and/or collected short). */
+  allow_close_with_balance?: boolean | null
+  close_balance_reason?: string | null
   labor_cost: number | null
   material_cost: number | null
   dealer_fee_amount?: number | null
@@ -150,6 +154,30 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   received: { label: 'Received', color: 'text-green-600' },
 }
 
+/** DB/JSON may surface cents as number or numeric string — keep workflow math + enable checks reliable. */
+function coerceCollectedCents(value: unknown): number | null {
+  if (value == null || value === '') return null
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Unpaid cents on contract; prefer billing API remaining_cents (same integer math as PATCH). */
+function unpaidContractBalanceCents(args: {
+  paymentSummary: JobPaymentSummary | null
+  contractSaleAmountCents: number
+  recordedCollectedCents: number
+}): number {
+  const { paymentSummary, contractSaleAmountCents, recordedCollectedCents } = args
+  if (paymentSummary) {
+    const fromApi = coerceCollectedCents(paymentSummary.remaining_cents)
+    if (fromApi !== null) {
+      return Math.max(0, fromApi)
+    }
+  }
+  if (contractSaleAmountCents <= 0) return 0
+  return Math.max(0, contractSaleAmountCents - recordedCollectedCents)
+}
+
 /** First incomplete pipeline stage index (0–4), or 4 when fully done. */
 function depositMilestoneMet(job: Job): boolean {
   if (job.status !== 'sold') return true
@@ -212,7 +240,7 @@ function renderWorkflowButton(
     updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
     handleCompleteClick: () => void
     handleCollectedClick: () => void
-    canMarkCollected: boolean
+    markCollectedDisabled: boolean
     markCollectedTitle?: string
   }
 ) {
@@ -227,7 +255,7 @@ function renderWorkflowButton(
   const pc = isPrimary ? primaryIndigo : outline
   const pcGreen = isPrimary ? primaryGreen : outline
   const pcGray = isPrimary ? primaryGray : outline
-  const { saving, openScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, canMarkCollected, markCollectedTitle } = opts
+  const { saving, openScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
 
   switch (id) {
     case 'schedule':
@@ -290,7 +318,7 @@ function renderWorkflowButton(
           key={id}
           type="button"
           onClick={handleCollectedClick}
-          disabled={saving || !canMarkCollected}
+          disabled={saving || markCollectedDisabled}
           title={markCollectedTitle}
           className={pcGray}
         >
@@ -548,6 +576,7 @@ export default function JobDetailClient({
   const [loadingNotes, setLoadingNotes] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [showCollectModal, setShowCollectModal] = useState(false)
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0)
   const [autoCollecting, setAutoCollecting] = useState(false)
@@ -862,6 +891,7 @@ export default function JobDetailClient({
           customer: customer,
           salesperson: Array.isArray(data.salesperson) ? data.salesperson[0] : data.salesperson,
           project: rawProject,
+          collected_cents: job.collected_cents,
           installation_agreement: job.installation_agreement,
           /** Server job payload does not include opportunity / payroll attribution — preserve from SSR. */
           payroll_attribution: job.payroll_attribution,
@@ -908,12 +938,24 @@ export default function JobDetailClient({
     setSaving(false)
   }
 
-  const handleCompleteClick = () => {
-    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents = paymentSummary?.collected_cents || 0
-    const remainingCents = saleAmountCents - collectedCents
+  /** Same sources as PATCH payment check: prefer billing API summary cents, fallback to SSR job sale/collected */
+  const contractSaleAmountCents =
+    coerceCollectedCents(paymentSummary?.sale_amount_cents) ??
+    Math.round((Number(job.sale_amount) || 0) * 100)
 
-    if (remainingCents > 0) {
+  const recordedCollectedCents =
+    coerceCollectedCents(paymentSummary?.collected_cents) ??
+    coerceCollectedCents(job.collected_cents) ??
+    0
+
+  const unpaidContractCents = unpaidContractBalanceCents({
+    paymentSummary,
+    contractSaleAmountCents,
+    recordedCollectedCents,
+  })
+
+  const handleCompleteClick = () => {
+    if (unpaidContractCents > 0) {
       setShowCompleteModal(true)
     } else {
       updateStatus('complete')
@@ -928,26 +970,44 @@ export default function JobDetailClient({
     setShowCompleteModal(false)
   }
 
-  const saleAmountCentsForCollected = Math.round((job.sale_amount || 0) * 100)
-  const collectedCentsForWorkflow = paymentSummary?.collected_cents ?? 0
-  const canMarkCollected =
-    saleAmountCentsForCollected <= 0 ||
-    (paymentSummary != null && collectedCentsForWorkflow >= saleAmountCentsForCollected)
+  const markCollectedDisabled = false
   const markCollectedTitle =
-    !canMarkCollected && saleAmountCentsForCollected > 0
-      ? paymentSummary == null
-        ? 'Loading payment summary…'
-        : 'Record payments until the job is fully collected before moving it to the Completed list.'
+    unpaidContractCents > 0 && !job.allow_close_with_balance
+      ? 'Outstanding balance — confirm to mark collected'
       : undefined
 
+  const handleCollectShortConfirm = async (reason?: string) => {
+    const trimmed = reason?.trim()
+    await updateStatus('collected', {
+      allow_close_with_balance: true,
+      ...(trimmed ? { close_balance_reason: trimmed } : {}),
+    })
+    setShowCollectModal(false)
+  }
+
   const handleCollectedClick = () => {
-    if (saleAmountCentsForCollected > 0 && collectedCentsForWorkflow < saleAmountCentsForCollected) {
-      alert(
-        'Record payments until the balance is zero. The Completed list is only for jobs that are fully collected.'
-      )
+    if (job.status !== 'complete') return
+
+    if (job.allow_close_with_balance) {
+      void updateStatus('collected')
       return
     }
-    void updateStatus('collected')
+
+    if (contractSaleAmountCents <= 0) {
+      void updateStatus('collected')
+      return
+    }
+
+    /** Only skip the modal when billing summary loaded and confirms nothing owed — otherwise always confirm short-collect */
+    const paymentSummarySaysFullyPaid =
+      paymentSummary != null && unpaidContractCents <= 0
+
+    if (paymentSummarySaysFullyPaid) {
+      void updateStatus('collected')
+      return
+    }
+
+    setShowCollectModal(true)
   }
 
   const updateMaterialsStatus = async (newStatus: string) => {
@@ -1183,6 +1243,7 @@ export default function JobDetailClient({
           payrollSentAt={job.payroll_sent_at ?? null}
           paymentSummary={paymentSummary}
           saleAmount={job.sale_amount}
+          allowCloseWithBalance={job.allow_close_with_balance ?? false}
           canViewBilling={canViewJobBilling}
           onUpdated={reloadJob}
         />
@@ -1220,7 +1281,7 @@ export default function JobDetailClient({
                 updateStatus,
                 handleCompleteClick,
                 handleCollectedClick,
-                canMarkCollected,
+                markCollectedDisabled,
                 markCollectedTitle,
               }
               const overflowAllowed =
@@ -1491,7 +1552,7 @@ export default function JobDetailClient({
                     updateStatus,
                     handleCompleteClick,
                     handleCollectedClick,
-                    canMarkCollected,
+                    markCollectedDisabled,
                     markCollectedTitle,
                   }
                   const overflowAllowed =
@@ -2207,11 +2268,19 @@ export default function JobDetailClient({
       {showCompleteModal && (
         <CompleteJobModal
           jobId={job.id}
-          remainingCents={
-            Math.round((job.sale_amount || 0) * 100) - (paymentSummary?.collected_cents || 0)
-          }
+          remainingCents={unpaidContractCents}
           onClose={() => setShowCompleteModal(false)}
           onConfirm={handleCompleteWithBalance}
+        />
+      )}
+
+      {showCollectModal && (
+        <CompleteJobModal
+          variant="collect"
+          jobId={job.id}
+          remainingCents={unpaidContractCents}
+          onClose={() => setShowCollectModal(false)}
+          onConfirm={handleCollectShortConfirm}
         />
       )}
     </div>

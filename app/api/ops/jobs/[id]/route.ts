@@ -46,7 +46,7 @@ export async function PATCH(
     // 124 is not applied, referencing that column makes the whole query fail with a false "not found".)
     const { data: existingJob, error: fetchError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id, project_id, status')
+      .select('id, org_id, project_id, status, allow_close_with_balance, close_balance_reason')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -111,15 +111,27 @@ export async function PATCH(
       }
     }
 
-    // Fail-safe: "collected" is the closed-out state (Completed tab). Do not allow it until
-    // recorded payments cover the sale amount (same rule as the job detail auto-collect effect).
     if (updateData.status === 'collected') {
+      const existingAck = Boolean((existingJob as { allow_close_with_balance?: boolean | null }).allow_close_with_balance)
+      const incomingAck = Boolean(updateData.allow_close_with_balance)
+
+      const reasonNew =
+        typeof updateData.close_balance_reason === 'string' ? updateData.close_balance_reason.trim() : ''
+      const reasonExisting = String(
+        (existingJob as { close_balance_reason?: string | null }).close_balance_reason || ''
+      ).trim()
+
+      if (incomingAck && reasonNew && reasonExisting && !reasonExisting.includes(reasonNew)) {
+        updateData.close_balance_reason = `${reasonExisting}; ${reasonNew}`
+      }
+
       const summary = await getJobPaymentSummary(adminClient, params.id)
       if (!summary) {
         return NextResponse.json({ error: 'Could not verify payments for this job' }, { status: 400 })
       }
       const { sale_amount_cents: saleCents, collected_cents: collected } = summary
-      if (saleCents > 0 && collected < saleCents) {
+      const shortfallAcknowledged = existingAck || incomingAck
+      if (saleCents > 0 && collected < saleCents && !shortfallAcknowledged) {
         return NextResponse.json(
           {
             error: 'Cannot mark as collected until the job is fully paid',
