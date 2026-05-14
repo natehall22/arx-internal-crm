@@ -89,6 +89,63 @@ function getInspectionOutcomeSettings(settings: any): InspectionOutcomeConfigRow
   return null
 }
 
+const BASE_OPPORTUNITY_SELECT_FIELDS = [
+  'id',
+  'customer_id',
+  'lead_id',
+  'status',
+  'address_text',
+  'project_type',
+  'inspection_outcome',
+  'inspection_outcome_at',
+  'inspection_notes',
+  'created_at',
+  'updated_at',
+]
+
+const OPTIONAL_OPPORTUNITY_SELECT_FIELDS = ['pipeline_stage', 'follow_up_at', 'assigned_user_id']
+
+function isMissingColumnError(error: any) {
+  return error?.code === '42703' || String(error?.message || '').includes('does not exist')
+}
+
+async function fetchInsideSalesOpportunities(adminClient: ReturnType<typeof getAdminClient>, orgId: string) {
+  const optionalFields = [...OPTIONAL_OPPORTUNITY_SELECT_FIELDS]
+  let lastError: any = null
+
+  while (true) {
+    const selectFields = [...BASE_OPPORTUNITY_SELECT_FIELDS, ...optionalFields].join(',\n        ')
+    const { data, error } = await adminClient
+      .from('opportunities')
+      .select(selectFields)
+      .eq('org_id', orgId)
+      .neq('status', 'won')
+      .neq('status', 'lost')
+      .order('created_at', { ascending: false })
+      // PostgREST default max rows (~1000) can omit queue items after sort; raise explicitly (bounded).
+      .limit(8000)
+
+    if (!error) return { data, error: null }
+    lastError = error
+
+    if (!isMissingColumnError(error) || optionalFields.length === 0) {
+      return { data: null, error: lastError }
+    }
+
+    const missingFieldIndex = optionalFields.findIndex((field) =>
+      String(error.message || '').includes(`'${field}'`) ||
+      String(error.message || '').includes(`.${field}`) ||
+      String(error.message || '').includes(` ${field} `)
+    )
+
+    if (missingFieldIndex >= 0) {
+      optionalFields.splice(missingFieldIndex, 1)
+    } else {
+      optionalFields.pop()
+    }
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -128,30 +185,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [{ data: opportunities, error: opportunitiesError }, { data: orgRow, error: orgError }] = await Promise.all([
-      adminClient
-      .from('opportunities')
-      .select(`
-        id,
-        customer_id,
-        lead_id,
-        status,
-        address_text,
-        project_type,
-        inspection_outcome,
-        inspection_outcome_at,
-        inspection_notes,
-        pipeline_stage,
-        follow_up_at,
-        assigned_user_id,
-        created_at,
-        updated_at
-      `)
-      .eq('org_id', profile.org_id)
-      .neq('status', 'won')
-      .neq('status', 'lost')
-      .order('created_at', { ascending: false })
-      // PostgREST default max rows (~1000) can omit queue items after sort; raise explicitly (bounded).
-      .limit(8000),
+      fetchInsideSalesOpportunities(adminClient, profile.org_id),
       adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
     ])
 
