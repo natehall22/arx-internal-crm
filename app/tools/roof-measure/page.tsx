@@ -63,7 +63,7 @@ interface MeasurementData {
   flat_area_sqft: number      // Total footprint area
   total_area_sqft: number     // Total actual roof surface area
   total_squares: number       // Roofing squares (area / 100)
-  /** 1, or below 1 when raw facet footprints are scaled to the Google Solar total (overlapping planes). */
+  /** Kept in saved raw data for older measurements; current totals use drawn/loaded section geometry. */
   footprint_scale: number
   // Facet data
   facets: RoofFacet[]
@@ -383,7 +383,7 @@ export default function RoofMeasurePage() {
       if (urlAddress) {
         setAddress(urlAddress)
       }
-      loadOpportunityAddress(oppId)
+      loadOpportunityAddress(oppId, urlAddress || undefined)
     } else if (urlAddress) {
       setAddress(urlAddress)
     }
@@ -487,7 +487,7 @@ export default function RoofMeasurePage() {
     return () => window.clearTimeout(timeoutId)
   }, [searchedAddress, facets.length, linearFeatures.length, aiDraftSections.length, isDetecting])
 
-  const loadOpportunityAddress = async (oppId: string) => {
+  const loadOpportunityAddress = async (oppId: string, preferredAddress?: string) => {
     try {
       const response = await fetch(`/api/measurements?opportunity_id=${oppId}`)
       if (response.ok) {
@@ -495,11 +495,12 @@ export default function RoofMeasurePage() {
         const oppLat = Number(opportunity?.lat)
         const oppLng = Number(opportunity?.lng)
         const hasStoredLocation = Number.isFinite(oppLat) && Number.isFinite(oppLng)
+        const addressToUse = preferredAddress || opportunity?.address_text
 
-        if (opportunity?.address_text) {
-          setAddress(opportunity.address_text)
+        if (addressToUse) {
+          setAddress(addressToUse)
           if (hasStoredLocation) {
-            setSearchedAddress(opportunity.address_text)
+            setSearchedAddress(addressToUse)
           }
         }
 
@@ -511,8 +512,12 @@ export default function RoofMeasurePage() {
             pendingOpportunityMapFocusRef.current = null
             focusMapOnProperty(googleMapRef.current, target.lat, target.lng)
           }
-        } else if (opportunity?.address_text && window.google?.maps && googleMapRef.current) {
-          searchAddress(opportunity.address_text)
+        } else if (preferredAddress) {
+          if (window.google?.maps && googleMapRef.current) {
+            searchAddress(preferredAddress)
+          }
+        } else if (addressToUse && window.google?.maps && googleMapRef.current) {
+          searchAddress(addressToUse)
         }
       }
     } catch (error) {
@@ -1817,21 +1822,19 @@ export default function RoofMeasurePage() {
     }
 
     const flatAreaRaw = currentFacets.reduce((sum, f) => sum + facetFlatSqft(f), 0)
-    const solarRef = solarGroundFootprintReferenceRef.current
-    const SOLAR_OVERLAP_THRESHOLD = 1.08
-    /** OpenAI traces use drawn geometry; Solar summed ground_area often disagrees with field / merged segments. */
     const src = facetGeometrySourceRef.current
     const fromOpenAiVision = src === 'vision' || src === 'vision_solar_guided'
-    let flatScale = 1
+    const flatScale = 1
+    const solarRef = solarGroundFootprintReferenceRef.current
+    const SOLAR_OVERLAP_THRESHOLD = 1.08
     if (
       !fromOpenAiVision &&
       solarRef != null &&
       solarRef >= 350 &&
       flatAreaRaw > solarRef * SOLAR_OVERLAP_THRESHOLD
     ) {
-      flatScale = solarRef / flatAreaRaw
       validationNotes.push(
-        `Overlapping planes were inflating area; totals scaled to Google Solar footprint (~${Math.round(solarRef).toLocaleString()} sq ft). Drag vertices to reduce overlap if sections should be larger.`
+        `Google Solar reports a smaller reference footprint (~${Math.round(solarRef).toLocaleString()} sq ft). Totals are using the visible roof section geometry; check for duplicate or overlapping sections if this looks high.`
       )
     }
 

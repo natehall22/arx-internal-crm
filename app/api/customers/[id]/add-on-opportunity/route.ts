@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { geocodeAddressToLatLng } from '@/lib/lead-map-pin'
 
 const REP_LIKE_ROLES = new Set(['rep', 'sales_rep', 'closer'])
 
@@ -59,23 +60,34 @@ export async function POST(
         .eq('org_id', profile.org_id)
         .eq('customer_id', customer.id)
         .order('updated_at', { ascending: false })
-        .limit(1),
+        .limit(5),
       supabase
         .from('projects')
         .select('address_text, lat, lng, updated_at')
         .eq('org_id', profile.org_id)
         .eq('customer_id', customer.id)
         .order('updated_at', { ascending: false })
-        .limit(1),
+        .limit(5),
     ])
 
+    const candidateLocations = [...(priorOpportunities || []), ...(priorProjects || [])].sort((a, b) => {
+      const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0
+      const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0
+      return bTime - aTime
+    })
+    const hasCoords = (row: { lat?: unknown; lng?: unknown }) =>
+      Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng))
+
     const sourceLocation =
-      (priorOpportunities || []).find((row) => row.address_text || (row.lat != null && row.lng != null)) ||
-      (priorProjects || []).find((row) => row.address_text || (row.lat != null && row.lng != null))
+      candidateLocations.find(hasCoords) ||
+      candidateLocations.find((row) => row.address_text) ||
+      null
     const opportunityAddress = sourceLocation?.address_text || customer.address_text || null
     const opportunityLat = Number(sourceLocation?.lat)
     const opportunityLng = Number(sourceLocation?.lng)
     const hasSourceCoordinates = Number.isFinite(opportunityLat) && Number.isFinite(opportunityLng)
+    const geocodedCoords =
+      !hasSourceCoordinates && opportunityAddress ? await geocodeAddressToLatLng(opportunityAddress) : null
 
     const now = new Date().toISOString()
     const { data: opportunity, error: insertError } = await supabase
@@ -88,8 +100,8 @@ export async function POST(
         status: 'open',
         project_type: 'roofing',
         address_text: opportunityAddress,
-        lat: hasSourceCoordinates ? opportunityLat : null,
-        lng: hasSourceCoordinates ? opportunityLng : null,
+        lat: hasSourceCoordinates ? opportunityLat : geocodedCoords?.lat ?? null,
+        lng: hasSourceCoordinates ? opportunityLng : geocodedCoords?.lng ?? null,
         notes: `Add-on opportunity created from customer file on ${new Date(now).toLocaleDateString()}. Use this for new post-completion scope with a separate proposal and Installation Agreement.`,
       })
       .select('id')
