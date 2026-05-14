@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
 export type AIAction =
   | 'job_next_action'
@@ -14,6 +14,9 @@ type AIRequestBody = {
   action: string
   context: Record<string, any>
 }
+
+/** Structured CRM actions use JSON mode; align with other server routes (e.g. detect-roof). */
+const STRUCTURED_MODEL = 'gpt-4o'
 
 const SYSTEM_PROMPTS: Record<AIAction, string> = {
   job_next_action:
@@ -35,17 +38,15 @@ function isAIAction(action: string): action is AIAction {
   return action in SYSTEM_PROMPTS
 }
 
-function extractText(content: Anthropic.Messages.Message['content']): string {
-  return content
-    .filter((block): block is Anthropic.Messages.TextBlock => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n')
-    .trim()
+function getOpenAI() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || '',
+  })
 }
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY
+    const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
       return NextResponse.json({ error: 'Server AI configuration missing' }, { status: 500 })
     }
@@ -61,19 +62,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid context' }, { status: 400 })
     }
 
-    const anthropic = new Anthropic({ apiKey })
-    const completion = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPTS[action],
-      messages: [{ role: 'user', content: JSON.stringify(context) }],
-    })
-
-    const rawText = extractText(completion.content)
+    const openai = getOpenAI()
+    const userContent = JSON.stringify(context)
 
     if (action === 'chat') {
+      const completion = await openai.chat.completions.create({
+        model: STRUCTURED_MODEL,
+        max_tokens: 1024,
+        temperature: 0.7,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPTS.chat },
+          { role: 'user', content: userContent },
+        ],
+      })
+      const rawText = completion.choices[0]?.message?.content?.trim() ?? ''
       return NextResponse.json({ result: rawText })
     }
+
+    const completion = await openai.chat.completions.create({
+      model: STRUCTURED_MODEL,
+      max_tokens: 1024,
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPTS[action] },
+        { role: 'user', content: userContent },
+      ],
+    })
+
+    const rawText = completion.choices[0]?.message?.content?.trim() ?? ''
 
     try {
       const parsed = JSON.parse(rawText)

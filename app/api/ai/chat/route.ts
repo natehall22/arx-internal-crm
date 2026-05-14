@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { getAiChatRecordContextAppendix } from '@/lib/ai/chat-record-context'
 
 // AI Assistant API - integrates with OpenAI or similar
 // This provides contextual help throughout the CRM
@@ -46,6 +47,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Build context for the AI
+    const recordContextAppendix = await getAiChatRecordContextAppendix(
+      supabase,
+      profile.org_id,
+      context
+    )
+
     let systemPrompt = `You are an AI assistant for ARX CRM, a customer relationship management system for roofing/home improvement sales companies.
 
 You help users with:
@@ -58,52 +65,7 @@ You help users with:
 User: ${profile.full_name}
 Role: ${profile.role}
 
-Be concise, helpful, and professional. If you don't know something specific about their data, suggest they check the relevant section of the CRM.`
-
-    // Add context-specific information
-    if (context?.type === 'lead') {
-      const { data: lead } = await supabase
-        .from('leads')
-        .select('*')
-        .eq('id', context.id)
-        .single()
-      
-      if (lead) {
-        systemPrompt += `\n\nCurrent Lead Context:
-- Name: ${lead.first_name} ${lead.last_name}
-- Address: ${lead.address_text}
-- Status: ${lead.status}
-- Source: ${lead.source}
-- Notes: ${lead.notes || 'None'}`
-      }
-    } else if (context?.type === 'opportunity') {
-      const { data: opp } = await supabase
-        .from('opportunities')
-        .select('*')
-        .eq('id', context.id)
-        .single()
-      
-      if (opp) {
-        systemPrompt += `\n\nCurrent Opportunity Context:
-- Address: ${opp.address_text}
-- Status: ${opp.status}
-- Estimated Value: $${opp.estimated_value || 'Not set'}
-- Notes: ${opp.notes || 'None'}`
-      }
-    } else if (context?.type === 'project') {
-      const { data: project } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', context.id)
-        .single()
-      
-      if (project) {
-        systemPrompt += `\n\nCurrent Project Context:
-- Address: ${project.address_text}
-- Status: ${project.status}
-- Contract Value: $${project.contract_value || 'Not set'}`
-      }
-    }
+Be concise, helpful, and professional. If you don't know something specific about their data, suggest they check the relevant section of the CRM.${recordContextAppendix}`
 
     // Get or create conversation
     let conversation: any = null
