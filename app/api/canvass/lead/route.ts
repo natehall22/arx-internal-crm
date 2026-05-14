@@ -20,6 +20,7 @@ import { pickValidEmail } from '@/lib/setter-email'
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
+import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 
 export const dynamic = 'force-dynamic'
 
@@ -483,13 +484,21 @@ export async function POST(request: Request) {
       phone: body.phone || null,
       email: body.email || null,
       address_text: body.address_text || null,
-      lat: body.lat ?? null,
-      lng: body.lng ?? null,
       notes: body.notes || null,
       canvass_disposition: body.canvass_disposition || null,
       canvass_notes: body.canvass_notes || null,
       closer_user_id: closerUserId,
       inspection_scheduled_for: inspectionScheduledFor,
+    }
+
+    // Existing-pin edits from the canvass map intentionally omit coordinates.
+    // Only write lat/lng when the client explicitly sends them; otherwise we
+    // would erase the saved house pin during appointment scheduling.
+    if (Object.prototype.hasOwnProperty.call(body, 'lat')) {
+      leadPayload.lat = body.lat ?? null
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'lng')) {
+      leadPayload.lng = body.lng ?? null
     }
 
     if (Object.prototype.hasOwnProperty.call(body, 'source')) {
@@ -556,6 +565,31 @@ export async function POST(request: Request) {
 
     if (!leadRow) {
       return NextResponse.json({ error: 'Unable to save lead' }, { status: 400 })
+    }
+
+    if (scheduleInspection) {
+      try {
+        const mapPin = await ensureLeadHasMapPinOrThrow(supabase, {
+          id: leadRow.id,
+          org_id: profile.org_id,
+          address_text: leadRow.address_text,
+          lat: leadRow.lat,
+          lng: leadRow.lng,
+        })
+        leadRow = { ...leadRow, lat: mapPin.lat, lng: mapPin.lng }
+      } catch (pinError) {
+        if (isNewLeadCreate && leadRow?.id) {
+          await supabase.from('leads').delete().eq('id', leadRow.id).eq('org_id', profile.org_id)
+          console.log('Rolled back new lead after map pin failure:', leadRow.id)
+        }
+        return NextResponse.json(
+          {
+            error: pinError instanceof Error ? pinError.message : 'Could not place a house pin for this inspection.',
+            code: 'MAP_PIN_FAILED',
+          },
+          { status: 400 }
+        )
+      }
     }
 
     let opportunityId: string | null = null

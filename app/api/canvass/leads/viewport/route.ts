@@ -18,6 +18,7 @@ import {
   filterLeadsByTerritoryRings,
   leadLngLatInRings,
 } from '@/lib/canvass-territories'
+import { ensureLeadHasMapPin } from '@/lib/lead-map-pin'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +39,8 @@ const ZOOM_LIMITS: Record<number, number> = {
 
 // Minimum zoom to load any pins (prevents loading entire state/country)
 const MIN_ZOOM_FOR_PINS = 10
+const SCHEDULED_PIN_REPAIR_SCAN_LIMIT = 250
+const SCHEDULED_PIN_REPAIR_LIMIT = 25
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -100,6 +103,87 @@ function getAdminClient() {
   })
 }
 
+async function repairScheduledInspectionPinsForOrg(adminClient: any, orgId: string) {
+  try {
+    const { data: appointments, error } = await adminClient
+      .from('scheduled_appointments')
+      .select('id, org_id, lead_id, address_text, scheduled_for')
+      .eq('org_id', orgId)
+      .in('status', ['scheduled', 'confirmed'])
+      .or('appointment_type.is.null,appointment_type.eq.inspection')
+      .not('lead_id', 'is', null)
+      .order('scheduled_for', { ascending: false })
+      .limit(SCHEDULED_PIN_REPAIR_SCAN_LIMIT)
+
+    if (error) {
+      console.error('Scheduled inspection pin repair query error:', error)
+      return
+    }
+
+    const appointmentsByLeadId = new Map<string, any>()
+    for (const appointment of appointments || []) {
+      if (appointment.lead_id && !appointmentsByLeadId.has(appointment.lead_id)) {
+        appointmentsByLeadId.set(appointment.lead_id, appointment)
+      }
+    }
+
+    const leadIds = Array.from(appointmentsByLeadId.keys())
+    if (leadIds.length === 0) return
+
+    const { data: leads, error: leadsError } = await adminClient
+      .from('leads')
+      .select('id, org_id, address_text, lat, lng, status, inspection_scheduled_for')
+      .eq('org_id', orgId)
+      .in('id', leadIds)
+      .or('status.is.null,status.neq.inspection,inspection_scheduled_for.is.null,lat.is.null,lng.is.null')
+      .limit(SCHEDULED_PIN_REPAIR_LIMIT)
+
+    if (leadsError) {
+      console.error('Scheduled inspection lead repair query error:', leadsError)
+      return
+    }
+
+    for (const lead of leads || []) {
+      const appointment = appointmentsByLeadId.get(lead.id)
+      if (!lead?.id) continue
+
+      const needsScheduledState =
+        lead.status !== 'inspection' ||
+        !lead.inspection_scheduled_for
+      const needsCoordinates = lead.lat == null || lead.lng == null
+
+      if (needsScheduledState) {
+        const patch: Record<string, unknown> = { status: 'inspection' }
+        if (!lead.inspection_scheduled_for && appointment.scheduled_for) {
+          patch.inspection_scheduled_for = appointment.scheduled_for
+        }
+
+        const { error: leadPatchError } = await adminClient
+          .from('leads')
+          .update(patch)
+          .eq('id', lead.id)
+          .eq('org_id', orgId)
+
+        if (leadPatchError) {
+          console.error('Scheduled inspection lead state repair error:', leadPatchError)
+        }
+      }
+
+      if (needsCoordinates) {
+        await ensureLeadHasMapPin(adminClient, {
+          id: lead.id,
+          org_id: orgId,
+          address_text: lead.address_text || appointment.address_text,
+          lat: lead.lat,
+          lng: lead.lng,
+        })
+      }
+    }
+  } catch (error) {
+    console.error('Scheduled inspection pin repair failed:', error)
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -153,6 +237,8 @@ export async function GET(request: NextRequest) {
     if (profileError || !profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
+
+    await repairScheduledInspectionPinsForOrg(adminClient, profile.org_id)
 
     // Determine visibility filter (same logic as /api/canvass/data)
     let visibleUserIds: string[] = []
