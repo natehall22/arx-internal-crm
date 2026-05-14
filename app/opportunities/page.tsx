@@ -147,6 +147,7 @@ export default function OpportunitiesPage() {
     } catch (err) {
       console.error('Error loading inside sales queue:', err)
       setInsideSalesError(err instanceof Error ? err.message : 'Failed to load inside sales queue')
+      setCanViewInsideSalesTab(true)
       setInsideSalesItems([])
     } finally {
       setInsideSalesAccessChecked(true)

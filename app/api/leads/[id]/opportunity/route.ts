@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
+import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 
 export const dynamic = 'force-dynamic'
 
@@ -122,6 +123,23 @@ export async function POST(
       .maybeSingle()
 
     if (existingOpp?.id) {
+      try {
+        const mapPin = await ensureLeadHasMapPinOrThrow(adminClient, {
+          id: lead.id,
+          org_id: profile.org_id,
+          address_text: lead.address_text,
+          lat: lead.lat,
+          lng: lead.lng,
+        })
+        await adminClient
+          .from('opportunities')
+          .update({ lat: mapPin.lat, lng: mapPin.lng })
+          .eq('id', existingOpp.id)
+          .eq('org_id', profile.org_id)
+      } catch (error) {
+        console.error('Could not refresh existing opportunity map pin:', error)
+      }
+
       return NextResponse.json(
         { opportunity_id: existingOpp.id, already_exists: true },
         { status: 200 }
@@ -130,6 +148,13 @@ export async function POST(
 
     const ownerUserId = lead.closer_user_id || profile.id
     const setterUserId = lead.owner_user_id || null
+    const mapPin = await ensureLeadHasMapPinOrThrow(adminClient, {
+      id: lead.id,
+      org_id: profile.org_id,
+      address_text: lead.address_text,
+      lat: lead.lat,
+      lng: lead.lng,
+    })
 
     // Omit `source` — some DBs have no `source` on opportunities (see canvass/lead insert).
     const { data: created, error: insertError } = await adminClient
@@ -143,8 +168,8 @@ export async function POST(
         status: 'open',
         project_type: 'roofing',
         address_text: lead.address_text || null,
-        lat: lead.lat ?? null,
-        lng: lead.lng ?? null,
+        lat: mapPin.lat,
+        lng: mapPin.lng,
         notes: lead.notes || null,
       })
       .select('id')

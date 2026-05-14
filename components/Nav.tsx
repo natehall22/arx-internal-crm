@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 // Include legacy roles for backwards compatibility
-type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'canvasser' | 'operations' | 'owner'
+type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'inside_sales' | 'canvasser' | 'operations' | 'owner'
 
 type NavItem = {
   href: string
@@ -174,7 +174,7 @@ export default function Nav() {
     ...(hasOpsAccess ? [{ href: '/ops/dashboard', label: isOpsOnly ? 'Dashboard' : 'Ops Dashboard', roles: ['admin', 'regional_manager', 'operations', 'manager', 'owner'] as AnyUserRole[] }] : []),
     { href: '/calendar', label: 'Calendar', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/leads', label: 'Leads' },
-    { href: '/opportunities', label: 'Opportunities', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    { href: '/opportunities', label: 'Opportunities', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'inside_sales', 'rep', 'operations', 'owner'] },
     { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/ops', label: 'Job Board', roles: ['admin', 'operations', 'owner'] },
     { href: '/canvass', label: 'Canvass' },
