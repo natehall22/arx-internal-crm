@@ -1211,7 +1211,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'AI roof trace is temporarily disabled. Use “Load roof (Google Solar)” or draw facets on the map.',
+            'Photo trace is temporarily disabled. Reload outline from satellite or draw sections on the map.',
         },
         { status: 503 }
       )
@@ -1270,7 +1270,7 @@ export async function POST(request: Request) {
             step_flashing: [],
             wall_flashing: [],
             notes:
-              'Google Solar only returned rough segment boxes here, not roof-face outlines. Use AI trace roof or draw facets manually.',
+              'Satellite data only had rough boxes here, not clean outlines. Try “Trace from photo” or draw roof sections on the map.',
             solar_segments: solarSegments,
             solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
             requested_center: requestedCenter,
@@ -1334,7 +1334,7 @@ export async function POST(request: Request) {
             step_flashing: [],
             wall_flashing: [],
             notes:
-              'Google Solar returned geometry for this area, but nothing passed the map-pin / overlap filters. Center the pin on the house and try again, use AI trace roof, or draw facets manually.',
+              'Nothing passed the location filters. Center the map on the house and tap Reload, try Trace from photo, or draw sections manually.',
             solar_segments: solarSegments,
             solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
             requested_center: requestedCenter,
@@ -1360,10 +1360,10 @@ export async function POST(request: Request) {
             : 'solar_bbox'
         const solarNotes =
           facetSource === 'solar_mask_plane'
-            ? 'Roof planes from Google Solar mask (GeoTIFF), split by Solar segment centers so outlines follow real edges instead of axis-aligned boxes. Drag corners to fine-tune. Use “AI trace roof” only if you need GPT from a static map (OpenAI cost).'
+            ? 'Roof sections from satellite mask (GeoTIFF), split to follow edges better than plain boxes. Drag corners to fine-tune. Use “Trace from photo” only if you need an AI redraw (extra cost).'
             : facetSource === 'solar_mask_whole'
-              ? 'Roof outline loaded from Google Solar mask (GeoTIFF). It matched the map pin, but Solar did not provide reliable per-plane splits, so review the outline, split roof planes manually, and set pitch before quoting.'
-            : 'Roof planes loaded from Google Solar (no AI vision). Shapes are segment bounding boxes—drag corners to match the satellite roof. Use “AI trace roof” only if you need GPT to redraw from imagery (OpenAI cost).'
+              ? 'Roof outline loaded from satellite mask. Solar did not split planes cleanly—review the outline, split faces if needed, and set pitch.'
+              : 'Roof sections from satellite (no photo AI). Shapes may be simple boxes—drag corners to match the roof. Use “Trace from photo” only for an AI redraw (extra cost).'
         const notes = [dropped_note, solarNotes].filter(Boolean).join(' ')
 
         return NextResponse.json({
@@ -1398,7 +1398,7 @@ export async function POST(request: Request) {
         step_flashing: [],
         wall_flashing: [],
         notes:
-          'No Google Solar roof boxes for this pin (or API unavailable). Center the map on the house and try again, use “AI trace roof” if OpenAI is configured, or draw facets manually.',
+          'No satellite roof outlines for this pin (or API unavailable). Center on the house, reload, try Trace from photo if configured, or draw sections manually.',
         solar_segments: solarSegments,
         solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
         requested_center: requestedCenter,
@@ -1421,7 +1421,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'OPENAI_API_KEY missing. Choose “Load roof (Solar)” when Google Solar has data, or add a key for AI trace mode.',
+            'OPENAI_API_KEY missing. Reload from satellite when data exists, or add a key to use Trace from photo.',
         },
         { status: 500 }
       )
@@ -1535,7 +1535,17 @@ export async function POST(request: Request) {
     const usingClientImage = typeof imageBase64 === 'string' && imageBase64.trim().length > 0
     const geoCenterForPixels =
       usingClientImage && !alignWithClientMap ? captureCenter : localizedCenter
-    const geoZoomForPixels = usingClientImage && !alignWithClientMap ? detectionZoomBase : finalZoom
+    /**
+     * Client static snapshots use `zoom` from the live map (see roof-measure page). `finalZoom` can differ
+     * after localization heuristics — using it for pixel→lat/lng while the bitmap was captured at `zoom`
+     * skews vision traces into “floating” boxes off the roof.
+     */
+    const geoZoomForPixels =
+      usingClientImage && alignWithClientMap
+        ? normalizedZoom
+        : usingClientImage && !alignWithClientMap
+          ? detectionZoomBase
+          : finalZoom
 
     const solarPixelHints = buildSolarPixelPlaneHints(
       solarSegments,
@@ -1592,9 +1602,9 @@ export async function POST(request: Request) {
     let qualityGateNote: string | null = null
     if (stackedBandTrace) {
       qualityGateNote =
-        'AI trace was rejected because it looked like stacked placeholder bands instead of real roof planes. No draft geometry was loaded; draw the visible facets manually or retry after centering/zooming tighter on the roof.'
+        'Photo trace was rejected because it looked like placeholder shapes, not real roof planes. Draw sections on the map or reload from satellite after zooming tighter on the roof.'
     } else if (placeholderRejectedIds.size > 0) {
-      qualityGateNote = `${placeholderRejectedIds.size} placeholder-looking AI facet(s) were removed. Review any remaining facets and draw missing roof faces manually.`
+      qualityGateNote = `${placeholderRejectedIds.size} rough auto-shape(s) were removed. Review what’s left and draw any missing roof sections on the map.`
     }
 
     const facetsMapped: FacetResponsePayload[] = rawFacets
@@ -1640,13 +1650,24 @@ export async function POST(request: Request) {
               : modelSolarIdx == null
                 ? nearestSolarSegment?.segment_index ?? null
                 : null
+        const modelEstimatedSqFt =
+          typeof facet.estimated_sq_ft === 'number' && Number.isFinite(facet.estimated_sq_ft) && facet.estimated_sq_ft > 0
+            ? facet.estimated_sq_ft
+            : null
+        const geometryEstimatedSqFt =
+          latLngVertices.length >= 3 ? planarPolygonAreaSqFt(latLngVertices) : null
+        const estimatedSqFt =
+          modelEstimatedSqFt ??
+          (typeof geometryEstimatedSqFt === 'number' && Number.isFinite(geometryEstimatedSqFt) && geometryEstimatedSqFt > 0
+            ? geometryEstimatedSqFt
+            : null)
 
         return {
           id: facet.id || `facet_${idx + 1}`,
           vertices,
           lat_lng_vertices: latLngVertices,
           confidence: Number(facet.confidence) || 0,
-          estimated_sq_ft: typeof facet.estimated_sq_ft === 'number' ? facet.estimated_sq_ft : null,
+          estimated_sq_ft: estimatedSqFt,
           solar_segment_index: solarSegmentIndexOut,
           suggested_pitch_degrees: pitchSegment?.pitch_degrees ?? null,
           suggested_azimuth_degrees: pitchSegment?.azimuth_degrees ?? null,

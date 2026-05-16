@@ -203,3 +203,13 @@ textarea::placeholder {
 .pac-icon {
   filter: invert(1) !important;
 }
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+  }
+}

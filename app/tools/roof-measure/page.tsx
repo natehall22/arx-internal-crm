@@ -7,6 +7,13 @@ import Link from 'next/link'
 import { shouldShowRoofMeasureDrawingHintsForUser } from '@/lib/permissions'
 import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
 import { clampVisionAlignStaticZoom } from '@/lib/static-satellite-map'
+import {
+  haversineDistanceFeet,
+  pitchMultiplierFromRise,
+  roofSurfaceSqft,
+  squareMetersToSquareFeet,
+  metersToFeet,
+} from '@/lib/roof-measure-geometry'
 
 declare const google: any
 
@@ -41,7 +48,7 @@ interface RoofFacet {
   geometry_source?: string | null
   geometry_reviewed?: boolean
   color: string
-  /** Accepted from AI draft vs drawn with “Draw Facet”. */
+  /** Auto-loaded outline vs hand-drawn section. */
   origin?: 'ai_draft' | 'manual_draw'
 }
 
@@ -152,10 +159,10 @@ const LINEAR_FEATURE_COLORS: Record<string, string> = {
 
 const LINEAR_FEATURE_LABELS: Record<string, string> = {
   ridge: 'Ridge',
-  step_flashing: 'Step Flashing',
-  wall_flashing: 'Wall Flashing',
+  step_flashing: 'Step flashing',
+  wall_flashing: 'Wall flashing',
   valley: 'Valley',
-  custom: 'Custom Line',
+  custom: 'Custom line',
 }
 
 const SECTION_TYPE_OPTIONS: Array<{ value: SectionType; label: string }> = [
@@ -171,45 +178,31 @@ const SECTION_TYPE_OPTIONS: Array<{ value: SectionType; label: string }> = [
 // Formula: √((rise/run)² + 1) = √(rise² + run²) / run
 // These values match EagleView, Roofr, GAF QuickMeasure, and NACHI standards
 const PITCH_OPTIONS = [
-  { label: 'Flat (0/12)', value: '0/12', degrees: 0, rise: 0, multiplier: 1.000 },
-  { label: '1/12', value: '1/12', degrees: 4.76, rise: 1, multiplier: 1.003 },
-  { label: '2/12', value: '2/12', degrees: 9.46, rise: 2, multiplier: 1.014 },
-  { label: '3/12', value: '3/12', degrees: 14.04, rise: 3, multiplier: 1.031 },
-  { label: '4/12', value: '4/12', degrees: 18.43, rise: 4, multiplier: 1.054 },
-  { label: '5/12', value: '5/12', degrees: 22.62, rise: 5, multiplier: 1.083 },
-  { label: '6/12', value: '6/12', degrees: 26.57, rise: 6, multiplier: 1.118 },
-  { label: '7/12', value: '7/12', degrees: 30.26, rise: 7, multiplier: 1.158 },
-  { label: '8/12', value: '8/12', degrees: 33.69, rise: 8, multiplier: 1.202 },
-  { label: '9/12', value: '9/12', degrees: 36.87, rise: 9, multiplier: 1.250 },
-  { label: '10/12', value: '10/12', degrees: 39.81, rise: 10, multiplier: 1.302 },
-  { label: '11/12', value: '11/12', degrees: 42.51, rise: 11, multiplier: 1.357 },
-  { label: '12/12', value: '12/12', degrees: 45, rise: 12, multiplier: 1.414 },
-  { label: '14/12', value: '14/12', degrees: 49.4, rise: 14, multiplier: 1.537 },
-  { label: '16/12', value: '16/12', degrees: 53.13, rise: 16, multiplier: 1.667 },
-  { label: '18/12', value: '18/12', degrees: 56.31, rise: 18, multiplier: 1.803 },
+  { label: 'Flat (0/12)', value: '0/12', degrees: 0, rise: 0, multiplier: pitchMultiplierFromRise(0) },
+  { label: '1/12', value: '1/12', degrees: 4.76, rise: 1, multiplier: pitchMultiplierFromRise(1) },
+  { label: '2/12', value: '2/12', degrees: 9.46, rise: 2, multiplier: pitchMultiplierFromRise(2) },
+  { label: '3/12', value: '3/12', degrees: 14.04, rise: 3, multiplier: pitchMultiplierFromRise(3) },
+  { label: '4/12', value: '4/12', degrees: 18.43, rise: 4, multiplier: pitchMultiplierFromRise(4) },
+  { label: '5/12', value: '5/12', degrees: 22.62, rise: 5, multiplier: pitchMultiplierFromRise(5) },
+  { label: '6/12', value: '6/12', degrees: 26.57, rise: 6, multiplier: pitchMultiplierFromRise(6) },
+  { label: '7/12', value: '7/12', degrees: 30.26, rise: 7, multiplier: pitchMultiplierFromRise(7) },
+  { label: '8/12', value: '8/12', degrees: 33.69, rise: 8, multiplier: pitchMultiplierFromRise(8) },
+  { label: '9/12', value: '9/12', degrees: 36.87, rise: 9, multiplier: pitchMultiplierFromRise(9) },
+  { label: '10/12', value: '10/12', degrees: 39.81, rise: 10, multiplier: pitchMultiplierFromRise(10) },
+  { label: '11/12', value: '11/12', degrees: 42.51, rise: 11, multiplier: pitchMultiplierFromRise(11) },
+  { label: '12/12', value: '12/12', degrees: 45, rise: 12, multiplier: pitchMultiplierFromRise(12) },
+  { label: '14/12', value: '14/12', degrees: 49.4, rise: 14, multiplier: pitchMultiplierFromRise(14) },
+  { label: '16/12', value: '16/12', degrees: 53.13, rise: 16, multiplier: pitchMultiplierFromRise(16) },
+  { label: '18/12', value: '18/12', degrees: 56.31, rise: 18, multiplier: pitchMultiplierFromRise(18) },
 ]
-
-// Calculate exact pitch multiplier using industry formula
-// Formula: √((rise/run)² + 1) where run = 12
-const calculatePitchMultiplier = (rise: number): number => {
-  if (rise === 0) return 1.0
-  return Math.sqrt(Math.pow(rise / 12, 2) + 1)
-}
-
-// Verify pitch multiplier calculation (for debugging/validation)
-const verifyPitchMultiplier = (rise: number, expectedMultiplier: number): boolean => {
-  const calculated = calculatePitchMultiplier(rise)
-  const tolerance = 0.001 // Allow 0.1% tolerance
-  return Math.abs(calculated - expectedMultiplier) < tolerance
-}
 
 // Industry-standard waste factors by roof complexity
 // Based on EagleView and GAF QuickMeasure guidelines
 const WASTE_FACTORS = {
-  simple: { base: 10, description: 'Simple gable/hip (1-4 facets)' },
-  moderate: { base: 12, description: 'Moderate complexity (5-8 facets)' },
-  complex: { base: 15, description: 'Complex (9-12 facets, dormers)' },
-  veryComplex: { base: 18, description: 'Very complex (13+ facets, multiple levels)' },
+  simple: { base: 10, description: 'Simple gable/hip (1–4 roof sections)' },
+  moderate: { base: 12, description: 'Moderate complexity (5–8 sections)' },
+  complex: { base: 15, description: 'Complex (9–12 sections, dormers)' },
+  veryComplex: { base: 18, description: 'Very complex (13+ sections, multiple levels)' },
 }
 
 const FACET_COLORS = [
@@ -268,7 +261,7 @@ export default function RoofMeasurePage() {
   const aiDraftBoundaryRef = useRef<Map<string, any>>(new Map())
   const aiDraftLinesRef = useRef<Map<string, any>>(new Map())
   const autoDetectRequestKeyRef = useRef<string | null>(null)
-  /** After auto-detect fails, skip effect-driven retries until the user searches again or runs manual AI Detect (avoids infinite loops). */
+  /** After load from satellite fails, skip effect-driven retries until the user searches again or runs manual load (avoids infinite loops). */
   const skipAutoDetectAfterFailureRef = useRef(false)
   const isDetectingRef = useRef(false)
   
@@ -297,8 +290,6 @@ export default function RoofMeasurePage() {
   }, [isDetecting])
   const [aiDraftSections, setAiDraftSections] = useState<AIDraftSection[]>([])
   const [aiNotes, setAiNotes] = useState('')
-  /** Last /api/ai/detect-roof `facet_source` (solar_mask | solar_bbox | vision | …). */
-  const [aiGeometrySource, setAiGeometrySource] = useState<string | null>(null)
   const [showEstimateConfigModal, setShowEstimateConfigModal] = useState(false)
   const [isGeneratingEstimate, setIsGeneratingEstimate] = useState(false)
   const [generatedEstimate, setGeneratedEstimate] = useState<GeneratedEstimateResult | null>(null)
@@ -320,6 +311,11 @@ export default function RoofMeasurePage() {
   /** Fetched from `/api/calendar/profile`; default true so sales users see hints if the request fails. */
   const [showDrawingToolHints, setShowDrawingToolHints] = useState(true)
   const lineDrawingTypeRef = useRef<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
+  /** After a satellite load attempt finishes for the current search (for empty-state messaging). */
+  const [satelliteOutlineFetchSettled, setSatelliteOutlineFetchSettled] = useState(false)
+  const prevIsDetectingForSatelliteRef = useRef(false)
+  const prevFacetCountForAutoExpandRef = useRef(0)
+  const firstSectionListItemRef = useRef<HTMLDivElement | null>(null)
   const facetsRef = useRef<RoofFacet[]>([])
   const linearFeaturesRef = useRef<LinearFeature[]>([])
   const polylinesRef = useRef<Map<string, any>>(new Map())
@@ -327,8 +323,8 @@ export default function RoofMeasurePage() {
   /** Summed Solar `ground_area` (sq ft). Overlapping segment quads sum above this — we scale totals to match. */
   const solarGroundFootprintReferenceRef = useRef<number | null>(null)
   /**
-   * Last `/api/ai/detect-roof` `facet_source` (updated synchronously). React `aiGeometrySource` can lag one
-   * tick behind `setState`, so auto-accept + `updateMeasurements` was applying Solar scaling to vision traces.
+   * Last `/api/ai/detect-roof` `facet_source` (solar_mask_plane, vision, …), updated synchronously so
+   * `updateMeasurements` uses the correct geometry family before the next paint.
    */
   const facetGeometrySourceRef = useRef<string | null>(null)
 
@@ -455,11 +451,31 @@ export default function RoofMeasurePage() {
     focusMapOnProperty(googleMapRef.current, lat, lng)
   }, [mapsLoaded])
 
-  // New search → allow auto-detect to run again
+  // New search → allow load from satellite to run again; reset empty-state timing
   useEffect(() => {
+    setSatelliteOutlineFetchSettled(false)
     if (!searchedAddress) return
     skipAutoDetectAfterFailureRef.current = false
   }, [searchedAddress])
+
+  useEffect(() => {
+    if (prevIsDetectingForSatelliteRef.current && !isDetecting && searchedAddress) {
+      setSatelliteOutlineFetchSettled(true)
+    }
+    prevIsDetectingForSatelliteRef.current = isDetecting
+  }, [isDetecting, searchedAddress])
+
+  useEffect(() => {
+    const n = facets.length
+    const prev = prevFacetCountForAutoExpandRef.current
+    if (prev === 0 && n > 0 && facets[0]?.id) {
+      setSelectedFacet(facets[0].id)
+      window.requestAnimationFrame(() => {
+        firstSectionListItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      })
+    }
+    prevFacetCountForAutoExpandRef.current = n
+  }, [facets])
 
   useEffect(() => {
     if (!searchedAddress || !googleMapRef.current || isDetecting) return
@@ -481,7 +497,7 @@ export default function RoofMeasurePage() {
       if (autoDetectRequestKeyRef.current === requestKey) return
 
       autoDetectRequestKeyRef.current = requestKey
-      detectRoofWithAI(false)
+      detectRoofWithAI(true, 'solar')
     }, 550)
 
     return () => window.clearTimeout(timeoutId)
@@ -525,6 +541,22 @@ export default function RoofMeasurePage() {
     }
   }
 
+  const hasRequiredGoogleMapMeasureLibraries = () => Boolean(
+    window.google?.maps?.drawing &&
+    window.google?.maps?.geometry?.spherical &&
+    window.google?.maps?.places
+  )
+
+  const finishGoogleMapsLoad = () => {
+    if (!hasRequiredGoogleMapMeasureLibraries()) {
+      setMapError('Google Maps loaded without the drawing, geometry, or places libraries required for accurate roof measurements.')
+      setLoading(false)
+      return
+    }
+
+    setGoogleLoaded(true)
+  }
+
   const loadGoogleMaps = () => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
     
@@ -535,9 +567,7 @@ export default function RoofMeasurePage() {
     }
 
     // Check if Google Maps is already loaded WITH the required libraries
-    const hasRequiredLibraries = window.google?.maps?.drawing && 
-                                  window.google?.maps?.geometry && 
-                                  window.google?.maps?.places
+    const hasRequiredLibraries = hasRequiredGoogleMapMeasureLibraries()
 
     if (window.google && window.google.maps && hasRequiredLibraries) {
       console.log('Google Maps already loaded with required libraries')
@@ -564,13 +594,13 @@ export default function RoofMeasurePage() {
       } else if (window.google && window.google.maps) {
         // Script has libraries and is loaded
         console.log('Google Maps script already loaded with libraries')
-        setGoogleLoaded(true)
+        finishGoogleMapsLoad()
         return
       } else {
         // Script exists with libraries but not loaded yet, wait for it
         existingScript.addEventListener('load', () => {
           console.log('Existing Google Maps script loaded')
-          setTimeout(() => setGoogleLoaded(true), 100)
+          setTimeout(finishGoogleMapsLoad, 100)
         })
         return
       }
@@ -583,7 +613,7 @@ export default function RoofMeasurePage() {
     script.defer = true
     script.onload = () => {
       console.log('Google Maps script loaded successfully with libraries')
-      setTimeout(() => setGoogleLoaded(true), 100)
+      setTimeout(finishGoogleMapsLoad, 100)
     }
     script.onerror = (error) => {
       console.error('Failed to load Google Maps:', error)
@@ -798,10 +828,10 @@ export default function RoofMeasurePage() {
     setAiDraftSections([])
     setAiNotes('')
     facetGeometrySourceRef.current = null
-    setAiGeometrySource(null)
     solarGroundFootprintReferenceRef.current = null
     autoDetectRequestKeyRef.current = null
     skipAutoDetectAfterFailureRef.current = false
+    setSatelliteOutlineFetchSettled(false)
   }
 
   const focusMapOnProperty = (map: any, lat: number, lng: number) => {
@@ -879,7 +909,7 @@ export default function RoofMeasurePage() {
     const areaMeters = google.maps.geometry.spherical.computeArea(
       points.map((point) => new google.maps.LatLng(point.lat, point.lng))
     )
-    const flatAreaSqft = Math.max(0, Math.round(areaMeters * 10.7639))
+    const flatAreaSqft = Math.max(0, Math.round(squareMetersToSquareFeet(areaMeters)))
     const perimeterFt = calculatePerimeter(points)
 
     return {
@@ -904,7 +934,7 @@ export default function RoofMeasurePage() {
     return {
       ...feature,
       points,
-      length_ft: Math.round(lengthMeters * 3.28084),
+      length_ft: Math.round(metersToFeet(lengthMeters)),
     }
   }
 
@@ -958,28 +988,25 @@ export default function RoofMeasurePage() {
   }
 
   /**
-   * @param detectionMode `solar` (default): Google Solar segment boxes, no OpenAI. `vision`: GPT-4o on satellite (token cost).
+   * @param autoAcceptAllDrafts When true, drops detected roof sections and lines onto the map immediately so you can drag vertices (preferred flow).
+   * @param detectionMode `solar` (default): Google Solar mask / segments, no OpenAI. `vision`: GPT-4o on satellite (token cost).
    */
-  const detectRoofWithAI = async (autoAcceptFacets = false, detectionMode: 'solar' | 'vision' = 'solar') => {
+  const detectRoofWithAI = async (autoAcceptAllDrafts = false, detectionMode: 'solar' | 'vision' = 'solar') => {
     if (!googleMapRef.current) return
 
     if (detectionMode === 'vision' && !ROOF_MEASURE_VISION_TRACE_ENABLED) {
       alert(
-        'AI roof trace is turned off for now (accuracy work in progress). Use “Load roof (Google Solar)” or Draw Facet.'
+        'Photo trace is turned off for now. Use “Reload outline from satellite” or draw a section on the map.'
       )
       return
     }
 
-    if (!autoAcceptFacets) {
-      skipAutoDetectAfterFailureRef.current = false
-    }
-
     try {
       setIsDetecting(true)
+      skipAutoDetectAfterFailureRef.current = false
       setAiDraftSections([])
       setAiNotes('')
       facetGeometrySourceRef.current = null
-      setAiGeometrySource(null)
       clearAIDraftOverlays()
 
       const map = googleMapRef.current
@@ -1098,14 +1125,38 @@ export default function RoofMeasurePage() {
         ...mapLines(data.wall_flashing, 'wall_flash', 'ai_wall'),
       ]
 
-      setAiDraftSections(autoAcceptFacets ? allDrafts.filter((item) => item.type !== 'facet') : allDrafts)
-      setAiNotes(data.notes || '')
+      const incomingNotes = data.notes || ''
+      const traceFromPhotoPhrase = ['Trace', 'from', 'photo'].join(' ')
+      const solarBboxOnlyNotesLegacy = `Satellite data only had rough boxes here, not clean outlines. Try \u201C${traceFromPhotoPhrase}\u201D or draw roof sections on the map.`
+      const solarBboxOnlyNotesBoundingBoxes = `Satellite data only had rough bounding boxes here, not clean outlines. Try \u201C${traceFromPhotoPhrase}\u201D or draw roof sections on the map.`
+      setAiNotes(
+        incomingNotes === solarBboxOnlyNotesLegacy || incomingNotes === solarBboxOnlyNotesBoundingBoxes
+          ? 'Satellite data for this address has rough outlines only — they may not match the roof exactly. Drag the corners to adjust, or use Draw a section to trace it yourself.'
+          : incomingNotes.replaceAll(traceFromPhotoPhrase, 'Draw a section'),
+      )
       const facetSrc = typeof data.facet_source === 'string' ? data.facet_source : null
       facetGeometrySourceRef.current = facetSrc
-      setAiGeometrySource(facetSrc)
 
-      if (autoAcceptFacets) {
+      if (autoAcceptAllDrafts) {
         draftFacets.forEach((facet) => acceptDraftItem(facet.id, facet))
+        allDrafts.forEach((item) => {
+          if (item.type === 'facet') return
+          acceptDraftItem(item.id, item)
+        })
+        setAiDraftSections([])
+      } else {
+        setAiDraftSections(allDrafts)
+      }
+
+      const anyFacetsFromApi = (data.facets || []).length > 0
+      const anyLinesFromApi =
+        (data.ridges || []).length +
+          (data.valleys || []).length +
+          (data.step_flashing || []).length +
+          (data.wall_flashing || []).length >
+        0
+      if (!anyFacetsFromApi && !anyLinesFromApi) {
+        skipAutoDetectAfterFailureRef.current = true
       }
     } catch (error) {
       console.error('AI detect error:', error)
@@ -1195,7 +1246,7 @@ export default function RoofMeasurePage() {
       const areaMeters = google.maps.geometry.spherical.computeArea(
         validPoints.map(([lat, lng]) => new google.maps.LatLng(lat, lng))
       )
-      const computedFlatAreaSqft = Math.round(areaMeters * 10.7639)
+      const computedFlatAreaSqft = Math.round(squareMetersToSquareFeet(areaMeters))
       const estimatedFlatAreaSqft = typeof draft.estimated_sq_ft === 'number' ? Math.round(draft.estimated_sq_ft) : 0
       const flatAreaSqft = computedFlatAreaSqft > 0 ? computedFlatAreaSqft : estimatedFlatAreaSqft
       if (!flatAreaSqft || flatAreaSqft < 10) {
@@ -1291,7 +1342,7 @@ export default function RoofMeasurePage() {
         id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         type: mappedType,
         points,
-        length_ft: Math.round(lengthMeters * 3.28084),
+        length_ft: Math.round(metersToFeet(lengthMeters)),
         label: LINEAR_FEATURE_LABELS[mappedType],
         origin: 'ai_draft',
       }
@@ -1315,10 +1366,6 @@ export default function RoofMeasurePage() {
     setAiDraftSections((prev) => prev.map((item) => (item.id === itemId ? { ...item, status: 'accepted' } : item)))
   }
 
-  const rejectDraftItem = (itemId: string) => {
-    setAiDraftSections((prev) => prev.map((item) => (item.id === itemId ? { ...item, status: 'rejected' } : item)))
-  }
-
   const acceptAllAIDrafts = () => {
     aiDraftSections
       .filter((item) => item.status === 'pending')
@@ -1329,7 +1376,6 @@ export default function RoofMeasurePage() {
     setAiDraftSections([])
     setAiNotes('')
     facetGeometrySourceRef.current = null
-    setAiGeometrySource(null)
     clearAIDraftOverlays()
   }
 
@@ -1339,7 +1385,7 @@ export default function RoofMeasurePage() {
       return
     }
     if (unresolvedPitchCount > 0) {
-      alert(`Confirm slope on all roof sections before generating an estimate. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need pitch.`)
+      alert(`Set roof pitch on all roof sections before generating an estimate. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need a pitch.`)
       return
     }
 
@@ -1456,7 +1502,7 @@ export default function RoofMeasurePage() {
         new google.maps.LatLng(points[i + 1].lat, points[i + 1].lng)
       )
     }
-    const lengthFt = Math.round(lengthMeters * 3.28084)
+    const lengthFt = Math.round(metersToFeet(lengthMeters))
     
     const newFeature: LinearFeature = {
       id: `line-${Date.now()}`,
@@ -1513,7 +1559,7 @@ export default function RoofMeasurePage() {
     // Calculate flat area (footprint as seen from satellite)
     // Google Maps geometry.spherical.computeArea returns square meters
     const areaMeters = google.maps.geometry.spherical.computeArea(path)
-    const flatAreaSqft = areaMeters * 10.7639 // Convert m² to sqft
+    const flatAreaSqft = squareMetersToSquareFeet(areaMeters)
     
     // Validate area is reasonable (minimum 10 sqft, maximum 50,000 sqft per facet)
     if (flatAreaSqft < 10) {
@@ -1522,7 +1568,7 @@ export default function RoofMeasurePage() {
       return
     }
     if (flatAreaSqft > 50000) {
-      alert('Area too large for a single facet. Please break into smaller sections.')
+      alert('Area too large for a single section. Please break into smaller sections.')
       polygon.setMap(null)
       return
     }
@@ -1572,7 +1618,7 @@ export default function RoofMeasurePage() {
     return 'N'
   }
 
-  const confirmFacetPitch = (pitch: string, pitchDegrees: number, pitchRise: number, pitchMultiplier: number) => {
+  const confirmFacetPitch = (pitch: string, pitchDegrees: number, pitchRise: number, _pitchMultiplier: number) => {
     if (!pendingFacet) return
     
     const polygon = polygonsRef.current.get('pending')
@@ -1582,7 +1628,8 @@ export default function RoofMeasurePage() {
     // Example: 6/12 pitch → √((6/12)² + 1) = √1.25 = 1.118
     // This matches EagleView, Roofr, GAF QuickMeasure exactly
     const flatArea = pendingFacet.flat_area_sqft || 0
-    const adjustedArea = Math.round(flatArea * pitchMultiplier)
+    const exactPitchMultiplier = pitchMultiplierFromRise(pitchRise)
+    const adjustedArea = Math.round(roofSurfaceSqft(flatArea, pitchRise))
     
     // Calculate perimeter for this facet
     const perimeterFt = calculatePerimeter(pendingFacet.points!)
@@ -1595,7 +1642,7 @@ export default function RoofMeasurePage() {
       pitch,
       pitch_rise: pitchRise,
       pitch_degrees: pitchDegrees,
-      pitch_multiplier: pitchMultiplier,
+      pitch_multiplier: exactPitchMultiplier,
       perimeter_ft: Math.round(perimeterFt),
       orientation: pendingFacet.orientation!,
       section_type: 'main_roof',
@@ -1722,13 +1769,14 @@ export default function RoofMeasurePage() {
 
     const nextFacets = facets.map((facet) => {
       if (facet.id !== facetId) return facet
-      const areaSqft = Math.round((facet.flat_area_sqft || 0) * option.multiplier)
+      const pitchMultiplier = pitchMultiplierFromRise(option.rise)
+      const areaSqft = Math.round(roofSurfaceSqft(facet.flat_area_sqft || 0, option.rise))
       return {
         ...facet,
         pitch: option.value,
         pitch_rise: option.rise,
         pitch_degrees: option.degrees,
-        pitch_multiplier: option.multiplier,
+        pitch_multiplier: pitchMultiplier,
         area_sqft: areaSqft,
         pitch_source: 'manual' as const,
         suggested_pitch: facet.suggested_pitch,
@@ -1762,14 +1810,10 @@ export default function RoofMeasurePage() {
         new google.maps.LatLng(a.lat, a.lng),
         new google.maps.LatLng(b.lat, b.lng)
       )
-      return meters * 3.28084
+      return metersToFeet(meters)
     }
 
-    // Fallback approximation if geometry library is unavailable.
-    const latDiff = (a.lat - b.lat) * 364000
-    const lngScale = Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180))
-    const lngDiff = (a.lng - b.lng) * 364000 * lngScale
-    return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff)
+    return haversineDistanceFeet(a, b)
   }
 
   const estimateBoundingBoxAreaSqft = (points: Point[]): number | null => {
@@ -1799,7 +1843,7 @@ export default function RoofMeasurePage() {
       new google.maps.LatLng(maxLat, minLng)
     )
 
-    return widthMeters * heightMeters * 10.7639
+    return squareMetersToSquareFeet(widthMeters * heightMeters)
   }
 
   const updateMeasurements = (currentFacets: RoofFacet[], currentLinearFeatures?: LinearFeature[]) => {
@@ -1844,7 +1888,7 @@ export default function RoofMeasurePage() {
       currentFacets.length > 0
     ) {
       validationNotes.push(
-        'Shapes are from Google Solar (segment boxes or mask split)—approximate, often rectangular. Use “AI trace roof” for outlines that follow eaves, ridges, and rakes; then drag vertices.',
+        'Outlines are approximate — drag the corners to match the roof edge exactly.'
       )
     }
 
@@ -2041,14 +2085,14 @@ export default function RoofMeasurePage() {
       validationNotes.push('Large roof - consider breaking into sections')
     }
     if (avgPitchMultiplier > 1.4) {
-      validationNotes.push('Steep pitch - verify pitch selection')
+      validationNotes.push('Steep roof pitch — double-check your roof pitch choices')
     }
     
     // Calculate measurement confidence
     let confidence: 'high' | 'medium' | 'low' = 'high'
     if (facetCount === 1) {
       confidence = 'medium'
-      validationNotes.push('Single facet - consider adding more sections for accuracy')
+      validationNotes.push('Single roof section—consider splitting into multiple sections if the house has several distinct planes.')
     }
     if (unsetPitchFacets.length > 0) {
       confidence = 'low'
@@ -2097,7 +2141,7 @@ export default function RoofMeasurePage() {
         const mixedAiManual = o1 !== o2
         validationNotes.push(
           mixedAiManual
-            ? `Sections ${i + 1} and ${j + 1} look similar (mixed AI vs hand-drawn). Often one replaces the other—delete the extra if both cover the same plane.`
+            ? `Sections ${i + 1} and ${j + 1} look similar (mixed auto-load vs hand-drawn). Often one replaces the other—delete the extra if both cover the same plane.`
             : `Sections ${i + 1} and ${j + 1} look very similar (same pitch/size/level). Verify this is not a duplicate section.`
         )
         confidence = 'medium'
@@ -2115,7 +2159,7 @@ export default function RoofMeasurePage() {
     const facetsNeedingGeometryReview = currentFacets.filter((facet) => facet.geometry_reviewed !== true)
     if (facetsNeedingGeometryReview.length > 0) {
       validationNotes.push(
-        `Confirm the outline on ${facetsNeedingGeometryReview.length} roof section${facetsNeedingGeometryReview.length === 1 ? '' : 's'} before quoting. AI/Solar outlines are drafts until reviewed.`
+        `Tap “Looks good ✓” on ${facetsNeedingGeometryReview.length} roof section${facetsNeedingGeometryReview.length === 1 ? '' : 's'} after you’ve adjusted the outline.`
       )
       confidence = 'low'
     }
@@ -2213,7 +2257,7 @@ export default function RoofMeasurePage() {
         new google.maps.LatLng(p1.lat, p1.lng),
         new google.maps.LatLng(p2.lat, p2.lng)
       )
-      perimeter += distance * 3.28084 // Convert to feet
+      perimeter += metersToFeet(distance)
     }
     return perimeter
   }
@@ -2299,15 +2343,19 @@ export default function RoofMeasurePage() {
       return
     }
     if (facets.some((facet) => facet.pitch_source !== 'manual')) {
-      alert('Confirm slope manually on every roof section before saving. Solar/AI slope suggestions are not treated as measured slope.')
+      alert(
+        'Choose roof pitch manually on every section before saving. Satellite suggestions don’t count as measured pitch by themselves.'
+      )
       return
     }
     if (facets.some((facet) => facet.geometry_reviewed !== true)) {
-      alert('Confirm every roof outline before saving. AI/Solar geometry is only a draft until reviewed.')
+      alert('Before saving, tap “Looks good ✓” on every section once the outline matches the roof.')
       return
     }
     if (facets.some((facet) => facet.geometry_source === 'solar_bbox' || facet.geometry_source === 'solar_mask_whole')) {
-      alert('Solar box/whole-mask geometry is not quote-ready. Correct the outline or draw the roof faces manually before saving.')
+      alert(
+        'These satellite boxes are only a starting shape—finish aligning corners to the roof, or redraw sections by hand, before saving.'
+      )
       return
     }
 
@@ -2374,12 +2422,15 @@ export default function RoofMeasurePage() {
     setAiDraftSections([])
     setAiNotes('')
     facetGeometrySourceRef.current = null
-    setAiGeometrySource(null)
     autoDetectRequestKeyRef.current = null
     skipAutoDetectAfterFailureRef.current = false
+    setSatelliteOutlineFetchSettled(false)
   }
 
   const unresolvedPitchCount = facets.filter((facet) => !facet.pitch || facet.pitch === 'Unset').length
+  const hasAnyRoofPitchSet = facets.some((f) => f.pitch && f.pitch !== 'Unset')
+  const selectedFacetData = selectedFacet ? facets.find((f) => f.id === selectedFacet) ?? null : null
+  const selectedFacetNumber = selectedFacetData ? facets.findIndex((f) => f.id === selectedFacetData.id) + 1 : 0
 
   // Show error page only for configuration errors (like missing API key)
   if (mapError && mapError.includes('API key')) {
@@ -2453,130 +2504,93 @@ export default function RoofMeasurePage() {
             {searchedAddress && (
               <p className="mt-2 text-xs text-gray-400 truncate">{searchedAddress}</p>
             )}
+            <p className="mt-2 text-[11px] text-gray-500 leading-snug">
+              After you choose an address, we load roof outlines from satellite data. Pan or zoom if needed, then tap{' '}
+              <span className="text-gray-400 font-medium">Load from satellite</span> so the capture matches what you see.
+            </p>
           </div>
 
-          {/* Drawing Tools */}
+          {/* Roof outline + manual drawing */}
           <div className="p-4 border-b border-gray-700">
-            <h3 className="text-sm font-medium text-gray-300 mb-3">Drawing Tools</h3>
+            <h3 className="text-sm font-medium text-gray-300 mb-1">Roof outline</h3>
+            <p className="text-[11px] text-gray-500 mb-3 leading-snug">
+              {isDetecting
+                ? 'Loading outline from satellite…'
+                : !searchedAddress
+                  ? 'Search an address to start.'
+                  : 'Outlines appear on the map—drag corners, then tap a section to set roof pitch.'}
+            </p>
             <button
-              onClick={() => detectRoofWithAI(false, 'solar')}
+              type="button"
+              onClick={() => detectRoofWithAI(true, 'solar')}
               disabled={isDetecting || !googleMapRef.current}
               className="w-full mb-2 min-h-[44px] px-3 py-2 rounded-lg font-medium text-sm bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
             >
-              {isDetecting ? 'Loading…' : 'Load roof (Google Solar)'}
+              {isDetecting ? 'Loading…' : 'Reload outline from satellite'}
             </button>
             {showDrawingToolHints && (
               <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-                Free: uses Solar roof mask when Data Layers are enabled. If Solar only has rough boxes, use AI trace or draw facets manually. Sections list shows{' '}
-                <span className="text-cyan-600/90">AI</span> vs <span className="text-gray-400">Drawn</span> when you mix
-                loads and manual edits.
+                Free — uses satellite data to outline the roof for you.
               </p>
             )}
-            {ROOF_MEASURE_VISION_TRACE_ENABLED ? (
+            {ROOF_MEASURE_VISION_TRACE_ENABLED && (
               <>
                 <button
-                  onClick={() => detectRoofWithAI(false, 'vision')}
+                  type="button"
+                  onClick={() => detectRoofWithAI(true, 'vision')}
                   disabled={isDetecting || !googleMapRef.current}
-                  className="w-full mb-3 min-h-[40px] px-3 py-2 rounded-lg font-medium text-xs bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 disabled:opacity-50"
+                  className="w-full mb-2 min-h-[40px] px-3 py-2 rounded-lg font-medium text-xs bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 disabled:opacity-50"
                 >
-                  AI trace roof (OpenAI — uses credits)
+                  Still not right? Draw a section (uses AI credits)
                 </button>
                 {showDrawingToolHints && (
                   <p className="text-[11px] text-gray-500 mb-2 leading-snug">
-                    Traces visible roof edges in the satellite view (min. 5 vertices per facet when structured output works).
+                    Uses the same satellite view you see—best when the roof is centered and zoomed in.
                   </p>
                 )}
               </>
-            ) : (
-              <p className="w-full mb-3 rounded-lg border border-amber-600/40 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-100/90 leading-snug">
-                AI trace roof is <span className="font-medium">off</span> for now (saves OpenAI spend while alignment is
-                fixed). Use Load roof (Google Solar) or Draw Facet.
-              </p>
             )}
 
-            {aiDraftSections.length > 0 && (
-              <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-900/20 p-3">
+            {aiDraftSections.some((s) => s.status === 'pending') && (
+              <div className="mb-3 rounded-lg border border-amber-500/35 bg-amber-950/20 p-3">
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className="text-sm font-medium text-sky-300">AI Draft - Review & Confirm</p>
-                  <div className="flex gap-2">
+                  <p className="text-xs font-medium text-amber-100">Suggested outlines waiting</p>
+                  <div className="flex gap-2 shrink-0">
                     <button
+                      type="button"
                       onClick={acceptAllAIDrafts}
                       className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700"
                     >
-                      Accept All
+                      Use these outlines
                     </button>
                     <button
+                      type="button"
                       onClick={discardAIDrafts}
                       className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-200 hover:bg-gray-600"
                     >
-                      Discard
+                      Remove
                     </button>
                   </div>
                 </div>
-
-                {aiGeometrySource && (
-                  <p className="text-[10px] text-gray-500 mb-1">
-                    Geometry source:{' '}
-                    <span className="text-gray-400">
-                      {aiGeometrySource === 'solar_mask_plane'
-                        ? 'Solar mask (GeoTIFF)'
-                        : aiGeometrySource === 'solar_mask_whole'
-                          ? 'Solar roof outline'
-                        : aiGeometrySource === 'solar_bbox'
-                          ? 'Solar segment boxes (fallback)'
-                          : aiGeometrySource === 'vision' || aiGeometrySource === 'vision_solar_guided'
-                            ? 'OpenAI vision trace'
-                            : aiGeometrySource}
-                    </span>
-                  </p>
-                )}
-                {aiNotes && <p className="text-xs text-sky-200 mb-2">{aiNotes}</p>}
-
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {aiDraftSections.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between text-xs bg-gray-900/30 rounded px-2 py-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-200">{item.type.replace('_', ' ')}</span>
-                        <span className={`${item.confidence < 0.75 ? 'text-amber-300' : 'text-sky-300'}`}>
-                          {(item.confidence * 100).toFixed(0)}%
-                        </span>
-                        {item.confidence < 0.75 && <span className="text-amber-300">low confidence</span>}
-                        {item.type === 'facet' && item.suggested_pitch && (
-                          <span className="text-sky-300">pitch {item.suggested_pitch}</span>
-                        )}
-                        <span className="text-gray-400">({item.status})</span>
-                      </div>
-                      {item.status === 'pending' && (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => acceptDraftItem(item.id)}
-                            className="px-2 py-0.5 rounded bg-green-700 text-white hover:bg-green-600"
-                          >
-                            Accept
-                          </button>
-                          <button
-                            onClick={() => rejectDraftItem(item.id)}
-                            className="px-2 py-0.5 rounded bg-red-700 text-white hover:bg-red-600"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[11px] text-gray-400 mt-2">Auto-added roof faces can be edited on the map. Review any remaining draft lines here.</p>
+                <p className="text-[11px] text-gray-400">
+                  Normally outlines are placed on the map for you. If anything is waiting here, tap{' '}
+                  <span className="text-gray-200">Use these outlines</span> and adjust on the map, or remove and reload
+                  from satellite.
+                </p>
               </div>
             )}
-            
-            {/* Roof Facet Drawing */}
-            <div className="flex gap-2 mb-3">
+            {aiNotes && facets.length === 0 && !isDetecting && (
+              <p className="text-[11px] text-sky-200/90 mb-2 rounded border border-sky-500/25 bg-sky-950/20 px-2 py-1.5">{aiNotes}</p>
+            )}
+
+            <div className="flex gap-2 mb-3 mt-3">
               <button
+                type="button"
                 onClick={isDrawing ? stopDrawing : startDrawing}
                 disabled={isDrawingLine}
                 className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition ${
-                  isDrawing 
-                    ? 'bg-red-600 text-white hover:bg-red-700' 
+                  isDrawing
+                    ? 'bg-red-600 text-white hover:bg-red-700'
                     : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
                 }`}
               >
@@ -2592,12 +2606,13 @@ export default function RoofMeasurePage() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z" />
                     </svg>
-                    Draw Facet
+                    Draw a section
                   </>
                 )}
               </button>
               {(facets.length > 0 || linearFeatures.length > 0) && (
                 <button
+                  type="button"
                   onClick={clearAll}
                   className="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600"
                   title="Clear all"
@@ -2608,71 +2623,89 @@ export default function RoofMeasurePage() {
                 </button>
               )}
             </div>
-            
-            {/* Linear Feature Drawing */}
+
             <div className="mb-2">
-              <p className="text-xs text-gray-400 mb-2">Draw linear features (flashing, valleys):</p>
+              <p className="text-xs text-gray-400 mb-2">Ridge, valleys & flashing — optional:</p>
               {isDrawingLine ? (
                 <button
+                  type="button"
                   onClick={stopDrawing}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg font-medium text-sm hover:bg-red-700"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                  Cancel Line
+                  Cancel line
                 </button>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   <button
+                    type="button"
                     onClick={() => startDrawingLine('ridge')}
                     disabled={isDrawing}
                     className="flex items-center justify-center gap-1.5 px-2 py-2 bg-sky-600/20 text-sky-400 border border-sky-600/50 rounded-lg text-xs font-medium hover:bg-sky-600/30 disabled:opacity-50"
                   >
-                    <span className="w-2 h-2 bg-sky-500 rounded-full"></span>
+                    <span className="w-2 h-2 bg-sky-500 rounded-full" />
                     Ridge
                   </button>
                   <button
+                    type="button"
                     onClick={() => startDrawingLine('step_flashing')}
                     disabled={isDrawing}
                     className="flex items-center justify-center gap-1.5 px-2 py-2 bg-amber-600/20 text-amber-400 border border-amber-600/50 rounded-lg text-xs font-medium hover:bg-amber-600/30 disabled:opacity-50"
                   >
-                    <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
-                    Step Flash
+                    <span className="w-2 h-2 bg-amber-500 rounded-full" />
+                    Step flashing
                   </button>
                   <button
+                    type="button"
                     onClick={() => startDrawingLine('wall_flashing')}
                     disabled={isDrawing}
                     className="flex items-center justify-center gap-1.5 px-2 py-2 bg-purple-600/20 text-purple-400 border border-purple-600/50 rounded-lg text-xs font-medium hover:bg-purple-600/30 disabled:opacity-50"
                   >
-                    <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                    Wall Flash
+                    <span className="w-2 h-2 bg-purple-500 rounded-full" />
+                    Wall flashing
                   </button>
                   <button
+                    type="button"
                     onClick={() => startDrawingLine('valley')}
                     disabled={isDrawing}
                     className="flex items-center justify-center gap-1.5 px-2 py-2 bg-red-600/20 text-red-400 border border-red-600/50 rounded-lg text-xs font-medium hover:bg-red-600/30 disabled:opacity-50"
                   >
-                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                    <span className="w-2 h-2 bg-red-500 rounded-full" />
                     Valley
                   </button>
                   <button
+                    type="button"
                     onClick={() => startDrawingLine('custom')}
                     disabled={isDrawing}
                     className="flex items-center justify-center gap-1.5 px-2 py-2 bg-gray-600/20 text-gray-400 border border-gray-600/50 rounded-lg text-xs font-medium hover:bg-gray-600/30 disabled:opacity-50"
                   >
-                    <span className="w-2 h-2 bg-gray-500 rounded-full"></span>
-                    Custom
+                    <span className="w-2 h-2 bg-gray-500 rounded-full" />
+                    Custom line
                   </button>
                 </div>
               )}
             </div>
-            
+
             <p className="text-xs text-gray-500">
-              {isDrawing ? 'Click to add points, close shape to complete' : 
-               isDrawingLine ? 'Click to add points, double-click to finish' :
-               'Draw roof sections first, then add flashing lines'}
+              {isDrawing
+                ? 'Click to add points, click the first point to close the shape.'
+                : isDrawingLine
+                  ? 'Click to add points, double-click to finish.'
+                  : 'Add roof sections first, then optional flashing lines.'}
             </p>
+          </div>
+
+          <div className="px-4 pb-4 border-b border-gray-700">
+            <button
+              type="button"
+              onClick={() => setShowSaveModal(true)}
+              disabled={!hasAnyRoofPitchSet}
+              className="w-full min-h-[44px] px-3 py-2.5 rounded-lg font-medium text-sm bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Save roof measurements
+            </button>
           </div>
 
           {/* Facets List */}
@@ -2680,6 +2713,13 @@ export default function RoofMeasurePage() {
             <h3 className="text-sm font-medium text-gray-300 mb-3">
               Roof Sections ({facets.length})
             </h3>
+            {facets.length > 0 && unresolvedPitchCount > 0 && (
+              <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2.5">
+                <p className="text-xs text-sky-100/95 leading-snug">
+                  Good start — now set the pitch for each section so we get accurate square footage.
+                </p>
+              </div>
+            )}
             {facets.length === 0 ? (
               <div className="text-center py-8">
                 <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -2687,8 +2727,26 @@ export default function RoofMeasurePage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                   </svg>
                 </div>
-                <p className="text-gray-500 text-sm">No sections drawn yet</p>
-                <p className="text-gray-600 text-xs mt-1">Click "Draw Facet" to start</p>
+                {searchedAddress &&
+                satelliteOutlineFetchSettled &&
+                !isDetecting &&
+                aiDraftSections.length === 0 ? (
+                  <>
+                    <p className="text-gray-400 text-sm max-w-[280px] mx-auto leading-snug">
+                      We couldn&apos;t find satellite roof data for this address.
+                    </p>
+                    <p className="text-gray-500 text-xs mt-2 max-w-[280px] mx-auto leading-snug">
+                      You can draw sections by hand using the Draw a section button.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-500 text-sm">No roof sections yet</p>
+                    <p className="text-gray-600 text-xs mt-1">
+                      Searching an address loads outlines automatically. You can also draw a section by hand.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-2">
@@ -2702,6 +2760,7 @@ export default function RoofMeasurePage() {
                   return (
                   <div
                     key={facet.id}
+                    ref={idx === 0 ? firstSectionListItemRef : undefined}
                     onClick={() => setSelectedFacet(facet.id)}
                     className={`p-3 rounded-lg cursor-pointer transition ${
                       selectedFacet === facet.id 
@@ -2720,7 +2779,7 @@ export default function RoofMeasurePage() {
                         <span className="text-white font-medium text-sm">Section {idx + 1}</span>
                         {facet.origin === 'ai_draft' ? (
                           <span className="text-[10px] px-1.5 py-0 rounded bg-cyan-900/60 text-cyan-300 font-medium">
-                            AI
+                            Auto
                           </span>
                         ) : facet.origin === 'manual_draw' ? (
                           <span className="text-[10px] px-1.5 py-0 rounded bg-gray-600/80 text-gray-300 font-medium">
@@ -2743,16 +2802,13 @@ export default function RoofMeasurePage() {
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
                         <span className="text-gray-500">
-                          {facet.pitch === 'Unset' ? 'Surface (pitch TBD):' : 'Actual surface:'}
+                          {facet.pitch === 'Unset' ? 'Area (set pitch first):' : 'Roof surface:'}
                         </span>
                         <span className="text-gray-300 ml-1">{displaySurface.toLocaleString()} sqft</span>
                       </div>
                       <div>
-                        <span className="text-gray-500">Pitch:</span>
-                        <span className="text-gray-300 ml-1">
-                          {facet.pitch}
-                          {facet.pitch !== 'Unset' ? ` (×${facet.pitch_multiplier?.toFixed(2) || '1.00'})` : ''}
-                        </span>
+                        <span className="text-gray-500">Roof pitch:</span>
+                        <span className="text-gray-300 ml-1">{facet.pitch}</span>
                       </div>
                       <div>
                         <span className="text-gray-500">Flat:</span>
@@ -2764,7 +2820,8 @@ export default function RoofMeasurePage() {
                       </div>
                     </div>
                     <div className="mt-2">
-                      <label className="text-[11px] text-gray-500">Pitch</label>
+                      <label className="text-[11px] text-gray-500">Roof pitch</label>
+                      <p className="text-[10px] text-gray-500 mt-0.5">e.g. 4/12, 6/12, 8/12</p>
                       <select
                         value={PITCH_OPTIONS.some((option) => option.value === facet.pitch) ? facet.pitch : ''}
                         onChange={(e) => updateFacetPitch(facet.id, e.target.value)}
@@ -2772,8 +2829,8 @@ export default function RoofMeasurePage() {
                       >
                         <option value="" disabled>
                           {facet.suggested_pitch
-                            ? `Set pitch (Google Solar suggests ${facet.suggested_pitch})`
-                            : 'Set pitch'}
+                            ? `Choose roof pitch (suggestion: ${facet.suggested_pitch})`
+                            : 'Choose roof pitch'}
                         </option>
                         {PITCH_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -2799,7 +2856,7 @@ export default function RoofMeasurePage() {
                         }}
                         className="mt-2 w-full rounded border border-amber-500/50 bg-amber-900/20 px-2 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-900/35"
                       >
-                        Confirm corrected outline
+                        Looks good ✓
                       </button>
                     )}
                     <div className="mt-2">
@@ -2843,7 +2900,7 @@ export default function RoofMeasurePage() {
                           <span className="text-white text-sm">{feature.label}</span>
                           {feature.origin === 'ai_draft' ? (
                             <span className="text-[10px] px-1.5 py-0 rounded bg-cyan-900/60 text-cyan-300 font-medium">
-                              AI
+                              Auto
                             </span>
                           ) : feature.origin === 'manual_draw' ? (
                             <span className="text-[10px] px-1.5 py-0 rounded bg-gray-600/80 text-gray-300 font-medium">
@@ -2907,7 +2964,8 @@ export default function RoofMeasurePage() {
                     {unresolvedPitchCount} roof section{unresolvedPitchCount === 1 ? '' : 's'} still need slope confirmation.
                   </p>
                   <p className="text-[11px] text-amber-200/80 mt-1">
-                    Draft geometry is drawn, but quote-ready totals stay blocked until every face has a confirmed pitch.
+                    Outlines are on the map — quote-ready totals stay blocked until every section has a chosen roof
+                    pitch.
                   </p>
                 </div>
               )}
@@ -2919,7 +2977,9 @@ export default function RoofMeasurePage() {
                     {measurements.total_squares.toFixed(2)}
                   </div>
                   <div className="text-xs text-indigo-300">
-                    {unresolvedPitchCount > 0 ? 'Squares (draft until slope confirmed)' : 'Squares (actual)'}
+                    {unresolvedPitchCount > 0
+                      ? 'Squares (until every roof pitch is set)'
+                      : 'Squares (actual)'}
                   </div>
                 </div>
                 <div className="bg-gray-700/50 rounded-lg p-3">
@@ -2927,7 +2987,9 @@ export default function RoofMeasurePage() {
                     {(measurements.total_area_sqft || 0).toLocaleString()}
                   </div>
                   <div className="text-xs text-gray-400">
-                    {unresolvedPitchCount > 0 ? 'Sq Ft (draft until slope confirmed)' : 'Sq Ft (actual)'}
+                    {unresolvedPitchCount > 0
+                      ? 'Sq Ft (until every roof pitch is set)'
+                      : 'Sq Ft (actual)'}
                   </div>
                 </div>
               </div>
@@ -2935,7 +2997,7 @@ export default function RoofMeasurePage() {
               {/* Key metrics */}
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-400">
                 <div className="flex justify-between">
-                  <span>Pitch:</span>
+                  <span>Roof pitch:</span>
                   <span className="text-gray-300">{measurements.predominant_pitch}</span>
                 </div>
                 <div className="flex justify-between">
@@ -3010,7 +3072,7 @@ export default function RoofMeasurePage() {
                 disabled={unresolvedPitchCount > 0}
                 className="w-full mt-4 px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
               >
-                Save Measurement
+                Save roof measurements
               </button>
               <button
                 onClick={() => setShowEstimateConfigModal(true)}
@@ -3021,7 +3083,7 @@ export default function RoofMeasurePage() {
               </button>
               {unresolvedPitchCount > 0 && (
                 <p className="text-xs text-amber-300 mt-2">
-                  Save and estimate stay disabled until every auto-drawn face has a confirmed pitch.
+                  Save and estimate stay grayed out until each section has a roof pitch.
                 </p>
               )}
               {!opportunityId && (
@@ -3037,7 +3099,7 @@ export default function RoofMeasurePage() {
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-sm font-medium text-gray-200">Generated Estimate</h3>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/40 text-amber-300 border border-amber-700/50">
-                  AI Draft - Needs Review
+                  Suggested outlines — needs review
                 </span>
               </div>
 
@@ -3060,7 +3122,7 @@ export default function RoofMeasurePage() {
 
               {generatedEstimate.ai_flags?.length > 0 && (
                 <div className="mb-3 p-2 rounded border border-amber-700/40 bg-amber-900/20">
-                  <p className="text-xs text-amber-300 font-medium mb-1">AI Flags</p>
+                  <p className="text-xs text-amber-300 font-medium mb-1">Heads up</p>
                   {generatedEstimate.ai_flags.map((flag, idx) => (
                     <p key={`${flag}-${idx}`} className="text-xs text-amber-200">- {flag}</p>
                   ))}
@@ -3150,6 +3212,64 @@ export default function RoofMeasurePage() {
             </div>
           )}
 
+          {selectedFacetData && !isDrawing && !isDrawingLine && (
+            <div className="absolute top-4 left-4 z-[1] max-w-[min(100%-2rem,20rem)] rounded-xl border border-gray-600 bg-gray-900/95 p-3 shadow-xl backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: selectedFacetData.color }} />
+                <p className="text-sm font-medium text-white truncate">
+                  Section {selectedFacetNumber}
+                  {selectedFacetData.origin === 'ai_draft' ? (
+                    <span className="ml-1.5 text-[10px] font-normal text-cyan-300">(auto)</span>
+                  ) : null}
+                </p>
+              </div>
+              <label className="text-[11px] text-gray-500">Roof pitch</label>
+              <p className="text-[10px] text-gray-500 mt-0.5">e.g. 4/12, 6/12, 8/12</p>
+              <select
+                value={
+                  PITCH_OPTIONS.some((option) => option.value === selectedFacetData.pitch) ? selectedFacetData.pitch : ''
+                }
+                onChange={(e) => updateFacetPitch(selectedFacetData.id, e.target.value)}
+                className="mt-1 w-full bg-gray-800 border border-gray-600 rounded-lg px-2 py-2 text-sm text-gray-100"
+              >
+                <option value="" disabled>
+                  {selectedFacetData.suggested_pitch
+                    ? `Choose roof pitch (suggestion: ${selectedFacetData.suggested_pitch})`
+                    : 'Choose roof pitch'}
+                </option>
+                {PITCH_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {selectedFacetData.suggested_pitch && selectedFacetData.pitch === 'Unset' && (
+                <p className="mt-1.5 text-[11px] text-sky-300">
+                  Suggested: {selectedFacetData.suggested_pitch}
+                  {typeof selectedFacetData.suggested_pitch_degrees === 'number'
+                    ? ` (${selectedFacetData.suggested_pitch_degrees.toFixed(1)}°)`
+                    : ''}
+                </p>
+              )}
+              {selectedFacetData.geometry_reviewed !== true && (
+                <button
+                  type="button"
+                  onClick={() => confirmFacetGeometry(selectedFacetData.id)}
+                  className="mt-3 w-full rounded-lg border border-amber-500/50 bg-amber-900/30 px-3 py-2 text-xs font-medium text-amber-100 hover:bg-amber-900/45"
+                >
+                  Looks good ✓
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedFacet(null)}
+                className="mt-2 w-full text-center text-[11px] text-gray-500 hover:text-gray-300"
+              >
+                Close
+              </button>
+            </div>
+          )}
+
           {/* Quick Actions */}
           <div className="absolute bottom-4 right-4 flex flex-col gap-2">
             <button
@@ -3175,7 +3295,7 @@ export default function RoofMeasurePage() {
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-2xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-700">
-              <h2 className="text-xl font-bold text-white">Select Roof Pitch</h2>
+              <h2 className="text-xl font-bold text-white">Select roof pitch</h2>
               <p className="text-gray-400 text-sm mt-1">
                 Flat area (footprint): {pendingFacet.flat_area_sqft?.toLocaleString()} sqft
               </p>
@@ -3219,7 +3339,7 @@ export default function RoofMeasurePage() {
           <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full">
             <div className="p-6 border-b border-gray-700">
               <h2 className="text-xl font-bold text-white">Generate Estimate</h2>
-              <p className="text-gray-400 text-sm mt-1">Configure AI draft settings</p>
+              <p className="text-gray-400 text-sm mt-1">Configure estimate options</p>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -3374,7 +3494,7 @@ export default function RoofMeasurePage() {
               {/* Pitch & Waste */}
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-xs font-medium text-gray-600 uppercase mb-2">Pitch Information</h4>
+                  <h4 className="text-xs font-medium text-gray-600 uppercase mb-2">Roof pitch</h4>
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-bold text-gray-800">{measurements.predominant_pitch}</span>
                     <span className="text-sm text-gray-700">×{measurements.avg_pitch_multiplier} multiplier</span>
@@ -3472,7 +3592,7 @@ export default function RoofMeasurePage() {
               <div className="text-right">
                 {unresolvedPitchCount > 0 && (
                   <p className="mb-2 text-xs text-amber-700">
-                    Confirm slope on all roof faces before saving this measurement.
+                    Set roof pitch on every section before saving this measurement.
                   </p>
                 )}
                 <button

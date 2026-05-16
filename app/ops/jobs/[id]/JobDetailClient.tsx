@@ -1480,6 +1480,15 @@ export default function JobDetailClient({
                     />
                   ) : null}
 
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      href={`/ops/jobs/${job.id}/measure`}
+                      className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                    >
+                      Exterior Measure
+                    </Link>
+                  </div>
+
                   {/** Pipeline — milestones; vertical on small screens, horizontal on lg+ */}
                   {(() => {
                     const pipelineCurrentIdx = getJobPipelineCurrentIndex(job)

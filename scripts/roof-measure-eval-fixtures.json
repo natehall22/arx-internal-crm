@@ -1,0 +1,60 @@
+[
+  {
+    "id": "magnolia-estates-eberl",
+    "provider": "Eberl / Xactimate",
+    "sourceFile": "/Users/nathanhall/Downloads/getShortCodeMedia.pdf",
+    "address": "8914 Magnolia Estates Dr, Cornelius, NC 28031",
+    "targets": {
+      "totalRoofSqft": 2799.1,
+      "totalSquares": 27.99,
+      "totalPerimeterLf": 391.7,
+      "ridgeLf": 105.95,
+      "hipLf": 8.73
+    }
+  },
+  {
+    "id": "florida-ave-eagleview",
+    "provider": "EagleView via Allstate estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/Estimate.pdf",
+    "address": "2402 Florida Ave, Kannapolis, NC 28083",
+    "targets": {
+      "totalRoofSqft": 3440.29,
+      "totalSquares": 34.4,
+      "totalPerimeterLf": 445.6,
+      "ridgeLf": 101.48,
+      "hipLf": 0,
+      "structures": [
+        {
+          "label": "House Roof",
+          "roofSqft": 2043.03,
+          "squares": 20.43,
+          "ridgeLf": 53.9
+        },
+        {
+          "label": "Detached Garage Roof",
+          "roofSqft": 998.41,
+          "squares": 9.98,
+          "ridgeLf": 26.17
+        }
+      ]
+    }
+  },
+  {
+    "id": "kison-court-roofr",
+    "provider": "Roofr / Nearmap",
+    "sourceFile": "/Users/nathanhall/Downloads/1361 Kison Court Northwest, Concord, North Carolina, United States.pdf",
+    "address": "1361 Kison Court Northwest, Concord, NC 28027",
+    "targets": {
+      "totalRoofSqft": 1746,
+      "totalSquares": 17.46,
+      "facetCount": 10,
+      "predominantPitch": "7/12",
+      "eavesLf": 127.5,
+      "valleysLf": 40.83,
+      "ridgeLf": 64.67,
+      "rakesLf": 120.75,
+      "wallFlashingLf": 46.58,
+      "stepFlashingLf": 25.58
+    }
+  }
+]

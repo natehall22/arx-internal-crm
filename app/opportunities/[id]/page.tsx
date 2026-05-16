@@ -17,6 +17,7 @@ import DeleteProposalButton from '@/components/opportunities/DeleteProposalButto
 import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
+import { canAccessJobBoard } from '@/lib/permissions'
 import {
   getInspectionOutcomeConfig,
   normalizeInspectionOutcomeRows,
@@ -682,6 +683,25 @@ export default async function OpportunityDetailPage({
                     {leadRow?.homeowner_name || 'View lead'}
                   </Link>
                 </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-3 border-t flex flex-wrap gap-2">
+              {canAccessJobBoard(profile.role) && (
+                <Link
+                  href={`/opportunities/${params.id}/measure`}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                >
+                  Measure Exterior
+                </Link>
+              )}
+              {measureToolEnabled && (
+                <Link
+                  href={`/tools/roof-measure?opportunity_id=${params.id}&address=${encodeURIComponent(opportunity.address_text || '')}`}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                >
+                  Measure Roof
+                </Link>
               )}
             </div>
 
