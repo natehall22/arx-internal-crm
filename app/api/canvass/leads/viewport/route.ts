@@ -43,10 +43,16 @@ const SCHEDULED_PIN_REPAIR_SCAN_LIMIT = 250
 const SCHEDULED_PIN_REPAIR_LIMIT = 25
 
 function getSessionFromRequest(req: NextRequest) {
+  // Check Bearer token first (iOS / native clients)
+  const authHeader = req.headers.get('authorization') ?? req.headers.get('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    return { access_token: authHeader.slice(7) }
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
   const cookieName = `sb-${projectRef}-auth-token`
-  
+
   const singleCookie = req.cookies.get(cookieName)
   if (singleCookie?.value) {
     try {
