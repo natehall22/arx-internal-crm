@@ -36,10 +36,17 @@ type TeamStatRow = {
 }
 
 function getSessionFromRequest(req: NextRequest) {
+  // Native iOS app sends Authorization: Bearer <token>
+  const authHeader = req.headers.get('authorization') ?? req.headers.get('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    return { access_token: authHeader.slice(7) }
+  }
+
+  // Web browser sends Supabase session cookie
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
   const cookieName = `sb-${projectRef}-auth-token`
-  
+
   const singleCookie = req.cookies.get(cookieName)
   if (singleCookie?.value) {
     try {
@@ -49,7 +56,7 @@ function getSessionFromRequest(req: NextRequest) {
       return null
     }
   }
-  
+
   const chunks: string[] = []
   let i = 0
   while (true) {
@@ -58,7 +65,7 @@ function getSessionFromRequest(req: NextRequest) {
     chunks.push(chunk.value)
     i++
   }
-  
+
   if (chunks.length > 0) {
     try {
       const decoded = decodeURIComponent(chunks.join(''))
@@ -67,7 +74,7 @@ function getSessionFromRequest(req: NextRequest) {
       return null
     }
   }
-  
+
   return null
 }
 

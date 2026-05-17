@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import type { User } from '@/lib/types/database'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 
@@ -24,14 +24,29 @@ function getSessionFromCookies() {
   return getSupabaseSessionFromCookieStore(cookies())
 }
 
+// Extracts the access token from either the Authorization header (iOS/native)
+// or the Supabase session cookie (web). Cookie auth is the fallback so existing
+// web sessions are unaffected.
+function getAccessToken(): string | null {
+  try {
+    const authHeader = headers().get('authorization') ?? headers().get('Authorization')
+    if (authHeader?.startsWith('Bearer ')) {
+      return authHeader.slice(7)
+    }
+  } catch {
+    // headers() can throw outside of a request context (e.g. in tests)
+  }
+  return getSessionFromCookies()?.access_token ?? null
+}
+
 async function resolveAuth(): Promise<AuthResolution> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  const sessionData = getSessionFromCookies()
+  const accessToken = getAccessToken()
 
-  if (!sessionData?.access_token) {
+  if (!accessToken) {
     console.log('requireAuth: No session cookie found')
     return { status: 'no_session' }
   }
@@ -46,7 +61,7 @@ async function resolveAuth(): Promise<AuthResolution> {
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser(sessionData.access_token)
+  } = await supabase.auth.getUser(accessToken)
 
   if (authError || !user) {
     console.log('requireAuth: Token invalid or expired', authError?.message)
