@@ -790,7 +790,7 @@ export const allPermissions: Array<{
   category: PermissionCategory
 }> = [
   // Canvassing
-  { name: 'canvass:view', displayName: 'View Canvass Map', description: 'Access the canvassing map interface', category: 'Canvassing' },
+  { name: 'canvass:view', displayName: 'View Canvass Map', description: 'Open the field canvassing map (nav + /canvass routes). Lead-only teams can omit this.', category: 'Canvassing' },
   { name: 'canvass:create', displayName: 'Create Canvass Pins', description: 'Drop new pins on the canvass map', category: 'Canvassing' },
   { name: 'canvass:edit', displayName: 'Edit Canvass Pins', description: 'Modify existing canvass pins', category: 'Canvassing' },
   { name: 'canvass:delete', displayName: 'Delete Canvass Pins', description: 'Remove canvass pins', category: 'Canvassing' },
@@ -859,7 +859,7 @@ export const allPermissions: Array<{
   
   // Scheduling
   { name: 'scheduling:view', displayName: 'View Schedule', description: 'See appointment calendar', category: 'Scheduling' },
-  { name: 'scheduling:create', displayName: 'Create Appointments', description: 'Schedule new appointments', category: 'Scheduling' },
+  { name: 'scheduling:create', displayName: 'Create Appointments', description: 'Schedule inspections (CRM lead picker, canvass, etc.)', category: 'Scheduling' },
   { name: 'scheduling:edit', displayName: 'Edit Appointments', description: 'Modify appointments', category: 'Scheduling' },
   { name: 'scheduling:manage_team', displayName: 'Manage Team Schedule', description: 'Configure team scheduling', category: 'Scheduling' },
   { name: 'scheduling:manage_region', displayName: 'Manage Region Schedule', description: 'Configure regional scheduling', category: 'Scheduling' },

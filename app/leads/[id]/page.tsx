@@ -20,6 +20,8 @@ import { leadOwnerLabel } from '@/lib/lead-owner-display'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { pickValidEmail, sendSetterEmail } from '@/lib/setter-email'
+import { userHasSchedulingCreate } from '@/lib/scheduling-create-permission'
+import LeadWorkflowInspectionScheduler from '@/components/leads/LeadWorkflowInspectionScheduler'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -109,7 +111,7 @@ export default async function LeadDetailPage({
   // Fetch scheduled appointments for this lead to check if inspection was scheduled
   const { data: appointments } = await supabase
     .from('scheduled_appointments')
-    .select('id, scheduled_for, status, closer_user_id')
+    .select('id, scheduled_for, status, closer_user_id, appointment_type')
     .eq('lead_id', params.id)
     .order('scheduled_for', { ascending: false })
 
@@ -627,6 +629,21 @@ export default async function LeadDetailPage({
   const isOwner = lead.owner_user_id === profile.id
   const canDelete = isAdmin || isOwner
 
+  const canScheduleInspection = await userHasSchedulingCreate(supabase, profile.id, profile)
+  const hasActiveInspectionSlot = (appointments ?? []).some(
+    (a) =>
+      (a.status === 'scheduled' || a.status === 'confirmed') &&
+      (!a.appointment_type || a.appointment_type === 'inspection')
+  )
+
+  const leadHasInspectionBasics =
+    !!(lead.homeowner_name && String(lead.homeowner_name).trim()) &&
+    !!(lead.phone && String(lead.phone).trim()) &&
+    !!(lead.address_text && String(lead.address_text).trim())
+
+  const showWorkflowInspectionSchedule =
+    canScheduleInspection && !hasActiveInspectionSlot && leadHasInspectionBasics
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -853,6 +870,10 @@ export default async function LeadDetailPage({
                 className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
+            <LeadWorkflowInspectionScheduler
+              leadId={params.id}
+              showButton={showWorkflowInspectionSchedule}
+            />
             <div>
               <label className="text-sm font-medium text-gray-500">Status</label>
               <select

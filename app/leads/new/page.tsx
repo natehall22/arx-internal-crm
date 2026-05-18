@@ -1,10 +1,14 @@
 import { requireAuth } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import LeadFormWithReferral from '@/components/LeadFormWithReferral'
+import { userHasSchedulingCreate } from '@/lib/scheduling-create-permission'
 
 export default async function NewLeadPage() {
   const { profile } = await requireAuth()
+  const supabase = createServiceClient()
+  const canScheduleInspection = await userHasSchedulingCreate(supabase, profile.id, profile)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -21,6 +25,7 @@ export default async function NewLeadPage() {
           <LeadFormWithReferral 
             orgId={profile.org_id} 
             userId={profile.id}
+            canScheduleInspection={canScheduleInspection}
           />
         </div>
       </div>
