@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@supabase/supabase-js'
 import { createCalendarEvent, deleteCalendarEvent, refreshAccessToken, CalendarEvent } from '@/lib/google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
@@ -11,6 +12,7 @@ import {
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
+import { inspectionLocalWallClockToUtcIso } from '@/lib/inspection-local-wall-clock'
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -77,42 +79,21 @@ async function getTimezoneForUser(adminClient: any, userId: string): Promise<str
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = getAdminClient()
-    
-    // Get auth from cookie
-    const cookieHeader = request.headers.get('cookie') || ''
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-    const cookieName = `sb-${projectRef}-auth-token`
-    
-    // Parse session from cookie
-    let userId: string | null = null
-    const cookieMatch = cookieHeader.match(new RegExp(`${cookieName}=([^;]+)`))
-    if (cookieMatch) {
-      try {
-        const sessionData = JSON.parse(decodeURIComponent(cookieMatch[1]))
-        const anonClient = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-          auth: { autoRefreshToken: false, persistSession: false },
-          global: { headers: { Authorization: `Bearer ${sessionData.access_token}` } },
-        })
-        const { data: { user } } = await anonClient.auth.getUser(sessionData.access_token)
-        userId = user?.id || null
-      } catch {}
-    }
-    
-    if (!userId) {
+    let authContext: Awaited<ReturnType<typeof requireAuthApi>>
+    try {
+      authContext = await requireAuthApi()
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, full_name')
-      .eq('id', userId)
-      .single()
+    const userId = authContext.authUser.id
+    const profile = authContext.profile
 
-    if (!profile?.org_id) {
+    if (!profile.org_id) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
+
+    const supabase = getAdminClient()
 
     const body = await request.json()
     const { 
@@ -163,20 +144,13 @@ export async function POST(request: NextRequest) {
       // For display/calendar, we'll need to convert - but this is the legacy path
       localDateTimeStr = new_scheduled_for.slice(0, 16) // Best effort
     } else {
-      // It's a local time string like "2026-02-20T14:00"
-      // We need to convert to UTC for database storage
-      localDateTimeStr = new_scheduled_for.length === 16 ? new_scheduled_for : new_scheduled_for.slice(0, 16)
-      
-      // Create a date object treating the input as local time in the user's timezone
-      // Then convert to ISO for storage
-      const [datePart, timePart] = localDateTimeStr.split('T')
-      const [year, month, day] = datePart.split('-').map(Number)
-      const [hour, minute] = timePart.split(':').map(Number)
-      
-      // Create date in UTC by calculating the offset
-      // For now, use a simple approach - create the date and let JS handle it
-      const localDate = new Date(year, month - 1, day, hour, minute)
-      scheduledForISO = localDate.toISOString()
+      // Local wall-clock string "YYYY-MM-DDTHH:MM" in the assigned closer's team timezone.
+      // Use the same conversion as canvass / iOS scheduling (see inspectionLocalWallClockToUtcIso).
+      localDateTimeStr =
+        new_scheduled_for.length === 16
+          ? new_scheduled_for
+          : new_scheduled_for.slice(0, 16)
+      scheduledForISO = inspectionLocalWallClockToUtcIso(localDateTimeStr, timezone)
     }
     
     const newScheduledDate = new Date(scheduledForISO)

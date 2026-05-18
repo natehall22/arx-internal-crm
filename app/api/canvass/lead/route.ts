@@ -16,6 +16,7 @@ import { hasBufferedConflict } from '@/lib/scheduling-buffer'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import nodemailer from 'nodemailer'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
+import { inspectionLocalWallClockToUtcIso } from '@/lib/inspection-local-wall-clock'
 import { pickValidEmail } from '@/lib/setter-email'
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -395,34 +396,11 @@ export async function POST(request: Request) {
         }
       }
       
-      const [datePart, timePart] = localTimeStr.split('T')
-      const [year, month, day] = datePart.split('-').map(Number)
-      const [hour, minute] = timePart.split(':').map(Number)
-      
-      // Determine timezone offset based on the TARGET date (for DST handling)
-      // DST in US starts second Sunday of March, ends first Sunday of November
-      // More accurate check: March 8+ through November 1- (approximate)
-      const isDST = (month > 3 && month < 11) || 
-                    (month === 3 && day >= 8) || 
-                    (month === 11 && day < 7)
-      
-      let tzOffsetHours = 5 // Default to Eastern Standard Time
-      if (closerTimezone === 'America/New_York' || closerTimezone === 'America/Detroit' || closerTimezone === 'US/Eastern') {
-        tzOffsetHours = isDST ? 4 : 5
-      } else if (closerTimezone === 'America/Chicago' || closerTimezone === 'US/Central') {
-        tzOffsetHours = isDST ? 5 : 6
-      } else if (closerTimezone === 'America/Denver' || closerTimezone === 'US/Mountain') {
-        tzOffsetHours = isDST ? 6 : 7
-      } else if (closerTimezone === 'America/Los_Angeles' || closerTimezone === 'US/Pacific') {
-        tzOffsetHours = isDST ? 7 : 8
-      } else if (closerTimezone === 'America/Phoenix') {
-        tzOffsetHours = 7 // Arizona doesn't observe DST
-      }
-      
-      const utcDate = new Date(Date.UTC(year, month - 1, day, hour + tzOffsetHours, minute, 0))
-      inspectionScheduledFor = utcDate.toISOString()
-      
-      console.log(`Inspection time conversion: local=${localTimeStr} (${closerTimezone}, offset=${tzOffsetHours}h, isDST=${isDST}) -> UTC=${inspectionScheduledFor}`)
+      inspectionScheduledFor = inspectionLocalWallClockToUtcIso(localTimeStr, closerTimezone)
+
+      console.log(
+        `Inspection time conversion: local=${localTimeStr} (${closerTimezone}) -> UTC=${inspectionScheduledFor}`
+      )
     }
     // Use round-robin if team was selected OR if no closer was specified
     const useRoundRobin = body.use_round_robin !== false && !closerUserId && scheduleInspection
