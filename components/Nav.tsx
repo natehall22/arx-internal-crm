@@ -4,17 +4,33 @@ import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { canAccessProjectsArea, isBarredFromProjectsUi } from '@/lib/permissions'
+import { isBarredFromProjectsUi } from '@/lib/permissions'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 // Include legacy roles for backwards compatibility
-type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'closer' | 'inside_sales' | 'canvasser' | 'operations' | 'owner'
+type AnyUserRole =
+  | 'admin'
+  | 'owner'
+  | 'manager'
+  | 'regional_manager'
+  | 'regional_setter_manager'
+  | 'sales_manager'
+  | 'setter_manager'
+  | 'sales_rep'
+  | 'setter'
+  | 'rep'
+  | 'closer'
+  | 'inside_sales'
+  | 'canvasser'
+  | 'operations'
+  | 'custom'
 
 type NavItem = {
   href: string
   label: string
-  roles?: AnyUserRole[] // If specified, only these roles can see this item
   permission?: string // If specified, check for this specific permission
+  /** Temporary route-alignment guard for pages that are still server role-gated instead of permission-gated. */
+  requiresAnyRole?: AnyUserRole[]
   /** Must have this permission name (from role matrix, custom role, or user grant) — used for Canvass vs lead-only workflows */
   requiresAnyPermission?: string | string[]
 }
@@ -32,6 +48,11 @@ export default function Nav() {
   const [companyName, setCompanyName] = useState<string>('ARX CRM')
   const [companyLogo, setCompanyLogo] = useState<string | null>(null)
 
+  const normalizeRole = (role: unknown): AnyUserRole | null => {
+    const normalized = String(role || '').toLowerCase().trim()
+    return normalized ? (normalized as AnyUserRole) : null
+  }
+
   useEffect(() => {
     const loadUserRoleAndPermissions = async () => {
       const supabase = createClientBrowser()
@@ -45,8 +66,9 @@ export default function Nav() {
           .eq('id', user.id)
           .single()
         
-        if (profile?.role) {
-          setUserRole(profile.role as AnyUserRole)
+        const browserRole = normalizeRole(profile?.role)
+        if (browserRole) {
+          setUserRole(browserRole)
         }
 
         // Load org info for company name and logo
@@ -101,8 +123,9 @@ export default function Nav() {
           const res = await fetch('/api/me/effective-permissions')
           const data = await res.json().catch(() => null)
           if (res.ok && data && typeof data === 'object') {
-            if (typeof data.role === 'string') {
-              setUserRole(data.role as AnyUserRole)
+            const serverRole = normalizeRole(data.role)
+            if (serverRole) {
+              setUserRole(serverRole)
             }
             setEffectiveFullAccess(Boolean(data.fullAccess))
             setEffectivePermissionNames(
@@ -196,32 +219,40 @@ export default function Nav() {
     // Sales dashboard - shown to everyone except ops-only users
     ...(hasSalesAccess ? [{ href: '/dashboard', label: 'Dashboard' }] : []),
     // Ops dashboard - shown to ops users and admins/managers
-    ...(hasOpsAccess ? [{ href: '/ops/dashboard', label: isOpsOnly ? 'Dashboard' : 'Ops Dashboard', roles: ['admin', 'regional_manager', 'operations', 'manager', 'owner'] as AnyUserRole[] }] : []),
-    { href: '/calendar', label: 'Calendar', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
-    { href: '/leads', label: 'Leads' },
-    { href: '/opportunities', label: 'Opportunities', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'inside_sales', 'rep', 'operations', 'owner'] },
+    ...(hasOpsAccess ? [{ href: '/ops/dashboard', label: isOpsOnly ? 'Dashboard' : 'Ops Dashboard', requiresAnyRole: ['admin', 'regional_manager', 'operations', 'manager', 'owner'] as AnyUserRole[] }] : []),
+    { href: '/calendar', label: 'Calendar', requiresAnyPermission: ['scheduling:view', 'scheduling:create', 'scheduling:edit', 'scheduling:manage_team', 'scheduling:manage_region', 'scheduling:manage_queue'] },
+    { href: '/leads', label: 'Leads', requiresAnyPermission: ['leads:view', 'leads:create', 'leads:edit', 'leads:view_inbound', 'leads:manage_inbound', 'leads:claim_inbound'] },
+    { href: '/opportunities', label: 'Opportunities', requiresAnyPermission: ['opportunities:view', 'opportunities:edit'] },
     {
       href: '/projects',
       label: 'Projects',
       requiresAnyPermission: ['projects:view', 'projects:edit'],
     },
-    { href: '/ops', label: 'Job Board', roles: ['admin', 'operations', 'owner'] },
+    { href: '/ops', label: 'Job Board', requiresAnyRole: ['admin', 'operations', 'owner'] },
     {
       href: '/canvass',
       label: 'Canvass',
       requiresAnyPermission: 'canvass:view',
     },
-    { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations', 'owner'], permission: 'pricebook:view' },
+    { href: '/pricebook', label: 'Pricebook', requiresAnyPermission: ['pricebook:view', 'pricebook:edit'] },
     { href: '/customers', label: 'Customers', requiresAnyPermission: ['customers:view', 'customers:edit'] },
     { href: '/reports', label: 'Reports', requiresAnyPermission: ['reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all'] },
-    { href: '/admin', label: 'Admin', roles: ['admin', 'manager', 'regional_manager', 'owner'] },
+    { href: '/admin', label: 'Admin', requiresAnyPermission: ['admin:access', 'admin:roles', 'admin:permissions', 'admin:settings'] },
   ]
 
   // Filter nav items based on user role and permissions
   const navItems = allNavItems.filter(item => {
     if (item.href === '/projects') {
       if (isBarredFromProjectsUi(userRole)) return false
-      if (userRole && canAccessProjectsArea(userRole)) return true
+    }
+    if (item.href === '/opportunities' && (userRole === 'setter' || userRole === 'canvasser')) {
+      return false
+    }
+
+    if (item.requiresAnyRole) {
+      if (!userRole) return false
+      if (effectiveFullAccess) return true
+      return item.requiresAnyRole.includes(userRole)
     }
 
     if (item.requiresAnyPermission) {
@@ -233,13 +264,14 @@ export default function Nav() {
     }
 
     // If user has a specific permission grant, always show the item
-    if (item.permission && userPermissions.includes(item.permission)) {
+    if (
+      item.permission &&
+      (effectiveFullAccess || userPermissions.includes(item.permission) || effectivePermissionNames.has(item.permission))
+    ) {
       return true
     }
-    // Check role-based access
-    if (!item.roles) return true // No restriction, show to everyone
-    if (!userRole) return false
-    return item.roles.includes(userRole)
+
+    return true
   })
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)

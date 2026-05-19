@@ -1,25 +1,21 @@
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import { redirect } from 'next/navigation'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 export default async function PricebookPage() {
   const { profile, authUser: user } = await requireAuth()
   const supabase = createClient()
+  const admin = createServiceClient()
   
-  // Check for user-specific pricebook permission
-  const { data: pricebookPermission } = await supabase
-    .from('user_permissions')
-    .select('id, permissions!inner(name)')
-    .eq('user_id', user.id)
-    .eq('permissions.name', 'pricebook:view')
-    .maybeSingle()
-  
-  const hasUserPermission = !!pricebookPermission
-  
-  // Allow access if user has role-based access OR user-specific permission
-  const allowedRoles = ['admin', 'regional_manager', 'operations']
-  if (!allowedRoles.includes(profile.role) && !hasUserPermission) {
+  const pricebookPermissions = await resolveEffectivePermissionNames(admin, user.id, profile)
+  if (
+    !pricebookPermissions.fullAccess &&
+    !pricebookPermissions.permissionNames.has('pricebook:view') &&
+    !pricebookPermissions.permissionNames.has('pricebook:edit')
+  ) {
     redirect('/dashboard')
   }
 

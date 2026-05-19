@@ -89,6 +89,11 @@ export default async function OpportunityDetailPage({
   const setterUserId = opportunity.setter_user_id ?? leadRow?.owner_user_id ?? null
 
   const repLikeRoles = ['rep', 'sales_rep', 'closer'] as const
+  const setterLikeRoles = ['setter', 'canvasser'] as const
+  if (setterLikeRoles.includes(profile.role as (typeof setterLikeRoles)[number])) {
+    notFound()
+  }
+
   if (repLikeRoles.includes(profile.role as (typeof repLikeRoles)[number])) {
     const isOwner = opportunity.owner_user_id === profile.id
     const isSetter = setterUserId === profile.id

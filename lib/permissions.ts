@@ -222,7 +222,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   canvasser: [
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
-    'opportunities:view',
     'teams:view',
     'users:view',
     'scheduling:view',
@@ -280,7 +279,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   setter: [
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
-    'opportunities:view',
     'teams:view',
     'users:view',
     'scheduling:view',

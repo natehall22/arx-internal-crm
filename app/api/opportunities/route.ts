@@ -66,8 +66,7 @@ export async function GET(request: NextRequest) {
     
     if (!bypassRoleFilter) {
       if (isSetter) {
-        // Setters see opportunities they set (setter_user_id)
-        query = query.eq('setter_user_id', authContext.authUser.id)
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
       } else if (isRep) {
         // Closers see opportunities they own, set, or are assigned on the lead (lead.closer_user_id is source of truth when calendar reassignment syncs the rep)
         const { data: closerLeadRows } = await adminClient
