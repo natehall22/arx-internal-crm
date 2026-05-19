@@ -17,7 +17,13 @@ import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
 import { parseProjectReviewStored } from '@/lib/project-review'
-import { canAccessJobBoard, canAccessProjectsFromPermissionNames, canViewAllProjects, canViewManagedProjects } from '@/lib/permissions'
+import {
+  canAccessJobBoard,
+  canAccessProjectsFromPermissionNames,
+  canViewAllProjects,
+  canViewManagedProjects,
+  isRepLikeCustomerRecordRole,
+} from '@/lib/permissions'
 import { canAccessJobBilling } from '@/lib/finance-access'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import PayrollAttributionEditor, {
@@ -79,7 +85,13 @@ export default async function ProjectDetailPage({
       .select('id')
       .eq('org_id', profile.org_id)
     if (scopedUserIds.length > 0) {
-      oppQuery = oppQuery.or(`owner_user_id.in.(${scopedUserIds.join(',')}),setter_user_id.in.(${scopedUserIds.join(',')})`)
+      if (!viewManagedProjects && isRepLikeCustomerRecordRole(profile.role)) {
+        oppQuery = oppQuery.in('owner_user_id', scopedUserIds)
+      } else {
+        oppQuery = oppQuery.or(
+          `owner_user_id.in.(${scopedUserIds.join(',')}),setter_user_id.in.(${scopedUserIds.join(',')})`
+        )
+      }
     } else {
       oppQuery = oppQuery.eq('owner_user_id', profile.id)
     }

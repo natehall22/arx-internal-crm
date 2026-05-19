@@ -25,6 +25,7 @@ import {
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
+import { isRepLikeCustomerRecordRole } from '@/lib/permissions'
 
 export default async function DashboardPage() {
   const { profile } = await requireAuth()
@@ -221,10 +222,14 @@ export default async function DashboardPage() {
     .from('projects')
     .select('status, created_at, owner_user_id')
     .eq('org_id', profile.org_id)
-  
+
+  // Closers see their own projects only in Account Overview — not the whole team's project count.
+  const projectOwnerScopeIds =
+    !isAdmin && isRepLikeCustomerRecordRole(profile.role) ? [profile.id] : teamMemberIds
+
   if (!isAdmin) {
-    if (teamMemberIds.length > 1) {
-      projectsQuery = projectsQuery.in('owner_user_id', teamMemberIds)
+    if (projectOwnerScopeIds.length > 1) {
+      projectsQuery = projectsQuery.in('owner_user_id', projectOwnerScopeIds)
     } else {
       projectsQuery = projectsQuery.eq('owner_user_id', profile.id)
     }

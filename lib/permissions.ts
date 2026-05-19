@@ -366,6 +366,7 @@ export function canEditCustomerRecordsFromPermissionNames(input: {
 /** Roles scoped to customer records from their own projects/opportunities (aligned with closer/rep DB values). */
 export const REP_LIKE_CUSTOMER_RECORD_ROLES = new Set(['rep', 'sales_rep', 'closer'])
 
+/** True for rep / sales_rep / closer — used for customer record scoping and closer-only project visibility (opportunity owner, not setter-only). */
 export function isRepLikeCustomerRecordRole(role: string | null | undefined): boolean {
   return REP_LIKE_CUSTOMER_RECORD_ROLES.has(String(role || '').toLowerCase())
 }

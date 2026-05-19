@@ -5,7 +5,12 @@ import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { canAccessProjectsFromPermissionNames, canViewAllProjects, canViewManagedProjects } from '@/lib/permissions'
+import {
+  canAccessProjectsFromPermissionNames,
+  canViewAllProjects,
+  canViewManagedProjects,
+  isRepLikeCustomerRecordRole,
+} from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 function mapJobStatusToProjectStatus(jobStatus: string) {
@@ -80,7 +85,14 @@ export default async function ProjectsPage() {
       .select('id')
       .eq('org_id', profile.org_id)
     if (scopedUserIds.length > 0) {
-      oppQuery = oppQuery.or(`owner_user_id.in.(${scopedUserIds.join(',')}),setter_user_id.in.(${scopedUserIds.join(',')})`)
+      // Closers (rep / sales_rep / closer): only opportunities they own — not where they appear only as setter.
+      if (!viewManagedProjects && isRepLikeCustomerRecordRole(profile.role)) {
+        oppQuery = oppQuery.in('owner_user_id', scopedUserIds)
+      } else {
+        oppQuery = oppQuery.or(
+          `owner_user_id.in.(${scopedUserIds.join(',')}),setter_user_id.in.(${scopedUserIds.join(',')})`
+        )
+      }
     } else {
       oppQuery = oppQuery.eq('owner_user_id', profile.id)
     }
