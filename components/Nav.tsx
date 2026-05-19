@@ -11,9 +11,11 @@ import {
   canAccessOpsDashboardFromPermissionNames,
   canAccessReports,
   canAccessReportsFromPermissionNames,
+  getPermissions,
   isBarredFromProjectsUi,
   isOrgSuperuserRoleSlug,
 } from '@/lib/permissions'
+import type { UserRole } from '@/lib/types/database'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 
@@ -48,15 +50,25 @@ export default function Nav() {
       const supabase = createClientBrowser()
       supabaseRef.current = supabase
       
-      const { data: { user } } = await supabase.auth.getUser()
+      // Prefer getSession(): after SSR/hydration getUser() can briefly return null before cookies/sync settle.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      let user = session?.user ?? null
+      if (!user) {
+        const { data: userData } = await supabase.auth.getUser()
+        user = userData.user ?? null
+      }
+
       if (user) {
         const { data: profile } = await supabase
           .from('users')
-          .select('role, org_id')
+          .select('role, org_id, custom_role_id')
           .eq('id', user.id)
           .single()
         
         const browserRole = normalizeRole(profile?.role)
+        const legacyCustomRoleId = profile?.custom_role_id ?? null
         if (browserRole) {
           setUserRole(browserRole)
           if (isOrgSuperuserRoleSlug(browserRole)) {
@@ -100,6 +112,7 @@ export default function Nav() {
           .select('permission_id, permissions(name)')
           .eq('user_id', user.id)
 
+        let directGrantPermNames: string[] = []
         if (userPerms) {
           const permNames = userPerms
             .map((up: { permissions: { name: string } | { name: string }[] | null }) => {
@@ -109,7 +122,37 @@ export default function Nav() {
               return up.permissions?.name
             })
             .filter(Boolean) as string[]
+          directGrantPermNames = permNames
           setUserPermissions(permNames)
+        }
+
+        /**
+         * When the API returns no usable permission keys (broken presets, transient errors),
+         * merge direct user grants + legacy role matrix when safe.
+         * If `custom_role_id` is set we normally skip the matrix — unless the slug is still
+         * admin/owner (mis-synced rows: admin user with dangling custom_role_id).
+         */
+        const fallbackPermissionNames = (): Set<string> => {
+          const s = new Set<string>(directGrantPermNames)
+          if (!browserRole) return s
+          const slugActsAsSuperuser = isOrgSuperuserRoleSlug(browserRole)
+          if (!legacyCustomRoleId || slugActsAsSuperuser) {
+            for (const p of getPermissions(browserRole as UserRole)) {
+              s.add(p)
+            }
+          }
+          return s
+        }
+
+        const applySuperFullAccessFlag = (
+          apiFullAccess: boolean,
+          serverRole: string | null,
+        ) => {
+          setEffectiveFullAccess(
+            apiFullAccess ||
+              isOrgSuperuserRoleSlug(serverRole) ||
+              isOrgSuperuserRoleSlug(browserRole),
+          )
         }
 
         try {
@@ -118,18 +161,45 @@ export default function Nav() {
             credentials: 'same-origin',
           })
           const data = await res.json().catch(() => null)
-          if (res.ok && data && typeof data === 'object') {
-            const serverRole = normalizeRole(data.role)
+          if (
+            res.ok &&
+            data &&
+            typeof data === 'object' &&
+            !('error' in data && (data as { error?: unknown }).error)
+          ) {
+            const serverRole = normalizeRole((data as { role?: unknown }).role)
             if (serverRole) {
               setUserRole(serverRole)
             }
-            setEffectiveFullAccess(Boolean(data.fullAccess) || isOrgSuperuserRoleSlug(serverRole ?? ''))
-            setEffectivePermissionNames(
-              new Set(Array.isArray(data.permissions) ? data.permissions.filter((x: unknown) => typeof x === 'string') : [])
-            )
+            const apiFullAccess = Boolean((data as { fullAccess?: unknown }).fullAccess)
+            const serverPerms = Array.isArray((data as { permissions?: unknown }).permissions)
+              ? ((data as { permissions: unknown[] }).permissions.filter((x) => typeof x === 'string') as string[])
+              : []
+
+            applySuperFullAccessFlag(apiFullAccess, serverRole ?? null)
+
+            if (apiFullAccess) {
+              setEffectivePermissionNames(new Set())
+            } else if (serverPerms.length > 0) {
+              setEffectivePermissionNames(new Set(serverPerms))
+            } else {
+              const fb = fallbackPermissionNames()
+              setEffectivePermissionNames(fb)
+              if (legacyCustomRoleId) {
+                console.warn(
+                  'Nav: effective permissions API returned zero keys for a custom-role user — check role_permissions presets.',
+                  { userId: user.id },
+                )
+              }
+            }
+          } else {
+            console.warn('Nav: /api/me/effective-permissions unavailable', res.status)
+            applySuperFullAccessFlag(false, null)
+            setEffectivePermissionNames(fallbackPermissionNames())
           }
         } catch {
-          // Fail closed below (items with requiresAnyPermission stay hidden until we have a signal)
+          applySuperFullAccessFlag(false, null)
+          setEffectivePermissionNames(fallbackPermissionNames())
         } finally {
           setEffectivePermsReady(true)
         }
