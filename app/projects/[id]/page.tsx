@@ -17,8 +17,9 @@ import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
 import { parseProjectReviewStored } from '@/lib/project-review'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { canAccessJobBoard, canAccessProjectsFromPermissionNames, canViewAllProjects, canViewManagedProjects } from '@/lib/permissions'
 import { canAccessJobBilling } from '@/lib/finance-access'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import PayrollAttributionEditor, {
   type PayrollAttributionData,
 } from '@/components/payroll/PayrollAttributionEditor'
@@ -37,20 +38,53 @@ export default async function ProjectDetailPage({
 }: {
   params: { id: string }
 }) {
-  const { profile } = await requireAuth()
+  const { profile, authUser } = await requireAuth()
   const showOpsJobLinks = canAccessJobBoard(profile.role)
   const supabase = createServiceClient()
+  const projectPermissions = await resolveEffectivePermissionNames(supabase, authUser.id, profile)
+  if (!canAccessProjectsFromPermissionNames(projectPermissions)) {
+    notFound()
+  }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
-  const salesRoleRestricted = ['rep', 'sales_rep', 'closer'].includes(profile.role)
+  const viewAllProjects = canViewAllProjects(profile.role)
+  const viewManagedProjects = !viewAllProjects && canViewManagedProjects(profile.role)
+
+  let scopedUserIds: string[] = []
+  if (viewManagedProjects) {
+    const roleNorm = String(profile.role || '').toLowerCase()
+    let usersQuery = supabase
+      .from('users')
+      .select('id')
+      .eq('org_id', profile.org_id)
+
+    if (roleNorm === 'regional_manager' && profile.region_id) {
+      usersQuery = usersQuery.eq('region_id', profile.region_id)
+    } else if ((roleNorm === 'manager' || roleNorm === 'sales_manager') && profile.team_id) {
+      usersQuery = usersQuery.eq('team_id', profile.team_id)
+    } else if (roleNorm !== 'operations') {
+      usersQuery = usersQuery.eq('id', profile.id)
+    }
+
+    const { data: scopedUsers } = await usersQuery
+    scopedUserIds = Array.from(new Set([profile.id, ...(scopedUsers || []).map((u) => u.id as string)]))
+  } else if (!viewAllProjects) {
+    scopedUserIds = [profile.id]
+  }
+
   let oppIdsOwnedByMe: string[] = []
-  if (salesRoleRestricted) {
-    const { data: myOpps } = await supabase
+  if (!viewAllProjects) {
+    let oppQuery = supabase
       .from('opportunities')
       .select('id')
       .eq('org_id', profile.org_id)
-      .eq('owner_user_id', profile.id)
-    oppIdsOwnedByMe = (myOpps || []).map((o) => o.id).filter(Boolean)
+    if (scopedUserIds.length > 0) {
+      oppQuery = oppQuery.or(`owner_user_id.in.(${scopedUserIds.join(',')}),setter_user_id.in.(${scopedUserIds.join(',')})`)
+    } else {
+      oppQuery = oppQuery.eq('owner_user_id', profile.id)
+    }
+    const { data: scopedOpps } = await oppQuery
+    oppIdsOwnedByMe = (scopedOpps || []).map((o) => o.id).filter(Boolean)
   }
 
   let projectQuery = supabase
@@ -59,11 +93,16 @@ export default async function ProjectDetailPage({
     .eq('id', params.id)
     .eq('org_id', profile.org_id)
 
-  // Match /projects list: reps/closers see rows they own or where they own the linked opportunity
-  if (salesRoleRestricted) {
-    if (oppIdsOwnedByMe.length > 0) {
+  // Match /projects list: admins see all, managers see team/region, closers see own.
+  if (!viewAllProjects) {
+    const filters = [
+      scopedUserIds.length > 0 ? `owner_user_id.in.(${scopedUserIds.join(',')})` : null,
+      oppIdsOwnedByMe.length > 0 ? `opportunity_id.in.(${oppIdsOwnedByMe.join(',')})` : null,
+    ].filter(Boolean)
+
+    if (filters.length > 0) {
       projectQuery = projectQuery.or(
-        `owner_user_id.eq.${profile.id},opportunity_id.in.(${oppIdsOwnedByMe.join(',')})`
+        filters.join(',')
       )
     } else {
       projectQuery = projectQuery.eq('owner_user_id', profile.id)

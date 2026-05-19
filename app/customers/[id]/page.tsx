@@ -1,5 +1,6 @@
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -7,6 +8,8 @@ import ReferralsSection from '@/components/ReferralsSection'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCustomerButton'
 import CreateAddOnOpportunityButton from '@/components/customers/CreateAddOnOpportunityButton'
+import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 
@@ -57,8 +60,12 @@ export default async function CustomerDetailPage({
   params: { id: string }
   searchParams?: { tab?: string }
 }) {
-  const { profile } = await requireAuth()
+  const { profile, authUser } = await requireAuth()
   const supabase = createClient()
+  const customerPermissions = await resolveEffectivePermissionNames(createServiceClient(), authUser.id, profile)
+  if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
+    notFound()
+  }
   const activeTab = searchParams?.tab ?? 'overview'
 
   const { data: customer } = await supabase
@@ -79,12 +86,12 @@ export default async function CustomerDetailPage({
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
-  if (profile.role === 'rep') {
+  if (isRepLikeCustomerRecordRole(profile.role)) {
     projectsQuery = projectsQuery.eq('owner_user_id', profile.id)
   }
 
   const { data: projects } = await projectsQuery
-  if (profile.role === 'rep' && (!projects || projects.length === 0)) {
+  if (isRepLikeCustomerRecordRole(profile.role) && (!projects || projects.length === 0)) {
     notFound()
   }
 
@@ -95,7 +102,7 @@ export default async function CustomerDetailPage({
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
-  if (profile.role === 'rep') {
+  if (isRepLikeCustomerRecordRole(profile.role)) {
     opportunitiesQuery = opportunitiesQuery.eq('owner_user_id', profile.id)
   }
 

@@ -45,7 +45,15 @@ const legacyRoleOptions: UserRole[] = [
 const grantablePermissions = [
   { name: 'pricebook:view', display_name: 'View Pricebook', category: 'Pricebook' },
   { name: 'pricebook:edit', display_name: 'Edit Pricebook', category: 'Pricebook' },
+  { name: 'projects:view', display_name: 'View Projects', category: 'Projects' },
+  { name: 'projects:edit', display_name: 'Edit Projects', category: 'Projects' },
+  { name: 'customers:view', display_name: 'View Customers', category: 'Customers' },
+  { name: 'customers:edit', display_name: 'Edit Customers', category: 'Customers' },
+  { name: 'reports:view_own', display_name: 'View Own Reports', category: 'Reports' },
+  { name: 'reports:view_team', display_name: 'View Team Reports', category: 'Reports' },
+  { name: 'reports:view_region', display_name: 'View Region Reports', category: 'Reports' },
   { name: 'reports:view_all', display_name: 'View All Reports', category: 'Reports' },
+  { name: 'reports:create', display_name: 'Create Reports', category: 'Reports' },
   { name: 'reports:export', display_name: 'Export Reports', category: 'Reports' },
   { name: 'admin:access', display_name: 'Access Admin Panel', category: 'Admin' },
 ]

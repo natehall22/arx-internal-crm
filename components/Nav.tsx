@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 // Include legacy roles for backwards compatibility
-type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'inside_sales' | 'canvasser' | 'operations' | 'owner'
+type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'closer' | 'inside_sales' | 'canvasser' | 'operations' | 'owner'
 
 type NavItem = {
   href: string
@@ -16,7 +16,7 @@ type NavItem = {
   roles?: AnyUserRole[] // If specified, only these roles can see this item
   permission?: string // If specified, check for this specific permission
   /** Must have this permission name (from role matrix, custom role, or user grant) — used for Canvass vs lead-only workflows */
-  requiresAnyPermission?: string
+  requiresAnyPermission?: string | string[]
 }
 
 export default function Nav() {
@@ -197,7 +197,11 @@ export default function Nav() {
     { href: '/calendar', label: 'Calendar', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/leads', label: 'Leads' },
     { href: '/opportunities', label: 'Opportunities', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'inside_sales', 'rep', 'operations', 'owner'] },
-    { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    {
+      href: '/projects',
+      label: 'Projects',
+      requiresAnyPermission: ['projects:view', 'projects:edit'],
+    },
     { href: '/ops', label: 'Job Board', roles: ['admin', 'operations', 'owner'] },
     {
       href: '/canvass',
@@ -205,8 +209,8 @@ export default function Nav() {
       requiresAnyPermission: 'canvass:view',
     },
     { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations', 'owner'], permission: 'pricebook:view' },
-    { href: '/customers', label: 'Customers', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
-    { href: '/reports', label: 'Reports', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    { href: '/customers', label: 'Customers', requiresAnyPermission: ['customers:view', 'customers:edit'] },
+    { href: '/reports', label: 'Reports', requiresAnyPermission: ['reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all'] },
     { href: '/admin', label: 'Admin', roles: ['admin', 'manager', 'regional_manager', 'owner'] },
   ]
 
@@ -214,7 +218,9 @@ export default function Nav() {
   const navItems = allNavItems.filter(item => {
     if (item.requiresAnyPermission) {
       if (!effectivePermsReady) return false
-      if (!(effectiveFullAccess || effectivePermissionNames.has(item.requiresAnyPermission))) return false
+      const required = Array.isArray(item.requiresAnyPermission) ? item.requiresAnyPermission : [item.requiresAnyPermission]
+      if (!(effectiveFullAccess || required.some((permission) => effectivePermissionNames.has(permission)))) return false
+      return true
     }
 
     // If user has a specific permission grant, always show the item

@@ -3,8 +3,10 @@ import { revalidatePath } from 'next/cache'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { geocodeAddressToLatLng } from '@/lib/lead-map-pin'
+import { canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
-const REP_LIKE_ROLES = new Set(['rep', 'sales_rep', 'closer'])
+export const dynamic = 'force-dynamic'
 
 export async function POST(
   request: Request,
@@ -13,6 +15,10 @@ export async function POST(
   try {
     const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
+    const customerPermissions = await resolveEffectivePermissionNames(supabase, profile.id, profile)
+    if (!canEditCustomerRecordsFromPermissionNames(customerPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const { data: customer, error: customerError } = await supabase
       .from('customers')
@@ -30,7 +36,7 @@ export async function POST(
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
 
-    if (REP_LIKE_ROLES.has(profile.role)) {
+    if (isRepLikeCustomerRecordRole(profile.role)) {
       const [{ data: ownedProjects }, { data: ownedOpportunities }] = await Promise.all([
         supabase
           .from('projects')

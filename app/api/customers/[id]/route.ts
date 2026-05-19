@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { canAccessCustomerRecordsFromPermissionNames, canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(
   request: Request,
@@ -17,12 +21,17 @@ export async function GET(
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const customerPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const { data: customer, error } = await adminClient
@@ -34,6 +43,28 @@ export async function GET(
 
     if (error || !customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+    }
+
+    if (isRepLikeCustomerRecordRole(profile.role)) {
+      const [{ data: ownedProjects }, { data: ownedOpportunities }] = await Promise.all([
+        adminClient
+          .from('projects')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('customer_id', params.id)
+          .eq('owner_user_id', user.id)
+          .limit(1),
+        adminClient
+          .from('opportunities')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('customer_id', params.id)
+          .eq('owner_user_id', user.id)
+          .limit(1),
+      ])
+      if ((ownedProjects || []).length === 0 && (ownedOpportunities || []).length === 0) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
     }
 
     return NextResponse.json({ customer })
@@ -59,12 +90,17 @@ export async function PATCH(
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const customerPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canEditCustomerRecordsFromPermissionNames(customerPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Verify customer exists and belongs to org
@@ -77,6 +113,28 @@ export async function PATCH(
 
     if (fetchError || !existingCustomer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+    }
+
+    if (isRepLikeCustomerRecordRole(profile.role)) {
+      const [{ data: ownedProjects }, { data: ownedOpportunities }] = await Promise.all([
+        adminClient
+          .from('projects')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('customer_id', params.id)
+          .eq('owner_user_id', user.id)
+          .limit(1),
+        adminClient
+          .from('opportunities')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('customer_id', params.id)
+          .eq('owner_user_id', user.id)
+          .limit(1),
+      ])
+      if ((ownedProjects || []).length === 0 && (ownedOpportunities || []).length === 0) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
     }
 
     const body = await request.json()

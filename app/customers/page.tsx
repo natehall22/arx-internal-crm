@@ -1,20 +1,28 @@
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
+import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { notFound } from 'next/navigation'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 export default async function CustomersPage({
   searchParams,
 }: {
   searchParams?: { q?: string }
 }) {
-  const { profile } = await requireAuth()
+  const { profile, authUser } = await requireAuth()
   const supabase = createClient()
+  const customerPermissions = await resolveEffectivePermissionNames(createServiceClient(), authUser.id, profile)
+  if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
+    notFound()
+  }
 
   const query = String(searchParams?.q ?? '').trim()
   let customers: any[] | null = []
 
-  if (profile.role === 'rep') {
+  if (isRepLikeCustomerRecordRole(profile.role)) {
     // Reps only see customers from their own projects
     const { data: projectRows } = await supabase
       .from('projects')

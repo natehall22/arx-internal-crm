@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getReportScope } from '@/lib/permissions'
-import type { UserRole } from '@/lib/types/database'
+import { canAccessReportsFromPermissionNames, getReportScopeFromPermissionNames } from '@/lib/permissions'
+import { resolveEffectivePermissionNames, type EffectivePermissionsResult } from '@/lib/effective-permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +35,7 @@ function canAccessReport(input: {
   requireEdit?: boolean
 }) {
   const { report, userId, profile, roleAccess = [], requireEdit = false } = input
-  if (profile.role === 'admin') return true
+  if (['admin', 'owner'].includes(String(profile.role || '').toLowerCase())) return true
   if (report.created_by === userId) return true
   if (!requireEdit && report.is_public) return true
 
@@ -52,8 +52,8 @@ async function getScopedUserIds(supabase: ReturnType<typeof getAdminClient>, pro
   id?: string
   team_id?: string | null
   region_id?: string | null
-}) {
-  const scope = getReportScope(profile.role as UserRole)
+}, reportPermissions: EffectivePermissionsResult) {
+  const scope = getReportScopeFromPermissionNames(reportPermissions)
   if (scope === 'all') return null
   if (scope === 'own') return profile.id ? [profile.id] : []
 
@@ -190,6 +190,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
+    const reportPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canAccessReportsFromPermissionNames(reportPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const dashboardOnly = request.nextUrl.searchParams.get('dashboard') === 'true'
     const debug = request.nextUrl.searchParams.get('debug') === 'true'
 
@@ -323,6 +328,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
+    const reportPermissions = await resolveEffectivePermissionNames(supabase, user.id, profile)
+    if (!canAccessReportsFromPermissionNames(reportPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     // Get org settings to check if admins should be included in reports
     const { data: org } = await supabase
       .from('orgs')
@@ -444,7 +454,7 @@ export async function POST(request: NextRequest) {
       .eq('org_id', profile.org_id)
       .gte(dateColumn, dateFilter)
 
-    const scopedUserIds = await getScopedUserIds(supabase, profile)
+    const scopedUserIds = await getScopedUserIds(supabase, profile, reportPermissions)
     query = applyReportScope(query, dataSource, scopedUserIds)
 
     // Apply additional filter for canvass_activity
@@ -658,6 +668,11 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
+    const reportPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canAccessReportsFromPermissionNames(reportPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     // Get report_id from query params
     const reportId = request.nextUrl.searchParams.get('id')
     
@@ -678,7 +693,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check if user can delete (must be creator or admin in the same org)
-    const canDelete = report.created_by === user.id || profile.role === 'admin'
+    const canDelete = report.created_by === user.id || ['admin', 'owner'].includes(String(profile.role || '').toLowerCase())
     
     if (!canDelete) {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })

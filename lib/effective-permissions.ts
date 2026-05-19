@@ -8,6 +8,7 @@ const SUPERUSER_ROLES = new Set(['admin', 'owner', 'admin_owner'])
 /** DB roles that are not in {@link UserRole} but should use another row’s permission matrix */
 const LEGACY_ROLE_MATRIX_ALIASES: Record<string, UserRole> = {
   manager: 'sales_manager',
+  closer: 'sales_rep',
 }
 
 export type EffectivePermissionsResult = {
