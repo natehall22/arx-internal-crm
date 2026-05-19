@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json({
+      role: profile.role,
       fullAccess,
       permissions: Array.from(permissionNames).sort(),
     })

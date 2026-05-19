@@ -101,6 +101,9 @@ export default function Nav() {
           const res = await fetch('/api/me/effective-permissions')
           const data = await res.json().catch(() => null)
           if (res.ok && data && typeof data === 'object') {
+            if (typeof data.role === 'string') {
+              setUserRole(data.role as AnyUserRole)
+            }
             setEffectiveFullAccess(Boolean(data.fullAccess))
             setEffectivePermissionNames(
               new Set(Array.isArray(data.permissions) ? data.permissions.filter((x: unknown) => typeof x === 'string') : [])
@@ -235,7 +238,7 @@ export default function Nav() {
     }
     // Check role-based access
     if (!item.roles) return true // No restriction, show to everyone
-    if (!userRole) return true // Still loading, show all for now to prevent flash
+    if (!userRole) return false
     return item.roles.includes(userRole)
   })
 
