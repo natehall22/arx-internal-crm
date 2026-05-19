@@ -305,6 +305,9 @@ export default function LeadFormWithReferral({
 
     setSavedLeadId(lead.id)
     setSavedEligibleForSchedule(hasBasicsForSchedule)
+    if (canScheduleInspection && hasBasicsForSchedule) {
+      setScheduleModalOpen(true)
+    }
     setSaving(false)
   }
 

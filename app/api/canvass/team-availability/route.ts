@@ -257,14 +257,14 @@ export async function GET(request: NextRequest) {
           }
         } catch (error) {
           console.error(`Failed to get free/busy for ${closer.user?.full_name}:`, error)
-          // DON'T mark as fully busy - just skip this closer for this check
-          // This allows other closers to still be available
-          console.log(`Team availability: ${closer.user?.full_name} calendar check failed - treating as unavailable for safety`)
+          // Calendar check failed. Treat this closer as unavailable for safety,
+          // but continue checking the rest of the team.
+          console.log(`Team availability: ${closer.user?.full_name} calendar check failed - treating as unavailable`)
           busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
         }
       } else {
-        // Token refresh failed or no token - DON'T mark as fully busy
-        // Just skip this closer - they shouldn't block other closers
+        // Token invalid or expired. Treat this closer as unavailable for safety,
+        // but continue checking the rest of the team.
         console.log(`Team availability: ${closer.user?.full_name} has no valid token - treating as unavailable`)
         busySlots = [{ start: dayStartUTC.toISOString(), end: dayEndUTC.toISOString() }]
       }

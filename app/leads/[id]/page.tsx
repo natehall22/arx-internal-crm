@@ -213,12 +213,13 @@ export default async function LeadDetailPage({
     const canvassDisposition = String(formData.get('canvass_disposition') ?? '')
     const closerUserIdRaw = String(formData.get('closer_user_id') ?? '')
     const ownerUserIdFromForm = String(formData.get('owner_user_id') ?? '')
-    const inspectionScheduledFor = String(formData.get('inspection_scheduled_for') ?? '')
-    const canvassNotes = String(formData.get('canvass_notes') ?? '')
-
     const canEditAttribution = ['admin', 'owner', 'operations', 'regional_manager', 'sales_manager', 'manager'].includes(
       profile.role
     )
+    const inspectionScheduledFor = canEditAttribution
+      ? String(formData.get('inspection_scheduled_for') ?? '')
+      : ''
+    const canvassNotes = String(formData.get('canvass_notes') ?? '')
 
     let leadQuery = supabase
       .from('leads')
@@ -247,7 +248,9 @@ export default async function LeadDetailPage({
       }
     }
 
-    const scheduledForUtcIso = easternDatetimeLocalToUtcIso(inspectionScheduledFor)
+    const scheduledForUtcIso = canEditAttribution
+      ? easternDatetimeLocalToUtcIso(inspectionScheduledFor)
+      : freshLead.inspection_scheduled_for
 
     const updates: Record<string, any> = {
       status,
@@ -636,13 +639,17 @@ export default async function LeadDetailPage({
       (!a.appointment_type || a.appointment_type === 'inspection')
   )
 
-  const leadHasInspectionBasics =
-    !!(lead.homeowner_name && String(lead.homeowner_name).trim()) &&
-    !!(lead.phone && String(lead.phone).trim()) &&
-    !!(lead.address_text && String(lead.address_text).trim())
+  const missingInspectionBasics = [
+    !String(lead.homeowner_name || '').trim() ? 'name' : null,
+    !String(lead.phone || '').trim() ? 'phone' : null,
+    !String(lead.address_text || '').trim() ? 'address' : null,
+  ].filter((field): field is string => Boolean(field))
 
-  const showWorkflowInspectionSchedule =
-    canScheduleInspection && !hasActiveInspectionSlot && leadHasInspectionBasics
+  const activeInspectionSlot = (appointments ?? []).find(
+    (a) =>
+      (a.status === 'scheduled' || a.status === 'confirmed') &&
+      (!a.appointment_type || a.appointment_type === 'inspection')
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -788,107 +795,132 @@ export default async function LeadDetailPage({
           <h2 className="text-xl font-bold text-gray-900 mb-4">Lead Workflow</h2>
           <form
             action={updateLead}
-            className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end"
+            className="space-y-6"
           >
-            <div>
-              <label className="text-sm font-medium text-gray-500">Source</label>
-              <select
-                name="source"
-                defaultValue={lead.source ?? ''}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="">Select source</option>
-                {leadSources.map((source) => (
-                  <option key={source} value={source}>
-                    {source.replace('_', ' ')}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Canvass disposition</label>
-              <select
-                name="canvass_disposition"
-                defaultValue={lead.canvass_disposition || ''}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="">Select disposition</option>
-                {canvassDispositions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">
-                Setter {!canEditLeadAttribution && <span className="text-gray-400 font-normal">(ask a manager to change)</span>}
-              </label>
-              <select
-                name="owner_user_id"
-                defaultValue={lead.owner_user_id || ''}
-                disabled={!canEditLeadAttribution}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
-              >
-                <option value="">Unassigned</option>
-                {(closers || []).map((u: any) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name || u.id} ({u.role})
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                Door-knock / canvass attribution. Synced to payroll as opportunity setter when linked.
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Closer</label>
-              <select
-                name="closer_user_id"
-                defaultValue={lead.closer_user_id || ''}
-                disabled={!canEditLeadAttribution}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
-              >
-                <option value="">Unassigned</option>
-                {(closers || []).map((closer: any) => (
-                  <option key={closer.id} value={closer.id}>
-                    {closer.full_name || closer.id} ({closer.role})
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                Inspection closer. Synced to payroll as opportunity owner (not the CRM record “owner” field).
-                {!canEditLeadAttribution ? ' Ask a manager to change payroll attribution.' : ''}
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Inspection scheduled for (ET)</label>
-              <input
-                name="inspection_scheduled_for"
-                type="datetime-local"
-                defaultValue={toEasternDatetimeLocal(lead.inspection_scheduled_for)}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
             <LeadWorkflowInspectionScheduler
               leadId={params.id}
-              showButton={showWorkflowInspectionSchedule}
+              canScheduleInspection={canScheduleInspection}
+              hasActiveInspectionSlot={hasActiveInspectionSlot}
+              missingFields={missingInspectionBasics}
+              activeInspectionLabel={
+                activeInspectionSlot?.scheduled_for ? formatEasternDateTime(activeInspectionSlot.scheduled_for) : null
+              }
             />
-            <div>
-              <label className="text-sm font-medium text-gray-500">Status</label>
-              <select
-                name="status"
-                defaultValue={lead.status}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                {leadStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status.replace('_', ' ')}
-                  </option>
-                ))}
-              </select>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div>
+                <label className="text-sm font-medium text-gray-500">Source</label>
+                <select
+                  name="source"
+                  defaultValue={lead.source ?? ''}
+                  className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Select source</option>
+                  {leadSources.map((source) => (
+                    <option key={source} value={source}>
+                      {source.replace('_', ' ')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Canvass disposition</label>
+                <select
+                  name="canvass_disposition"
+                  defaultValue={lead.canvass_disposition || ''}
+                  className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Select disposition</option>
+                  {canvassDispositions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Status</label>
+                <select
+                  name="status"
+                  defaultValue={lead.status}
+                  className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  {leadStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status.replace('_', ' ')}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="md:col-span-2">
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-gray-900">Manual scheduling fallback</h3>
+                <p className="mt-1 text-xs text-gray-600">
+                  Manager-only path for correcting an appointment. It does not run team round-robin availability.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">
+                    Setter {!canEditLeadAttribution && <span className="text-gray-400 font-normal">(ask a manager to change)</span>}
+                  </label>
+                  <select
+                    name="owner_user_id"
+                    defaultValue={lead.owner_user_id || ''}
+                    disabled={!canEditLeadAttribution}
+                    className="mt-2 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                  >
+                    <option value="">Unassigned</option>
+                    {(closers || []).map((u: any) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name || u.id} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Door-knock / canvass attribution.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Closer</label>
+                  <select
+                    name="closer_user_id"
+                    defaultValue={lead.closer_user_id || ''}
+                    disabled={!canEditLeadAttribution}
+                    className="mt-2 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                  >
+                    <option value="">Unassigned</option>
+                    {(closers || []).map((closer: any) => (
+                      <option key={closer.id} value={closer.id}>
+                        {closer.full_name || closer.id} ({closer.role})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Synced to payroll as opportunity owner.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Inspection scheduled for (ET)</label>
+                  <input
+                    name="inspection_scheduled_for"
+                    type="datetime-local"
+                    defaultValue={toEasternDatetimeLocal(lead.inspection_scheduled_for)}
+                    disabled={!canEditLeadAttribution}
+                    className="mt-2 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                  />
+                  {!canEditLeadAttribution && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Use the slot picker above, or ask a manager for manual edits.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div>
               <label className="text-sm font-medium text-gray-500">Canvass notes</label>
               <textarea
                 name="canvass_notes"
@@ -897,12 +929,14 @@ export default async function LeadDetailPage({
                 className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
-            <button
-              type="submit"
-              className="h-10 rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700"
-            >
-              Update lead
-            </button>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="h-10 w-full rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 sm:w-auto sm:min-w-40"
+              >
+                Update lead
+              </button>
+            </div>
           </form>
           <div className="mt-4 text-sm text-gray-600">
             {opportunity ? (
