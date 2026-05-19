@@ -4,6 +4,15 @@ import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
+import {
+  canAccessProjectsFromPermissionNames,
+  canViewAllProjects,
+  canViewManagedProjects,
+  isBarredFromProjectsUi,
+  isRepLikeCustomerRecordRole,
+} from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 function mapJobStatusToProjectStatus(jobStatus: string) {
   if (jobStatus === 'collected') return 'collected'
@@ -38,19 +47,61 @@ function statusBadgeClass(status: string) {
 }
 
 export default async function ProjectsPage() {
-  const { profile } = await requireAuth()
+  const { profile, authUser } = await requireAuth()
   const supabase = createServiceClient()
+  const projectPermissions = await resolveEffectivePermissionNames(supabase, authUser.id, profile)
+  if (
+    isBarredFromProjectsUi(profile.role) ||
+    !canAccessProjectsFromPermissionNames(projectPermissions)
+  ) {
+    notFound()
+  }
 
-  const salesRoleRestricted = ['rep', 'sales_rep', 'closer'].includes(profile.role)
+  const viewAllProjects = canViewAllProjects(profile.role)
+  const viewManagedProjects = !viewAllProjects && canViewManagedProjects(profile.role)
+
+  let scopedUserIds: string[] = []
+  if (viewManagedProjects) {
+    const roleNorm = String(profile.role || '').toLowerCase()
+    let usersQuery = supabase
+      .from('users')
+      .select('id')
+      .eq('org_id', profile.org_id)
+
+    if (roleNorm === 'regional_manager' && profile.region_id) {
+      usersQuery = usersQuery.eq('region_id', profile.region_id)
+    } else if ((roleNorm === 'manager' || roleNorm === 'sales_manager') && profile.team_id) {
+      usersQuery = usersQuery.eq('team_id', profile.team_id)
+    } else if (roleNorm !== 'operations') {
+      usersQuery = usersQuery.eq('id', profile.id)
+    }
+
+    const { data: scopedUsers } = await usersQuery
+    scopedUserIds = Array.from(new Set([profile.id, ...(scopedUsers || []).map((u) => u.id as string)]))
+  } else if (!viewAllProjects) {
+    scopedUserIds = [profile.id]
+  }
 
   let oppIdsOwnedByMe: string[] = []
-  if (salesRoleRestricted) {
-    const { data: myOpps } = await supabase
+  if (!viewAllProjects) {
+    let oppQuery = supabase
       .from('opportunities')
       .select('id')
       .eq('org_id', profile.org_id)
-      .eq('owner_user_id', profile.id)
-    oppIdsOwnedByMe = (myOpps || []).map((o) => o.id).filter(Boolean)
+    if (scopedUserIds.length > 0) {
+      // Closers (rep / sales_rep / closer): only opportunities they own — not where they appear only as setter.
+      if (!viewManagedProjects && isRepLikeCustomerRecordRole(profile.role)) {
+        oppQuery = oppQuery.in('owner_user_id', scopedUserIds)
+      } else {
+        oppQuery = oppQuery.or(
+          `owner_user_id.in.(${scopedUserIds.join(',')}),setter_user_id.in.(${scopedUserIds.join(',')})`
+        )
+      }
+    } else {
+      oppQuery = oppQuery.eq('owner_user_id', profile.id)
+    }
+    const { data: scopedOpps } = await oppQuery
+    oppIdsOwnedByMe = (scopedOpps || []).map((o) => o.id).filter(Boolean)
   }
 
   let projectsQuery = supabase
@@ -59,10 +110,15 @@ export default async function ProjectsPage() {
     .eq('org_id', profile.org_id)
     .order('created_at', { ascending: false })
 
-  if (salesRoleRestricted) {
-    if (oppIdsOwnedByMe.length > 0) {
+  if (!viewAllProjects) {
+    const filters = [
+      scopedUserIds.length > 0 ? `owner_user_id.in.(${scopedUserIds.join(',')})` : null,
+      oppIdsOwnedByMe.length > 0 ? `opportunity_id.in.(${oppIdsOwnedByMe.join(',')})` : null,
+    ].filter(Boolean)
+
+    if (filters.length > 0) {
       projectsQuery = projectsQuery.or(
-        `owner_user_id.eq.${profile.id},opportunity_id.in.(${oppIdsOwnedByMe.join(',')})`
+        filters.join(',')
       )
     } else {
       projectsQuery = projectsQuery.eq('owner_user_id', profile.id)

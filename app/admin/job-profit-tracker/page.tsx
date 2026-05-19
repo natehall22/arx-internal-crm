@@ -490,7 +490,7 @@ export default async function AdminJobProfitTrackerPage({
                   <th className="px-3 py-2 font-semibold">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-100 text-gray-800">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={22} className="px-4 py-8 text-center text-gray-500">
@@ -513,17 +513,17 @@ export default async function AdminJobProfitTrackerPage({
                         </div>
                         <div className="mt-0.5 text-xs text-gray-500">Sale {formatDate(row.job.sale_date)}</div>
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.saleAmount)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.financeCost)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.commissionableAmount)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.materials)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.labor)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.misc)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.totalExpenses)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.setterCommission)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.closerCommission)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.salesCommission)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.opp)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.saleAmount)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.financeCost)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.commissionableAmount)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.materials)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.labor)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.misc)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.totalExpenses)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.setterCommission)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.closerCommission)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.salesCommission)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.opp)}</td>
                       <td className={`px-3 py-2 text-right font-semibold tabular-nums ${moneyToneClass(row.grossProfit)}`}>
                         {formatMoney(row.grossProfit)}
                       </td>
@@ -532,8 +532,8 @@ export default async function AdminJobProfitTrackerPage({
                           {formatPercent(row.grossProfitPercent)}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.ownerDraw)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.ownerDrawPerOwner)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.ownerDraw)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.ownerDrawPerOwner)}</td>
                       <td className={`px-3 py-2 text-right font-semibold tabular-nums ${moneyToneClass(row.netProfit)}`}>
                         {formatMoney(row.netProfit)}
                       </td>

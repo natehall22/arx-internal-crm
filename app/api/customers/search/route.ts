@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+
+export const dynamic = 'force-dynamic'
 
 function normalizePhone(phone: string | null | undefined): string {
   if (!phone) return ''
@@ -20,12 +24,45 @@ export async function GET(request: Request) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    const customerPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    let allowedCustomerIds: string[] | null = null
+    if (isRepLikeCustomerRecordRole(profile.role)) {
+      const [{ data: projectRows }, { data: oppRows }] = await Promise.all([
+        adminClient
+          .from('projects')
+          .select('customer_id')
+          .eq('org_id', profile.org_id)
+          .eq('owner_user_id', user.id)
+          .not('customer_id', 'is', null),
+        adminClient
+          .from('opportunities')
+          .select('customer_id')
+          .eq('org_id', profile.org_id)
+          .eq('owner_user_id', user.id)
+          .not('customer_id', 'is', null),
+      ])
+      allowedCustomerIds = Array.from(
+        new Set(
+          [...(projectRows || []), ...(oppRows || [])]
+            .map((row: { customer_id?: string | null }) => row.customer_id)
+            .filter((id): id is string => Boolean(id))
+        )
+      )
+      if (allowedCustomerIds.length === 0) {
+        return NextResponse.json({ customers: [] })
+      }
     }
 
     const { searchParams } = new URL(request.url)
@@ -43,12 +80,15 @@ export async function GET(request: Request) {
 
     // Try exact phone match first (if query looks like a phone)
     if (normalizedPhone.length >= 7) {
-      const { data: phoneMatches } = await adminClient
-        .from('customers')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .ilike('phone', `%${normalizedPhone.slice(-7)}%`)
-        .limit(10)
+      const { data: phoneMatches } = await (() => {
+        let q = adminClient
+          .from('customers')
+          .select('*')
+          .eq('org_id', profile.org_id)
+          .ilike('phone', `%${normalizedPhone.slice(-7)}%`)
+        if (allowedCustomerIds) q = q.in('id', allowedCustomerIds)
+        return q.limit(10)
+      })()
       
       if (phoneMatches?.length) {
         customers = phoneMatches
@@ -57,12 +97,15 @@ export async function GET(request: Request) {
 
     // Try email match
     if (customers.length === 0 && query.includes('@')) {
-      const { data: emailMatches } = await adminClient
-        .from('customers')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .ilike('email', `%${emailLower}%`)
-        .limit(10)
+      const { data: emailMatches } = await (() => {
+        let q = adminClient
+          .from('customers')
+          .select('*')
+          .eq('org_id', profile.org_id)
+          .ilike('email', `%${emailLower}%`)
+        if (allowedCustomerIds) q = q.in('id', allowedCustomerIds)
+        return q.limit(10)
+      })()
       
       if (emailMatches?.length) {
         customers = emailMatches
@@ -71,13 +114,16 @@ export async function GET(request: Request) {
 
     // Fall back to name search
     if (customers.length === 0) {
-      const { data: nameMatches } = await adminClient
-        .from('customers')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .ilike('name', `%${query}%`)
-        .order('created_at', { ascending: false })
-        .limit(10)
+      const { data: nameMatches } = await (() => {
+        let q = adminClient
+          .from('customers')
+          .select('*')
+          .eq('org_id', profile.org_id)
+          .ilike('name', `%${query}%`)
+          .order('created_at', { ascending: false })
+        if (allowedCustomerIds) q = q.in('id', allowedCustomerIds)
+        return q.limit(10)
+      })()
       
       customers = nameMatches || []
     }

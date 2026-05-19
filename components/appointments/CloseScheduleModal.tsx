@@ -1,8 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 
-type TimeSlot = { time: string; display: string; available: boolean }
+type TimeSlot = {
+  time: string
+  display: string
+  available: boolean
+  /** From team availability API — closers free in round-robin pool at this slot */
+  availableClosers?: number
+}
 
 export type CloseScheduleConfirm = {
   /** Local datetime string YYYY-MM-DDTHH:MM (same as canvass availability API) */
@@ -16,9 +22,16 @@ type Props = {
   open: boolean
   onClose: () => void
   onConfirm: (params: CloseScheduleConfirm) => void
+  /** Duration passed to canvass availability APIs */
   closeDurationMinutes: number
   users: Array<{ id: string; full_name: string; has_calendar?: boolean }>
   teams: Array<{ id: string; name: string }>
+  modalTitle?: string
+  /** Replaces default intro copy (appointment type wording) */
+  intro?: ReactNode
+  summaryHint?: string
+  /** On team slots, label how many queue members can take the appointment */
+  showAvailableCloserCounts?: boolean
 }
 
 export default function CloseScheduleModal({
@@ -28,6 +41,10 @@ export default function CloseScheduleModal({
   closeDurationMinutes,
   users,
   teams,
+  modalTitle = 'Schedule close appointment',
+  intro,
+  summaryHint,
+  showAvailableCloserCounts = false,
 }: Props) {
   const [selectedCloser, setSelectedCloser] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
@@ -152,7 +169,7 @@ export default function CloseScheduleModal({
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
       <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
         <div className="px-4 py-3 border-b flex items-center justify-between bg-gray-50">
-          <h2 className="font-semibold text-lg text-gray-900">Schedule close appointment</h2>
+          <h2 className="font-semibold text-lg text-gray-900">{modalTitle}</h2>
           <button type="button" onClick={onClose} className="p-2 -mr-2 text-gray-400 hover:text-gray-600">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -161,11 +178,15 @@ export default function CloseScheduleModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <p className="text-sm text-gray-600">
-            Same options as the canvass app: pick a <strong>team</strong> for round-robin assignment, or an{' '}
-            <strong>individual closer</strong> for a named rep. Then choose a free slot ({closeDurationMinutes}{' '}
-            min close duration from Admin → Scheduling).
-          </p>
+          {intro !== undefined ? (
+            <div className="text-sm text-gray-600">{intro}</div>
+          ) : (
+            <p className="text-sm text-gray-600">
+              Same options as the canvass app: pick a <strong>team</strong> for round-robin assignment, or an{' '}
+              <strong>individual closer</strong> for a named rep. Then choose a free slot ({closeDurationMinutes}{' '}
+              min close duration from Admin → Scheduling).
+            </p>
+          )}
 
           {!hasTeams && !hasUsers && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
@@ -266,7 +287,21 @@ export default function CloseScheduleModal({
                                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                           }`}
                         >
-                          {slot.display}
+                          <span className="flex flex-col items-center gap-0.5">
+                            <span>{slot.display}</span>
+                            {showAvailableCloserCounts &&
+                              selectedCloser.startsWith('team:') &&
+                              slot.available &&
+                              typeof slot.availableClosers === 'number' && (
+                                <span
+                                  className={`text-[10px] font-normal leading-tight ${
+                                    selectedTime === slot.time ? 'text-white/90' : 'text-gray-500'
+                                  }`}
+                                >
+                                  {slot.availableClosers} avail.
+                                </span>
+                              )}
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -278,7 +313,8 @@ export default function CloseScheduleModal({
 
               {selectedTime && (
                 <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800">
-                  Close will be booked for the selected slot using your choice above.
+                  {summaryHint ||
+                    'Close will be booked for the selected slot using your choice above.'}
                 </div>
               )}
             </>

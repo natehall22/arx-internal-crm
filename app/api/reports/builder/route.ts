@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { canAccessReportsFromPermissionNames, canCreateReportsFromPermissionNames, canExportReportsFromPermissionNames, getReportScopeFromPermissionNames } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,7 +60,7 @@ function canEditReport(input: {
   userId: string
   role?: string | null
 }) {
-  return input.role === 'admin' || input.report.created_by === input.userId
+  return ['admin', 'owner'].includes(String(input.role || '').toLowerCase()) || input.report.created_by === input.userId
 }
 
 // GET - Load user profile and initial data
@@ -88,6 +90,11 @@ export async function GET(request: NextRequest) {
     if (profileError || !profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
+
+    const reportPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canAccessReportsFromPermissionNames(reportPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     
     // Get users in org
     const { data: users } = await adminClient
@@ -105,6 +112,9 @@ export async function GET(request: NextRequest) {
       profile,
       users: users || [],
       roles: roles || [],
+      canCreateReports: canCreateReportsFromPermissionNames(reportPermissions),
+      canExportReports: canExportReportsFromPermissionNames(reportPermissions),
+      reportScope: getReportScopeFromPermissionNames(reportPermissions),
     })
     
   } catch (error) {
@@ -133,12 +143,17 @@ export async function POST(request: NextRequest) {
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
     
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    }
+
+    const reportPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canCreateReportsFromPermissionNames(reportPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     
     const body = await request.json()

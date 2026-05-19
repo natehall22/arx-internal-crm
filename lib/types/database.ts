@@ -12,6 +12,7 @@ export type UserRole =
   | 'setter'
   | 'rep' 
   | 'canvasser' 
+  | 'inside_sales'
   // Operations
   | 'operations'
   // Custom (for flexibility)

@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
+import LeadInspectionScheduleModal from '@/components/leads/LeadInspectionScheduleModal'
 
 interface ReferrerResult {
   id: string
@@ -36,11 +38,22 @@ interface LeadFormWithReferralProps {
   orgId: string
   userId: string
   defaultBonusAmount?: number
+  /** Enables post-create “Schedule inspection” when user also has scheduling:create server-side */
+  canScheduleInspection?: boolean
 }
 
-export default function LeadFormWithReferral({ orgId, userId, defaultBonusAmount = 100 }: LeadFormWithReferralProps) {
+export default function LeadFormWithReferral({
+  orgId,
+  userId,
+  defaultBonusAmount = 100,
+  canScheduleInspection = false,
+}: LeadFormWithReferralProps) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
+  const [savedLeadId, setSavedLeadId] = useState<string | null>(null)
+  /** Snapshot at save-time: address is required so scheduling can place a map pin. */
+  const [savedEligibleForSchedule, setSavedEligibleForSchedule] = useState(false)
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [source, setSource] = useState('')
   
   // Referral state
@@ -287,10 +300,76 @@ export default function LeadFormWithReferral({ orgId, userId, defaultBonusAmount
       }
     }
 
-    router.push(`/leads/${lead.id}`)
+    const hasSchedulableAddress = !!form.address_text?.trim()
+
+    setSavedLeadId(lead.id)
+    setSavedEligibleForSchedule(hasSchedulableAddress)
+    if (canScheduleInspection && hasSchedulableAddress) {
+      setScheduleModalOpen(true)
+    }
+    setSaving(false)
+  }
+
+  const startAnotherLead = () => {
+    setSavedLeadId(null)
+    setSavedEligibleForSchedule(false)
+    setScheduleModalOpen(false)
+    setForm({
+      homeowner_name: '',
+      phone: '',
+      email: '',
+      address_text: '',
+      status: 'new',
+      notes: '',
+    })
+    setSource('')
+    setSelectedReferrer(null)
   }
 
   return (
+    <>
+      {savedLeadId && (
+        <div className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4">
+          <p className="text-sm font-medium text-green-900 mb-3">Lead saved successfully.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/leads/${savedLeadId}`}
+              className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+            >
+              Open lead →
+            </Link>
+            {canScheduleInspection && savedEligibleForSchedule && (
+              <button
+                type="button"
+                onClick={() => setScheduleModalOpen(true)}
+                className="inline-flex rounded-md border border-green-700 bg-white px-4 py-2 text-sm font-semibold text-green-900 hover:bg-green-50"
+              >
+                Schedule inspection…
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={startAnotherLead}
+              className="inline-flex rounded-md px-4 py-2 text-sm font-medium text-gray-700 underline-offset-4 hover:underline"
+            >
+              Create another lead
+            </button>
+          </div>
+          {canScheduleInspection && !savedEligibleForSchedule && (
+            <p className="mt-3 text-xs text-amber-800">
+              Add an address on the lead record, then use <strong>Schedule inspection</strong> from the lead page.
+            </p>
+          )}
+        </div>
+      )}
+
+      <LeadInspectionScheduleModal
+        leadId={savedLeadId ?? ''}
+        open={scheduleModalOpen && Boolean(savedLeadId)}
+        onClose={() => setScheduleModalOpen(false)}
+        onScheduled={() => router.push(`/leads/${savedLeadId ?? ''}`)}
+      />
+
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
@@ -499,10 +578,10 @@ export default function LeadFormWithReferral({ orgId, userId, defaultBonusAmount
       <div className="flex items-center gap-4">
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || !!savedLeadId}
           className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
-          {saving ? 'Creating...' : 'Create lead'}
+          {saving ? 'Creating...' : savedLeadId ? 'Lead created' : 'Create lead'}
         </button>
         
         {source !== 'referral' && (
@@ -519,5 +598,6 @@ export default function LeadFormWithReferral({ orgId, userId, defaultBonusAmount
         )}
       </div>
     </form>
+    </>
   )
 }

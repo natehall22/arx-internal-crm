@@ -47,6 +47,9 @@ export type PermissionName =
   | 'projects:edit'
   | 'projects:delete'
   | 'projects:complete'
+  // Customers
+  | 'customers:view'
+  | 'customers:edit'
   // Reports
   | 'reports:view_own'
   | 'reports:view_team'
@@ -102,6 +105,7 @@ const roleHierarchy: UserRole[] = [
   'setter',
   'rep',
   'sales_rep',
+  'inside_sales',
   'operations',
   'setter_manager',
   'sales_manager',
@@ -117,6 +121,7 @@ export const legacyRoleHierarchyLevels: Record<UserRole, number> = {
   canvasser: 10,
   setter: 20,
   rep: 30,
+  inside_sales: 35,
   sales_rep: 30,
   operations: 40,
   setter_manager: 50,
@@ -153,7 +158,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view', 'proposals:edit',
     'contracts:view', 'contracts:send',
     'projects:view', 'projects:edit',
-    'reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:export',
+    'reports:view_region', 'reports:create', 'reports:export',
     'teams:view', 'teams:manage',
     'regions:view', 'regions:manage',
     'users:view', 'users:manage_team', 'users:manage_region',
@@ -168,7 +173,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view', 'proposals:edit',
     'contracts:view', 'contracts:send',
     'projects:view',
-    'reports:view_own', 'reports:view_team', 'reports:export',
+    'reports:view_team', 'reports:create', 'reports:export',
     'teams:view', 'teams:manage',
     'users:view', 'users:manage_team',
     'pricebook:view',
@@ -182,7 +187,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view', 'proposals:edit',
     'contracts:view', 'contracts:send',
     'projects:view',
-    'reports:view_own',
     'teams:view',
     'users:view',
     'pricebook:view',
@@ -196,18 +200,29 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view', 'proposals:edit',
     'contracts:view', 'contracts:send',
     'projects:view',
-    'reports:view_own',
     'teams:view',
     'users:view',
     'pricebook:view',
     'scheduling:view',
+  ],
+
+  inside_sales: [
+    'leads:view', 'leads:create', 'leads:edit',
+    'leads:view_inbound', 'leads:claim_inbound',
+    'opportunities:view', 'opportunities:edit',
+    'proposals:view', 'proposals:create', 'proposals:edit', 'proposals:send',
+    'contracts:view',
+    'reports:view_own',
+    'campaigns:view',
+    'teams:view',
+    'users:view',
+    'scheduling:view', 'scheduling:create', 'scheduling:edit',
   ],
   
   canvasser: [
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
     'opportunities:view',
-    'reports:view_own',
     'teams:view',
     'users:view',
     'scheduling:view',
@@ -220,7 +235,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view',
     'contracts:view',
     'projects:view', 'projects:edit',
-    'reports:view_own', 'reports:view_all', 'reports:export',
+    'reports:view_all', 'reports:create', 'reports:export',
     'teams:view',
     'users:view',
     'pricebook:view',
@@ -236,7 +251,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view', 'proposals:edit',
     'contracts:view', 'contracts:send',
     'projects:view', 'projects:edit',
-    'reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all', 'reports:export',
     'teams:view', 'teams:manage',
     'regions:view', 'regions:manage',
     'users:view', 'users:manage_team', 'users:manage_region', 'users:manage_all',
@@ -248,7 +262,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
     'opportunities:view',
-    'reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:export',
     'teams:view', 'teams:manage',
     'regions:view',
     'users:view', 'users:manage_team', 'users:manage_region',
@@ -259,7 +272,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
     'opportunities:view',
-    'reports:view_own', 'reports:view_team', 'reports:export',
     'teams:view', 'teams:manage',
     'users:view', 'users:manage_team',
     'scheduling:view', 'scheduling:manage_team',
@@ -269,7 +281,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
     'opportunities:view',
-    'reports:view_own',
     'teams:view',
     'users:view',
     'scheduling:view',
@@ -281,7 +292,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'canvass:view',
     'leads:view',
     'opportunities:view',
-    'reports:view_own',
     'teams:view',
     'users:view',
     'scheduling:view',
@@ -297,6 +307,154 @@ const JOB_BOARD_ACCESS_ROLES = new Set(['admin', 'operations', 'owner'])
 export function canAccessJobBoard(role: string | null | undefined): boolean {
   if (!role) return false
   return JOB_BOARD_ACCESS_ROLES.has(String(role).toLowerCase())
+}
+
+const PROJECTS_AREA_ACCESS_ROLES = new Set([
+  'admin',
+  'owner',
+  'operations',
+  'manager',
+  'rep',
+  'sales_rep',
+  'closer',
+  'sales_manager',
+  'regional_manager',
+])
+
+/** Roles that may open Projects. Setters/canvassers stay out; closers and above may enter. */
+export function canAccessProjectsArea(role: string | null | undefined): boolean {
+  if (!role) return false
+  return PROJECTS_AREA_ACCESS_ROLES.has(String(role).toLowerCase())
+}
+
+export function canAccessProjectsFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return input.permissionNames.has('projects:view') || input.permissionNames.has('projects:edit')
+}
+
+/**
+ * Setter/canvass/inside-sales roles never get the Projects nav area or routes, even if someone
+ * grants `projects:*` on their user — avoids elevating appointment-setting roles into production.
+ */
+export function isBarredFromProjectsUi(role: string | null | undefined): boolean {
+  const r = String(role || '').toLowerCase()
+  return r === 'setter' || r === 'canvasser' || r === 'inside_sales' || r === 'inside sales' || r === 'call_center' || r === 'call center'
+}
+
+/** Only admin-level users may see every project in the org. */
+export function canViewAllProjects(role: string | null | undefined): boolean {
+  if (!role) return false
+  return ['admin', 'owner'].includes(String(role).toLowerCase())
+}
+
+/** Roles that may see projects for their managed team/region rather than only personal projects. */
+export function canViewManagedProjects(role: string | null | undefined): boolean {
+  if (!role) return false
+  return ['manager', 'sales_manager', 'regional_manager'].includes(String(role).toLowerCase())
+}
+
+const CUSTOMER_RECORD_ACCESS_ROLES = new Set([
+  'admin',
+  'owner',
+  'operations',
+  'manager',
+  'sales_manager',
+  'regional_manager',
+])
+
+/** Roles that may open customer account surfaces. Sales/setter roles stay out. */
+export function canAccessCustomerRecords(role: string | null | undefined): boolean {
+  if (!role) return false
+  return CUSTOMER_RECORD_ACCESS_ROLES.has(String(role).toLowerCase())
+}
+
+export function canAccessCustomerRecordsFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return input.permissionNames.has('customers:view') || input.permissionNames.has('customers:edit')
+}
+
+export function canEditCustomerRecordsFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return input.permissionNames.has('customers:edit')
+}
+
+/** Roles scoped to customer records from their own projects/opportunities (aligned with closer/rep DB values). */
+export const REP_LIKE_CUSTOMER_RECORD_ROLES = new Set(['rep', 'sales_rep', 'closer'])
+
+/** True for rep / sales_rep / closer — used for customer record scoping and closer-only project visibility (opportunity owner, not setter-only). */
+export function isRepLikeCustomerRecordRole(role: string | null | undefined): boolean {
+  return REP_LIKE_CUSTOMER_RECORD_ROLES.has(String(role || '').toLowerCase())
+}
+
+const REPORTS_ACCESS_ROLES = new Set([
+  'admin',
+  'owner',
+  'operations',
+  'manager',
+  'sales_manager',
+  'regional_manager',
+])
+
+/** Roles that may open reports dashboards and report APIs. */
+export function canAccessReports(role: string | null | undefined): boolean {
+  if (!role) return false
+  return REPORTS_ACCESS_ROLES.has(String(role).toLowerCase())
+}
+
+/** Roles that may create/edit custom reports. */
+export function canCreateReports(role: string | null | undefined): boolean {
+  if (!role) return false
+  return REPORTS_ACCESS_ROLES.has(String(role).toLowerCase())
+}
+
+export const REPORT_VIEW_PERMISSION_NAMES = [
+  'reports:view_own',
+  'reports:view_team',
+  'reports:view_region',
+  'reports:view_all',
+] as const
+
+export function canAccessReportsFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return REPORT_VIEW_PERMISSION_NAMES.some((permission) => input.permissionNames.has(permission))
+}
+
+export function getReportScopeFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): 'own' | 'team' | 'region' | 'all' {
+  if (input.fullAccess || input.permissionNames.has('reports:view_all')) return 'all'
+  if (input.permissionNames.has('reports:view_region')) return 'region'
+  if (input.permissionNames.has('reports:view_team')) return 'team'
+  return 'own'
+}
+
+export function canCreateReportsFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return input.permissionNames.has('reports:create')
+}
+
+export function canExportReportsFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return input.permissionNames.has('reports:export')
 }
 
 /**
@@ -437,6 +595,7 @@ export const roleDisplayNames: Record<UserRole, string> = {
   sales_manager: 'Sales Manager',
   setter_manager: 'Setter Manager',
   sales_rep: 'Sales Rep',
+  inside_sales: 'Inside Sales',
   setter: 'Setter',
   rep: 'Rep',
   canvasser: 'Canvasser',
@@ -771,6 +930,7 @@ export const permissionCategories = [
   'Proposals',
   'Contracts',
   'Projects',
+  'Customers',
   'Reports',
   'Teams',
   'Regions',
@@ -790,7 +950,7 @@ export const allPermissions: Array<{
   category: PermissionCategory
 }> = [
   // Canvassing
-  { name: 'canvass:view', displayName: 'View Canvass Map', description: 'Access the canvassing map interface', category: 'Canvassing' },
+  { name: 'canvass:view', displayName: 'View Canvass Map', description: 'Open the field canvassing map (nav + /canvass routes). Lead-only teams can omit this.', category: 'Canvassing' },
   { name: 'canvass:create', displayName: 'Create Canvass Pins', description: 'Drop new pins on the canvass map', category: 'Canvassing' },
   { name: 'canvass:edit', displayName: 'Edit Canvass Pins', description: 'Modify existing canvass pins', category: 'Canvassing' },
   { name: 'canvass:delete', displayName: 'Delete Canvass Pins', description: 'Remove canvass pins', category: 'Canvassing' },
@@ -825,6 +985,10 @@ export const allPermissions: Array<{
   { name: 'projects:edit', displayName: 'Edit Projects', description: 'Modify project information', category: 'Projects' },
   { name: 'projects:delete', displayName: 'Delete Projects', description: 'Remove project records', category: 'Projects' },
   { name: 'projects:complete', displayName: 'Complete Projects', description: 'Mark projects as complete', category: 'Projects' },
+
+  // Customers
+  { name: 'customers:view', displayName: 'View Customers', description: 'Access customer records', category: 'Customers' },
+  { name: 'customers:edit', displayName: 'Edit Customers', description: 'Modify customer records', category: 'Customers' },
   
   // Reports
   { name: 'reports:view_own', displayName: 'View Own Reports', description: 'See personal performance metrics', category: 'Reports' },
@@ -859,7 +1023,7 @@ export const allPermissions: Array<{
   
   // Scheduling
   { name: 'scheduling:view', displayName: 'View Schedule', description: 'See appointment calendar', category: 'Scheduling' },
-  { name: 'scheduling:create', displayName: 'Create Appointments', description: 'Schedule new appointments', category: 'Scheduling' },
+  { name: 'scheduling:create', displayName: 'Create Appointments', description: 'Schedule inspections (CRM lead picker, canvass, etc.)', category: 'Scheduling' },
   { name: 'scheduling:edit', displayName: 'Edit Appointments', description: 'Modify appointments', category: 'Scheduling' },
   { name: 'scheduling:manage_team', displayName: 'Manage Team Schedule', description: 'Configure team scheduling', category: 'Scheduling' },
   { name: 'scheduling:manage_region', displayName: 'Manage Region Schedule', description: 'Configure regional scheduling', category: 'Scheduling' },

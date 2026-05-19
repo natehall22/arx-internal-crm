@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+
+export const dynamic = 'force-dynamic'
 
 // GET - Get records without customer_id (opportunities, projects, jobs)
 export async function GET(request: Request) {
@@ -15,13 +19,20 @@ export async function GET(request: Request) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
+
+    const customerPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const repScoped = isRepLikeCustomerRecordRole(profile.role)
 
     const { searchParams } = new URL(request.url)
     const sourceType = searchParams.get('type') || 'all'
@@ -54,6 +65,10 @@ export async function GET(request: Request) {
       if (!showAll) {
         // Filter to relevant stages
         oppQuery = oppQuery.in('status', ['qualified', 'proposal_sent', 'won', 'project_created', 'closed_won'])
+      }
+
+      if (repScoped) {
+        oppQuery = oppQuery.eq('owner_user_id', user.id)
       }
 
       const { data: opps, error: oppError } = await oppQuery
@@ -102,7 +117,7 @@ export async function GET(request: Request) {
       let projectQuery = adminClient
         .from('projects')
         .select(`
-          id, status, address_text, created_at, customer_id,
+          id, status, address_text, created_at, customer_id, owner_user_id,
           lead:leads(homeowner_name, email, phone),
           customers(name)
         `)
@@ -113,6 +128,10 @@ export async function GET(request: Request) {
         projectQuery = projectQuery.is('customer_id', null).limit(50)
       } else {
         projectQuery = projectQuery.limit(200)
+      }
+
+      if (repScoped) {
+        projectQuery = projectQuery.eq('owner_user_id', user.id)
       }
 
       const { data: projects } = await projectQuery
@@ -159,6 +178,7 @@ export async function GET(request: Request) {
         .select(`
           id, job_number, status, address_text, created_at, project_id,
           project:projects(
+            owner_user_id,
             lead:leads(homeowner_name, email, phone)
           )
         `)
@@ -206,7 +226,12 @@ export async function GET(request: Request) {
         }
       }))
 
-      results.jobs = jobsWithProposals
+      results.jobs = repScoped
+        ? jobsWithProposals.filter((j) => {
+            const project = Array.isArray(j.project) ? j.project[0] : j.project
+            return project?.owner_user_id === user.id
+          })
+        : jobsWithProposals
     }
 
     return NextResponse.json(results)

@@ -185,6 +185,9 @@ export async function GET(
 ) {
   try {
     const { profile } = await requireAuthApi()
+    if (!canAccessJobBoard(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     const adminClient = createServiceClient()
 
     const jobResWithPaymentMethod = await adminClient

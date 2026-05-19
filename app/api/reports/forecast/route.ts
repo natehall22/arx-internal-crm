@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,6 +46,11 @@ export async function GET(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
     const supabase = createServiceClient()
+    const reportPermissions = await resolveEffectivePermissionNames(supabase, profile.id, profile)
+    if (!canAccessReportsFromPermissionNames(reportPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
 
     const period = request.nextUrl.searchParams.get('period') || 'quarter' // month | quarter | year
 
@@ -306,7 +313,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
-    if (!['admin', 'sales_manager', 'regional_manager'].includes(profile.role)) {
+    if (!['admin', 'owner', 'sales_manager', 'regional_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

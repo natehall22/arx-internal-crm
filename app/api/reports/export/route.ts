@@ -12,6 +12,9 @@ import {
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { canExportReportsFromPermissionNames } from '@/lib/permissions'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -148,7 +151,7 @@ export async function GET(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('role, org_id')
+      .select('role, org_id, custom_role_id')
       .eq('id', user.id)
       .single()
 
@@ -156,7 +159,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
-    const canExport = ['admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)
+    const reportPermissions = await resolveEffectivePermissionNames(createServiceClient(), user.id, profile)
+    const canExport = canExportReportsFromPermissionNames(reportPermissions)
     if (!canExport) {
       return NextResponse.json({ error: 'Not authorized to export reports' }, { status: 403 })
     }

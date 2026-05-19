@@ -2,19 +2,21 @@
 
 import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { isBarredFromProjectsUi } from '@/lib/permissions'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 // Include legacy roles for backwards compatibility
-type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'inside_sales' | 'canvasser' | 'operations' | 'owner'
+type AnyUserRole = 'admin' | 'manager' | 'rep' | 'regional_manager' | 'sales_manager' | 'sales_rep' | 'closer' | 'inside_sales' | 'canvasser' | 'operations' | 'owner'
 
 type NavItem = {
   href: string
   label: string
   roles?: AnyUserRole[] // If specified, only these roles can see this item
   permission?: string // If specified, check for this specific permission
+  /** Must have this permission name (from role matrix, custom role, or user grant) — used for Canvass vs lead-only workflows */
+  requiresAnyPermission?: string | string[]
 }
 
 export default function Nav() {
@@ -23,6 +25,9 @@ export default function Nav() {
   const supabaseRef = useRef<ReturnType<typeof createClientBrowser> | null>(null)
   const [userRole, setUserRole] = useState<AnyUserRole | null>(null)
   const [userPermissions, setUserPermissions] = useState<string[]>([])
+  const [effectivePermsReady, setEffectivePermsReady] = useState(false)
+  const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
+  const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState<string>('ARX CRM')
   const [companyLogo, setCompanyLogo] = useState<string | null>(null)
@@ -91,6 +96,23 @@ export default function Nav() {
             .filter(Boolean) as string[]
           setUserPermissions(permNames)
         }
+
+        try {
+          const res = await fetch('/api/me/effective-permissions')
+          const data = await res.json().catch(() => null)
+          if (res.ok && data && typeof data === 'object') {
+            setEffectiveFullAccess(Boolean(data.fullAccess))
+            setEffectivePermissionNames(
+              new Set(Array.isArray(data.permissions) ? data.permissions.filter((x: unknown) => typeof x === 'string') : [])
+            )
+          }
+        } catch {
+          // Fail closed below (items with requiresAnyPermission stay hidden until we have a signal)
+        } finally {
+          setEffectivePermsReady(true)
+        }
+      } else {
+        setEffectivePermsReady(true)
       }
       setLoading(false)
     }
@@ -175,17 +197,33 @@ export default function Nav() {
     { href: '/calendar', label: 'Calendar', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
     { href: '/leads', label: 'Leads' },
     { href: '/opportunities', label: 'Opportunities', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'inside_sales', 'rep', 'operations', 'owner'] },
-    { href: '/projects', label: 'Projects', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    {
+      href: '/projects',
+      label: 'Projects',
+      requiresAnyPermission: ['projects:view', 'projects:edit'],
+    },
     { href: '/ops', label: 'Job Board', roles: ['admin', 'operations', 'owner'] },
-    { href: '/canvass', label: 'Canvass' },
+    {
+      href: '/canvass',
+      label: 'Canvass',
+      requiresAnyPermission: 'canvass:view',
+    },
     { href: '/pricebook', label: 'Pricebook', roles: ['admin', 'regional_manager', 'operations', 'owner'], permission: 'pricebook:view' },
-    { href: '/customers', label: 'Customers', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
-    { href: '/reports', label: 'Reports', roles: ['admin', 'manager', 'regional_manager', 'sales_manager', 'sales_rep', 'rep', 'operations', 'owner'] },
+    { href: '/customers', label: 'Customers', requiresAnyPermission: ['customers:view', 'customers:edit'] },
+    { href: '/reports', label: 'Reports', requiresAnyPermission: ['reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all'] },
     { href: '/admin', label: 'Admin', roles: ['admin', 'manager', 'regional_manager', 'owner'] },
   ]
 
   // Filter nav items based on user role and permissions
   const navItems = allNavItems.filter(item => {
+    if (item.requiresAnyPermission) {
+      if (!effectivePermsReady) return false
+      const required = Array.isArray(item.requiresAnyPermission) ? item.requiresAnyPermission : [item.requiresAnyPermission]
+      if (!(effectiveFullAccess || required.some((permission) => effectivePermissionNames.has(permission)))) return false
+      if (item.href === '/projects' && isBarredFromProjectsUi(userRole)) return false
+      return true
+    }
+
     // If user has a specific permission grant, always show the item
     if (item.permission && userPermissions.includes(item.permission)) {
       return true
