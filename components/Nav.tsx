@@ -11,11 +11,9 @@ import {
   canAccessOpsDashboardFromPermissionNames,
   canAccessReports,
   canAccessReportsFromPermissionNames,
-  getPermissions,
   isBarredFromProjectsUi,
   isOrgSuperuserRoleSlug,
 } from '@/lib/permissions'
-import type { UserRole } from '@/lib/types/database'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 
@@ -49,8 +47,48 @@ export default function Nav() {
     const loadUserRoleAndPermissions = async () => {
       const supabase = createClientBrowser()
       supabaseRef.current = supabase
-      
-      // Prefer getSession(): after SSR/hydration getUser() can briefly return null before cookies/sync settle.
+
+      // Fetch effective permissions first — unconditionally. The Supabase browser
+      // client cannot read HttpOnly session cookies, so getSession()/getUser() return
+      // null even for authenticated users. The server API reads cookies directly and
+      // is the single authoritative source for role + permissions.
+      try {
+        const res = await fetch('/api/me/effective-permissions', {
+          cache: 'no-store',
+          credentials: 'same-origin',
+        })
+        const data = await res.json().catch(() => null)
+        if (
+          res.ok &&
+          data &&
+          typeof data === 'object' &&
+          !('error' in data && (data as { error?: unknown }).error)
+        ) {
+          const serverRole = normalizeRole((data as { role?: unknown }).role)
+          if (serverRole) {
+            setUserRole(serverRole)
+          }
+          const apiFullAccess =
+            Boolean((data as { fullAccess?: unknown }).fullAccess) ||
+            isOrgSuperuserRoleSlug(serverRole)
+          const serverPerms = Array.isArray((data as { permissions?: unknown }).permissions)
+            ? ((data as { permissions: unknown[] }).permissions.filter((x) => typeof x === 'string') as string[])
+            : []
+          setEffectiveFullAccess(apiFullAccess)
+          if (!apiFullAccess) {
+            setEffectivePermissionNames(new Set(serverPerms))
+          }
+        } else {
+          console.warn('Nav: /api/me/effective-permissions unavailable', res.status)
+        }
+      } catch {
+        // Fail closed — items with requiresAnyPermission stay hidden
+      } finally {
+        setEffectivePermsReady(true)
+      }
+
+      // Org branding and legacy user-permission grants still use the Supabase client.
+      // These are cosmetic/additive — a null user here is non-fatal.
       const {
         data: { session },
       } = await supabase.auth.getSession()
@@ -63,18 +101,9 @@ export default function Nav() {
       if (user) {
         const { data: profile } = await supabase
           .from('users')
-          .select('role, org_id, custom_role_id')
+          .select('role, org_id')
           .eq('id', user.id)
           .single()
-        
-        const browserRole = normalizeRole(profile?.role)
-        const legacyCustomRoleId = profile?.custom_role_id ?? null
-        if (browserRole) {
-          setUserRole(browserRole)
-          if (isOrgSuperuserRoleSlug(browserRole)) {
-            setEffectiveFullAccess(true)
-          }
-        }
 
         // Load org info for company name and logo
         if (profile?.org_id) {
@@ -96,8 +125,8 @@ export default function Nav() {
             const logoUrl = org.logo_url || (org.settings as any)?.logo_url
             if (logoUrl) {
               // Add cache-busting timestamp for logo
-              const logoWithCacheBust = logoUrl.includes('?') 
-                ? `${logoUrl}&_t=${Date.now()}` 
+              const logoWithCacheBust = logoUrl.includes('?')
+                ? `${logoUrl}&_t=${Date.now()}`
                 : `${logoUrl}?_t=${Date.now()}`
               setCompanyLogo(logoWithCacheBust)
             } else {
@@ -106,13 +135,12 @@ export default function Nav() {
           }
         }
 
-        // Load user-specific permissions
+        // Load user-specific permissions (legacy additive grants shown in filter)
         const { data: userPerms } = await supabase
           .from('user_permissions')
           .select('permission_id, permissions(name)')
           .eq('user_id', user.id)
 
-        let directGrantPermNames: string[] = []
         if (userPerms) {
           const permNames = userPerms
             .map((up: { permissions: { name: string } | { name: string }[] | null }) => {
@@ -122,93 +150,13 @@ export default function Nav() {
               return up.permissions?.name
             })
             .filter(Boolean) as string[]
-          directGrantPermNames = permNames
           setUserPermissions(permNames)
         }
-
-        /**
-         * When the API returns no usable permission keys (broken presets, transient errors),
-         * merge direct user grants + legacy role matrix when safe.
-         * If `custom_role_id` is set we normally skip the matrix — unless the slug is still
-         * admin/owner (mis-synced rows: admin user with dangling custom_role_id).
-         */
-        const fallbackPermissionNames = (): Set<string> => {
-          const s = new Set<string>(directGrantPermNames)
-          if (!browserRole) return s
-          const slugActsAsSuperuser = isOrgSuperuserRoleSlug(browserRole)
-          if (!legacyCustomRoleId || slugActsAsSuperuser) {
-            for (const p of getPermissions(browserRole as UserRole)) {
-              s.add(p)
-            }
-          }
-          return s
-        }
-
-        const applySuperFullAccessFlag = (
-          apiFullAccess: boolean,
-          serverRole: string | null,
-        ) => {
-          setEffectiveFullAccess(
-            apiFullAccess ||
-              isOrgSuperuserRoleSlug(serverRole) ||
-              isOrgSuperuserRoleSlug(browserRole),
-          )
-        }
-
-        try {
-          const res = await fetch('/api/me/effective-permissions', {
-            cache: 'no-store',
-            credentials: 'same-origin',
-          })
-          const data = await res.json().catch(() => null)
-          if (
-            res.ok &&
-            data &&
-            typeof data === 'object' &&
-            !('error' in data && (data as { error?: unknown }).error)
-          ) {
-            const serverRole = normalizeRole((data as { role?: unknown }).role)
-            if (serverRole) {
-              setUserRole(serverRole)
-            }
-            const apiFullAccess = Boolean((data as { fullAccess?: unknown }).fullAccess)
-            const serverPerms = Array.isArray((data as { permissions?: unknown }).permissions)
-              ? ((data as { permissions: unknown[] }).permissions.filter((x) => typeof x === 'string') as string[])
-              : []
-
-            applySuperFullAccessFlag(apiFullAccess, serverRole ?? null)
-
-            if (apiFullAccess) {
-              setEffectivePermissionNames(new Set())
-            } else if (serverPerms.length > 0) {
-              setEffectivePermissionNames(new Set(serverPerms))
-            } else {
-              const fb = fallbackPermissionNames()
-              setEffectivePermissionNames(fb)
-              if (legacyCustomRoleId) {
-                console.warn(
-                  'Nav: effective permissions API returned zero keys for a custom-role user — check role_permissions presets.',
-                  { userId: user.id },
-                )
-              }
-            }
-          } else {
-            console.warn('Nav: /api/me/effective-permissions unavailable', res.status)
-            applySuperFullAccessFlag(false, null)
-            setEffectivePermissionNames(fallbackPermissionNames())
-          }
-        } catch {
-          applySuperFullAccessFlag(false, null)
-          setEffectivePermissionNames(fallbackPermissionNames())
-        } finally {
-          setEffectivePermsReady(true)
-        }
-      } else {
-        setEffectivePermsReady(true)
       }
+
       setLoading(false)
     }
-    
+
     loadUserRoleAndPermissions()
   }, [])
 
