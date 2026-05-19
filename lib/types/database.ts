@@ -15,6 +15,8 @@ export type UserRole =
   | 'inside_sales'
   // Operations
   | 'operations'
+  // Call center (appointment-setting via phone)
+  | 'call_center'
   // Custom (for flexibility)
   | 'custom'
 

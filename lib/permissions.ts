@@ -112,6 +112,7 @@ export type Permission = PermissionName
 const roleHierarchy: UserRole[] = [
   'canvasser',
   'setter',
+  'call_center',
   'rep',
   'sales_rep',
   'inside_sales',
@@ -129,6 +130,7 @@ const roleHierarchy: UserRole[] = [
 export const legacyRoleHierarchyLevels: Record<UserRole, number> = {
   canvasser: 10,
   setter: 20,
+  call_center: 20, // Same level as setter — appointment-setting scope
   rep: 30,
   inside_sales: 35,
   sales_rep: 30,
@@ -307,7 +309,17 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'users:view',
     'scheduling:view',
   ],
-  
+
+  call_center: [
+    // Fallback permissions when no custom_role_id is assigned.
+    // Assign a custom role via Admin → Users to override these.
+    'leads:view', 'leads:create', 'leads:edit',
+    'leads:view_inbound', 'leads:claim_inbound',
+    'scheduling:view', 'scheduling:create',
+    'teams:view',
+    'users:view',
+  ],
+
   custom: [
     // Custom roles get minimal permissions by default
     // Actual permissions should be defined via custom_roles table
@@ -642,6 +654,7 @@ export const roleDisplayNames: Record<UserRole, string> = {
   rep: 'Rep',
   canvasser: 'Canvasser',
   operations: 'Operations',
+  call_center: 'Call Center',
   custom: 'Custom',
 }
 
