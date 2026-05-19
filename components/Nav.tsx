@@ -4,7 +4,7 @@ import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { isBarredFromProjectsUi } from '@/lib/permissions'
+import { canAccessProjectsArea, isBarredFromProjectsUi } from '@/lib/permissions'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 // Include legacy roles for backwards compatibility
@@ -216,6 +216,11 @@ export default function Nav() {
 
   // Filter nav items based on user role and permissions
   const navItems = allNavItems.filter(item => {
+    if (item.href === '/projects') {
+      if (isBarredFromProjectsUi(userRole)) return false
+      if (userRole && canAccessProjectsArea(userRole)) return true
+    }
+
     if (item.requiresAnyPermission) {
       if (!effectivePermsReady) return false
       const required = Array.isArray(item.requiresAnyPermission) ? item.requiresAnyPermission : [item.requiresAnyPermission]
