@@ -120,14 +120,17 @@ export default function Nav() {
         }
 
         try {
-          const res = await fetch('/api/me/effective-permissions')
+          const res = await fetch('/api/me/effective-permissions', {
+            cache: 'no-store',
+            credentials: 'same-origin',
+          })
           const data = await res.json().catch(() => null)
           if (res.ok && data && typeof data === 'object') {
             const serverRole = normalizeRole(data.role)
             if (serverRole) {
               setUserRole(serverRole)
             }
-            setEffectiveFullAccess(Boolean(data.fullAccess))
+            setEffectiveFullAccess(Boolean(data.fullAccess) || serverRole === 'admin')
             setEffectivePermissionNames(
               new Set(Array.isArray(data.permissions) ? data.permissions.filter((x: unknown) => typeof x === 'string') : [])
             )
@@ -209,6 +212,7 @@ export default function Nav() {
   // Ops-only users go to ops dashboard, others go to sales dashboard
   // Admin and managers see both
   const isOpsOnly = userRole === 'operations'
+  const hasFullNavAccess = effectiveFullAccess || userRole === 'admin'
   const hasOpsAccess = userRole ? ['admin', 'regional_manager', 'operations', 'manager', 'owner'].includes(userRole) : false
   const hasSalesAccess = userRole ? userRole !== 'operations' : true // Default to sales dashboard while loading
 
@@ -251,14 +255,14 @@ export default function Nav() {
 
     if (item.requiresAnyRole) {
       if (!userRole) return false
-      if (effectiveFullAccess) return true
+      if (hasFullNavAccess) return true
       return item.requiresAnyRole.includes(userRole)
     }
 
     if (item.requiresAnyPermission) {
       if (!effectivePermsReady) return false
       const required = Array.isArray(item.requiresAnyPermission) ? item.requiresAnyPermission : [item.requiresAnyPermission]
-      if (!(effectiveFullAccess || required.some((permission) => effectivePermissionNames.has(permission)))) return false
+      if (!(hasFullNavAccess || required.some((permission) => effectivePermissionNames.has(permission)))) return false
       if (item.href === '/projects' && isBarredFromProjectsUi(userRole)) return false
       return true
     }
@@ -266,7 +270,7 @@ export default function Nav() {
     // If user has a specific permission grant, always show the item
     if (
       item.permission &&
-      (effectiveFullAccess || userPermissions.includes(item.permission) || effectivePermissionNames.has(item.permission))
+      (hasFullNavAccess || userPermissions.includes(item.permission) || effectivePermissionNames.has(item.permission))
     ) {
       return true
     }
