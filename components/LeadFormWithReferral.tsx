@@ -51,7 +51,7 @@ export default function LeadFormWithReferral({
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [savedLeadId, setSavedLeadId] = useState<string | null>(null)
-  /** Snapshot at save-time: name + phone + address required for RR / pin */
+  /** Snapshot at save-time: address is required so scheduling can place a map pin. */
   const [savedEligibleForSchedule, setSavedEligibleForSchedule] = useState(false)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [source, setSource] = useState('')
@@ -300,12 +300,11 @@ export default function LeadFormWithReferral({
       }
     }
 
-    const hasBasicsForSchedule =
-      !!form.homeowner_name?.trim() && !!form.phone?.trim() && !!form.address_text?.trim()
+    const hasSchedulableAddress = !!form.address_text?.trim()
 
     setSavedLeadId(lead.id)
-    setSavedEligibleForSchedule(hasBasicsForSchedule)
-    if (canScheduleInspection && hasBasicsForSchedule) {
+    setSavedEligibleForSchedule(hasSchedulableAddress)
+    if (canScheduleInspection && hasSchedulableAddress) {
       setScheduleModalOpen(true)
     }
     setSaving(false)
@@ -358,8 +357,7 @@ export default function LeadFormWithReferral({
           </div>
           {canScheduleInspection && !savedEligibleForSchedule && (
             <p className="mt-3 text-xs text-amber-800">
-              Add name, phone, and address on the lead record, then use <strong>Schedule inspection</strong> from the lead
-              page.
+              Add an address on the lead record, then use <strong>Schedule inspection</strong> from the lead page.
             </p>
           )}
         </div>

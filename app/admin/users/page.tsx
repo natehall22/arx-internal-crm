@@ -34,6 +34,7 @@ const legacyRoleOptions: UserRole[] = [
   'regional_setter_manager',
   'sales_manager',
   'setter_manager',
+  'inside_sales',
   'sales_rep',
   'setter',
   'canvasser',
