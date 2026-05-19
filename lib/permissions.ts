@@ -212,7 +212,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'opportunities:view', 'opportunities:edit',
     'proposals:view', 'proposals:create', 'proposals:edit', 'proposals:send',
     'contracts:view',
-    'projects:view',
     'reports:view_own',
     'campaigns:view',
     'teams:view',
@@ -337,12 +336,12 @@ export function canAccessProjectsFromPermissionNames(input: {
 }
 
 /**
- * Setters and canvassers never get the Projects nav area or routes, even if someone grants
- * `projects:*` on their user — avoids elevating field roles into install/production context.
+ * Setter/canvass/inside-sales roles never get the Projects nav area or routes, even if someone
+ * grants `projects:*` on their user — avoids elevating appointment-setting roles into production.
  */
 export function isBarredFromProjectsUi(role: string | null | undefined): boolean {
   const r = String(role || '').toLowerCase()
-  return r === 'setter' || r === 'canvasser'
+  return r === 'setter' || r === 'canvasser' || r === 'inside_sales' || r === 'inside sales' || r === 'call_center' || r === 'call center'
 }
 
 /** Only admin-level users may see every project in the org. */
