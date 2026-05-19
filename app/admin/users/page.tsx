@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { getRoleDisplayName, isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { getRoleDisplayName, isOrgSuperuserRoleSlug, permissionCategories } from '@/lib/permissions'
 import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/database'
 
 type Permission = {
@@ -42,22 +42,6 @@ const legacyRoleOptions: UserRole[] = [
   'custom',
 ]
 
-// Permissions that can be granted individually to users
-const grantablePermissions = [
-  { name: 'pricebook:view', display_name: 'View Pricebook', category: 'Pricebook' },
-  { name: 'pricebook:edit', display_name: 'Edit Pricebook', category: 'Pricebook' },
-  { name: 'projects:view', display_name: 'View Projects', category: 'Projects' },
-  { name: 'projects:edit', display_name: 'Edit Projects', category: 'Projects' },
-  { name: 'customers:view', display_name: 'View Customers', category: 'Customers' },
-  { name: 'customers:edit', display_name: 'Edit Customers', category: 'Customers' },
-  { name: 'reports:view_own', display_name: 'View Own Reports', category: 'Reports' },
-  { name: 'reports:view_team', display_name: 'View Team Reports', category: 'Reports' },
-  { name: 'reports:view_region', display_name: 'View Region Reports', category: 'Reports' },
-  { name: 'reports:view_all', display_name: 'View All Reports', category: 'Reports' },
-  { name: 'reports:create', display_name: 'Create Reports', category: 'Reports' },
-  { name: 'reports:export', display_name: 'Export Reports', category: 'Reports' },
-  { name: 'admin:access', display_name: 'Access Admin Panel', category: 'Admin' },
-]
 
 // Permission preset type from database
 type PermissionPreset = {
@@ -1727,45 +1711,79 @@ export default function UsersPage() {
                 <div className="border-t pt-4 mt-4">
                   <div className="flex items-center justify-between mb-3">
                     <label className="block text-sm font-medium text-gray-700">
-                      Quick Permissions
+                      Individual Permissions
                     </label>
                     <Link
                       href="/admin/roles"
                       className="text-xs text-indigo-600 hover:underline"
                     >
-                      Manage all permissions →
+                      Manage roles →
                     </Link>
                   </div>
                   <p className="text-xs text-gray-500 mb-3">
-                    Grant specific permissions beyond their role. These are additive to role-based permissions.
+                    Grant specific permissions beyond their role. These are additive — they do not remove role-based permissions.
                   </p>
-                  <div className="space-y-2">
-                    {grantablePermissions.map((perm) => (
-                      <label
-                        key={perm.name}
-                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={hasPermission(perm.name)}
-                          onChange={() => togglePermission(perm.name)}
-                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                        />
-                        <div className="flex-1">
-                          <span className="text-sm font-medium text-gray-700">
-                            {perm.display_name}
-                          </span>
-                          <span className="ml-2 text-xs text-gray-400">
-                            ({perm.category})
-                          </span>
+                  <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
+                    {permissionCategories.map((category) => {
+                      const categoryPerms = allPermissions.filter(p => p.category === category)
+                      if (categoryPerms.length === 0) return null
+                      const allGranted = categoryPerms.every(p => hasPermission(p.name))
+                      const someGranted = categoryPerms.some(p => hasPermission(p.name))
+                      return (
+                        <div key={category}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                              {category}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!editingUser) return
+                                const categoryIds = new Set(
+                                  categoryPerms.map(p => allPermissions.find(ap => ap.name === p.name)?.id).filter(Boolean)
+                                )
+                                const currentIds = userPermissions.map(up => up.permission_id)
+                                const newIds = allGranted
+                                  ? currentIds.filter(id => !categoryIds.has(id))
+                                  : [...new Set([...currentIds, ...categoryIds])]
+                                await fetch('/api/admin/user-permissions', {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ user_id: editingUser.id, permission_ids: newIds }),
+                                })
+                                await loadUserPermissions(editingUser.id)
+                              }}
+                              className="text-xs text-indigo-600 hover:underline"
+                            >
+                              {allGranted ? 'Remove all' : someGranted ? 'Add remaining' : 'Add all'}
+                            </button>
+                          </div>
+                          <div className="space-y-1">
+                            {categoryPerms.map((perm) => (
+                              <label
+                                key={perm.name}
+                                className="flex items-center gap-3 p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={hasPermission(perm.name)}
+                                  onChange={() => togglePermission(perm.name)}
+                                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                />
+                                <span className="text-sm text-gray-700 flex-1">
+                                  {perm.display_name}
+                                </span>
+                                {hasPermission(perm.name) && (
+                                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                                    Granted
+                                  </span>
+                                )}
+                              </label>
+                            ))}
+                          </div>
                         </div>
-                        {hasPermission(perm.name) && (
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                            Granted
-                          </span>
-                        )}
-                      </label>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               </div>
