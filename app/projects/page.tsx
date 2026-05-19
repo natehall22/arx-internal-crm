@@ -9,6 +9,7 @@ import {
   canAccessProjectsFromPermissionNames,
   canViewAllProjects,
   canViewManagedProjects,
+  isBarredFromProjectsUi,
   isRepLikeCustomerRecordRole,
 } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -49,7 +50,10 @@ export default async function ProjectsPage() {
   const { profile, authUser } = await requireAuth()
   const supabase = createServiceClient()
   const projectPermissions = await resolveEffectivePermissionNames(supabase, authUser.id, profile)
-  if (!canAccessProjectsFromPermissionNames(projectPermissions)) {
+  if (
+    isBarredFromProjectsUi(profile.role) ||
+    !canAccessProjectsFromPermissionNames(projectPermissions)
+  ) {
     notFound()
   }
 

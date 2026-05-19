@@ -320,6 +320,15 @@ export function canAccessProjectsFromPermissionNames(input: {
   return input.permissionNames.has('projects:view') || input.permissionNames.has('projects:edit')
 }
 
+/**
+ * Setters and canvassers never get the Projects nav area or routes, even if someone grants
+ * `projects:*` on their user — avoids elevating field roles into install/production context.
+ */
+export function isBarredFromProjectsUi(role: string | null | undefined): boolean {
+  const r = String(role || '').toLowerCase()
+  return r === 'setter' || r === 'canvasser'
+}
+
 /** Only admin-level users may see every project in the org. */
 export function canViewAllProjects(role: string | null | undefined): boolean {
   if (!role) return false

@@ -2,9 +2,9 @@
 
 import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { isBarredFromProjectsUi } from '@/lib/permissions'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 // Include legacy roles for backwards compatibility
@@ -220,6 +220,7 @@ export default function Nav() {
       if (!effectivePermsReady) return false
       const required = Array.isArray(item.requiresAnyPermission) ? item.requiresAnyPermission : [item.requiresAnyPermission]
       if (!(effectiveFullAccess || required.some((permission) => effectivePermissionNames.has(permission)))) return false
+      if (item.href === '/projects' && isBarredFromProjectsUi(userRole)) return false
       return true
     }
 

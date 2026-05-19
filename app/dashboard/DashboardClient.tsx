@@ -9,6 +9,7 @@ import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { isBarredFromProjectsUi } from '@/lib/permissions'
 import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
 import {
   applyFirstMatchingVolumeBonus,
@@ -1769,7 +1770,15 @@ export default function DashboardClient({
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                 {profile.role === 'canvasser' ? 'My Stats' : 'Account Overview'}
               </h2>
-              <div className={`grid gap-2 sm:gap-4 ${profile.role === 'canvasser' ? 'grid-cols-1' : 'grid-cols-3'}`}>
+              <div
+                className={`grid gap-2 sm:gap-4 ${
+                  profile.role === 'canvasser'
+                    ? 'grid-cols-1'
+                    : isBarredFromProjectsUi(profile.role)
+                      ? 'grid-cols-2'
+                      : 'grid-cols-3'
+                }`}
+              >
                 <Link href="/leads" className="p-2 sm:p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-center sm:text-left">
                   <p className="text-xl sm:text-3xl font-bold text-blue-600">{stats.totalLeads}</p>
                   <p className="text-xs sm:text-sm text-gray-600">Total Leads</p>
@@ -1782,11 +1791,13 @@ export default function DashboardClient({
                       <p className="text-xs sm:text-sm text-gray-600">Opps</p>
                       <p className="text-xs text-amber-600 mt-1 hidden sm:block">{stats.openOpportunities} open</p>
                     </Link>
-                    <Link href="/projects" className="p-2 sm:p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors text-center sm:text-left">
-                      <p className="text-xl sm:text-3xl font-bold text-green-600">{stats.totalProjects}</p>
-                      <p className="text-xs sm:text-sm text-gray-600">Projects</p>
-                      <p className="text-xs text-green-600 mt-1 hidden sm:block">{stats.activeProjects} active</p>
-                    </Link>
+                    {!isBarredFromProjectsUi(profile.role) && (
+                      <Link href="/projects" className="p-2 sm:p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors text-center sm:text-left">
+                        <p className="text-xl sm:text-3xl font-bold text-green-600">{stats.totalProjects}</p>
+                        <p className="text-xs sm:text-sm text-gray-600">Projects</p>
+                        <p className="text-xs text-green-600 mt-1 hidden sm:block">{stats.activeProjects} active</p>
+                      </Link>
+                    )}
                   </>
                 )}
               </div>

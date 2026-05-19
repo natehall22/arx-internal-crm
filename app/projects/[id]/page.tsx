@@ -22,6 +22,7 @@ import {
   canAccessProjectsFromPermissionNames,
   canViewAllProjects,
   canViewManagedProjects,
+  isBarredFromProjectsUi,
   isRepLikeCustomerRecordRole,
 } from '@/lib/permissions'
 import { canAccessJobBilling } from '@/lib/finance-access'
@@ -48,7 +49,10 @@ export default async function ProjectDetailPage({
   const showOpsJobLinks = canAccessJobBoard(profile.role)
   const supabase = createServiceClient()
   const projectPermissions = await resolveEffectivePermissionNames(supabase, authUser.id, profile)
-  if (!canAccessProjectsFromPermissionNames(projectPermissions)) {
+  if (
+    isBarredFromProjectsUi(profile.role) ||
+    !canAccessProjectsFromPermissionNames(projectPermissions)
+  ) {
     notFound()
   }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
