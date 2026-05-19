@@ -69,6 +69,9 @@ export default function Nav() {
         const browserRole = normalizeRole(profile?.role)
         if (browserRole) {
           setUserRole(browserRole)
+          if (browserRole === 'admin') {
+            setEffectiveFullAccess(true)
+          }
         }
 
         // Load org info for company name and logo
@@ -260,7 +263,7 @@ export default function Nav() {
     }
 
     if (item.requiresAnyPermission) {
-      if (!effectivePermsReady) return false
+      if (!hasFullNavAccess && !effectivePermsReady) return false
       const required = Array.isArray(item.requiresAnyPermission) ? item.requiresAnyPermission : [item.requiresAnyPermission]
       if (!(hasFullNavAccess || required.some((permission) => effectivePermissionNames.has(permission)))) return false
       if (item.href === '/projects' && isBarredFromProjectsUi(userRole)) return false
