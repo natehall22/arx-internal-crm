@@ -57,7 +57,30 @@ export default function Nav() {
     const loadUserRoleAndPermissions = async () => {
       const supabase = createClientBrowser()
       supabaseRef.current = supabase
-      
+
+      // Always fetch effective permissions from the server — don't gate on the
+      // Supabase browser client, which can't read HttpOnly session cookies.
+      try {
+        const res = await fetch('/api/me/effective-permissions')
+        const data = await res.json().catch(() => null)
+        if (res.ok && data && typeof data === 'object') {
+          const serverRole = normalizeRole(data.role)
+          if (serverRole) {
+            setUserRole(serverRole)
+          }
+          setEffectiveFullAccess(Boolean(data.fullAccess))
+          setEffectivePermissionNames(
+            new Set(Array.isArray(data.permissions) ? data.permissions.filter((x: unknown) => typeof x === 'string') : [])
+          )
+        }
+      } catch {
+        // Fail closed — items with requiresAnyPermission stay hidden
+      } finally {
+        setEffectivePermsReady(true)
+      }
+
+      // Org branding and legacy user-permission grants still use the Supabase client.
+      // These are cosmetic / additive so a null user here is non-fatal.
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         const { data: profile } = await supabase
@@ -65,11 +88,6 @@ export default function Nav() {
           .select('role, org_id')
           .eq('id', user.id)
           .single()
-        
-        const browserRole = normalizeRole(profile?.role)
-        if (browserRole) {
-          setUserRole(browserRole)
-        }
 
         // Load org info for company name and logo
         if (profile?.org_id) {
@@ -91,8 +109,8 @@ export default function Nav() {
             const logoUrl = org.logo_url || (org.settings as any)?.logo_url
             if (logoUrl) {
               // Add cache-busting timestamp for logo
-              const logoWithCacheBust = logoUrl.includes('?') 
-                ? `${logoUrl}&_t=${Date.now()}` 
+              const logoWithCacheBust = logoUrl.includes('?')
+                ? `${logoUrl}&_t=${Date.now()}`
                 : `${logoUrl}?_t=${Date.now()}`
               setCompanyLogo(logoWithCacheBust)
             } else {
@@ -101,7 +119,7 @@ export default function Nav() {
           }
         }
 
-        // Load user-specific permissions
+        // Load user-specific permissions (legacy additive grants)
         const { data: userPerms } = await supabase
           .from('user_permissions')
           .select('permission_id, permissions(name)')
@@ -118,31 +136,11 @@ export default function Nav() {
             .filter(Boolean) as string[]
           setUserPermissions(permNames)
         }
-
-        try {
-          const res = await fetch('/api/me/effective-permissions')
-          const data = await res.json().catch(() => null)
-          if (res.ok && data && typeof data === 'object') {
-            const serverRole = normalizeRole(data.role)
-            if (serverRole) {
-              setUserRole(serverRole)
-            }
-            setEffectiveFullAccess(Boolean(data.fullAccess))
-            setEffectivePermissionNames(
-              new Set(Array.isArray(data.permissions) ? data.permissions.filter((x: unknown) => typeof x === 'string') : [])
-            )
-          }
-        } catch {
-          // Fail closed below (items with requiresAnyPermission stay hidden until we have a signal)
-        } finally {
-          setEffectivePermsReady(true)
-        }
-      } else {
-        setEffectivePermsReady(true)
       }
+
       setLoading(false)
     }
-    
+
     loadUserRoleAndPermissions()
   }, [])
 
