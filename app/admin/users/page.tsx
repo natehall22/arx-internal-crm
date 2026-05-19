@@ -1745,7 +1745,7 @@ export default function UsersPage() {
                                 const currentIds = userPermissions.map(up => up.permission_id)
                                 const newIds = allGranted
                                   ? currentIds.filter(id => !categoryIds.has(id))
-                                  : [...new Set([...currentIds, ...categoryIds])]
+                                  : Array.from(new Set([...currentIds, ...Array.from(categoryIds)]))
                                 await fetch('/api/admin/user-permissions', {
                                   method: 'PUT',
                                   headers: { 'Content-Type': 'application/json' },
