@@ -369,6 +369,8 @@ interface JobDetailClientProps {
   crews: Crew[]
   subs: SubContractor[]
   userRole: string
+  canViewProfitability: boolean
+  canDeleteProductionJob: boolean
   canViewJobBilling: boolean
   canEditPayrollAttribution: boolean
   canEditFinancialSource: boolean
@@ -537,6 +539,8 @@ export default function JobDetailClient({
   crews,
   subs,
   userRole,
+  canViewProfitability,
+  canDeleteProductionJob,
   canViewJobBilling,
   canEditPayrollAttribution,
   canEditFinancialSource,
@@ -1146,7 +1150,6 @@ export default function JobDetailClient({
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
   const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
-  const canViewProfitability = userRole === 'admin' || userRole === 'owner'
   const canViewFinancialTab = canViewProfitability || canViewJobBilling
   const payrollSnapshot = useMemo(() => buildCommissionPayrollSnapshot(job), [job])
   const saleAmount = job.sale_amount || 0
@@ -1309,7 +1312,8 @@ export default function JobDetailClient({
                 markCollectedTitle,
               }
               const overflowAllowed =
-                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') || userRole === 'admin'
+                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') ||
+                canDeleteProductionJob
               return (
                 <>
                   <div className="w-full [&>button]:w-full">{renderWorkflowButton(job, primaryId, true, wfOpts)}</div>
@@ -1332,7 +1336,7 @@ export default function JobDetailClient({
                             Pause Job
                           </button>
                         )}
-                        {userRole === 'admin' && (
+                        {canDeleteProductionJob && (
                           <button
                             type="button"
                             onClick={() => void deleteJob()}
@@ -1606,7 +1610,8 @@ export default function JobDetailClient({
                     markCollectedTitle,
                   }
                   const overflowAllowed =
-                    (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') || userRole === 'admin'
+                    (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') ||
+                    canDeleteProductionJob
                   return (
                     <>
                       {renderWorkflowButton(job, primaryId, true, wfOpts)}
@@ -1629,7 +1634,7 @@ export default function JobDetailClient({
                                 Pause Job
                               </button>
                             )}
-                            {userRole === 'admin' && (
+                            {canDeleteProductionJob && (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1713,6 +1718,7 @@ export default function JobDetailClient({
               <JobFileWorkspaceCard
                 jobId={job.id}
                 userRole={userRole}
+                canSeeJobFinancialAmounts={canViewProfitability}
                 jobStatus={job.status}
                 customerEmail={job.customer?.email || null}
                 registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}

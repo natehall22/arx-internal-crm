@@ -17,7 +17,7 @@ import DeleteProposalButton from '@/components/opportunities/DeleteProposalButto
 import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import {
   getInspectionOutcomeConfig,
   normalizeInspectionOutcomeRows,
@@ -33,6 +33,7 @@ import {
   hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
+import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import {
   mapLatestInspectionByLeadId,
   mapLatestInspectionByOpportunityId,
@@ -50,7 +51,7 @@ export default async function OpportunityDetailPage({
   params: { id: string }
   searchParams?: { [key: string]: string | string[] | undefined }
 }) {
-  const { profile } = await requireAuth()
+  const { authUser, profile } = await requireAuth()
   const queueFilters = filtersFromSearchParams(searchParams || {})
   const queueQueryString = buildOpportunityListQuery(queueFilters)
   const queueEnabled = String(searchParams?.queue || '') === '1'
@@ -62,6 +63,7 @@ export default async function OpportunityDetailPage({
   const backHref = backParams.toString() ? `/opportunities?${backParams.toString()}` : '/opportunities'
   // Use service client to bypass RLS
   const supabase = createServiceClient()
+  const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
   const opportunityQuery = supabase
@@ -639,7 +641,7 @@ export default async function OpportunityDetailPage({
                   )}
                 </div>
               </div>
-              {profile.role === 'admin' && (
+              {isOrgSuperuserRoleSlug(profile.role) && (
                 <div className="shrink-0">
                   <DeleteOpportunityButton
                     opportunityId={params.id}
@@ -692,7 +694,7 @@ export default async function OpportunityDetailPage({
             </div>
 
             <div className="mt-4 pt-3 border-t flex flex-wrap gap-2">
-              {canAccessJobBoard(profile.role) && (
+              {canJobBoard && (
                 <Link
                   href={`/opportunities/${params.id}/measure`}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"

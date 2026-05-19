@@ -1,74 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 
 // GET - Check if current user has a specific permission
 export async function GET(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let authContext
+  try {
+    authContext = await requireAuthApi()
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const permission = request.nextUrl.searchParams.get('permission')
-  const userId = request.nextUrl.searchParams.get('user_id') || user.id
 
   if (!permission) {
     return NextResponse.json({ error: 'Permission parameter required' }, { status: 400 })
   }
 
-  // Get user profile
-  const { data: profile } = await supabase
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
+  const adminClient = createServiceClient()
+  const effectivePermissions = await resolveEffectivePermissionNames(
+    adminClient,
+    authContext.authUser.id,
+    authContext.profile
+  )
 
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
-
-  // Admin always has all permissions
-  if (profile.role === 'admin') {
-    return NextResponse.json({ hasPermission: true, source: 'admin_role' })
-  }
-
-  // Check user-specific permission grants
-  const { data: permissionData } = await supabase
-    .from('permissions')
-    .select('id')
-    .eq('name', permission)
-    .single()
-
-  if (!permissionData) {
-    return NextResponse.json({ hasPermission: false, source: 'permission_not_found' })
-  }
-
-  const { data: userPermission } = await supabase
-    .from('user_permissions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('permission_id', permissionData.id)
-    .is('expires_at', null)
-    .or(`expires_at.gt.${new Date().toISOString()}`)
-    .maybeSingle()
-
-  if (userPermission) {
-    return NextResponse.json({ hasPermission: true, source: 'user_grant' })
-  }
-
-  // Check role-based permissions
-  const rolePermissions: Record<string, string[]> = {
-    regional_manager: ['pricebook:view', 'admin:access'],
-    operations: ['pricebook:view'],
-  }
-
-  const userRolePermissions = rolePermissions[profile.role] || []
-  if (userRolePermissions.includes(permission)) {
-    return NextResponse.json({ hasPermission: true, source: 'role' })
-  }
-
-  return NextResponse.json({ hasPermission: false, source: 'none' })
+  return NextResponse.json({
+    hasPermission:
+      effectivePermissions.fullAccess || effectivePermissions.permissionNames.has(permission),
+    source: 'effective_permissions',
+  })
 }
 
 // POST - Grant a permission to a user
@@ -87,7 +50,7 @@ export async function POST(request: NextRequest) {
     .eq('id', user.id)
     .single()
 
-  if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+  if (!profile || !(isOrgSuperuserRoleSlug(profile.role) || profile.role === 'regional_manager')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -156,7 +119,7 @@ export async function DELETE(request: NextRequest) {
     .eq('id', user.id)
     .single()
 
-  if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+  if (!profile || !(isOrgSuperuserRoleSlug(profile.role) || profile.role === 'regional_manager')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

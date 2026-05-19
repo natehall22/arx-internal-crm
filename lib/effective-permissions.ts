@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getPermissions } from '@/lib/permissions'
+import { ORG_SUPERUSER_ROLE_SLUGS } from '@/lib/org-role-constants'
 import type { UserRole } from '@/lib/types/database'
 
-const SUPERUSER_ROLES = new Set(['admin', 'owner', 'admin_owner'])
+/** Org superusers — same unrestricted access (`fullAccess`). Legacy `owner` slug is normalized to `admin` via migration; both remain in enum set until Postgres cleanup. */
 
 /** DB roles that are not in {@link UserRole} but should use another row’s permission matrix */
 const LEGACY_ROLE_MATRIX_ALIASES: Record<string, UserRole> = {
@@ -12,7 +13,7 @@ const LEGACY_ROLE_MATRIX_ALIASES: Record<string, UserRole> = {
 }
 
 export type EffectivePermissionsResult = {
-  /** Admin / owner bypass — treat as all permissions granted */
+  /** Explicit full-access result from admin/owner roles or admin:full permission */
   fullAccess: boolean
   permissionNames: Set<string>
 }
@@ -28,7 +29,7 @@ export async function resolveEffectivePermissionNames(
   profile: { role: string; custom_role_id?: string | null }
 ): Promise<EffectivePermissionsResult> {
   const roleNorm = String(profile.role || '').toLowerCase().trim()
-  if (SUPERUSER_ROLES.has(roleNorm)) {
+  if (ORG_SUPERUSER_ROLE_SLUGS.has(roleNorm)) {
     return { fullAccess: true, permissionNames: new Set() }
   }
 

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { pickValidEmail } from '@/lib/email-address'
+import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
 
 type PhotoRow = {
@@ -52,6 +53,8 @@ type JobCostLineQueryRow = {
 interface JobFileWorkspaceCardProps {
   jobId: string
   userRole: string
+  /** When passed from server (`/ops/jobs/[id]`), aligns with jobs:financials:view; otherwise falls back to legacy roles. */
+  canSeeJobFinancialAmounts?: boolean
   jobStatus?: string | null
   customerEmail?: string | null
   registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
@@ -129,6 +132,7 @@ async function fetchOpsJson(url: string, init?: RequestInit): Promise<Record<str
 export default function JobFileWorkspaceCard({
   jobId,
   userRole,
+  canSeeJobFinancialAmounts,
   jobStatus,
   customerEmail,
   registerOpenCostAttachmentShortcut,
@@ -817,7 +821,13 @@ export default function JobFileWorkspaceCard({
     void handleCostAttachmentsSelected(fileListFromFiles(files))
   }
 
-  const canSeeAmounts = userRole === 'admin' || userRole === 'owner' || userRole === 'operations'
+  const legacyRoleFinancialAmountAccess =
+    isOrgSuperuserRoleSlug(userRole) || userRole === 'operations'
+
+  const canSeeAmounts =
+    typeof canSeeJobFinancialAmounts === 'boolean'
+      ? canSeeJobFinancialAmounts
+      : legacyRoleFinancialAmountAccess
 
   const handleAddCostLine = async (e: FormEvent) => {
     e.preventDefault()
@@ -857,8 +867,7 @@ export default function JobFileWorkspaceCard({
   }
 
   const canReplaceProtectedDocuments =
-    userRole === 'admin' ||
-    userRole === 'owner' ||
+    isOrgSuperuserRoleSlug(userRole) ||
     userRole === 'operations' ||
     userRole === 'regional_manager'
 

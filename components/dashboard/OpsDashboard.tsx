@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { canAccessJobBoard } from '@/lib/permissions'
 import type { User } from '@/lib/types/database'
 
 interface OpsStats {
@@ -45,6 +44,7 @@ interface OpenWorkOrder {
 
 interface OpsDashboardProps {
   profile: User
+  canJobBoard: boolean
 }
 
 type TimeFrame =
@@ -77,8 +77,7 @@ const opsTimeFrameLabel: Record<TimeFrame, string> = {
   all: 'all time',
 }
 
-export default function OpsDashboard({ profile }: OpsDashboardProps) {
-  const canJobBoard = canAccessJobBoard(profile?.role)
+export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps) {
   const [loading, setLoading] = useState(true)
   const [opsTimeframe, setOpsTimeframe] = useState<TimeFrame>('week')
   const [opsMetrics, setOpsMetrics] = useState({

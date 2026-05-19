@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import {
   exteriorMeasureErrorMessage,
   loadExteriorMeasure,
@@ -14,11 +14,12 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const { profile } = await requireAuthApi()
-    if (!canAccessJobBoard(profile.role)) {
+    const { authUser, profile } = await requireAuthApi()
+    const supabase = createServiceClient()
+    const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
+    if (!canJobBoard) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    const supabase = createServiceClient()
     const context = await resolveJobMeasureContext(supabase, profile.org_id, params.id)
     if (!context) return NextResponse.json({ error: 'Linked opportunity not found for job' }, { status: 404 })
 
@@ -33,10 +34,11 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const { profile, authUser } = await requireAuthApi()
-    if (!canAccessJobBoard(profile.role)) {
+    const supabase = createServiceClient()
+    const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
+    if (!canJobBoard) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    const supabase = createServiceClient()
     const context = await resolveJobMeasureContext(supabase, profile.org_id, params.id)
     if (!context) return NextResponse.json({ error: 'Linked opportunity not found for job' }, { status: 404 })
 

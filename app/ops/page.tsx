@@ -4,27 +4,22 @@ import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import OpsClient from './OpsClient'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { createServiceClient } from '@/lib/supabase/service'
+import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import type { OpsBoardJob } from '@/lib/ops-board-types'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
 } from '@/lib/ops-board-sold-squares'
 
-function sanitizeJobForRole(job: any, role: string) {
-  const canViewProfitability = role === 'admin' || role === 'owner'
-  if (canViewProfitability) return job
-
-  // Do not expose direct cost fields to roles without profitability access.
-  const { labor_cost, material_cost, dealer_fee_amount, ...safeJob } = job
-  return safeJob
-}
-
 export default async function OpsPage() {
-  const { profile } = await requireAuth()
-  
-  if (!canAccessJobBoard(profile.role)) {
+  const { authUser, profile } = await requireAuth()
+  const admin = createServiceClient()
+  const ops = await resolveOpsAccess(admin, authUser.id, profile)
+
+  if (!ops.canJobBoard) {
     redirect('/dashboard')
   }
 
@@ -99,16 +94,19 @@ export default async function OpsPage() {
       project: rawProject,
     }
 
-    return sanitizeJobForRole(transformed, profile.role)
+    return redactProductionJobFinancialSummaryFields(
+      transformed as Record<string, unknown>,
+      ops.canViewJobFinancials
+    )
   })
 
   return (
     <OpsClient 
-      initialJobs={transformedJobs}
+      initialJobs={transformedJobs as unknown as OpsBoardJob[]}
       initialCrews={crewsRes.data || []}
       initialSubs={subsRes.data || []}
       orgId={profile.org_id}
-      canViewProfitability={profile.role === 'admin' || profile.role === 'owner'}
+      canViewProfitability={ops.canViewJobFinancials}
     />
   )
 }

@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import type { UserRole, CustomRoleWithPermissions, UserWithCustomRole } from './types/database'
 
+import { isOrgSuperuserRoleSlug } from './org-role-constants'
+
+export { ORG_SUPERUSER_ROLE_SLUGS, isOrgSuperuserRoleSlug } from './org-role-constants'
+
 // Permission definitions for each feature area
 export type PermissionName =
   // Canvassing
@@ -47,6 +51,11 @@ export type PermissionName =
   | 'projects:edit'
   | 'projects:delete'
   | 'projects:complete'
+  // Operations / Production Jobs
+  | 'ops:dashboard:view'
+  | 'jobs:view'
+  | 'jobs:edit'
+  | 'jobs:financials:view'
   // Customers
   | 'customers:view'
   | 'customers:edit'
@@ -133,24 +142,51 @@ export const legacyRoleHierarchyLevels: Record<UserRole, number> = {
   custom: 30, // Default to rep level for custom roles
 }
 
+/** Shared legacy matrix — `owner` slug is migrating to `admin` in DB; both map here until Enum rows are normalized. */
+const ADMIN_OR_SUPERUSER_LEGACY_MATRIX: Permission[] = [
+  'admin:full',
+  'canvass:view',
+  'canvass:create',
+  'canvass:edit',
+  'leads:view',
+  'leads:create',
+  'leads:edit',
+  'opportunities:view',
+  'opportunities:edit',
+  'proposals:view',
+  'proposals:edit',
+  'contracts:view',
+  'contracts:send',
+  'projects:view',
+  'projects:edit',
+  'ops:dashboard:view',
+  'jobs:view',
+  'jobs:edit',
+  'jobs:financials:view',
+  'reports:view_own',
+  'reports:view_team',
+  'reports:view_region',
+  'reports:view_all',
+  'reports:export',
+  'teams:view',
+  'teams:manage',
+  'regions:view',
+  'regions:manage',
+  'users:view',
+  'users:manage_team',
+  'users:manage_region',
+  'users:manage_all',
+  'pricebook:view',
+  'pricebook:edit',
+  'scheduling:view',
+  'scheduling:manage_team',
+  'scheduling:manage_region',
+]
+
 // Permission matrix by role (legacy - for backward compatibility)
 const rolePermissions: Record<UserRole, Permission[]> = {
-  admin: [
-    'admin:full',
-    'canvass:view', 'canvass:create', 'canvass:edit',
-    'leads:view', 'leads:create', 'leads:edit',
-    'opportunities:view', 'opportunities:edit',
-    'proposals:view', 'proposals:edit',
-    'contracts:view', 'contracts:send',
-    'projects:view', 'projects:edit',
-    'reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all', 'reports:export',
-    'teams:view', 'teams:manage',
-    'regions:view', 'regions:manage',
-    'users:view', 'users:manage_team', 'users:manage_region', 'users:manage_all',
-    'pricebook:view', 'pricebook:edit',
-    'scheduling:view', 'scheduling:manage_team', 'scheduling:manage_region',
-  ],
-  
+  admin: ADMIN_OR_SUPERUSER_LEGACY_MATRIX,
+
   regional_manager: [
     'canvass:view',
     'leads:view',
@@ -158,6 +194,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view', 'proposals:edit',
     'contracts:view', 'contracts:send',
     'projects:view', 'projects:edit',
+    'ops:dashboard:view',
     'reports:view_region', 'reports:create', 'reports:export',
     'teams:view', 'teams:manage',
     'regions:view', 'regions:manage',
@@ -234,29 +271,16 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view',
     'contracts:view',
     'projects:view', 'projects:edit',
+    'jobs:view', 'jobs:edit', 'jobs:financials:view',
     'reports:view_all', 'reports:create', 'reports:export',
     'teams:view',
     'users:view',
     'pricebook:view',
     'scheduling:view',
   ],
-  
-  // New roles
-  owner: [
-    'admin:full',
-    'canvass:view', 'canvass:create', 'canvass:edit',
-    'leads:view', 'leads:create', 'leads:edit',
-    'opportunities:view', 'opportunities:edit',
-    'proposals:view', 'proposals:edit',
-    'contracts:view', 'contracts:send',
-    'projects:view', 'projects:edit',
-    'teams:view', 'teams:manage',
-    'regions:view', 'regions:manage',
-    'users:view', 'users:manage_team', 'users:manage_region', 'users:manage_all',
-    'pricebook:view', 'pricebook:edit',
-    'scheduling:view', 'scheduling:manage_team', 'scheduling:manage_region',
-  ],
-  
+
+  owner: ADMIN_OR_SUPERUSER_LEGACY_MATRIX,
+
   regional_setter_manager: [
     'canvass:view', 'canvass:create', 'canvass:edit',
     'leads:view', 'leads:create', 'leads:edit',
@@ -296,15 +320,35 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   ],
 }
 
-/** Roles that may access the Production Job Board (`/ops`) and job detail routes under `/ops/jobs/*`. */
-const JOB_BOARD_ACCESS_ROLES = new Set(['admin', 'operations', 'owner'])
+const JOB_BOARD_PERMISSION_NAMES = ['jobs:view', 'jobs:edit'] as const
+const OPS_DASHBOARD_PERMISSION_NAMES = ['ops:dashboard:view', ...JOB_BOARD_PERMISSION_NAMES] as const
+
+export function canAccessJobBoardFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return JOB_BOARD_PERMISSION_NAMES.some((permission) => input.permissionNames.has(permission))
+}
+
+export function canAccessOpsDashboardFromPermissionNames(input: {
+  fullAccess: boolean
+  permissionNames: Set<string>
+}): boolean {
+  if (input.fullAccess) return true
+  return OPS_DASHBOARD_PERMISSION_NAMES.some((permission) => input.permissionNames.has(permission))
+}
 
 /**
- * Whether the user may open the job board and ops job detail pages (server + nav should match).
+ * Legacy fallback for surfaces that have not yet loaded effective permissions.
  */
 export function canAccessJobBoard(role: string | null | undefined): boolean {
   if (!role) return false
-  return JOB_BOARD_ACCESS_ROLES.has(String(role).toLowerCase())
+  const permissionNames = new Set(getPermissions(String(role).toLowerCase() as UserRole))
+  return canAccessJobBoardFromPermissionNames({
+    fullAccess: permissionNames.has('admin:full'),
+    permissionNames,
+  })
 }
 
 const PROJECTS_AREA_ACCESS_ROLES = new Set([
@@ -345,7 +389,7 @@ export function isBarredFromProjectsUi(role: string | null | undefined): boolean
 /** Only admin-level users may see every project in the org. */
 export function canViewAllProjects(role: string | null | undefined): boolean {
   if (!role) return false
-  return ['admin', 'owner'].includes(String(role).toLowerCase())
+  return isOrgSuperuserRoleSlug(role)
 }
 
 /** Roles that may see projects for their managed team/region rather than only personal projects. */
@@ -501,9 +545,8 @@ export function shouldShowRoofMeasureDrawingHintsForUser(args: {
  * Check if a role has a specific permission
  */
 export function hasPermission(role: UserRole, permission: Permission): boolean {
-  // Owner and Admin have all permissions (normalize casing from DB / imports)
   const r = String(role || '').toLowerCase() as UserRole
-  if (r === 'admin' || r === 'owner') return true
+  if (isOrgSuperuserRoleSlug(r)) return true
 
   return rolePermissions[r]?.includes(permission) ?? false
 }
@@ -586,7 +629,8 @@ export function getReportScope(role: UserRole): 'own' | 'team' | 'region' | 'all
  * Role display names
  */
 export const roleDisplayNames: Record<UserRole, string> = {
-  owner: 'Owner',
+  /** Shares privilege with {@link UserRole.admin}; label unified as Admin in-product. */
+  owner: 'Admin',
   admin: 'Admin',
   regional_manager: 'Regional Manager',
   regional_setter_manager: 'Regional Setter Manager',
@@ -654,8 +698,8 @@ export const can = {
   manageTeamScheduling: (role: UserRole) => hasPermission(role, 'scheduling:manage_team'),
   manageRegionScheduling: (role: UserRole) => hasPermission(role, 'scheduling:manage_region'),
   
-  // Admin
-  isAdmin: (role: UserRole) => role === 'admin',
+  // Admin (includes legacy owner)
+  isAdmin: (role: UserRole) => isOrgSuperuserRoleSlug(role),
 }
 
 // ============================================
@@ -838,7 +882,7 @@ export function canViewOrgWideScheduledAppointments(profile: unknown): boolean {
   if (permNames.has('scheduling:manage_queue')) return true
 
   // Explicit org-wide calendar (matches deriveCalendarAccess tiers when custom_role load fails)
-  if (['admin', 'owner'].includes(roleNorm)) return true
+  if (isOrgSuperuserRoleSlug(roleNorm)) return true
   if (
     ['regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(roleNorm)
   ) {
@@ -868,8 +912,7 @@ export function deriveCalendarAccess(profile: unknown): CalendarAccessLevel {
   )
 
   const hasAdminAccess =
-    // Current roles
-    ['admin', 'owner'].includes(role) ||
+    isOrgSuperuserRoleSlug(role) ||
     // Legacy role names used in older DB environments
     ['manager', 'admin_owner'].includes(role) ||
     customPermissionNames.has('admin:full')
@@ -928,6 +971,7 @@ export const permissionCategories = [
   'Proposals',
   'Contracts',
   'Projects',
+  'Operations',
   'Customers',
   'Reports',
   'Teams',
@@ -983,6 +1027,12 @@ export const allPermissions: Array<{
   { name: 'projects:edit', displayName: 'Edit Projects', description: 'Modify project information', category: 'Projects' },
   { name: 'projects:delete', displayName: 'Delete Projects', description: 'Remove project records', category: 'Projects' },
   { name: 'projects:complete', displayName: 'Complete Projects', description: 'Mark projects as complete', category: 'Projects' },
+
+  // Operations / Production Jobs
+  { name: 'ops:dashboard:view', displayName: 'View Ops Dashboard', description: 'Access production operations dashboard metrics', category: 'Operations' },
+  { name: 'jobs:view', displayName: 'View Job Board', description: 'Access production job board and job detail records', category: 'Operations' },
+  { name: 'jobs:edit', displayName: 'Edit Production Jobs', description: 'Modify production jobs, scheduling, and operational details', category: 'Operations' },
+  { name: 'jobs:financials:view', displayName: 'View Job Financials', description: 'See production job cost and profitability fields', category: 'Operations' },
 
   // Customers
   { name: 'customers:view', displayName: 'View Customers', description: 'Access customer records', category: 'Customers' },

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { requireAuthApi } from '@/lib/auth'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
 import { computeFinancedContractTotal } from '@/lib/financing'
 
@@ -93,25 +93,10 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient()
     const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    if (!canAccessJobBoard(profile.role) || !['admin', 'owner'].includes(profile.role)) {
+    const { authUser, profile } = await requireAuthApi()
+    const { canJobBoard, canViewJobFinancials } = await resolveOpsAccess(adminClient, authUser.id, profile)
+    if (!canJobBoard || !canViewJobFinancials) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -256,7 +241,7 @@ export async function PATCH(
         adminClient,
         orgId: profile.org_id,
         jobId: job.id,
-        userId: user.id,
+        userId: authUser.id,
         dealerFeeAmount: nextDealerFeeAmount,
       })
     } catch (followUpError) {

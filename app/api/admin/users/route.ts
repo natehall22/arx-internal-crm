@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -87,7 +88,11 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['owner', 'admin', 'regional_manager', 'regional_setter_manager'].includes(profile.role)) {
+    if (
+      !profile ||
+      !(isOrgSuperuserRoleSlug(profile.role) ||
+        ['regional_manager', 'regional_setter_manager'].includes(profile.role))
+    ) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
     }
 
@@ -313,7 +318,13 @@ export async function PUT(request: NextRequest) {
     .eq('id', user.id)
     .single()
 
-  if (!profile || !['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(profile.role)) {
+  if (
+    !profile ||
+    !(isOrgSuperuserRoleSlug(profile.role) ||
+      ['regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(
+        profile.role,
+      ))
+  ) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -338,7 +349,7 @@ export async function PUT(request: NextRequest) {
   // Handle email change - requires updating Supabase Auth
   if (email && email !== targetUser.email) {
     // Only admins can change email addresses
-    if (!['owner', 'admin'].includes(profile.role)) {
+    if (!isOrgSuperuserRoleSlug(profile.role)) {
       return NextResponse.json({ error: 'Only admins can change email addresses' }, { status: 403 })
     }
 
@@ -433,7 +444,7 @@ export async function DELETE(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || profile.role !== 'admin') {
+    if (!profile || !isOrgSuperuserRoleSlug(profile.role)) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
     }
 
@@ -515,7 +526,11 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['owner', 'admin', 'regional_manager', 'regional_setter_manager'].includes(profile.role)) {
+    if (
+      !profile ||
+      !(isOrgSuperuserRoleSlug(profile.role) ||
+        ['regional_manager', 'regional_setter_manager'].includes(profile.role))
+    ) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
     }
 

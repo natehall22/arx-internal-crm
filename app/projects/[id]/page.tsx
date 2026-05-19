@@ -18,15 +18,16 @@ import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
 import { parseProjectReviewStored } from '@/lib/project-review'
 import {
-  canAccessJobBoard,
   canAccessProjectsFromPermissionNames,
   canViewAllProjects,
   canViewManagedProjects,
   isBarredFromProjectsUi,
+  isOrgSuperuserRoleSlug,
   isRepLikeCustomerRecordRole,
 } from '@/lib/permissions'
 import { canAccessJobBilling } from '@/lib/finance-access'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import PayrollAttributionEditor, {
   type PayrollAttributionData,
 } from '@/components/payroll/PayrollAttributionEditor'
@@ -46,8 +47,8 @@ export default async function ProjectDetailPage({
   params: { id: string }
 }) {
   const { profile, authUser } = await requireAuth()
-  const showOpsJobLinks = canAccessJobBoard(profile.role)
   const supabase = createServiceClient()
+  const { canJobBoard: showOpsJobLinks } = await resolveOpsAccess(supabase, authUser.id, profile)
   const projectPermissions = await resolveEffectivePermissionNames(supabase, authUser.id, profile)
   if (
     isBarredFromProjectsUi(profile.role) ||
@@ -305,7 +306,8 @@ export default async function ProjectDetailPage({
   const customerEmail = project.customers?.email || project.leads?.email || null
 
   const canViewJobBilling = canAccessJobBilling({ role: profile.role })
-  const canEditPayrollAttribution = ['admin', 'owner', 'operations'].includes(profile.role)
+  const canEditPayrollAttribution =
+    isOrgSuperuserRoleSlug(profile.role) || profile.role === 'operations'
 
   let payrollAttribution: PayrollAttributionData | null = null
   const linkedOpportunityId = project.opportunity_id as string | null | undefined
@@ -366,7 +368,9 @@ export default async function ProjectDetailPage({
     const { profile } = await requireAuth()
     const supabase = createServiceClient()
 
-    if (!['admin', 'operations', 'regional_manager'].includes(profile.role)) {
+    if (
+      !(isOrgSuperuserRoleSlug(profile.role) || ['operations', 'regional_manager'].includes(profile.role))
+    ) {
       return
     }
 
@@ -390,7 +394,9 @@ export default async function ProjectDetailPage({
     revalidatePath(`/projects/${params.id}`)
   }
 
-  const canEditProjectAddress = ['admin', 'operations', 'regional_manager'].includes(profile.role)
+  const canEditProjectAddress =
+    isOrgSuperuserRoleSlug(profile.role) ||
+    ['operations', 'regional_manager'].includes(profile.role)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -417,7 +423,8 @@ export default async function ProjectDetailPage({
           <div className="flex justify-between items-start mb-4">
             <h1 className="text-2xl font-bold text-gray-900">Project Details</h1>
             <div className="flex items-center gap-3 flex-wrap justify-end">
-              {['admin', 'regional_manager', 'operations', 'manager', 'sales_manager'].includes(profile.role) && (
+              {(isOrgSuperuserRoleSlug(profile.role) ||
+                ['regional_manager', 'operations', 'manager', 'sales_manager'].includes(profile.role)) && (
                 <SendToOpsButton 
                   projectId={project.id}
                   existingJobId={productionJob?.id}
@@ -438,7 +445,7 @@ export default async function ProjectDetailPage({
               >
                 Create Estimate
               </Link>
-              {profile.role === 'admin' && (
+              {isOrgSuperuserRoleSlug(profile.role) && (
                 <DeleteProjectButton 
                   projectId={project.id}
                   address={project.address_text}

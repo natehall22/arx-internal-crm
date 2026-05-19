@@ -4,16 +4,16 @@ import { notFound, redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import ExteriorMeasureClient from '@/app/ops/jobs/[id]/measure/ExteriorMeasureClient'
 
 export default async function OpportunityMeasurePage({ params }: { params: { id: string } }) {
-  const { profile } = await requireAuth()
+  const { authUser, profile } = await requireAuth()
+  const supabase = createServiceClient()
+  const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
 
   // Measuring is ops-only — reps should not enter measurements.
-  if (!canAccessJobBoard(profile.role)) redirect(`/opportunities/${params.id}`)
-
-  const supabase = createServiceClient()
+  if (!canJobBoard) redirect(`/opportunities/${params.id}`)
 
   const { data: opportunity } = await supabase
     .from('opportunities')

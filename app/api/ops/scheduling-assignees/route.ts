@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { requireAuthApi } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveOpsAccess } from '@/lib/ops-access'
 
 /**
  * Latest crews + active subs for schedule/reassign modals (job board & job detail).
@@ -8,25 +9,10 @@ import { canAccessJobBoard } from '@/lib/permissions'
  */
 export async function GET() {
   try {
-    const supabase = createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (profileError || !profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    if (!canAccessJobBoard(profile.role)) {
+    const { authUser, profile } = await requireAuthApi()
+    const supabase = createServiceClient()
+    const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
+    if (!canJobBoard) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

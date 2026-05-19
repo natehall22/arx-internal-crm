@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { stitchElevationPhotos, type ImageBuffer } from '@/lib/stitch-elevation-photos'
 
@@ -68,9 +68,10 @@ Return ONLY valid JSON — no markdown fences, no extra text:
 
 export async function POST(request: NextRequest) {
   try {
-    const { profile } = await requireAuthApi()
-
-    if (!canAccessJobBoard(profile.role)) {
+    const { authUser, profile } = await requireAuthApi()
+    const supabase = createServiceClient()
+    const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
+    if (!canJobBoard) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -90,8 +91,6 @@ export async function POST(request: NextRequest) {
     if (!reportId || !elevationId) {
       return NextResponse.json({ error: 'reportId and elevationId are required' }, { status: 400 })
     }
-
-    const supabase = createServiceClient()
 
     // Verify the report belongs to this org
     const { data: report } = await supabase

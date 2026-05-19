@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import { calculateElevationMeasure, calculateExteriorMeasureTotals } from '@/lib/exterior-measure'
 import PrintReportButton from './PrintReportButton'
 import { loadExteriorMeasure, resolveJobMeasureContext } from '@/lib/exterior-measure-api'
@@ -19,10 +19,12 @@ function fmt(value: number) {
 }
 
 export default async function ExteriorMeasurePrintPage({ params }: { params: { id: string } }) {
-  const { profile } = await requireAuth()
-  if (!canAccessJobBoard(profile.role)) redirect('/dashboard')
+  const { authUser, profile } = await requireAuth()
 
   const supabase = createServiceClient()
+  const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
+  if (!canJobBoard) redirect('/dashboard')
+
   const context = await resolveJobMeasureContext(supabase, profile.org_id, params.id)
   if (!context) notFound()
 

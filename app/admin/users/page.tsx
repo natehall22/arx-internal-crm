@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { getRoleDisplayName } from '@/lib/permissions'
+import { getRoleDisplayName, isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/database'
 
 type Permission = {
@@ -28,7 +28,6 @@ type UserWithDetails = User & {
 }
 
 const legacyRoleOptions: UserRole[] = [
-  'owner',
   'admin',
   'regional_manager',
   'regional_setter_manager',
@@ -587,7 +586,7 @@ export default function UsersPage() {
             <div className="space-y-6">
               {/* Top-level managers (no manager assigned) */}
               {filteredUsers
-                .filter(u => !u.manager_user_id && u.active && ['admin', 'regional_manager', 'sales_manager'].includes(u.role))
+                .filter(u => !u.manager_user_id && u.active && (isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'sales_manager'].includes(u.role)))
                 .map(topManager => {
                   const directReports = filteredUsers.filter(u => u.manager_user_id === topManager.id && u.active)
                   return (
@@ -672,12 +671,12 @@ export default function UsersPage() {
                 })}
               
               {/* Unassigned users section */}
-              {filteredUsers.filter(u => !u.manager_user_id && u.active && !['admin', 'regional_manager', 'sales_manager'].includes(u.role)).length > 0 && (
+              {filteredUsers.filter(u => !u.manager_user_id && u.active && !(isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'sales_manager'].includes(u.role))).length > 0 && (
                 <div className="border border-dashed border-gray-300 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-gray-500 mb-3">Unassigned (No Manager)</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {filteredUsers
-                      .filter(u => !u.manager_user_id && u.active && !['admin', 'regional_manager', 'sales_manager'].includes(u.role))
+                      .filter(u => !u.manager_user_id && u.active && !(isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'sales_manager'].includes(u.role)))
                       .map(user => (
                         <button
                           key={user.id}
@@ -1135,7 +1134,7 @@ export default function UsersPage() {
                             .filter(u => 
                               u.active && 
                               u.id !== editingUser?.id &&
-                              ['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                              (isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role))
                             )
                             .map((manager) => (
                               <option key={manager.id} value={manager.id}>
@@ -1148,7 +1147,7 @@ export default function UsersPage() {
                             .filter(u => 
                               u.active && 
                               u.id !== editingUser?.id &&
-                              !['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                              !(isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role))
                             )
                             .map((user) => (
                               <option key={user.id} value={user.id}>
@@ -1549,7 +1548,7 @@ export default function UsersPage() {
                       {users
                         .filter(u => 
                           u.active && 
-                          ['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                          (isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role))
                         )
                         .map((manager) => (
                           <option key={manager.id} value={manager.id}>
@@ -1561,7 +1560,7 @@ export default function UsersPage() {
                       {users
                         .filter(u => 
                           u.active && 
-                          !['owner', 'admin', 'regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role)
+                          !(isOrgSuperuserRoleSlug(u.role) || ['regional_manager', 'regional_setter_manager', 'sales_manager', 'setter_manager'].includes(u.role))
                         )
                         .map((user) => (
                           <option key={user.id} value={user.id}>
@@ -1606,7 +1605,8 @@ export default function UsersPage() {
                       </button>
                     ))}
                   </div>
-                  {['admin', 'regional_manager', 'sales_manager', 'operations'].includes(formRole) && (
+                  {(isOrgSuperuserRoleSlug(formRole) ||
+                    ['regional_manager', 'sales_manager', 'operations'].includes(formRole)) && (
                     <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
                       This user&apos;s role grants them access to all pins regardless of this setting.
                     </p>

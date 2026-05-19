@@ -10,6 +10,7 @@ import {
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -101,8 +102,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    // Admin only
-    if (profile.role !== 'admin') {
+    // Diagnostics: org superusers only (admin / legacy owner).
+    if (!isOrgSuperuserRoleSlug(profile.role)) {
       return NextResponse.json({ error: 'Admin only' }, { status: 403 })
     }
 

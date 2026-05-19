@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getJobPaymentSummary } from '@/lib/job-payments'
-import { canAccessJobBoard } from '@/lib/permissions'
 import { requireAuthApi } from '@/lib/auth'
+import { resolveOpsAccess, redactProductionJobFinancialSummaryFields } from '@/lib/ops-access'
 
 const jobSelectWithPaymentMethod = `
   *,
@@ -35,10 +35,15 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { profile } = await requireAuthApi()
+    const { authUser, profile } = await requireAuthApi()
     const adminClient = createServiceClient()
 
-    if (!canAccessJobBoard(profile.role)) {
+    const { canEditJobs, canViewJobFinancials } = await resolveOpsAccess(
+      adminClient,
+      authUser.id,
+      profile
+    )
+    if (!canEditJobs) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -75,6 +80,13 @@ export async function PATCH(
     const updateData: Record<string, unknown> = {}
     for (const key of Object.keys(body)) {
       if (ALLOWED_FIELDS.has(key)) updateData[key] = body[key]
+    }
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    if (!canViewJobFinancials && 'labor_cost' in updateData) {
+      delete updateData.labor_cost
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
@@ -170,7 +182,15 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json({ success: true, job: updatedJob })
+    return NextResponse.json({
+      success: true,
+      job: updatedJob
+        ? redactProductionJobFinancialSummaryFields(
+            updatedJob as Record<string, unknown>,
+            canViewJobFinancials
+          )
+        : updatedJob,
+    })
 
   } catch (error) {
     console.error('Error in PATCH /api/ops/jobs/[id]:', error)
@@ -184,11 +204,16 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { profile } = await requireAuthApi()
-    if (!canAccessJobBoard(profile.role)) {
+    const { authUser, profile } = await requireAuthApi()
+    const adminClient = createServiceClient()
+    const { canJobBoard, canViewJobFinancials } = await resolveOpsAccess(
+      adminClient,
+      authUser.id,
+      profile
+    )
+    if (!canJobBoard) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    const adminClient = createServiceClient()
 
     const jobResWithPaymentMethod = await adminClient
       .from('production_jobs')
@@ -215,7 +240,12 @@ export async function GET(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ job })
+    return NextResponse.json({
+      job: redactProductionJobFinancialSummaryFields(
+        job as Record<string, unknown>,
+        canViewJobFinancials
+      ),
+    })
 
   } catch (error) {
     console.error('Error in GET /api/ops/jobs/[id]:', error)
@@ -229,12 +259,12 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { profile } = await requireAuthApi()
+    const { authUser, profile } = await requireAuthApi()
     const adminClient = createServiceClient()
 
-    // Only admins can delete jobs
-    if (profile.role !== 'admin') {
-      return NextResponse.json({ error: 'Only admins can delete jobs' }, { status: 403 })
+    const { canDeleteProductionJob } = await resolveOpsAccess(adminClient, authUser.id, profile)
+    if (!canDeleteProductionJob) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Verify job exists and belongs to user's org

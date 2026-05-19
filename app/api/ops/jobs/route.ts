@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { importProjectReviewNoteToJob } from '@/lib/project-review'
-import { canAccessJobBoard } from '@/lib/permissions'
+import {
+  redactProductionJobFinancialSummaryFields,
+  redactProductionJobsFinancialSummaryRows,
+  resolveOpsAccess,
+} from '@/lib/ops-access'
+import { requireAuthApi } from '@/lib/auth'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -16,40 +20,27 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
-function sanitizeJobsForRole(jobs: any[], role: string) {
-  if (role === 'admin') return jobs
-
-  return jobs.map((job) => {
-    const { labor_cost, material_cost, ...safeJob } = job
-    return safeJob
-  })
-}
-
 // POST - Create a production job from a project
 export async function POST(request: Request) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let authUser: { id: string }
+    let profile: {
+      id: string
+      org_id: string
+      role: string
+      custom_role_id?: string | null
+    }
+    try {
+      const ctx = await requireAuthApi()
+      authUser = ctx.authUser
+      profile = ctx.profile as typeof profile
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user profile
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    // Check role access
-    if (!['admin', 'regional_manager', 'operations', 'manager', 'sales_manager'].includes(profile.role)) {
+    const adminClient = createServiceClient()
+    const ops = await resolveOpsAccess(adminClient, authUser.id, profile)
+    if (!ops.canCreateProductionJob) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 
@@ -215,7 +206,7 @@ export async function POST(request: Request) {
         financing_program_id: resolvedFinancials.financing_program_id,
         commission_pre_tax_subtotal: resolvedFinancials.commission_pre_tax_subtotal,
         commission_comp_base: resolvedFinancials.commission_comp_base,
-        created_by: user.id,
+        created_by: authUser.id,
         job_source: opportunityForSource?.job_source || 'retail',
         insurance_stage: opportunityForSource?.job_source === 'insurance'
           ? (opportunityForSource.insurance_stage || 'contingency_signed')
@@ -232,7 +223,7 @@ export async function POST(request: Request) {
     const importResult = await importProjectReviewNoteToJob(adminClient, {
       jobId: newJob.id,
       projectId: project_id,
-      actorUserId: user.id,
+      actorUserId: authUser.id,
     })
     if (!importResult.ok) {
       console.warn('Project review → job note import:', importResult.error)
@@ -248,15 +239,18 @@ export async function POST(request: Request) {
     await adminClient.from('activities').insert({
       org_id: profile.org_id,
       project_id: project_id,
-      user_id: user.id,
+      user_id: authUser.id,
       type: 'status_change',
       body: `Project sent to Operations as Job ${newJob.job_number}`,
     })
 
-    return NextResponse.json({ 
-      success: true, 
-      job: newJob,
-      message: `Production job ${newJob.job_number} created successfully`
+    return NextResponse.json({
+      success: true,
+      job: redactProductionJobFinancialSummaryFields(
+        { ...(newJob as Record<string, unknown>) },
+        ops.canViewJobFinancials
+      ),
+      message: `Production job ${newJob.job_number} created successfully`,
     })
 
   } catch (error) {
@@ -268,25 +262,10 @@ export async function POST(request: Request) {
 // GET - List production jobs
 export async function GET(request: Request) {
   try {
-    const supabase = createClient()
     const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    if (!canAccessJobBoard(profile.role)) {
+    const { authUser, profile } = await requireAuthApi()
+    const { canJobBoard, canViewJobFinancials } = await resolveOpsAccess(adminClient, authUser.id, profile)
+    if (!canJobBoard) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 
@@ -347,7 +326,11 @@ export async function GET(request: Request) {
       collected_cents: collectedByJob[j.id] || 0,
     }))
 
-    return NextResponse.json({ jobs: sanitizeJobsForRole(withPayments, profile.role) })
+    const safeJobs = redactProductionJobsFinancialSummaryRows(
+      withPayments as Array<Record<string, unknown>>,
+      canViewJobFinancials
+    )
+    return NextResponse.json({ jobs: safeJobs })
 
   } catch (error) {
     console.error('Error in GET /api/ops/jobs:', error)

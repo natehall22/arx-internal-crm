@@ -5,7 +5,12 @@ import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { canAccessJobBoard } from '@/lib/permissions'
+import {
+  canAccessJobBoardFromPermissionNames,
+  canAccessOpsDashboardFromPermissionNames,
+} from '@/lib/permissions'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
 
@@ -19,16 +24,16 @@ const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: s
 }
 
 export default async function OpsDashboardPage() {
-  const { profile } = await requireAuth()
+  const { authUser, profile } = await requireAuth()
   const supabase = createClient()
+  const admin = createServiceClient()
+  const opsPermissions = await resolveEffectivePermissionNames(admin, authUser.id, profile)
 
-  // Check if user has ops access
-  const opsRoles = ['admin', 'regional_manager', 'operations', 'manager', 'owner']
-  if (!opsRoles.includes(profile.role)) {
+  if (!canAccessOpsDashboardFromPermissionNames(opsPermissions)) {
     redirect('/dashboard')
   }
 
-  const canJobBoard = canAccessJobBoard(profile.role)
+  const canJobBoard = canAccessJobBoardFromPermissionNames(opsPermissions)
 
   // Get today's date for filtering
   const today = new Date()

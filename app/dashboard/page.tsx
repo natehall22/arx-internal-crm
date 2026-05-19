@@ -25,15 +25,19 @@ import {
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
-import { isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveOpsAccess } from '@/lib/ops-access'
 
 export default async function DashboardPage() {
-  const { profile } = await requireAuth()
+  const { authUser, profile } = await requireAuth()
   const supabase = createClient()
 
   // Check user's dashboard_view preference
   // If set to 'ops', render the Ops Dashboard
   if (profile.dashboard_view === 'ops') {
+    const admin = createServiceClient()
+    const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)
     return (
       <div className="min-h-screen bg-gray-50">
         <Nav />
@@ -42,7 +46,7 @@ export default async function DashboardPage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Operations Dashboard</h1>
             <p className="text-gray-600 mt-1">Overview of jobs, materials, and work orders</p>
           </div>
-          <OpsDashboard profile={profile} />
+          <OpsDashboard profile={profile} canJobBoard={canJobBoard} />
         </div>
       </div>
     )
@@ -53,7 +57,7 @@ export default async function DashboardPage() {
     redirect('/ops/dashboard')
   }
 
-  const isAdmin = profile.role === 'admin'
+  const isAdmin = isOrgSuperuserRoleSlug(profile.role)
   const isRegionalManager = profile.role === 'regional_manager'
   const isSalesManager = profile.role === 'sales_manager'
 

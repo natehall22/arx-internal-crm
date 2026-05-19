@@ -3,7 +3,8 @@ export const dynamic = 'force-dynamic'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import ProductionCalendarClient, {
   type ProductionCalendarJob,
   type ProductionCalendarCrew,
@@ -19,9 +20,11 @@ function transformCalendarJobs(jobsResData: unknown[]): ProductionCalendarJob[] 
 }
 
 export default async function ProductionCalendarPage() {
-  const { profile } = await requireAuth()
+  const { authUser, profile } = await requireAuth()
+  const admin = createServiceClient()
+  const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)
 
-  if (!canAccessJobBoard(profile.role)) {
+  if (!canJobBoard) {
     redirect('/dashboard')
   }
 
@@ -53,6 +56,6 @@ export default async function ProductionCalendarPage() {
   const crews = (crewsRes.data ?? []) as ProductionCalendarCrew[]
 
   return (
-    <ProductionCalendarClient jobs={jobs} crews={crews} canJobBoard={canAccessJobBoard(profile.role)} />
+    <ProductionCalendarClient jobs={jobs} crews={crews} canJobBoard={canJobBoard} />
   )
 }

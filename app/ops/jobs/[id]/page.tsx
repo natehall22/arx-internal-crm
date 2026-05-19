@@ -6,11 +6,12 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { canAccessJobBilling } from '@/lib/finance-access'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
 } from '@/lib/ops-board-sold-squares'
+import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import {
   resolveProposalMeasuredSquares,
   resolveProposalSoldRoofSquares,
@@ -150,10 +151,19 @@ const jobSelectWithoutPaymentMethod = `
 `
 
 export default async function JobDetailPage({ params }: PageProps) {
-  const { profile } = await requireAuth()
-  if (!canAccessJobBoard(profile.role)) {
+  const { authUser, profile } = await requireAuth()
+  const admin = createServiceClient()
+  const { canJobBoard, canViewJobFinancials, canDeleteProductionJob } = await resolveOpsAccess(
+    admin,
+    authUser.id,
+    profile
+  )
+  if (!canJobBoard) {
     redirect('/dashboard')
   }
+
+  /** Matches PATCH /financial-source RBAC once user can reach this page with job-board access */
+  const canEditFinancialSource = canViewJobFinancials
   const supabase = createClient()
 
   const customRole = profile.custom_role_id
@@ -452,7 +462,6 @@ export default async function JobDetailPage({ params }: PageProps) {
       ? (rawProject as { opportunity_id?: string | null }).opportunity_id
       : null
   const resolvedOppId = opportunityId || projectOppId || null
-  const canEditFinancialSource = ['admin', 'owner'].includes(profile.role)
   const shouldLoadProposalFinancing =
     shouldTreatAsFinance && (missingDealerFeeOnJob || Boolean(jobRow.financing_program_id) || explicitProposalId != null)
   if (shouldLoadProposalFinancing) {
@@ -791,35 +800,47 @@ export default async function JobDetailPage({ params }: PageProps) {
     soldScope = null
   }
 
-  const transformedJob = {
-    ...jobRes.data,
-    collected_cents: Math.round(amountCollected * 100),
-    dealer_fee_amount: shouldTreatAsFinance ? (proposalFinancing?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount) : null,
-    dealer_fee_percent: shouldTreatAsFinance ? (proposalFinancing?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent) : null,
-    financing_program_id: shouldTreatAsFinance ? (proposalFinancing?.financing_program_id ?? jobRes.data.financing_program_id) : null,
-    financing_lender_name: shouldTreatAsFinance ? (proposalFinancing?.financing_lender_name ?? null) : null,
-    financed_contract_total: shouldTreatAsFinance ? (proposalFinancing?.financed_contract_total ?? null) : null,
-    financing_term_months: shouldTreatAsFinance ? (proposalFinancing?.financing_term_months ?? null) : null,
-    financing_rate: shouldTreatAsFinance ? (proposalFinancing?.financing_rate ?? null) : null,
-    assigned_crew: Array.isArray(jobRes.data.assigned_crew) ? jobRes.data.assigned_crew[0] : jobRes.data.assigned_crew,
-    assigned_sub: Array.isArray(jobRes.data.assigned_sub) ? jobRes.data.assigned_sub[0] : jobRes.data.assigned_sub,
-    customer: customer,
-    salesperson: Array.isArray(jobRes.data.salesperson) ? jobRes.data.salesperson[0] : jobRes.data.salesperson,
-    project: rawProject,
-    opportunity_id: resolvedOppId,
-    installation_agreement: installationAgreement,
-    payroll_attribution: payrollAttribution,
-    sold_scope: soldScope,
-  }
+  const transformedJob = redactProductionJobFinancialSummaryFields(
+    {
+      ...jobRes.data,
+      collected_cents: Math.round(amountCollected * 100),
+      dealer_fee_amount: shouldTreatAsFinance
+        ? (proposalFinancing?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount)
+        : null,
+      dealer_fee_percent: shouldTreatAsFinance
+        ? (proposalFinancing?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent)
+        : null,
+      financing_program_id: shouldTreatAsFinance
+        ? (proposalFinancing?.financing_program_id ?? jobRes.data.financing_program_id)
+        : null,
+      financing_lender_name: shouldTreatAsFinance ? (proposalFinancing?.financing_lender_name ?? null) : null,
+      financed_contract_total: shouldTreatAsFinance ? (proposalFinancing?.financed_contract_total ?? null) : null,
+      financing_term_months: shouldTreatAsFinance ? (proposalFinancing?.financing_term_months ?? null) : null,
+      financing_rate: shouldTreatAsFinance ? (proposalFinancing?.financing_rate ?? null) : null,
+      assigned_crew: Array.isArray(jobRes.data.assigned_crew) ? jobRes.data.assigned_crew[0] : jobRes.data.assigned_crew,
+      assigned_sub: Array.isArray(jobRes.data.assigned_sub) ? jobRes.data.assigned_sub[0] : jobRes.data.assigned_sub,
+      customer: customer,
+      salesperson: Array.isArray(jobRes.data.salesperson) ? jobRes.data.salesperson[0] : jobRes.data.salesperson,
+      project: rawProject,
+      opportunity_id: resolvedOppId,
+      installation_agreement: installationAgreement,
+      payroll_attribution: payrollAttribution,
+      sold_scope: soldScope,
+    } as Record<string, unknown>,
+    canViewJobFinancials
+  )
 
-  const canEditPayrollAttribution = ['admin', 'owner', 'operations'].includes(profile.role)
+  const canEditPayrollAttribution =
+    isOrgSuperuserRoleSlug(profile.role) || profile.role === 'operations'
 
   return (
     <JobDetailClient
-      initialJob={transformedJob}
+      initialJob={transformedJob as any}
       crews={crewsRes.data || []}
       subs={subsRes.data || []}
       userRole={profile.role}
+      canViewProfitability={canViewJobFinancials}
+      canDeleteProductionJob={canDeleteProductionJob}
       canViewJobBilling={canViewJobBilling}
       canEditPayrollAttribution={canEditPayrollAttribution}
       canEditFinancialSource={canEditFinancialSource}

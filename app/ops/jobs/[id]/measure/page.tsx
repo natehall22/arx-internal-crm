@@ -4,12 +4,15 @@ import { notFound, redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
-import { canAccessJobBoard } from '@/lib/permissions'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import ExteriorMeasureClient from './ExteriorMeasureClient'
 
 export default async function ExteriorMeasurePage({ params }: { params: { id: string } }) {
-  const { profile } = await requireAuth()
-  if (!canAccessJobBoard(profile.role)) redirect('/dashboard')
+  const { authUser, profile } = await requireAuth()
+  const admin = createServiceClient()
+  const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)
+  if (!canJobBoard) redirect('/dashboard')
 
   const supabase = createClient()
   const { data: job } = await supabase
