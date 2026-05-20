@@ -147,6 +147,12 @@ export default function DoorDropClient() {
               information. We will look for common concerns like missing shingles, storm damage, flashing issues,
               age-related wear, and visible leak risks.
             </p>
+            <p>
+              We have helped hundreds of Charlotte-area homeowners navigate the roof question — whether that meant a
+              quick repair before a listing appointment, a full replacement filed through insurance, or simply the
+              reassurance that nothing needs to be done right now. There is no charge for the evaluation and no
+              commitment required to move forward.
+            </p>
 
             <div className="audience-grid">
               <div>
@@ -184,6 +190,10 @@ export default function DoorDropClient() {
                 {rep.title} · ARX Roofing & Exteriors · {rep.phone}
               </span>
             </div>
+            <p className="ps-line">
+              <strong>P.S.</strong> This $500 discount is exclusive to homeowners in this area and is limited to the
+              first few who schedule. Call or scan the QR code above to reserve your spot before it closes.
+            </p>
           </article>
 
           <footer className="letter-footer">
@@ -452,6 +462,18 @@ export default function DoorDropClient() {
         .signature p {
           color: #666;
           font-size: 0.12in;
+        }
+        .ps-line {
+          border-top: 0.012in solid #eee;
+          color: #444;
+          font-size: 0.115in;
+          line-height: 1.5;
+          margin-top: 0.08in;
+          padding-top: 0.08in;
+        }
+        .ps-line strong {
+          color: #1b3a6b;
+          font-size: 0.115in;
         }
         .signature strong {
           color: #1b3a6b;
