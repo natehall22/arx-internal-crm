@@ -95,114 +95,117 @@ export default function DoorDropClient() {
           </div>
 
           <div className="mt-4 rounded border border-amber-300 border-l-4 border-l-[#9B7E3E] bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-900">
-            In the browser print dialog, enable background graphics/colors. The preview should show exactly two
-            pages: page 1 as letter portrait and page 2 as a #10 envelope.
+            In the browser print dialog, set page 1 to Letter paper size (8.5 x 11), enable background
+            graphics/colors, and use no margins when available. The preview should show exactly two pages: page 1 as
+            Letter portrait and page 2 as a #10 envelope.
           </div>
         </div>
       </div>
 
       <main className="print-kit mx-auto max-w-5xl space-y-6 px-4 pb-10">
         <section className="sheet letter-sheet bg-white shadow-lg">
-          <div className="gold-rule" />
-          <header className="letter-header">
-            <div className="brand-lockup">
-              <img src="/brand/arx-shield.png" alt="" />
+          <div className="letter-print-scale">
+            <div className="gold-rule" />
+            <header className="letter-header">
+              <div className="brand-lockup">
+                <img src="/brand/arx-shield.png" alt="" />
+                <div>
+                  <div className="brand-name">ARX Roofing & Exteriors</div>
+                  <div className="brand-sub">Charlotte, NC</div>
+                </div>
+              </div>
+              <div className="rep-block">
+                <div className="rep-name">{rep.name}</div>
+                <div className="rep-title">{rep.title}</div>
+                <div className="rep-phone">{rep.phone}</div>
+                <div className="rep-email">{rep.email}</div>
+              </div>
+            </header>
+
+            <div className="offer-ribbon">
+              <div className="offer-badge">
+                <span>Exclusive</span>
+                <strong>$500</strong>
+                <span>Discount</span>
+              </div>
               <div>
-                <div className="brand-name">ARX Roofing & Exteriors</div>
-                <div className="brand-sub">Charlotte, NC</div>
+                <h2>For the Homeowner: Buyer or Seller</h2>
+                <p>
+                  Your roof can shape inspections, negotiations, insurance confidence, and a buyer&apos;s first
+                  impression. ARX can help you understand what is happening before it turns into a surprise.
+                </p>
               </div>
             </div>
-            <div className="rep-block">
-              <div className="rep-name">{rep.name}</div>
-              <div className="rep-title">{rep.title}</div>
-              <div className="rep-phone">{rep.phone}</div>
-              <div className="rep-email">{rep.email}</div>
-            </div>
-          </header>
 
-          <div className="offer-ribbon">
-            <div className="offer-badge">
-              <span>Exclusive</span>
-              <strong>$500</strong>
-              <span>Discount</span>
-            </div>
-            <div>
-              <h2>For the Homeowner: Buyer or Seller</h2>
+            <article className="letter-body">
+              <p className="eyebrow">Free Roof Evaluation</p>
+              <h3>Your roof matters right now, whether you&apos;re coming or going.</h3>
               <p>
-                Your roof can shape inspections, negotiations, insurance confidence, and a buyer&apos;s first
-                impression. ARX can help you understand what is happening before it turns into a surprise.
+                If you are selling, an aging or storm-worn roof can become a last-minute negotiation problem. If you
+                are buying, it can become one of the first expensive surprises after closing.
               </p>
-            </div>
+              <p>
+                ARX Roofing & Exteriors offers a no-pressure roof evaluation so you can make the next move with real
+                information. We will look for common concerns like missing shingles, storm damage, flashing issues,
+                age-related wear, and visible leak risks.
+              </p>
+              <p>
+                We have helped hundreds of Charlotte-area homeowners navigate the roof question — whether that meant a
+                quick repair before a listing appointment, a full replacement filed through insurance, or simply the
+                reassurance that nothing needs to be done right now. There is no charge for the evaluation and no
+                commitment required to move forward.
+              </p>
+
+              <div className="audience-grid">
+                <div>
+                  <strong>Sellers</strong>
+                  <span>Reduce inspection drama and protect your asking price.</span>
+                </div>
+                <div>
+                  <strong>Buyers</strong>
+                  <span>Know what you are inheriting before small issues become expensive.</span>
+                </div>
+              </div>
+
+              <div className="process-strip">
+                <span>1. Schedule</span>
+                <span>2. Inspect</span>
+                <span>3. Review Options</span>
+                <span>4. Claim $500</span>
+              </div>
+
+              <div className="cta-box">
+                <div>
+                  <h4>Claim your free evaluation and $500 discount.</h4>
+                  <p>Call {rep.phone} or visit arxroofing.com to schedule.</p>
+                </div>
+                <div className="qr-wrap">
+                  <img src={qrUrl} alt="QR code for arxroofing.com" />
+                  <span>Scan to visit</span>
+                </div>
+              </div>
+
+              <div className="signature">
+                <p>Best,</p>
+                <strong>{rep.name}</strong>
+                <span>
+                  {rep.title} · ARX Roofing & Exteriors · {rep.phone}
+                </span>
+              </div>
+              <p className="ps-line">
+                <strong>P.S.</strong> This $500 discount is exclusive to homeowners in this area and is limited to the
+                first few who schedule. Call or scan the QR code above to reserve your spot before it closes.
+              </p>
+            </article>
+
+            <footer className="letter-footer">
+              <div>
+                <span>Licensed</span>
+                <span>Insured</span>
+              </div>
+              <p>Offer applies to qualifying full roof replacement projects. Ask your ARX representative for details.</p>
+            </footer>
           </div>
-
-          <article className="letter-body">
-            <p className="eyebrow">Free Roof Evaluation</p>
-            <h3>Your roof matters right now, whether you&apos;re coming or going.</h3>
-            <p>
-              If you are selling, an aging or storm-worn roof can become a last-minute negotiation problem. If you
-              are buying, it can become one of the first expensive surprises after closing.
-            </p>
-            <p>
-              ARX Roofing & Exteriors offers a no-pressure roof evaluation so you can make the next move with real
-              information. We will look for common concerns like missing shingles, storm damage, flashing issues,
-              age-related wear, and visible leak risks.
-            </p>
-            <p>
-              We have helped hundreds of Charlotte-area homeowners navigate the roof question — whether that meant a
-              quick repair before a listing appointment, a full replacement filed through insurance, or simply the
-              reassurance that nothing needs to be done right now. There is no charge for the evaluation and no
-              commitment required to move forward.
-            </p>
-
-            <div className="audience-grid">
-              <div>
-                <strong>Sellers</strong>
-                <span>Reduce inspection drama and protect your asking price.</span>
-              </div>
-              <div>
-                <strong>Buyers</strong>
-                <span>Know what you are inheriting before small issues become expensive.</span>
-              </div>
-            </div>
-
-            <div className="process-strip">
-              <span>1. Schedule</span>
-              <span>2. Inspect</span>
-              <span>3. Review Options</span>
-              <span>4. Claim $500</span>
-            </div>
-
-            <div className="cta-box">
-              <div>
-                <h4>Claim your free evaluation and $500 discount.</h4>
-                <p>Call {rep.phone} or visit arxroofing.com to schedule.</p>
-              </div>
-              <div className="qr-wrap">
-                <img src={qrUrl} alt="QR code for arxroofing.com" />
-                <span>Scan to visit</span>
-              </div>
-            </div>
-
-            <div className="signature">
-              <p>Best,</p>
-              <strong>{rep.name}</strong>
-              <span>
-                {rep.title} · ARX Roofing & Exteriors · {rep.phone}
-              </span>
-            </div>
-            <p className="ps-line">
-              <strong>P.S.</strong> This $500 discount is exclusive to homeowners in this area and is limited to the
-              first few who schedule. Call or scan the QR code above to reserve your spot before it closes.
-            </p>
-          </article>
-
-          <footer className="letter-footer">
-            <div>
-              <span>Licensed</span>
-              <span>Insured</span>
-            </div>
-            <p>Offer applies to qualifying full roof replacement projects. Ask your ARX representative for details.</p>
-          </footer>
         </section>
 
         <section className="sheet envelope-sheet bg-white shadow-lg">
@@ -255,6 +258,11 @@ export default function DoorDropClient() {
           width: min(8.5in, calc(100vw - 2rem));
           min-height: 11in;
           display: flex;
+          flex-direction: column;
+        }
+        .letter-print-scale {
+          display: flex;
+          flex: 1;
           flex-direction: column;
         }
         .gold-rule,
@@ -689,7 +697,7 @@ export default function DoorDropClient() {
             margin: 0;
           }
           @page letterPage {
-            size: letter portrait;
+            size: 8.5in 11in;
             margin: 0;
           }
           @page envelopePage {
@@ -727,6 +735,64 @@ export default function DoorDropClient() {
             min-height: 11in;
             page: letterPage;
             width: 8.5in;
+          }
+          .letter-print-scale {
+            flex: none;
+            transform: scale(0.96);
+            transform-origin: top left;
+            width: 104.167%;
+          }
+          .letter-sheet .letter-header {
+            padding-bottom: 0.2in;
+            padding-top: 0.22in;
+          }
+          .letter-sheet .offer-ribbon {
+            padding-bottom: 0.2in;
+            padding-top: 0.2in;
+          }
+          .letter-sheet .letter-body {
+            padding-bottom: 0.12in;
+            padding-top: 0.18in;
+          }
+          .letter-sheet .letter-body h3 {
+            font-size: 0.25in;
+            margin-bottom: 0.12in;
+          }
+          .letter-sheet .letter-body > p:not(.eyebrow) {
+            font-size: 0.12in;
+            line-height: 1.5;
+            margin-bottom: 0.11in;
+          }
+          .letter-sheet .audience-grid {
+            margin: 0.14in 0;
+          }
+          .letter-sheet .audience-grid div {
+            padding-bottom: 0.11in;
+            padding-top: 0.11in;
+          }
+          .letter-sheet .process-strip {
+            margin-bottom: 0.14in;
+          }
+          .letter-sheet .process-strip span {
+            padding-bottom: 0.12in;
+            padding-top: 0.12in;
+          }
+          .letter-sheet .cta-box {
+            margin-bottom: 0.16in;
+            padding-bottom: 0.18in;
+            padding-top: 0.18in;
+          }
+          .letter-sheet .signature {
+            padding-top: 0.12in;
+          }
+          .letter-sheet .signature strong {
+            font-size: 0.23in;
+            margin: 0.035in 0;
+          }
+          .letter-sheet .ps-line {
+            line-height: 1.38;
+            margin-top: 0.1in;
+            padding-top: 0.1in;
           }
           .envelope-sheet {
             break-after: auto;
