@@ -6,6 +6,7 @@ import {
   mapLatestInspectionByOpportunityId,
   mergeEffectiveInspectionFields,
 } from '@/lib/effective-inspection-state'
+import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,15 +60,24 @@ export async function GET(request: NextRequest) {
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
 
-    // Role-based filtering for reps (closers see their own, setters see ones they set)
-    // Skip if this is an internal API call (for reporting/dashboard)
-    const isRep = ['rep', 'sales_rep', 'closer'].includes(profile.role)
-    const isSetter = ['canvasser', 'setter'].includes(profile.role)
-    
+    // Admin / Roles: gate on effective `opportunities:view` (legacy matrix + custom roles + user overrides).
+    // Internal/reporting calls may bypass with _internal=true (existing behavior).
     if (!bypassRoleFilter) {
-      if (isSetter) {
+      const effective = await resolveEffectivePermissionNames(
+        adminClient,
+        authContext.authUser.id,
+        { role: profile.role, custom_role_id: profile.custom_role_id ?? null }
+      )
+      if (!effectiveHasPermission(effective, 'opportunities:view')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      } else if (isRep) {
+      }
+    }
+
+    // Role-based filtering for reps (closers see their own; managers see org-wide above)
+    const isRep = ['rep', 'sales_rep', 'closer'].includes(profile.role)
+
+    if (!bypassRoleFilter) {
+      if (isRep) {
         // Closers see opportunities they own, set, or are assigned on the lead (lead.closer_user_id is source of truth when calendar reassignment syncs the rep)
         const { data: closerLeadRows } = await adminClient
           .from('leads')
