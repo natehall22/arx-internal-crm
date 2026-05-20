@@ -317,7 +317,7 @@ export default function DoorDropClient() {
           grid-template-columns: auto 1fr;
           gap: 0.22in;
           align-items: center;
-          background: #1b3a6b;
+          background: #2e5fa3;
           padding: 0.24in 0.45in;
         }
         .offer-badge {
@@ -433,7 +433,7 @@ export default function DoorDropClient() {
         }
         .cta-box {
           align-items: center;
-          background: #1b3a6b;
+          background: #2e5fa3;
           border-radius: 0.05in;
           display: flex;
           justify-content: space-between;
