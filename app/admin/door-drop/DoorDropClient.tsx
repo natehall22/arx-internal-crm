@@ -685,6 +685,9 @@ export default function DoorDropClient() {
           text-transform: uppercase;
         }
         @media print {
+          @page {
+            margin: 0;
+          }
           @page letterPage {
             size: letter portrait;
             margin: 0;
@@ -710,6 +713,7 @@ export default function DoorDropClient() {
             max-width: none !important;
             padding: 0 !important;
             margin: 0 !important;
+            width: auto !important;
           }
           .sheet {
             box-shadow: none !important;
@@ -717,7 +721,9 @@ export default function DoorDropClient() {
           }
           .letter-sheet {
             break-after: page;
+            box-sizing: border-box;
             height: 11in;
+            max-width: none !important;
             min-height: 11in;
             page: letterPage;
             width: 8.5in;
