@@ -200,7 +200,6 @@ export default function DoorDropClient() {
             <div>
               <span>Licensed</span>
               <span>Insured</span>
-              <span>A+ BBB Rated</span>
             </div>
             <p>Offer applies to qualifying full roof replacement projects. Ask your ARX representative for details.</p>
           </footer>
@@ -222,7 +221,7 @@ export default function DoorDropClient() {
 
           <div className="env-cred">
             <strong>Licensed & Insured</strong>
-            <span>Charlotte, NC · A+ BBB Rated</span>
+            <span>Charlotte, NC</span>
           </div>
 
           <div className="env-center">
@@ -255,11 +254,13 @@ export default function DoorDropClient() {
         .letter-sheet {
           width: min(8.5in, calc(100vw - 2rem));
           min-height: 11in;
+          display: flex;
+          flex-direction: column;
         }
         .gold-rule,
         .env-top-rule,
         .env-bottom-rule {
-          height: 0.04in;
+          height: 0.07in;
           background: linear-gradient(90deg, #9b7e3e, #c9a84c, #9b7e3e);
         }
         .letter-header {
@@ -268,7 +269,7 @@ export default function DoorDropClient() {
           justify-content: space-between;
           gap: 0.25in;
           border-bottom: 0.025in solid #1b3a6b;
-          padding: 0.22in 0.38in 0.18in;
+          padding: 0.28in 0.45in 0.24in;
         }
         .brand-lockup {
           display: flex;
@@ -276,14 +277,14 @@ export default function DoorDropClient() {
           gap: 0.12in;
         }
         .brand-lockup img {
-          width: 0.58in;
-          height: 0.58in;
+          width: 0.62in;
+          height: 0.62in;
           object-fit: contain;
         }
         .brand-name {
           color: #1b3a6b;
           font-family: Georgia, serif;
-          font-size: 0.2in;
+          font-size: 0.21in;
           font-weight: 700;
         }
         .brand-sub,
@@ -301,163 +302,176 @@ export default function DoorDropClient() {
         .rep-name {
           color: #1b3a6b;
           font-family: Georgia, serif;
-          font-size: 0.2in;
+          font-size: 0.21in;
           font-weight: 700;
         }
         .rep-phone {
           color: #1b3a6b;
-          font-size: 0.22in;
+          font-size: 0.24in;
           font-weight: 800;
           line-height: 1.1;
-          margin-top: 0.03in;
+          margin-top: 0.04in;
         }
         .offer-ribbon {
           display: grid;
           grid-template-columns: auto 1fr;
-          gap: 0.18in;
+          gap: 0.22in;
           align-items: center;
-          border-bottom: 0.012in solid #ddd;
-          padding: 0.16in 0.38in;
+          background: #1b3a6b;
+          padding: 0.24in 0.45in;
         }
         .offer-badge {
-          border: 0.025in solid #1b3a6b;
+          border: 0.025in solid #c9a84c;
           border-radius: 0.04in;
-          color: #1b3a6b;
-          padding: 0.08in 0.16in;
+          color: white;
+          padding: 0.1in 0.22in;
           text-align: center;
         }
         .offer-badge strong {
           display: block;
           font-family: Georgia, serif;
-          font-size: 0.34in;
+          font-size: 0.42in;
           line-height: 1;
+          color: #c9a84c;
         }
         .offer-badge span {
           display: block;
-          color: #9b7e3e;
+          color: rgba(255, 255, 255, 0.7);
           font-size: 0.075in;
           font-weight: 800;
           letter-spacing: 0.02in;
           text-transform: uppercase;
         }
-        .offer-ribbon h2,
+        .offer-ribbon h2 {
+          color: white;
+          font-family: Georgia, serif;
+          font-weight: 700;
+          font-size: 0.19in;
+          margin-bottom: 0.06in;
+        }
         .letter-body h3 {
           color: #1b3a6b;
           font-family: Georgia, serif;
           font-weight: 700;
         }
-        .offer-ribbon h2 {
-          font-size: 0.17in;
-          margin-bottom: 0.04in;
-        }
         .offer-ribbon p {
-          color: #444;
+          color: rgba(255, 255, 255, 0.82);
           font-size: 0.125in;
-          line-height: 1.45;
+          line-height: 1.5;
         }
         .letter-body {
-          padding: 0.16in 0.38in 0.12in;
+          padding: 0.22in 0.45in 0.18in;
+          flex: 1;
         }
         .eyebrow {
           color: #9b7e3e;
           font-size: 0.1in;
           font-weight: 800;
           letter-spacing: 0.03in;
-          margin-bottom: 0.04in;
+          margin-bottom: 0.1in;
           text-transform: uppercase;
         }
         .letter-body h3 {
-          font-size: 0.24in;
-          line-height: 1.16;
-          margin-bottom: 0.1in;
+          font-size: 0.27in;
+          line-height: 1.2;
+          margin-bottom: 0.15in;
         }
         .letter-body > p:not(.eyebrow) {
           color: #2a2a2a;
           font-size: 0.13in;
-          line-height: 1.55;
-          margin-bottom: 0.11in;
+          line-height: 1.65;
+          margin-bottom: 0.14in;
         }
         .audience-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 0.1in;
-          margin: 0.12in 0;
+          margin: 0.18in 0;
         }
         .audience-grid div {
+          background: #eef2f9;
           border: 0.018in solid #1b3a6b;
           border-radius: 0.05in;
-          padding: 0.1in 0.12in;
+          padding: 0.14in 0.16in;
         }
         .audience-grid div + div {
+          background: #fdf8ed;
           border-color: #9b7e3e;
         }
         .audience-grid strong {
           color: #1b3a6b;
           display: block;
-          font-size: 0.125in;
+          font-size: 0.13in;
           font-weight: 800;
-          margin-bottom: 0.03in;
+          margin-bottom: 0.04in;
         }
         .audience-grid span {
           color: #555;
           display: block;
           font-size: 0.12in;
-          line-height: 1.35;
+          line-height: 1.4;
         }
         .process-strip {
-          border: 0.012in solid #ddd;
-          border-left: 0.04in solid #9b7e3e;
+          background: #eef2f8;
           border-radius: 0.04in;
           display: grid;
-          gap: 0.08in;
           grid-template-columns: repeat(4, 1fr);
-          margin-bottom: 0.12in;
-          padding: 0.1in;
+          margin-bottom: 0.2in;
+          overflow: hidden;
         }
         .process-strip span {
+          border-right: 0.012in solid #d0daea;
           color: #1b3a6b;
-          font-size: 0.11in;
+          font-size: 0.115in;
           font-weight: 800;
+          padding: 0.15in 0.06in;
           text-align: center;
+        }
+        .process-strip span:last-child {
+          border-right: none;
+          color: #9b7e3e;
         }
         .cta-box {
           align-items: center;
-          border: 0.025in solid #1b3a6b;
+          background: #1b3a6b;
           border-radius: 0.05in;
           display: flex;
           justify-content: space-between;
-          gap: 0.16in;
-          margin-bottom: 0.13in;
-          padding: 0.13in 0.16in;
+          gap: 0.2in;
+          margin-bottom: 0.22in;
+          padding: 0.22in 0.26in;
         }
         .cta-box h4 {
-          color: #1b3a6b;
+          color: white;
           font-family: Georgia, serif;
-          font-size: 0.17in;
-          margin-bottom: 0.04in;
+          font-size: 0.19in;
+          margin-bottom: 0.05in;
         }
         .cta-box p {
-          color: #555;
+          color: rgba(255, 255, 255, 0.8);
           font-size: 0.12in;
         }
         .qr-wrap {
+          flex-shrink: 0;
           text-align: center;
         }
         .qr-wrap img {
-          border: 0.012in solid #ddd;
+          background: white;
+          border: 0.04in solid white;
+          border-radius: 0.03in;
           display: block;
-          height: 0.7in;
-          width: 0.7in;
+          height: 1.0in;
+          width: 1.0in;
         }
         .qr-wrap span {
-          color: #999;
+          color: rgba(255, 255, 255, 0.6);
           display: block;
           font-size: 0.075in;
-          margin-top: 0.02in;
+          margin-top: 0.03in;
         }
         .signature {
           border-top: 0.012in solid #eee;
-          padding-top: 0.1in;
+          padding-top: 0.16in;
         }
         .signature p {
           color: #666;
@@ -468,8 +482,8 @@ export default function DoorDropClient() {
           color: #444;
           font-size: 0.115in;
           line-height: 1.5;
-          margin-top: 0.08in;
-          padding-top: 0.08in;
+          margin-top: 0.14in;
+          padding-top: 0.14in;
         }
         .ps-line strong {
           color: #1b3a6b;
@@ -479,10 +493,10 @@ export default function DoorDropClient() {
           color: #1b3a6b;
           display: block;
           font-family: Georgia, serif;
-          font-size: 0.24in;
+          font-size: 0.26in;
           font-style: italic;
           font-weight: 400;
-          margin: 0.03in 0;
+          margin: 0.05in 0;
         }
         .signature span {
           color: #888;
@@ -490,11 +504,14 @@ export default function DoorDropClient() {
         }
         .letter-footer {
           align-items: center;
-          border-top: 0.025in solid #1b3a6b;
+          border-top: 0.07in solid transparent;
+          background-image: linear-gradient(white, white), linear-gradient(90deg, #9b7e3e, #c9a84c, #9b7e3e);
+          background-origin: border-box;
+          background-clip: padding-box, border-box;
           display: flex;
           justify-content: space-between;
           gap: 0.12in;
-          padding: 0.1in 0.38in;
+          padding: 0.14in 0.45in;
         }
         .letter-footer div {
           display: flex;
