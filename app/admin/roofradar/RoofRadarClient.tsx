@@ -403,13 +403,21 @@ export default function RoofRadarClient() {
       if (response.ok && payload && Array.isArray(payload.properties)) {
         setProperties(payload.properties)
         setDataMode('live')
+        // Parcel data (county ArcGIS) tags everything as 'active' — open that filter so rows are visible
+        if (payload.dataType === 'parcels') {
+          setStatuses(new Set<ListingStatus>(['active', 'pending', 'sold']))
+          setScores(new Set<Score>(['A', 'B', 'C', 'D']))
+        }
         const geocoder = payload.openData?.geocoder
         const storm = payload.openData?.storm
         const freeNote =
           geocoder || storm
             ? ` Free data: ${storm?.provider || 'storm adapter'} matched within ${storm?.radiusMiles || 8}mi; ${geocoder?.matched || 0}/${geocoder?.attempted || 0} Census geocodes matched.`
             : ''
-        setScanMessage(`Loaded ${payload.properties.length} live records from ${payload.provider || 'provider'}.${freeNote}`)
+        const parcelNote = payload.dataType === 'parcels'
+          ? ' (county parcel records — all homeowners, not just active listings)'
+          : ''
+        setScanMessage(`Loaded ${payload.properties.length} live records from ${payload.provider || 'provider'}.${parcelNote}${freeNote}`)
         addToast(`Scan complete — ${payload.properties.length} live properties loaded`, 'success')
       } else {
         setProperties(makeDataset(query))
