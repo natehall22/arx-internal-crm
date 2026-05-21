@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import ARKit
 import SceneKit
 
@@ -9,6 +10,8 @@ import SceneKit
 
 struct CaptureGuidanceView: View {
     let scanType: ScanType
+    var address: String = ""
+    var opportunityId: String? = nil
     let onComplete: (ScanResult) -> Void
 
     @StateObject private var vm = CaptureGuidanceVM()
@@ -40,7 +43,12 @@ struct CaptureGuidanceView: View {
         }
         .fullScreenCover(isPresented: $showReview) {
             if let result = scanResult {
-                ModelReviewView(scanResult: result, scanType: scanType) { finalResult in
+                ModelReviewView(
+                    scanResult: result,
+                    scanType: scanType,
+                    address: address,
+                    opportunityId: opportunityId
+                ) { finalResult in
                     onComplete(finalResult)
                     showReview = false
                 }
@@ -64,7 +72,7 @@ struct CaptureGuidanceView: View {
                 Spacer()
                 VStack(spacing: 2) {
                     Text(scanType == .roof ? "Roof Scan" : "Siding Scan")
-                        .font(.subheadline).fontWeight(.semibold).foregroundColor(.white)
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.white)
                     Text("\(vm.completedCount)/\(positions.count) positions")
                         .font(.caption2).foregroundColor(.white.opacity(0.8))
                 }
@@ -101,7 +109,7 @@ struct CaptureGuidanceView: View {
             if let current = positions.first(where: { !vm.completedPositions.contains($0.id) }) {
                 VStack(spacing: 8) {
                     Text(current.label.uppercased())
-                        .font(.caption).fontWeight(.bold)
+                        .font(.caption.weight(.bold))
                         .foregroundColor(.blue)
                         .tracking(1.5)
                     Text(current.instruction)
@@ -126,7 +134,7 @@ struct CaptureGuidanceView: View {
                         }
                     } label: {
                         Label("Got it", systemImage: "checkmark")
-                            .fontWeight(.semibold)
+                            .font(.body.weight(.semibold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -150,7 +158,7 @@ struct CaptureGuidanceView: View {
                                 Label("Review Scan", systemImage: "arrow.right")
                             }
                         }
-                        .fontWeight(.semibold)
+                        .font(.body.weight(.semibold))
                         .foregroundColor(vm.isProcessing ? .white.opacity(0.7) : .black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
@@ -229,7 +237,7 @@ struct MeshBadge: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 8, height: 8)
-            Text(label).font(.caption).fontWeight(.medium).foregroundColor(.white)
+            Text(label).font(.caption.weight(.medium)).foregroundColor(.white)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(.ultraThinMaterial).cornerRadius(20)

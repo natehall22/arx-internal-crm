@@ -50,8 +50,7 @@ struct LeadSheetView: View {
                                     let fullName = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
                                     if !fullName.isEmpty {
                                         Text(fullName)
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
+                                            .font(.subheadline.weight(.semibold))
                                             .foregroundColor(.white)
                                     }
                                     if !phone.isEmpty {
@@ -70,8 +69,7 @@ struct LeadSheetView: View {
                                 Text("🚪")
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("LAST KNOCK")
-                                        .font(.caption2)
-                                        .fontWeight(.semibold)
+                                        .font(.caption2.weight(.semibold))
                                         .foregroundColor(.white.opacity(0.6))
                                     Text(knocked)
                                         .font(.subheadline)
@@ -95,8 +93,7 @@ struct LeadSheetView: View {
                                 Text("📝")
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("PREVIOUS NOTES")
-                                        .font(.caption2)
-                                        .fontWeight(.semibold)
+                                        .font(.caption2.weight(.semibold))
                                         .foregroundColor(Color(hex: "#92400E"))
                                     Text(previousNotes)
                                         .font(.subheadline)
@@ -197,8 +194,10 @@ struct LeadSheetView: View {
                     if isSaving {
                         ProgressView()
                     } else {
-                        Button("Save") { Task { await save() } }
-                            .fontWeight(.semibold)
+                        Button { Task { await save() } } label: {
+                            Text("Save")
+                                .fontWeight(.semibold)
+                        }
                     }
                 }
             }

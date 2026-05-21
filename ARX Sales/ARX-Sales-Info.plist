@@ -6,5 +6,7 @@
 	<string>ARX uses your camera to scan roofs and siding with LiDAR for accurate measurements.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>ARX uses your location to place measurement pins on the map.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ARX may use your local network when connecting to services on your network is required.</string>
 </dict>
 </plist>

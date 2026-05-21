@@ -89,10 +89,12 @@ struct ScheduleInspectionSheet: View {
                     if isScheduling {
                         ProgressView()
                     } else {
-                        Button("Schedule") {
+                        Button {
                             Task { await schedule() }
+                        } label: {
+                            Text("Schedule")
+                                .fontWeight(.semibold)
                         }
-                        .fontWeight(.semibold)
                         .disabled(isScheduling)
                     }
                 }

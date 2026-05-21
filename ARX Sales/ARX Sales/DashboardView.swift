@@ -77,8 +77,7 @@ struct DashboardView: View {
     private var myNumbersSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("MY NUMBERS")
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(.caption.weight(.semibold))
                 .foregroundColor(.secondary)
                 .padding(.horizontal)
 
@@ -239,8 +238,7 @@ struct LeaderboardSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(.caption.weight(.semibold))
                 .foregroundColor(.secondary)
                 .padding(.horizontal)
 
@@ -277,8 +275,7 @@ struct LeaderboardRow: View {
             // Name
             VStack(alignment: .leading, spacing: 2) {
                 Text(member.name ?? "Unknown")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.subheadline.weight(.medium))
                 Text(member.role?.replacingOccurrences(of: "_", with: " ").capitalized ?? "")
                     .font(.caption2)
                     .foregroundColor(.secondary)

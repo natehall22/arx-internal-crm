@@ -83,6 +83,115 @@ struct SaveLeadResponse: Codable {
     let status: String?
 }
 
+// MARK: - Opportunity Models
+
+struct Opportunity: Decodable, Identifiable {
+    let id: String
+    let lead_id: String?
+    let customer_id: String?
+    let owner_user_id: String?
+    let setter_user_id: String?
+    let address_text: String?
+    let project_type: String?
+    let status: String?
+    let inspection_outcome: String?
+    let inspection_outcome_at: String?
+    let inspection_notes: String?
+    let created_at: String?
+    let updated_at: String?
+    let leads: OppLead?
+    let users: OppUser?
+    let lead_phone: String?
+    let lead_email: String?
+    let inspection_date: String?
+
+    struct OppLead: Decodable {
+        let homeowner_name: String?
+    }
+    struct OppUser: Decodable {
+        let full_name: String?
+    }
+
+    var displayName: String {
+        leads?.homeowner_name ?? "Homeowner"
+    }
+    var closerName: String? { users?.full_name }
+
+    var statusLabel: String {
+        switch status {
+        case "open": return "Open"
+        case "in_progress": return "In Progress"
+        case "negotiation": return "Negotiation"
+        case "won": return "Won"
+        case "lost": return "Lost"
+        default: return status?.capitalized ?? "—"
+        }
+    }
+
+    var statusColor: String {
+        switch status {
+        case "won": return "#10B981"
+        case "lost": return "#EF4444"
+        case "in_progress", "negotiation": return "#F59E0B"
+        default: return "#3B82F6"
+        }
+    }
+
+    var inspectionOutcomeLabel: String? {
+        switch inspection_outcome {
+        case "completed": return "Inspected"
+        case "no_show": return "No Show"
+        case "cancelled": return "Cancelled"
+        case "rescheduled": return "Rescheduled"
+        default: return inspection_outcome?.capitalized
+        }
+    }
+}
+
+// MARK: - LiDAR measure payload (POST /api/opportunities/:id/measure/lidar)
+
+struct LidarElevationPayload: Encodable {
+    let elevation_name: String
+    let wall_width_ft: Double?
+    let wall_height_ft: Double?
+    let lidar_confidence: Double?
+    let captured_at: String?
+}
+
+struct LidarMeasurePayload: Encodable {
+    let elevations: [LidarElevationPayload]
+    let device_model: String?
+
+    static func from(wallFaces: [WallFace]) -> LidarMeasurePayload {
+        let elevations = wallFaces.map { face -> LidarElevationPayload in
+            let verts = face.vertices
+            let ys = verts.map { Double($0.y) }
+            let heightM = (ys.max() ?? 0) - (ys.min() ?? 0)
+            let heightFt = heightM * 3.28084
+            let widthFt = heightFt > 0.5 ? face.areaSqFt / heightFt : nil
+            return LidarElevationPayload(
+                elevation_name: face.label,
+                wall_width_ft: widthFt.map { $0 > 0.5 ? $0 : nil } ?? nil,
+                wall_height_ft: heightFt > 0.5 ? heightFt : nil,
+                lidar_confidence: nil,
+                captured_at: nil
+            )
+        }
+        return LidarMeasurePayload(
+            elevations: elevations.isEmpty
+                ? [LidarElevationPayload(
+                    elevation_name: "Front",
+                    wall_width_ft: nil,
+                    wall_height_ft: nil,
+                    lidar_confidence: nil,
+                    captured_at: nil
+                )]
+                : elevations,
+            device_model: nil
+        )
+    }
+}
+
 // MARK: - Canvass Dispositions
 
 struct CanvassDisposition: Identifiable {
@@ -188,6 +297,28 @@ struct APIClient {
         return try JSONDecoder().decode(SaveLeadResponse.self, from: data)
     }
 
+    // MARK: - Opportunities
+
+    static func fetchOpportunities() async throws -> [Opportunity] {
+        struct Response: Decodable { let opportunities: [Opportunity] }
+        let data = try await request(path: "/api/opportunities", queryItems: [
+            URLQueryItem(name: "full", value: "true"),
+        ])
+        return (try JSONDecoder().decode(Response.self, from: data)).opportunities
+    }
+
+    static func fetchOpportunity(id: String) async throws -> Opportunity {
+        struct Response: Decodable { let opportunity: Opportunity }
+        let data = try await request(path: "/api/opportunities/\(id)")
+        return (try JSONDecoder().decode(Response.self, from: data)).opportunity
+    }
+
+    /// POST siding wall-face data to the opportunity's LiDAR measure endpoint.
+    static func postLidarMeasure(opportunityId: String, wallFaces: [WallFace]) async throws {
+        let payload = LidarMeasurePayload.from(wallFaces: wallFaces)
+        _ = try await post(path: "/api/opportunities/\(opportunityId)/measure/lidar", body: payload)
+    }
+
     // MARK: - Measurements
 
     static func measurementList() async throws -> [SavedMeasurement] {
@@ -244,7 +375,7 @@ struct SaveMeasurementRequest: Encodable {
 }
 
 extension SaveMeasurementRequest {
-    init(scanResult: ScanResult, scanType: ScanType, address: String) {
+    init(scanResult: ScanResult, scanType: ScanType, address: String, opportunityId: String? = nil) {
         let isRoof = scanType == .roof
 
         let facets: [MeasurementPayload.FacetPayload]? = isRoof
@@ -274,7 +405,7 @@ extension SaveMeasurementRequest {
                 total_siding_sqft: scanResult.totalSidingSqFt
             )
         )
-        self.opportunityId = nil
+        self.opportunityId = opportunityId
     }
 }
 
@@ -323,6 +454,26 @@ enum APIError: Error, LocalizedError {
         case .invalidResponse: return "Unexpected server response"
         case .schedulingConflict(let msg): return msg
         }
+    }
+}
+
+// MARK: - Mobile app (ARX Sales)
+
+/// Flags from `GET /api/mobile/capabilities` — match Admin → Roles “View Opportunities”.
+struct MobileAppCapabilities: Decodable {
+    let opportunitiesTab: Bool
+    let measureTab: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case opportunitiesTab = "opportunities_tab"
+        case measureTab = "measure_tab"
+    }
+}
+
+extension APIClient {
+    static func mobileCapabilities() async throws -> MobileAppCapabilities {
+        let data = try await request(path: "/api/mobile/capabilities", queryItems: [])
+        return try JSONDecoder().decode(MobileAppCapabilities.self, from: data)
     }
 }
 

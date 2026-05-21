@@ -9,14 +9,28 @@ import SceneKit
 struct ModelReviewView: View {
     @State var scanResult: ScanResult
     let scanType: ScanType
+    let opportunityId: String?   // opportunity to link the measurement to (nil = standalone)
     let onComplete: (ScanResult) -> Void
 
     @State private var selectedRoofFace: RoofFace? = nil
     @State private var selectedWallFace: WallFace? = nil
     @State private var showFaceEdit = false
     @State private var showSaveSheet = false
-    @State private var jobAddress = ""
+    @State private var jobAddress: String
     @Environment(\.dismiss) private var dismiss
+
+    /// Designated init — seeds jobAddress from the caller's context (lead address or empty).
+    init(scanResult: ScanResult,
+         scanType: ScanType,
+         address: String = "",
+         opportunityId: String? = nil,
+         onComplete: @escaping (ScanResult) -> Void) {
+        _scanResult       = State(initialValue: scanResult)
+        _jobAddress       = State(initialValue: address)
+        self.scanType     = scanType
+        self.opportunityId = opportunityId
+        self.onComplete   = onComplete
+    }
 
     var body: some View {
         ZStack {
@@ -33,7 +47,7 @@ struct ModelReviewView: View {
                     }
                     Spacer()
                     Text(scanType == .roof ? "Roof Review" : "Siding Review")
-                        .font(.subheadline).fontWeight(.semibold).foregroundColor(.white)
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.white)
                     Spacer()
                     Button { showSaveSheet = true } label: {
                         Text("Save")
@@ -92,12 +106,13 @@ struct ModelReviewView: View {
             }
         }
         .sheet(isPresented: $showSaveSheet) {
-            SaveScanSheet(scanResult: scanResult, scanType: scanType, address: $jobAddress) {
+            SaveScanSheet(scanResult: scanResult, scanType: scanType,
+                          address: $jobAddress, opportunityId: opportunityId) {
                 var result = scanResult
                 result.address = jobAddress
                 onComplete(result)
             }
-            .presentationDetents([.medium])
+            .mediumSheetPresentation()
         }
     }
 
@@ -145,7 +160,7 @@ struct ModelReviewView: View {
 
     private func summaryCell(label: String, value: String) -> some View {
         VStack(spacing: 4) {
-            Text(label).font(.caption2).fontWeight(.semibold).foregroundColor(.secondary)
+            Text(label).font(.caption2.weight(.semibold)).foregroundColor(.secondary)
             Text(value).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundColor(.white)
         }
         .frame(maxWidth: .infinity)
@@ -164,8 +179,8 @@ struct SceneModelView: UIViewRepresentable {
         let view = SCNView()
         view.scene = buildScene()
         view.allowsCameraControl = true
-        view.backgroundColor = UIColor(white: 0.05, alpha: 1)
-        view.autoenablesDefaultLighting = true
+        view.backgroundColor = UIColor(white: 0.10, alpha: 1)
+        view.autoenablesDefaultLighting = false   // we add our own lights in buildScene
         view.antialiasingMode = .multisampling4X
 
         let tap = UITapGestureRecognizer(target: context.coordinator,
@@ -206,11 +221,35 @@ struct SceneModelView: UIViewRepresentable {
 
         // Add a reference grid
         let grid = SCNFloor()
-        grid.firstMaterial?.diffuse.contents = UIColor.darkGray.withAlphaComponent(0.3)
+        grid.firstMaterial?.diffuse.contents = UIColor(white: 0.15, alpha: 1)
         grid.firstMaterial?.isDoubleSided = true
         let gridNode = SCNNode(geometry: grid)
-        gridNode.position.y = scanResult.roofFaces.first?.vertices.first?.y ?? 0
+        let lowestY: Float = {
+            let allVerts = (scanResult.roofFaces.flatMap { $0.vertices }
+                          + scanResult.wallFaces.flatMap { $0.vertices })
+            return allVerts.map { $0.y }.min() ?? 0
+        }()
+        gridNode.position.y = lowestY - 0.1
         root.addChildNode(gridNode)
+
+        // Lighting — ambient fill + directional key light for 3-D shading
+        let ambient = SCNLight()
+        ambient.type = .ambient
+        ambient.intensity = 600
+        ambient.color = UIColor(white: 1.0, alpha: 1)
+        let ambientNode = SCNNode()
+        ambientNode.light = ambient
+        root.addChildNode(ambientNode)
+
+        let key = SCNLight()
+        key.type = .directional
+        key.intensity = 800
+        key.color = UIColor(white: 1.0, alpha: 1)
+        key.castsShadow = false
+        let keyNode = SCNNode()
+        keyNode.light = key
+        keyNode.eulerAngles = SCNVector3(-Float.pi / 4, Float.pi / 4, 0)
+        root.addChildNode(keyNode)
 
         return scene
     }
@@ -218,7 +257,7 @@ struct SceneModelView: UIViewRepresentable {
     private func buildFaceNode(vertices: [SIMD3<Float>], color: UIColor) -> SCNNode {
         guard vertices.count >= 3 else { return SCNNode() }
 
-        var scnVertices: [SCNVector3] = vertices.map { SCNVector3($0.x, $0.y, $0.z) }
+        let scnVertices: [SCNVector3] = vertices.map { SCNVector3($0.x, $0.y, $0.z) }
         var indices: [Int32] = []
         for i in stride(from: 0, to: vertices.count - 2, by: 3) {
             indices.append(contentsOf: [Int32(i), Int32(i+1), Int32(i+2)])
@@ -229,8 +268,11 @@ struct SceneModelView: UIViewRepresentable {
         let geo = SCNGeometry(sources: [src], elements: [elem])
         let mat = SCNMaterial()
         mat.diffuse.contents = color
+        mat.specular.contents = UIColor(white: 0.3, alpha: 1)   // subtle specular highlight
+        mat.shininess = 0.25
         mat.isDoubleSided = true
-        mat.transparency = 0.75
+        mat.lightingModel = .phong
+        mat.transparency = 0.0   // fully opaque — 0 = opaque in SceneKit
         geo.materials = [mat]
 
         return SCNNode(geometry: geo)
@@ -300,7 +342,7 @@ struct RoofFaceDetailSheet: View {
     }
     private func detailCell(label: String, value: String) -> some View {
         VStack(spacing: 4) {
-            Text(label).font(.caption2).fontWeight(.semibold).foregroundColor(.secondary)
+            Text(label).font(.caption2.weight(.semibold)).foregroundColor(.secondary)
             Text(value).font(.system(size: 18, weight: .bold, design: .rounded)).foregroundColor(.white)
         }.frame(maxWidth: .infinity)
     }
@@ -348,7 +390,7 @@ struct WallFaceDetailSheet: View {
     }
     private func detailCell(label: String, value: String) -> some View {
         VStack(spacing: 4) {
-            Text(label).font(.caption2).fontWeight(.semibold).foregroundColor(.secondary)
+            Text(label).font(.caption2.weight(.semibold)).foregroundColor(.secondary)
             Text(value).font(.system(size: 18, weight: .bold, design: .rounded)).foregroundColor(.white)
         }.frame(maxWidth: .infinity)
     }
@@ -360,6 +402,7 @@ struct SaveScanSheet: View {
     let scanResult: ScanResult
     let scanType: ScanType
     @Binding var address: String
+    let opportunityId: String?
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -374,15 +417,15 @@ struct SaveScanSheet: View {
                 }
                 Section("Results") {
                     if scanType == .roof {
-                        LabeledContent("Faces Detected", value: "\(scanResult.roofFaces.count)")
-                        LabeledContent("Total Roof Area", value: "\(Int(scanResult.totalRoofSqFt)) ft²")
-                        LabeledContent("Squares", value: String(format: "%.2f", scanResult.totalRoofSquares))
+                        FormValueRow(label: "Faces Detected", value: "\(scanResult.roofFaces.count)")
+                        FormValueRow(label: "Total Roof Area", value: "\(Int(scanResult.totalRoofSqFt)) ft²")
+                        FormValueRow(label: "Squares", value: String(format: "%.2f", scanResult.totalRoofSquares))
                     } else {
-                        LabeledContent("Walls Detected", value: "\(scanResult.wallFaces.count)")
-                        LabeledContent("Net Siding Area", value: "\(Int(scanResult.totalSidingSqFt)) ft²")
-                        LabeledContent("Squares", value: String(format: "%.2f", scanResult.totalSidingSquares))
+                        FormValueRow(label: "Walls Detected", value: "\(scanResult.wallFaces.count)")
+                        FormValueRow(label: "Net Siding Area", value: "\(Int(scanResult.totalSidingSqFt)) ft²")
+                        FormValueRow(label: "Squares", value: String(format: "%.2f", scanResult.totalSidingSquares))
                     }
-                    LabeledContent("Method", value: scanResult.usedLiDAR ? "LiDAR Scan" : "AR Scan")
+                    FormValueRow(label: "Method", value: scanResult.usedLiDAR ? "LiDAR Scan" : "AR Scan")
                 }
                 if let error = saveError {
                     Section {
@@ -418,9 +461,17 @@ struct SaveScanSheet: View {
         saveError = nil
         var result = scanResult
         result.address = address
-        let payload = SaveMeasurementRequest(scanResult: result, scanType: scanType, address: address)
         do {
-            _ = try await APIClient.saveMeasurement(payload)
+            // Siding scans linked to an opportunity use the dedicated LiDAR elevation endpoint.
+            // Roof scans (and standalone scans) always use the generic measurements route.
+            if scanType == .siding, let oppId = opportunityId {
+                try await APIClient.postLidarMeasure(opportunityId: oppId,
+                                                     wallFaces: result.wallFaces)
+            } else {
+                let payload = SaveMeasurementRequest(scanResult: result, scanType: scanType,
+                                                     address: address, opportunityId: opportunityId)
+                _ = try await APIClient.saveMeasurement(payload)
+            }
             onSave()
             dismiss()
         } catch {

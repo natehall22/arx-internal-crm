@@ -50,8 +50,10 @@ struct FaceEditView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { save() }
-                        .fontWeight(.semibold)
+                    Button { save() } label: {
+                        Text("Done")
+                            .fontWeight(.semibold)
+                    }
                 }
             }
         }
@@ -63,9 +65,9 @@ struct FaceEditView: View {
         Form {
             Section("Face Info") {
                 if let face = editedRoof {
-                    LabeledContent("Detected Area", value: "\(Int(face.areaSqFt)) ft²")
-                    LabeledContent("Auto-detected Pitch", value: "\(face.pitchRise)/12")
-                    LabeledContent("Facing", value: face.label)
+                    FormValueRow(label: "Detected Area", value: "\(Int(face.areaSqFt)) ft²")
+                    FormValueRow(label: "Auto-detected Pitch", value: "\(face.pitchRise)/12")
+                    FormValueRow(label: "Facing", value: face.label)
                 }
             }
 
@@ -107,9 +109,9 @@ struct FaceEditView: View {
         Form {
             Section("Face Info") {
                 if let face = editedWall {
-                    LabeledContent("Gross Area",  value: "\(Int(face.areaSqFt)) ft²")
-                    LabeledContent("Net Area",    value: "\(Int(face.netAreaSqFt)) ft²")
-                    LabeledContent("Facing",      value: face.label)
+                    FormValueRow(label: "Gross Area", value: "\(Int(face.areaSqFt)) ft²")
+                    FormValueRow(label: "Net Area", value: "\(Int(face.netAreaSqFt)) ft²")
+                    FormValueRow(label: "Facing", value: face.label)
                 }
             }
 
@@ -176,7 +178,7 @@ struct FaceEditView: View {
                 editedWall?.openings.append(opening)
                 editedWall?.recalcNet()
             }
-            .presentationDetents([.medium])
+            .mediumSheetPresentation()
         }
     }
 
@@ -243,8 +245,12 @@ struct AddOpeningSheet: View {
                     }
                     Slider(value: $height, in: 1...12, step: 0.5)
 
-                    LabeledContent("Area", value: String(format: "%.1f ft²", area))
-                        .fontWeight(.semibold)
+                    FormValueRow(
+                        label: "Area",
+                        value: String(format: "%.1f ft²", area),
+                        valueForeground: .secondary,
+                        valueWeight: .semibold
+                    )
                 }
 
                 Section {

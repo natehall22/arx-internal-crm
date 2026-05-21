@@ -27,7 +27,7 @@ final class MeshProcessor {
         let wallTriangles  = allTriangles.filter { $0.faceClass == .wall }
 
         let roofFaces = cluster(roofTriangles, targetClass: .roof)
-        let wallFaces = cluster(wallTriangles, targetClass: .wall)
+        let wallFaces = clusterWalls(wallTriangles)
 
         return ScanResult(
             roofFaces: roofFaces,
@@ -58,16 +58,6 @@ final class MeshProcessor {
         let faceBuffer      = geometry.faces.buffer.contents()
         let faceCount       = geometry.faces.count
         let bytesPerIndex   = geometry.faces.bytesPerIndex
-
-        // Read normals if available, else compute
-        var normalBuffer: UnsafeMutableRawPointer? = nil
-        var normalStride = 0
-        var normalOffset = 0
-        if geometry.normals.count > 0 {
-            normalBuffer = geometry.normals.buffer.contents()
-            normalStride = geometry.normals.stride
-            normalOffset = geometry.normals.offset
-        }
 
         for i in 0..<faceCount {
             // Read 3 vertex indices

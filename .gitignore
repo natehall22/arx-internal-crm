@@ -38,3 +38,9 @@ next-env.d.ts
 # Xcode / iOS (user-specific)
 **/xcuserdata/
 *.xcuserstate
+
+# Claude Code — local agent worktree mirrors (not source of truth; large)
+.claude/worktrees/
+
+# Claude Code — machine-local permission overrides
+.claude/settings.local.json

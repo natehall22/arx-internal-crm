@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import ARKit
 
 // MARK: - Main Measure Tab
@@ -30,7 +31,9 @@ struct MeasureView: View {
                     } label: { Image(systemName: "plus") }
                 }
             }
-            .fullScreenCover(item: $activeScan) { type in
+            .fullScreenCover(item: $activeScan, onDismiss: {
+                activeScan = nil
+            }) { type in
                 CaptureGuidanceView(scanType: type) { result in
                     vm.scanResults.insert(result, at: 0)
                     activeScan = nil
@@ -98,7 +101,7 @@ struct MeasureView: View {
 
             VStack(spacing: 10) {
                 Text(hasLiDAR ? "LiDAR Roof & Siding Scanner" : "AR Measurement")
-                    .font(.title2).fontWeight(.bold)
+                    .font(.title2.weight(.bold))
                 Text("Walk around the structure — your phone builds a live 3D model, auto-detects roof facets with pitch angles and wall elevations for siding quotes.")
                     .font(.subheadline).foregroundColor(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 32)
@@ -111,12 +114,14 @@ struct MeasureView: View {
             VStack(spacing: 12) {
                 Button { activeScan = .roof } label: {
                     Label("Start Roof Scan", systemImage: "house.fill")
-                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding()
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity).padding()
                         .background(Color.blue).foregroundColor(.white).cornerRadius(14)
                 }
                 Button { activeScan = .siding } label: {
                     Label("Start Siding Scan", systemImage: "square.split.2x1.fill")
-                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding()
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity).padding()
                         .background(Color(.secondarySystemBackground))
                         .foregroundColor(.primary).cornerRadius(14)
                 }
@@ -142,14 +147,14 @@ struct ScanResultRow: View {
             HStack {
                 Label(scanType == .roof ? "Roof" : "Siding",
                       systemImage: scanType == .roof ? "house.fill" : "square.split.2x1.fill")
-                    .font(.caption).fontWeight(.semibold)
+                    .font(.caption.weight(.semibold))
                     .foregroundColor(scanType == .roof ? .blue : .purple)
                 Spacer()
                 Text(result.scanDate, style: .date)
                     .font(.caption).foregroundColor(.secondary)
             }
             Text(result.address.isEmpty ? "No address" : result.address)
-                .font(.subheadline).fontWeight(.medium)
+                .font(.subheadline.weight(.medium))
             HStack(spacing: 14) {
                 if scanType == .roof {
                     Label(String(format: "%.2f sq", result.totalRoofSquares), systemImage: "square.grid.2x2")
@@ -172,7 +177,7 @@ struct ScanResultRow: View {
 
 // MARK: - Saved measurement list date (Supabase often returns fractional seconds)
 
-private enum MeasurementListDateParsing {
+enum MeasurementListDateParsing {
     private static let withFractionalSeconds: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -201,7 +206,7 @@ struct SavedMeasurementRow: View {
                 let isRoof = measurement.scanTypeLabel == "Roof"
                 Label(measurement.scanTypeLabel,
                       systemImage: isRoof ? "house.fill" : "square.split.2x1.fill")
-                    .font(.caption).fontWeight(.semibold)
+                    .font(.caption.weight(.semibold))
                     .foregroundColor(isRoof ? .blue : .purple)
                 Spacer()
                 if let dateStr = measurement.created_at,
@@ -211,7 +216,7 @@ struct SavedMeasurementRow: View {
                 }
             }
             Text(measurement.address_text ?? "No address")
-                .font(.subheadline).fontWeight(.medium)
+                .font(.subheadline.weight(.medium))
             HStack(spacing: 14) {
                 if let sq = measurement.total_squares {
                     Label(String(format: "%.2f sq", sq), systemImage: "square.grid.2x2")

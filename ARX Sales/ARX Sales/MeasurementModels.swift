@@ -191,12 +191,12 @@ enum FaceColor {
 
     var uiColor: UIColor {
         switch self {
-        case .pitch0_3:  return UIColor(hex: "#3B82F6").withAlphaComponent(0.7)  // blue
-        case .pitch4_6:  return UIColor(hex: "#10B981").withAlphaComponent(0.7)  // green
-        case .pitch7_9:  return UIColor(hex: "#F59E0B").withAlphaComponent(0.7)  // amber
-        case .pitch10up: return UIColor(hex: "#EF4444").withAlphaComponent(0.7)  // red
-        case .wall:      return UIColor(hex: "#8B5CF6").withAlphaComponent(0.6)  // purple
-        case .selected:  return UIColor.white.withAlphaComponent(0.9)
+        case .pitch0_3:  return UIColor(hex: "#3B82F6")   // blue
+        case .pitch4_6:  return UIColor(hex: "#10B981")   // green
+        case .pitch7_9:  return UIColor(hex: "#F59E0B")   // amber
+        case .pitch10up: return UIColor(hex: "#EF4444")   // red
+        case .wall:      return UIColor(hex: "#8B5CF6")   // purple
+        case .selected:  return UIColor.white
         }
     }
 

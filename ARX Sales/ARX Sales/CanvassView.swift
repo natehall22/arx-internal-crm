@@ -88,8 +88,7 @@ struct CanvassView: View {
                     CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng)
                 })
             )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .canvassSheetPresentation()
         }
         .onAppear {
             vm.startLocationTracking()
@@ -337,7 +336,10 @@ class PinAnnotation: NSObject, MKAnnotation {
     var pinId: String { pin.id }
     var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: pin.lat, longitude: pin.lng) }
 
-    init(_ pin: CanvassPin) { self.pin = pin }
+    nonisolated init(_ pin: CanvassPin) {
+        self.pin = pin
+        super.init()
+    }
 
     var uiColor: UIColor {
         // Sold (installation agreement) → green dollar

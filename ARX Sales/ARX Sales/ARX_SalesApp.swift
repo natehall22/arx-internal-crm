@@ -22,9 +22,27 @@ struct ARX_SalesApp: App {
                 }
             }
             .task {
-                // Listen for auth state changes (sign in / sign out / token refresh)
-                for await state in await supabase.auth.authStateChanges {
-                    isAuthenticated = [.signedIn, .tokenRefreshed].contains(state.event)
+                // Listen for auth state changes (sign in / sign out / token refresh).
+                // `initialSession` is always emitted first — required for restored sessions on cold start.
+                for await state in supabase.auth.authStateChanges {
+                    switch state.event {
+                    case .initialSession, .signedIn, .tokenRefreshed:
+                        if let session = state.session {
+                            isAuthenticated = !session.isExpired
+                        } else {
+                            isAuthenticated = false
+                        }
+                    case .userUpdated:
+                        if let session = state.session {
+                            isAuthenticated = !session.isExpired
+                        } else {
+                            isAuthenticated = false
+                        }
+                    case .signedOut, .userDeleted:
+                        isAuthenticated = false
+                    case .passwordRecovery, .mfaChallengeVerified:
+                        break
+                    }
                 }
             }
         }
