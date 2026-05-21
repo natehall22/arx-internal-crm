@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { RoofRadarProperty, RoofRadarScore, RoofRadarStormExposure } from '@/lib/roofradar'
+import type { RoofRadarProperty, RoofRadarScore, RoofRadarStormExposure, RoofRadarStormEvent } from '@/lib/roofradar'
 
 type Score = RoofRadarScore
 type ListingStatus = 'sold' | 'pending' | 'active' | 'contingent'
@@ -128,13 +128,42 @@ const makeStormExposure = (seed: number): StormExposure => {
       : hailEvents > 0 || windEvents > 1
         ? 'Medium'
         : 'Low'
+
+  // Build a realistic demo event list with actual dates
+  const totalEvents = hailEvents + windEvents
+  const recentEvents: StormExposure['recentEvents'] = []
+  if (totalEvents > 0) {
+    // Spread events across the last 3 years
+    let offsetDays = lastEventDaysAgo
+    for (let i = 0; i < Math.min(totalEvents, 8); i++) {
+      const isHail = i < hailEvents
+      const eventDate = new Date(Date.now() - offsetDays * 86400000)
+      recentEvents.push({
+        type: isHail ? 'hail' : 'wind',
+        date: eventDate.toISOString().slice(0, 10),
+        magnitude: isHail
+          ? Number((rnd(6, maxHailTenths || 10, seed + i + 50) / 10).toFixed(1))
+          : rnd(35, maxWindMph || 55, seed + i + 51),
+        distanceMiles: Number((rnd(1, 79, seed + i + 52) / 10).toFixed(1)),
+      })
+      offsetDays += rnd(45, 280, seed + i + 60) // space events apart
+    }
+  }
+
+  const lastEventDate =
+    lastEventDaysAgo < 1300
+      ? new Date(Date.now() - lastEventDaysAgo * 86400000).toISOString().slice(0, 10)
+      : undefined
+
   return {
     hailEvents,
     maxHailInches: Number((maxHailTenths / 10).toFixed(1)),
     windEvents,
     maxWindMph,
     lastEventDaysAgo,
+    ...(lastEventDate ? { lastEventDate } : {}),
     confidence,
+    ...(recentEvents.length > 0 ? { recentEvents } : {}),
   }
 }
 
@@ -197,6 +226,22 @@ export default function RoofRadarClient() {
   const [showHeatLayer, setShowHeatLayer] = useState(true)
   const [showPins, setShowPins] = useState(true)
   const [mapTaggedOnly, setMapTaggedOnly] = useState(false)
+  const [stormLookup, setStormLookup] = useState<{
+    loading: boolean
+    events: RoofRadarStormEvent[]
+    summary: {
+      totalEvents: number
+      hailEvents: number
+      maxHailInches: number
+      windEvents: number
+      maxWindMph: number
+      lastEventDate: string | null
+      lastEventDaysAgo: number | null
+      confidence: string
+    } | null
+    error: string | null
+    addressId: string | null
+  }>({ loading: false, events: [], summary: null, error: null, addressId: null })
 
   // Filtered without ZIP drill-down (used for ZIP panel stats + KPIs)
   const filteredAll = useMemo(
@@ -312,6 +357,29 @@ export default function RoofRadarClient() {
     setProperties((current) => current.map((p) => (p.id === id ? { ...p, notes } : p)))
     setActiveProperty((current) => (current && current.id === id ? { ...current, notes } : current))
   }
+
+  const fetchFullStormHistory = useCallback(async (property: RadarProperty) => {
+    const addressId = String(property.id)
+    setStormLookup({ loading: true, events: [], summary: null, error: null, addressId })
+    try {
+      const body = (property.lat != null && property.lng != null)
+        ? { lat: property.lat, lng: property.lng, radiusMiles: 8 }
+        : { address: `${property.street}, ${property.city}, NC ${property.zip}`, radiusMiles: 8 }
+      const res = await fetch('/api/admin/roofradar/storm-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) {
+        setStormLookup({ loading: false, events: [], summary: null, error: data?.error || 'Lookup failed', addressId })
+      } else {
+        setStormLookup({ loading: false, events: data.events || [], summary: data.summary || null, error: null, addressId })
+      }
+    } catch {
+      setStormLookup({ loading: false, events: [], summary: null, error: 'Network error', addressId })
+    }
+  }, [])
 
   const scan = async () => {
     const query = search.trim() || '28081'
@@ -683,7 +751,7 @@ td span { color: #666; font-size: 11px; }
 
       {/* ---- PROPERTY MODAL ---- */}
       {activeProperty && (
-        <div className="rr-modal-mask" onClick={() => setActiveProperty(null)}>
+        <div className="rr-modal-mask" onClick={() => { setActiveProperty(null); setStormLookup({ loading: false, events: [], summary: null, error: null, addressId: null }) }}>
           <div className="rr-modal" onClick={(e) => e.stopPropagation()}>
             <div className={`rr-card-band ${activeProperty.score}`} />
             <div className="flex items-start gap-4 p-5">
@@ -694,7 +762,7 @@ td span { color: #666; font-size: 11px; }
                   {activeProperty.city} · {activeProperty.zip} · {activeProperty.status.toUpperCase()} · {activeProperty.source}
                 </p>
               </div>
-              <button onClick={() => setActiveProperty(null)} className="text-[#8fa0bc]">Close</button>
+              <button onClick={() => { setActiveProperty(null); setStormLookup({ loading: false, events: [], summary: null, error: null, addressId: null }) }} className="text-[#8fa0bc]">Close</button>
             </div>
             <div className="grid gap-4 p-5 pt-0 md:grid-cols-2">
               <Detail label="Estimated roof age" value={`${activeProperty.roofAge} yrs`} />
@@ -706,14 +774,22 @@ td span { color: #666; font-size: 11px; }
             </div>
             <div className="px-5 pb-5">
               <h3 className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-[#C9A84C]">Storm Exposure</h3>
-              <div className="mb-5 rounded border border-[#253870] bg-[#0B1628] p-4 text-sm text-[#8fa0bc]">
+
+              {/* Summary bar */}
+              <div className="mb-3 rounded border border-[#253870] bg-[#0B1628] p-4 text-sm text-[#8fa0bc]">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
                     <strong className="block text-slate-100">{stormSummary(activeProperty.storm)}</strong>
-                    <span>Nearby hail and damaging wind history</span>
+                    <span>Nearby hail &amp; wind history</span>
                   </div>
                   <div>
-                    <strong className="block text-slate-100">{activeProperty.storm.lastEventDaysAgo} days ago</strong>
+                    <strong className="block text-slate-100">
+                      {activeProperty.storm.lastEventDate
+                        ? new Date(activeProperty.storm.lastEventDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : activeProperty.storm.lastEventDaysAgo < 1300
+                          ? `${activeProperty.storm.lastEventDaysAgo}d ago`
+                          : 'No recent events'}
+                    </strong>
                     <span>Most recent storm signal</span>
                   </div>
                   <div>
@@ -722,6 +798,66 @@ td span { color: #666; font-size: 11px; }
                   </div>
                 </div>
               </div>
+
+              {/* Recent event timeline */}
+              {(activeProperty.storm.recentEvents && activeProperty.storm.recentEvents.length > 0) && (
+                <div className="rr-storm-timeline mb-3">
+                  {activeProperty.storm.recentEvents.map((ev, i) => (
+                    <div key={i} className={`rr-storm-row ${ev.type}`}>
+                      <span className="rr-storm-icon">{ev.type === 'hail' ? '🧊' : '💨'}</span>
+                      <span className="rr-storm-date">
+                        {new Date(ev.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                      <span className="rr-storm-type">{ev.type === 'hail' ? 'Hail' : 'Wind'}</span>
+                      <span className="rr-storm-mag">
+                        {ev.type === 'hail' ? `${ev.magnitude}"` : `${ev.magnitude} mph`}
+                      </span>
+                      <span className="rr-storm-dist">{ev.distanceMiles} mi away</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Full storm history lookup */}
+              {stormLookup.addressId === String(activeProperty.id) && stormLookup.loading && (
+                <div className="rr-storm-loading mb-3">⏳ Fetching full storm history from NOAA/SPC…</div>
+              )}
+              {stormLookup.addressId === String(activeProperty.id) && stormLookup.error && (
+                <div className="rr-storm-error mb-3">⚠️ {stormLookup.error}</div>
+              )}
+              {stormLookup.addressId === String(activeProperty.id) && stormLookup.summary && !stormLookup.loading && (
+                <div className="mb-3">
+                  <div className="rr-storm-lookup-header">
+                    Full history · {stormLookup.summary.totalEvents} events in 8 mi radius (NOAA/SPC, 5 yrs)
+                  </div>
+                  <div className="rr-storm-timeline">
+                    {stormLookup.events.length === 0 && (
+                      <div className="rr-storm-empty">No storm events found near this address.</div>
+                    )}
+                    {stormLookup.events.map((ev, i) => (
+                      <div key={i} className={`rr-storm-row ${ev.type}`}>
+                        <span className="rr-storm-icon">{ev.type === 'hail' ? '🧊' : '💨'}</span>
+                        <span className="rr-storm-date">
+                          {new Date(ev.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                        <span className="rr-storm-type">{ev.type === 'hail' ? 'Hail' : 'Wind'}</span>
+                        <span className="rr-storm-mag">
+                          {ev.type === 'hail' ? `${ev.magnitude}"` : `${ev.magnitude} mph`}
+                        </span>
+                        <span className="rr-storm-dist">{ev.distanceMiles} mi away</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(stormLookup.addressId !== String(activeProperty.id) || (!stormLookup.loading && !stormLookup.summary && !stormLookup.error)) && (
+                <button
+                  className="rr-storm-full-btn mb-5"
+                  onClick={() => fetchFullStormHistory(activeProperty)}
+                >
+                  Full Storm History →
+                </button>
+              )}
               <h3 className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-[#C9A84C]">Signals</h3>
               <div className="flex flex-wrap gap-2">
                 {activeProperty.signals.map((sig) => (
@@ -944,6 +1080,25 @@ td span { color: #666; font-size: 11px; }
         .rr-zip-stats span { color: #f0f6ff; font-size: 16px; font-weight: 950; }
         .rr-zip-drill-btn { border-top: 1px solid var(--border); color: var(--gold); display: block; font-size: 12px; font-weight: 950; letter-spacing: 1px; padding: 10px 16px; text-transform: uppercase; text-align: left; width: 100%; }
         .rr-zip-drill-btn:hover { background: rgba(201,168,76,0.06); }
+
+        /* ---- STORM TIMELINE ---- */
+        .rr-storm-timeline { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 13px; }
+        .rr-storm-row { display: grid; grid-template-columns: 26px 120px 48px 80px 1fr; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); color: #9badcf; transition: background 0.15s; }
+        .rr-storm-row:last-child { border-bottom: 0; }
+        .rr-storm-row:hover { background: rgba(255,255,255,0.03); }
+        .rr-storm-row.hail { border-left: 3px solid rgba(100,180,255,0.5); }
+        .rr-storm-row.wind { border-left: 3px solid rgba(255,200,80,0.5); }
+        .rr-storm-icon { font-size: 15px; text-align: center; }
+        .rr-storm-date { color: #e4ecff; font-weight: 700; white-space: nowrap; }
+        .rr-storm-type { color: var(--muted); font-size: 11px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
+        .rr-storm-mag { color: #f0f6ff; font-weight: 950; font-size: 14px; }
+        .rr-storm-dist { color: var(--muted); font-size: 12px; text-align: right; }
+        .rr-storm-full-btn { border: 1px solid rgba(201,168,76,0.4); border-radius: 6px; color: var(--gold); font-size: 12px; font-weight: 950; letter-spacing: 1px; padding: 9px 16px; text-transform: uppercase; background: rgba(201,168,76,0.07); transition: background 0.15s; }
+        .rr-storm-full-btn:hover { background: rgba(201,168,76,0.14); }
+        .rr-storm-lookup-header { background: rgba(201,168,76,0.07); border: 1px solid rgba(201,168,76,0.25); border-radius: 6px 6px 0 0; color: var(--gold); font-size: 11px; font-weight: 950; letter-spacing: 1.5px; padding: 8px 14px; text-transform: uppercase; margin-bottom: -1px; }
+        .rr-storm-loading { color: var(--muted); font-size: 13px; font-weight: 700; padding: 10px 0; }
+        .rr-storm-error { color: #ff7474; font-size: 13px; font-weight: 700; padding: 10px 0; }
+        .rr-storm-empty { color: var(--muted); font-size: 13px; padding: 14px; text-align: center; }
 
         /* ---- RESPONSIVE ---- */
         @media (max-width: 1200px) {

@@ -2,13 +2,26 @@ export type RoofRadarScore = 'A' | 'B' | 'C' | 'D'
 export type RoofRadarListingStatus = 'sold' | 'pending' | 'active' | 'contingent'
 export type RoofRadarSource = 'Redfin' | 'Zillow' | 'MLS' | 'Provider'
 
+export type RoofRadarStormEvent = {
+  type: 'hail' | 'wind'
+  /** YYYY-MM-DD */
+  date: string
+  /** inches for hail, mph for wind */
+  magnitude: number
+  distanceMiles: number
+}
+
 export type RoofRadarStormExposure = {
   hailEvents: number
   maxHailInches: number
   windEvents: number
   maxWindMph: number
   lastEventDaysAgo: number
+  /** ISO date of most recent nearby event, e.g. "2024-04-03" */
+  lastEventDate?: string
   confidence: 'High' | 'Medium' | 'Low'
+  /** Up to 10 most recent events with actual dates, sorted newest first */
+  recentEvents?: RoofRadarStormEvent[]
 }
 
 export type RoofRadarProperty = {
@@ -105,15 +118,18 @@ export function normalizeRoofRadarProperty(raw: unknown, index: number): RoofRad
     : Array.isArray(row.tags)
       ? row.tags.map(String)
       : []
+  const rawEvents = Array.isArray(row.recentEvents) ? row.recentEvents : []
   const storm: RoofRadarStormExposure = {
     hailEvents: toNumber(row.hailEvents || row.hail_event_count, 0),
     maxHailInches: toNumber(row.maxHailInches || row.max_hail_inches, 0),
     windEvents: toNumber(row.windEvents || row.wind_event_count, 0),
     maxWindMph: toNumber(row.maxWindMph || row.max_wind_mph, 0),
     lastEventDaysAgo: toNumber(row.lastStormDaysAgo || row.last_event_days_ago, 999),
+    ...(row.lastEventDate ? { lastEventDate: String(row.lastEventDate) } : {}),
     confidence: ['High', 'Medium', 'Low'].includes(String(row.stormConfidence))
       ? (row.stormConfidence as RoofRadarStormExposure['confidence'])
       : 'Medium',
+    ...(rawEvents.length > 0 ? { recentEvents: rawEvents as RoofRadarStormEvent[] } : {}),
   }
 
   return {

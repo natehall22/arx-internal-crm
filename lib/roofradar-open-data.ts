@@ -1,6 +1,7 @@
 import {
   calculateRoofRadarScore,
   type RoofRadarProperty,
+  type RoofRadarStormEvent,
   type RoofRadarStormExposure,
 } from '@/lib/roofradar'
 
@@ -156,24 +157,47 @@ function distanceMiles(aLat: number, aLng: number, bLat: number, bLng: number) {
   return earthMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-function stormExposureFromReports(reports: SpcReport[], property: RoofRadarProperty): RoofRadarStormExposure {
-  const hailReports = reports.filter((report) => report.type === 'hail')
-  const windReports = reports.filter((report) => report.type === 'wind')
-  const lastEvent = reports
-    .map((report) => Math.max(0, Math.round((Date.now() - report.date.getTime()) / DAY_MS)))
-    .sort((a, b) => a - b)[0]
+function stormExposureFromReports(
+  reports: SpcReport[],
+  property: RoofRadarProperty,
+  propLat: number,
+  propLng: number,
+): RoofRadarStormExposure {
+  const hailReports = reports.filter((r) => r.type === 'hail')
+  const windReports = reports.filter((r) => r.type === 'wind')
+
+  // Sort all reports newest-first
+  const sorted = [...reports].sort((a, b) => b.date.getTime() - a.date.getTime())
+  const mostRecent = sorted[0]
+  const lastEventDaysAgo = mostRecent
+    ? Math.max(0, Math.round((Date.now() - mostRecent.date.getTime()) / DAY_MS))
+    : 999
+  const lastEventDate = mostRecent ? mostRecent.date.toISOString().slice(0, 10) : undefined
+
+  // Build per-event list (newest first, cap at 12)
+  const recentEvents: RoofRadarStormEvent[] = sorted.slice(0, 12).map((r) => ({
+    type: r.type,
+    date: r.date.toISOString().slice(0, 10),
+    magnitude: r.magnitude,
+    distanceMiles: Math.round(distanceMiles(propLat, propLng, r.lat, r.lng) * 10) / 10,
+  }))
 
   const exposure: RoofRadarStormExposure = {
     hailEvents: hailReports.length,
-    maxHailInches: Number(Math.max(0, ...hailReports.map((report) => report.magnitude)).toFixed(1)),
+    maxHailInches: Number(Math.max(0, ...hailReports.map((r) => r.magnitude)).toFixed(1)),
     windEvents: windReports.length,
-    maxWindMph: Math.max(0, ...windReports.map((report) => report.magnitude)),
-    lastEventDaysAgo: lastEvent ?? 999,
-    confidence: reports.length >= 3 || hailReports.some((report) => report.magnitude >= 1) || windReports.some((report) => report.magnitude >= 58)
-      ? 'High'
-      : reports.length > 0
-        ? 'Medium'
-        : property.storm.confidence,
+    maxWindMph: Math.max(0, ...windReports.map((r) => r.magnitude)),
+    lastEventDaysAgo,
+    ...(lastEventDate ? { lastEventDate } : {}),
+    confidence:
+      reports.length >= 3 ||
+      hailReports.some((r) => r.magnitude >= 1) ||
+      windReports.some((r) => r.magnitude >= 58)
+        ? 'High'
+        : reports.length > 0
+          ? 'Medium'
+          : property.storm.confidence,
+    ...(recentEvents.length > 0 ? { recentEvents } : {}),
   }
 
   return exposure.hailEvents || exposure.windEvents ? exposure : property.storm
@@ -213,7 +237,9 @@ async function censusGeocode(property: RoofRadarProperty) {
 
 function candidateYears() {
   const current = new Date().getFullYear()
-  return [current, current - 1]
+  // Default 3 years; set ROOFRADAR_STORM_YEARS=5 in env for deeper history (fetches more SPC CSVs)
+  const count = Math.min(5, Math.max(1, toNumber(process.env.ROOFRADAR_STORM_YEARS, 3)))
+  return Array.from({ length: count }, (_, i) => current - i)
 }
 
 export async function enrichPropertiesWithOpenData(properties: RoofRadarProperty[]) {
@@ -275,7 +301,7 @@ export async function enrichPropertiesWithOpenData(properties: RoofRadarProperty
       const nearbyReports = reports.filter(
         (report) => distanceMiles(coordinates.lat, coordinates.lng, report.lat, report.lng) <= radiusMiles
       )
-      const storm = stormExposureFromReports(nearbyReports, next)
+      const storm = stormExposureFromReports(nearbyReports, next, coordinates.lat, coordinates.lng)
       const signals = [...next.signals]
       if ((storm.hailEvents > 0 || storm.windEvents > 0) && !signals.includes('Storm exposure')) {
         signals.unshift('Storm exposure')
