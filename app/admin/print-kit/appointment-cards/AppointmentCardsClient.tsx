@@ -43,6 +43,7 @@ function AppointmentCard({ marketer }: { marketer: MarketerInfo }) {
         </label>
       </div>
 
+      <p className="day-note">Circle appointment day</p>
       <div className="day-row">
         {DAYS.map((day) => (
           <span key={day}>{day}</span>
@@ -116,8 +117,8 @@ export default function AppointmentCardsClient() {
           </div>
 
           <div className="mt-4 rounded border border-amber-300 border-l-4 border-l-[#9B7E3E] bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-900">
-            Print on Letter paper size (8.5 x 11) with background graphics/colors enabled. The page prints four cards
-            with blank date and time lines; the field marketer can circle the appointment day by hand.
+            Print on Letter paper size (8.5 x 11). The page prints four light, write-friendly cards with blank date
+            and time lines; the field marketer can circle the appointment day by hand.
           </div>
         </div>
       </div>
@@ -135,6 +136,7 @@ export default function AppointmentCardsClient() {
           font-family: 'Source Sans 3', Arial, sans-serif;
         }
         .appointment-sheet {
+          background: #fff;
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           grid-template-rows: repeat(2, 1fr);
@@ -145,15 +147,13 @@ export default function AppointmentCardsClient() {
           width: min(8.5in, calc(100vw - 2rem));
         }
         .appointment-card {
-          background:
-            linear-gradient(135deg, rgba(27, 58, 107, 0.94), rgba(17, 34, 62, 0.98)),
-            radial-gradient(circle at 80% 20%, rgba(201, 168, 76, 0.28), transparent 34%);
-          border: 0.012in solid rgba(255, 255, 255, 0.36);
-          color: white;
+          background: #fff;
+          border: 0.012in dashed #b8c2d2;
+          color: #142747;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          padding: 0.28in 0.26in 0.24in;
+          padding: 0.26in 0.3in 0.24in;
           position: relative;
         }
         .appointment-card:nth-child(odd) {
@@ -169,8 +169,8 @@ export default function AppointmentCardsClient() {
           border-bottom: none;
         }
         .appointment-card::after {
-          border: 0.02in solid rgba(201, 168, 76, 0.72);
-          bottom: 0.16in;
+          border: 0.018in solid #c9a84c;
+          bottom: 0.18in;
           content: '';
           left: 0.16in;
           pointer-events: none;
@@ -186,7 +186,8 @@ export default function AppointmentCardsClient() {
           z-index: 1;
         }
         .card-brand img {
-          background: white;
+          background: #f8fafc;
+          border: 0.012in solid #d5dce7;
           border-radius: 999px;
           height: 0.42in;
           object-fit: contain;
@@ -198,6 +199,7 @@ export default function AppointmentCardsClient() {
           display: block;
         }
         .card-brand strong {
+          color: #1b3a6b;
           font-family: Georgia, serif;
           font-size: 0.17in;
           line-height: 1.05;
@@ -224,13 +226,14 @@ export default function AppointmentCardsClient() {
           text-transform: uppercase;
         }
         .marketer-block h2 {
+          color: #1b3a6b;
           font-family: Georgia, serif;
           font-size: 0.34in;
           font-weight: 700;
           line-height: 1.05;
         }
         .marketer-block h3 {
-          color: #fff;
+          color: #1b3a6b;
           font-size: 0.27in;
           font-weight: 900;
           line-height: 1.15;
@@ -238,7 +241,7 @@ export default function AppointmentCardsClient() {
         }
         .write-row {
           display: grid;
-          gap: 0.18in;
+          gap: 0.2in;
           grid-template-columns: 1fr 1fr;
           position: relative;
           z-index: 1;
@@ -252,25 +255,37 @@ export default function AppointmentCardsClient() {
           text-transform: uppercase;
         }
         .write-row i {
-          border-bottom: 0.025in solid rgba(255, 255, 255, 0.95);
+          border-bottom: 0.026in solid #1b3a6b;
           display: block;
-          height: 0.28in;
+          height: 0.34in;
+        }
+        .day-note {
+          color: #64748b;
+          font-size: 0.095in;
+          font-weight: 800;
+          letter-spacing: 0.018in;
+          margin-bottom: -0.03in;
+          position: relative;
+          text-align: center;
+          text-transform: uppercase;
+          z-index: 1;
         }
         .day-row {
           display: grid;
-          gap: 0.035in;
+          gap: 0.045in;
           grid-template-columns: repeat(6, 1fr);
           position: relative;
           z-index: 1;
         }
         .day-row span {
-          border: 0.018in solid rgba(255, 255, 255, 0.9);
+          background: #fff;
+          border: 0.02in solid #1b3a6b;
           border-radius: 999px;
-          color: #fff;
+          color: #1b3a6b;
           display: block;
           font-size: 0.115in;
           font-weight: 900;
-          padding: 0.055in 0.02in;
+          padding: 0.06in 0.02in;
           text-align: center;
         }
         @media print {
