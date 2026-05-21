@@ -1328,13 +1328,13 @@ function MapView({
               <div style="font-size:11px;color:#777;font-weight:700;letter-spacing:1px;text-transform:uppercase">${p.status}</div>
               ${p.tagged ? '<div style="background:#1a5c3f;color:#a0f0cc;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px">TAGGED</div>' : ''}
             </div>
-            <div style="font-weight:900;font-size:14px;line-height:1.25;margin-bottom:2px">${p.street}</div>
-            <div style="color:#888;font-size:12px;margin-bottom:10px">${p.city} · ${p.zip}</div>
+            <div style="font-weight:900;font-size:14px;color:#111;line-height:1.25;margin-bottom:2px">${p.street}</div>
+            <div style="color:#666;font-size:12px;margin-bottom:10px">${p.city} · ${p.zip}</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;background:#f4f6fb;border-radius:6px;padding:8px">
-              <div><div style="color:#999;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Roof Age</div><strong style="font-size:13px">${p.roofAge}yr</strong></div>
-              <div><div style="color:#999;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Value</div><strong style="font-size:13px">$${Math.round(p.value / 1000)}K</strong></div>
-              <div><div style="color:#999;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Built</div><strong style="font-size:13px">${p.yearBuilt}</strong></div>
-              <div><div style="color:#999;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Storm</div><strong style="font-size:13px">${p.storm.hailEvents > 0 ? p.storm.maxHailInches + '" hail' : p.storm.windEvents + ' wind'}</strong></div>
+              <div><div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Roof Age</div><strong style="font-size:13px;color:#111">${p.roofAge}yr</strong></div>
+              <div><div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Value</div><strong style="font-size:13px;color:#111">$${Math.round(p.value / 1000)}K</strong></div>
+              <div><div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Built</div><strong style="font-size:13px;color:#111">${p.yearBuilt}</strong></div>
+              <div><div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Storm</div><strong style="font-size:13px;color:#111">${p.storm.hailEvents > 0 ? p.storm.maxHailInches + '" hail' : p.storm.windEvents + ' wind'}</strong></div>
             </div>
             <div style="display:flex;gap:6px">
               <button id="rr-tag-${p.id}" style="flex:1;background:${p.tagged ? '#1a5c3f' : '#c9a84c'};color:${p.tagged ? '#a0f0cc' : '#061221'};border:none;border-radius:5px;padding:9px 0;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:0.5px">
