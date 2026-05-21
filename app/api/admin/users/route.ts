@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { getMailTransport } from '@/lib/setter-email'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -563,23 +564,25 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to generate reset link' }, { status: 500 })
     }
 
-    // The link is in linkData.properties.action_link
-    // We need to send an email with this link
-    // For now, we'll use Supabase's built-in email sending via resetPasswordForEmail
-    
-    // Use the anon client to trigger the email (this uses Supabase's email templates)
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    const anonClient = createClient(supabaseUrl, supabaseAnonKey)
-    
-    const { error: resetError } = await anonClient.auth.resetPasswordForEmail(targetUser.email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'}/reset-password`,
-    })
+    const resetLink = linkData.properties.action_link
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+    // Replace Supabase redirect with our app's reset-password page
+    const finalLink = resetLink.replace(
+      /redirect_to=[^&]*/,
+      `redirect_to=${encodeURIComponent(`${appUrl}/reset-password`)}`
+    )
 
-    if (resetError) {
-      console.error('Reset password error:', resetError)
-      return NextResponse.json({ error: 'Failed to send reset email' }, { status: 500 })
-    }
+    const transporter = getMailTransport()
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'ARX Roofing <info@arxroofing.com>',
+      to: targetUser.email,
+      subject: 'Reset your ARX password',
+      html: `
+        <p>You've been sent a password reset link by your administrator.</p>
+        <p><a href="${finalLink}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;">Reset Password</a></p>
+        <p style="color:#6B7280;font-size:13px;">This link expires in 1 hour. If you didn't request this, you can ignore this email.</p>
+      `,
+    })
 
     return NextResponse.json({ success: true, message: 'Password reset email sent' })
 
