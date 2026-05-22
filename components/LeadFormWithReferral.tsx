@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
+import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import LeadInspectionScheduleModal from '@/components/leads/LeadInspectionScheduleModal'
 
 interface ReferrerResult {
@@ -42,6 +43,13 @@ interface LeadFormWithReferralProps {
   canScheduleInspection?: boolean
 }
 
+type SchedulingResources = {
+  allowed: boolean
+  teams: Array<{ id: string; name: string }>
+  users: Array<{ id: string; full_name: string; has_calendar?: boolean }>
+  inspectionDurationMinutes: number
+}
+
 export default function LeadFormWithReferral({
   orgId,
   userId,
@@ -54,6 +62,10 @@ export default function LeadFormWithReferral({
   /** Snapshot at save-time: address is required so scheduling can place a map pin. */
   const [savedEligibleForSchedule, setSavedEligibleForSchedule] = useState(false)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
+  const [slotPickerOpen, setSlotPickerOpen] = useState(false)
+  const [selectedSchedule, setSelectedSchedule] = useState<CloseScheduleConfirm | null>(null)
+  const [schedulingResources, setSchedulingResources] = useState<SchedulingResources | null>(null)
+  const [schedulingLoadError, setSchedulingLoadError] = useState<string | null>(null)
   const [source, setSource] = useState('')
   
   // Referral state
@@ -79,6 +91,33 @@ export default function LeadFormWithReferral({
   useEffect(() => {
     loadDefaultBonus()
   }, [])
+
+  useEffect(() => {
+    if (!canScheduleInspection) return
+
+    let cancelled = false
+    setSchedulingLoadError(null)
+
+    fetch('/api/leads/scheduling-resources')
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return
+        setSchedulingResources({
+          allowed: Boolean(data?.allowed),
+          teams: Array.isArray(data?.teams) ? data.teams : [],
+          users: Array.isArray(data?.users) ? data.users : [],
+          inspectionDurationMinutes:
+            typeof data?.inspectionDurationMinutes === 'number' ? data.inspectionDurationMinutes : 60,
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setSchedulingLoadError('Could not load scheduling options.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [canScheduleInspection])
 
   const loadDefaultBonus = async () => {
     const supabase = createClientBrowser()
@@ -188,6 +227,20 @@ export default function LeadFormWithReferral({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (selectedSchedule) {
+      const missingScheduleFields = [
+        !form.homeowner_name.trim() ? 'homeowner name' : null,
+        !form.phone.trim() ? 'phone' : null,
+        !form.address_text.trim() ? 'address' : null,
+      ].filter(Boolean)
+
+      if (missingScheduleFields.length > 0) {
+        alert(`Add ${missingScheduleFields.join(', ')} before saving the scheduled inspection.`)
+        return
+      }
+    }
+
     setSaving(true)
 
     const supabase = createClientBrowser()
@@ -304,7 +357,34 @@ export default function LeadFormWithReferral({
 
     setSavedLeadId(lead.id)
     setSavedEligibleForSchedule(hasSchedulableAddress)
-    if (canScheduleInspection && hasSchedulableAddress) {
+    if (selectedSchedule) {
+      const closerUserId =
+        selectedSchedule.useRoundRobin && selectedSchedule.teamId
+          ? `team:${selectedSchedule.teamId}`
+          : selectedSchedule.closerUserId
+      const scheduleRes = await fetch(`/api/leads/${lead.id}/schedule-inspection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inspection_scheduled_for: selectedSchedule.scheduledLocal,
+          use_round_robin: selectedSchedule.useRoundRobin,
+          closer_user_id: closerUserId,
+        }),
+      })
+      const scheduleData = await scheduleRes.json().catch(() => ({}))
+
+      if (!scheduleRes.ok) {
+        alert(
+          typeof (scheduleData as { error?: string }).error === 'string'
+            ? (scheduleData as { error: string }).error
+            : 'Lead was created, but scheduling failed. Open the lead to try another slot.'
+        )
+        setSaving(false)
+        return
+      }
+
+      router.push(`/leads/${lead.id}`)
+    } else if (canScheduleInspection && hasSchedulableAddress) {
       setScheduleModalOpen(true)
     }
     setSaving(false)
@@ -324,7 +404,18 @@ export default function LeadFormWithReferral({
     })
     setSource('')
     setSelectedReferrer(null)
+    setSelectedSchedule(null)
   }
+
+  const selectedScheduleLabel = selectedSchedule
+    ? new Date(selectedSchedule.scheduledLocal).toLocaleString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null
 
   return (
     <>
@@ -370,7 +461,69 @@ export default function LeadFormWithReferral({
         onScheduled={() => router.push(`/leads/${savedLeadId ?? ''}`)}
       />
 
+      {schedulingResources?.allowed && (
+        <CloseScheduleModal
+          open={slotPickerOpen}
+          onClose={() => setSlotPickerOpen(false)}
+          onConfirm={(params) => {
+            setSelectedSchedule(params)
+            setSlotPickerOpen(false)
+          }}
+          closeDurationMinutes={schedulingResources.inspectionDurationMinutes}
+          users={schedulingResources.users}
+          teams={schedulingResources.teams}
+          modalTitle="Pick inspection time"
+          intro={
+            <p>
+              Pick the open inspection slot first. You will enter the customer information next, then create and save.
+            </p>
+          }
+          summaryHint="This slot will be booked when you create the lead."
+          showAvailableCloserCounts
+        />
+      )}
+
     <form onSubmit={handleSubmit} className="space-y-6">
+      {canScheduleInspection && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-green-950">Schedule inspection</h3>
+              <p className="mt-1 text-sm text-green-950/80">
+                Pick the available time first, then enter the homeowner details below.
+              </p>
+              {selectedScheduleLabel && (
+                <p className="mt-2 text-sm font-medium text-green-900">
+                  Selected: {selectedScheduleLabel}
+                </p>
+              )}
+              {schedulingLoadError && (
+                <p className="mt-2 text-sm font-medium text-amber-800">{schedulingLoadError}</p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {selectedSchedule && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedSchedule(null)}
+                  className="rounded-md border border-green-700 bg-white px-3 py-2 text-sm font-semibold text-green-900 hover:bg-green-50"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSlotPickerOpen(true)}
+                disabled={!schedulingResources?.allowed}
+                className="rounded-md bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
+              >
+                {selectedSchedule ? 'Change slot' : 'Pick available slot'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="text-sm font-medium text-gray-500">Homeowner Name</label>

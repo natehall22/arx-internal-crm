@@ -389,73 +389,6 @@ export default function LeadModal({
               </div>
             </div>
 
-            {/* Contact Info */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1">
-                  First Name {showScheduling && <span className="text-red-500">*</span>}
-                </label>
-                <input
-                  type="text"
-                  value={formData.first_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="John"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1">
-                  Last Name {showScheduling && <span className="text-red-500">*</span>}
-                </label>
-                <input
-                  type="text"
-                  value={formData.last_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Smith"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-1">
-                Phone {showScheduling && <span className="text-red-500">*</span>}
-              </label>
-              <input
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="(555) 123-4567"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="john@email.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-1">
-                Address {showScheduling && <span className="text-red-500">*</span>}
-              </label>
-              <input
-                type="text"
-                value={formData.address_text}
-                onChange={(e) => setFormData(prev => ({ ...prev, address_text: e.target.value }))}
-                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="123 Main St, City, ST 12345"
-              />
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-1">
                 Notes
@@ -488,16 +421,16 @@ export default function LeadModal({
                   </div>
                 </button>
                 
-                {!canSchedule && showScheduling && (
-                  <p className="text-sm text-amber-600 mt-2">
-                    First name, last name, phone, and address are required to schedule an inspection.
+                {showScheduling && (
+                  <p className="text-sm text-gray-600 mt-2">
+                    Pick the open slot first, then add the customer details before saving.
                   </p>
                 )}
               </div>
             )}
 
             {/* Scheduling Section */}
-            {showScheduling && canSchedule && (
+            {showScheduling && (
               <div className="space-y-4 bg-gray-50 -mx-4 px-4 py-4">
                 {/* Closer Selection */}
                 <div>
@@ -627,12 +560,79 @@ export default function LeadModal({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     <span className="text-sm text-green-800">
-                      Time selected — tap Schedule Inspection to save (not confirmed until saved)
+                      Time selected — add customer details below, then tap Schedule Inspection to save.
                     </span>
                   </div>
                 )}
               </div>
             )}
+
+            {/* Contact Info */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">
+                  First Name {showScheduling && <span className="text-red-500">*</span>}
+                </label>
+                <input
+                  type="text"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
+                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="John"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">
+                  Last Name {showScheduling && <span className="text-red-500">*</span>}
+                </label>
+                <input
+                  type="text"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
+                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Smith"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-1">
+                Phone {showScheduling && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="(555) 123-4567"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="john@email.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-1">
+                Address {showScheduling && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                type="text"
+                value={formData.address_text}
+                onChange={(e) => setFormData(prev => ({ ...prev, address_text: e.target.value }))}
+                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="123 Main St, City, ST 12345"
+              />
+            </div>
 
             {/* Photos */}
             <div>
