@@ -43,11 +43,24 @@ function normalizeString(str: string | null | undefined): string {
   return str.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+const PLACEHOLDER_IDENTITY_EMAILS = new Set([
+  'none@none.com',
+  'noemail@noemail.com',
+  'noemail@example.com',
+])
+
+export function normalizeIdentityEmail(email: string | null | undefined): string | null {
+  const normalized = email?.trim().toLowerCase()
+  if (!normalized) return null
+  if (PLACEHOLDER_IDENTITY_EMAILS.has(normalized)) return null
+  return normalized
+}
+
 /**
  * Find or create a customer record.
  * 
  * Matching priority:
- * 1. org_id + email (if email provided)
+ * 1. org_id + email (if a real email is provided)
  * 2. org_id + phone (if phone provided, normalized to last 10 digits)
  * 3. org_id + normalized(name + address) for fuzzy match
  * 
@@ -60,17 +73,19 @@ export async function upsertCustomer(
   data: CustomerData
 ): Promise<UpsertResult> {
   const { name, email, phone, address_text } = data
+  const identityEmail = normalizeIdentityEmail(email)
   const normalizedPhone = normalizePhone(phone)
   
   let existingCustomer: any = null
 
-  // Try to find by email first
-  if (email) {
+  // Try to find by real email first. Placeholder emails like none@none.com are common
+  // source-system fillers and should not be treated as customer identity.
+  if (identityEmail) {
     const { data: byEmail } = await supabase
       .from('customers')
       .select('*')
       .eq('org_id', orgId)
-      .ilike('email', email)
+      .ilike('email', identityEmail)
       .limit(1)
       .single()
     
