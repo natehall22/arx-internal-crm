@@ -252,7 +252,8 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: 'Failed to link customer to source' }, { status: 500 })
         }
 
-        // If linking to project, also update associated job/opportunity/lead records.
+        // If linking to project, also update the directly-linked opportunity/job/lead.
+        // Scope to opportunity_id (not all opps under lead) to avoid cross-contamination.
         if (targetSourceType === 'project') {
           await adminClient
             .from('production_jobs')
@@ -262,7 +263,7 @@ export async function POST(request: Request) {
 
           const { data: project } = await adminClient
             .from('projects')
-            .select('lead_id')
+            .select('lead_id, opportunity_id')
             .eq('id', targetSourceId)
             .eq('org_id', profile.org_id)
             .maybeSingle()
@@ -273,16 +274,19 @@ export async function POST(request: Request) {
               .update({ customer_id: finalCustomerId })
               .eq('id', project.lead_id)
               .eq('org_id', profile.org_id)
+          }
 
+          if (project?.opportunity_id) {
             await adminClient
               .from('opportunities')
               .update({ customer_id: finalCustomerId })
-              .eq('lead_id', project.lead_id)
+              .eq('id', project.opportunity_id)
               .eq('org_id', profile.org_id)
           }
         }
 
-        // If linking to opportunity, keep lead + related project/jobs in sync.
+        // If linking to opportunity, keep lead + directly-linked project/jobs in sync.
+        // Scope to projects.opportunity_id (not all projects under lead) to avoid cross-contamination.
         if (targetSourceType === 'opportunity') {
           const { data: opportunity } = await adminClient
             .from('opportunities')
@@ -301,7 +305,7 @@ export async function POST(request: Request) {
             const { data: projects } = await adminClient
               .from('projects')
               .select('id')
-              .eq('lead_id', opportunity.lead_id)
+              .eq('opportunity_id', targetSourceId)
               .eq('org_id', profile.org_id)
 
             const projectIds = (projects || []).map((p: any) => p.id).filter(Boolean)
@@ -321,14 +325,14 @@ export async function POST(request: Request) {
           }
         }
 
-        // If linking to job, also update the parent project (+ lead/opportunity via lead_id)
+        // If linking to job, also update the parent project + its directly-linked opportunity/lead.
         if (targetSourceType === 'job') {
           const { data: job } = await adminClient
             .from('production_jobs')
             .select('project_id')
             .eq('id', targetSourceId)
             .single()
-          
+
           if (job?.project_id) {
             await adminClient
               .from('projects')
@@ -338,7 +342,7 @@ export async function POST(request: Request) {
 
             const { data: project } = await adminClient
               .from('projects')
-              .select('lead_id')
+              .select('lead_id, opportunity_id')
               .eq('id', job.project_id)
               .eq('org_id', profile.org_id)
               .maybeSingle()
@@ -349,11 +353,13 @@ export async function POST(request: Request) {
                 .update({ customer_id: finalCustomerId })
                 .eq('id', project.lead_id)
                 .eq('org_id', profile.org_id)
+            }
 
+            if (project?.opportunity_id) {
               await adminClient
                 .from('opportunities')
                 .update({ customer_id: finalCustomerId })
-                .eq('lead_id', project.lead_id)
+                .eq('id', project.opportunity_id)
                 .eq('org_id', profile.org_id)
             }
           }
