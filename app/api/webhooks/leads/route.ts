@@ -4,6 +4,29 @@ import nodemailer from 'nodemailer'
 
 export const dynamic = 'force-dynamic'
 
+const ALLOWED_ORIGINS = [
+  'https://arxroofing.com',
+  'https://www.arxroofing.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+]
+
+function corsHeaders(origin: string | null) {
+  const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key, x-webhook-token',
+    'Access-Control-Max-Age': '86400',
+  }
+}
+
+// Handle CORS preflight
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  return new NextResponse(null, { status: 204, headers: corsHeaders(origin) })
+}
+
 // This endpoint receives leads from external sources (websites, forms, etc.)
 // It can be called with an API key for authentication
 
@@ -107,7 +130,9 @@ async function syncCampaignLeadTotal(adminClient: ReturnType<typeof getAdminClie
 // POST - Create a new lead from external source
 export async function POST(request: NextRequest) {
   console.log('=== Webhook Lead Request ===')
-  
+  const origin = request.headers.get('origin')
+  const cors = corsHeaders(origin)
+
   try {
     let body: any
     try {
@@ -117,7 +142,7 @@ export async function POST(request: NextRequest) {
       console.error('Failed to parse JSON body:', parseError)
       return NextResponse.json({
         error: 'Invalid JSON in request body'
-      }, { status: 400 })
+      }, { status: 400, headers: cors })
     }
 
     const adminClient = getAdminClient()
@@ -138,12 +163,12 @@ export async function POST(request: NextRequest) {
 
       if (error || !data) {
         console.error('Invalid lead source token:', error)
-        return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 })
+        return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401, headers: cors })
       }
 
       if (!data.webhook_enabled || !data.is_active) {
         console.error('Lead source webhook is disabled:', data.id)
-        return NextResponse.json({ error: 'Webhook is disabled for this lead source' }, { status: 403 })
+        return NextResponse.json({ error: 'Webhook is disabled for this lead source' }, { status: 403, headers: cors })
       }
 
       leadSource = data as LeadSourceConfig
@@ -152,7 +177,7 @@ export async function POST(request: NextRequest) {
     const providedKey = authHeader?.replace('Bearer ', '') || apiKey
     if (webhookSecret && !leadSource && (!providedKey || providedKey !== webhookSecret)) {
       console.error('Invalid or missing API key')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: cors })
     }
     
     // Extract org_id first (required)
@@ -162,16 +187,16 @@ export async function POST(request: NextRequest) {
       console.error('Missing org_id in payload')
       return NextResponse.json({
         error: 'org_id is required unless using a lead source webhook token.'
-      }, { status: 400 })
+      }, { status: 400, headers: cors })
     }
 
     // Validate org_id format (should be a UUID)
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     if (!uuidRegex.test(org_id)) {
       console.error('Invalid org_id format:', org_id)
-      return NextResponse.json({ 
-        error: 'Invalid org_id format. Must be a valid UUID.' 
-      }, { status: 400 })
+      return NextResponse.json({
+        error: 'Invalid org_id format. Must be a valid UUID.'
+      }, { status: 400, headers: cors })
     }
 
     // Verify org exists
@@ -183,14 +208,14 @@ export async function POST(request: NextRequest) {
 
     if (orgError) {
       console.error('Org lookup error:', orgError)
-      return NextResponse.json({ 
-        error: `Failed to verify org: ${orgError.message}` 
-      }, { status: 500 })
+      return NextResponse.json({
+        error: `Failed to verify org: ${orgError.message}`
+      }, { status: 500, headers: cors })
     }
 
     if (!org) {
       console.error('Org not found for id:', org_id)
-      return NextResponse.json({ error: 'Invalid org_id - organization not found' }, { status: 400 })
+      return NextResponse.json({ error: 'Invalid org_id - organization not found' }, { status: 400, headers: cors })
     }
 
     console.log('Found org:', org.id)
@@ -313,15 +338,15 @@ export async function POST(request: NextRequest) {
 
     if (leadError) {
       console.error('Lead creation error:', leadError)
-      return NextResponse.json({ 
-        error: `Failed to create lead: ${leadError.message}` 
-      }, { status: 500 })
+      return NextResponse.json({
+        error: `Failed to create lead: ${leadError.message}`
+      }, { status: 500, headers: cors })
     }
 
     if (!lead) {
-      return NextResponse.json({ 
-        error: 'Failed to create lead: Unknown error' 
-      }, { status: 500 })
+      return NextResponse.json({
+        error: 'Failed to create lead: Unknown error'
+      }, { status: 500, headers: cors })
     }
 
     if (leadSource) {
@@ -408,18 +433,18 @@ export async function POST(request: NextRequest) {
       console.error('Failed to send inbound lead notification email:', emailError)
     }
     
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       lead_id: lead.id,
       message: 'Lead created successfully'
-    })
+    }, { headers: cors })
   } catch (error) {
     console.error('Webhook error:', error)
     const errorMessage = error instanceof Error ? error.message : 'Failed to process lead'
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: errorMessage,
       details: error instanceof Error ? error.stack : undefined
-    }, { status: 500 })
+    }, { status: 500, headers: cors })
   }
 }
 
