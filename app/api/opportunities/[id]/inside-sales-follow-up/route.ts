@@ -7,6 +7,9 @@ import {
 } from '@/lib/effective-inspection-state'
 import {
   canViewInsideSalesFollowUp,
+  DIDNT_SIT_PIPELINE_PREFIX,
+  getInsideSalesFollowUpKind,
+  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
@@ -91,6 +94,17 @@ type ActionType =
   | 'mark_unresponsive'
   | 'mark_lost'
   | 'schedule_back_to_closer'
+
+function resolvedPipelineStage(
+  kind: 'didnt_sit' | 'handoff' | null,
+  status: 'scheduled' | 'rescheduled' | 'unresponsive' | 'lost'
+): string {
+  const prefix = kind === 'handoff' ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX : DIDNT_SIT_PIPELINE_PREFIX
+  if (status === 'scheduled') {
+    return kind === 'handoff' ? `${prefix}_scheduled` : `${prefix}_rescheduled`
+  }
+  return `${prefix}_${status}`
+}
 
 async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
   const { data: tokenData } = await adminClient
@@ -252,7 +266,7 @@ export async function POST(
     const [{ data: opportunity }, { data: orgRow }] = await Promise.all([
       admin
         .from('opportunities')
-        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, notes, created_at, updated_at, inspection_notes')
+        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, notes, created_at, updated_at, inspection_notes, pipeline_stage, follow_up_at')
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
         .single(),
@@ -265,9 +279,7 @@ export async function POST(
 
     const opportunityForFollowUp = {
       ...opportunity,
-      pipeline_stage: null,
       assigned_user_id: null,
-      follow_up_at: null,
     }
 
     const inspectionOutcomeSettings = orgRow?.settings?.inspection_outcomes
@@ -298,6 +310,8 @@ export async function POST(
     if (!hasActiveInsideSalesFollowUp(opportunityEffective, inspectionOutcomeSettings)) {
       return NextResponse.json({ error: 'No active inside sales follow-up for this opportunity' }, { status: 400 })
     }
+
+    const followUpKind = getInsideSalesFollowUpKind(opportunityEffective, inspectionOutcomeSettings)
 
     const body = await request.json()
     const action = String(body.action || '') as ActionType
@@ -525,11 +539,13 @@ export async function POST(
           inspection_outcome: null,
           inspection_outcome_at: null,
           inspection_notes: null,
+          pipeline_stage: resolvedPipelineStage(followUpKind, 'scheduled'),
+          follow_up_at: null,
           notes: note || opportunity.notes || null,
         })
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
-        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes')
+        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes, pipeline_stage, follow_up_at')
         .single()
 
       if (scheduleUpdateError || !updatedOpportunity) {
@@ -574,12 +590,16 @@ export async function POST(
         updateData.inspection_outcome = null
         updateData.inspection_outcome_at = null
         updateData.inspection_notes = null
+        updateData.pipeline_stage = resolvedPipelineStage(followUpKind, 'rescheduled')
+        updateData.follow_up_at = null
       } else if (action === 'mark_unresponsive') {
         activityType = 'status_change'
         activityBody = `Inside sales marked unresponsive${note ? ` — ${note}` : ''}`
         updateData.inspection_outcome = null
         updateData.inspection_outcome_at = null
         updateData.inspection_notes = null
+        updateData.pipeline_stage = resolvedPipelineStage(followUpKind, 'unresponsive')
+        updateData.follow_up_at = null
       } else if (action === 'mark_lost') {
         activityType = 'status_change'
         activityBody = `Inside sales marked lost${note ? ` — ${note}` : ''}`
@@ -587,6 +607,8 @@ export async function POST(
         updateData.inspection_outcome = null
         updateData.inspection_outcome_at = null
         updateData.inspection_notes = null
+        updateData.pipeline_stage = resolvedPipelineStage(followUpKind, 'lost')
+        updateData.follow_up_at = null
       }
     }
 
@@ -601,6 +623,8 @@ export async function POST(
       inspection_outcome: opportunity.inspection_outcome ?? null,
       inspection_outcome_at: opportunity.inspection_outcome_at ?? null,
       inspection_notes: opportunity.inspection_notes ?? null,
+      pipeline_stage: opportunity.pipeline_stage ?? null,
+      follow_up_at: opportunity.follow_up_at ?? null,
     }
 
     if (Object.keys(updateData).length > 0) {
@@ -609,7 +633,7 @@ export async function POST(
         .update(updateData)
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
-        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes')
+        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes, pipeline_stage, follow_up_at')
         .single()
 
       if (updateError || !data) {

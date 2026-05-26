@@ -3,6 +3,7 @@ import {
   DEFAULT_INSPECTION_OUTCOMES,
 } from '@/lib/inspection-outcomes'
 import {
+  DIDNT_SIT_PIPELINE_PREFIX,
   getInsideSalesCallability,
   getInsideSalesFollowUpKind,
   getInsideSalesFollowUpStatus,
@@ -129,6 +130,20 @@ describe('inside sales follow-up queue visibility', () => {
       inspection_outcome: 'insurance_follow_up',
       inspection_outcome_at: '2026-04-27T13:00:00.000Z',
       pipeline_stage: 'inside_sales_insurance_follow_up_scheduled',
+      follow_up_at: null,
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBeNull()
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(false)
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBeNull()
+  })
+
+  it("does not surface didn't-sit follow-ups once scheduled back to closer", () => {
+    const opportunity = {
+      status: 'open',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: `${DIDNT_SIT_PIPELINE_PREFIX}_rescheduled`,
       follow_up_at: null,
     }
 
