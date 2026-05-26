@@ -13,6 +13,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname === '/' ||
     pathname === '/login' ||
+    pathname === '/trial' ||
     pathname === '/reset-password' ||
     pathname === '/privacy' ||
     pathname === '/terms' ||
