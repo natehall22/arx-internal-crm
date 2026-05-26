@@ -13,6 +13,7 @@ type TimeSlot = {
 export type CloseScheduleConfirm = {
   /** Local datetime string YYYY-MM-DDTHH:MM (same as canvass availability API) */
   scheduledLocal: string
+  timezone: string
   useRoundRobin: boolean
   teamId?: string
   closerUserId?: string
@@ -147,6 +148,7 @@ export default function CloseScheduleModal({
     if (selectedCloser.startsWith('team:')) {
       onConfirm({
         scheduledLocal: selectedTime,
+        timezone: closerTimezone,
         useRoundRobin: true,
         teamId: selectedCloser.replace('team:', ''),
       })
@@ -155,6 +157,7 @@ export default function CloseScheduleModal({
 
     onConfirm({
       scheduledLocal: selectedTime,
+      timezone: closerTimezone,
       useRoundRobin: false,
       closerUserId: selectedCloser,
     })

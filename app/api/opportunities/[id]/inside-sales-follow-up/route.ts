@@ -17,7 +17,7 @@ import {
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
 import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
-import { fromZonedTime } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 
 export const dynamic = 'force-dynamic'
@@ -160,12 +160,16 @@ function buildInspectionCalendarDescription(params: {
     .join('\n')
 }
 
+function formatCalendarLocal(date: Date, timezone: string): string {
+  return formatInTimeZone(date, timezone, "yyyy-MM-dd'T'HH:mm:ss")
+}
+
 async function createInspectionEventOnCloserCalendar(
   adminClient: ReturnType<typeof getAdminClient>,
   params: {
     closerUserId: string
     scheduledAppointmentId: string
-    localDateTimeStr: string
+    scheduledForISO: string
     inspectionDuration: number
     customerName: string
     phone?: string | null
@@ -177,22 +181,16 @@ async function createInspectionEventOnCloserCalendar(
   if (!accessToken) return null
 
   const timezone = await getTimezoneForUser(adminClient, params.closerUserId)
-  const [datePart, timePart] = params.localDateTimeStr.split('T')
-  const [hourPart, minutePart] = timePart.split(':').map(Number)
-  let endHour = hourPart
-  let endMin = minutePart + params.inspectionDuration
-  while (endMin >= 60) {
-    endMin -= 60
-    endHour += 1
-  }
+  const startDate = new Date(params.scheduledForISO)
+  const endDate = new Date(startDate.getTime() + params.inspectionDuration * 60 * 1000)
 
   const event: CalendarEvent = {
     summary: `Inspection: ${params.customerName}`,
     description: buildInspectionCalendarDescription(params),
     location: params.address || undefined,
-    start: { dateTime: `${params.localDateTimeStr}:00`, timeZone: timezone },
+    start: { dateTime: formatCalendarLocal(startDate, timezone), timeZone: timezone },
     end: {
-      dateTime: `${datePart}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`,
+      dateTime: formatCalendarLocal(endDate, timezone),
       timeZone: timezone,
     },
   }
@@ -344,9 +342,13 @@ export async function POST(
       const defaultGap = orgRow?.default_scheduling_gap_minutes ?? 15
       const bufferAfter = getInspectionBufferAfterFromTable(appointmentTypeRows, defaultGap)
 
+      const timezone =
+        typeof schedule.timezone === 'string' && schedule.timezone.trim()
+          ? schedule.timezone.trim()
+          : 'America/New_York'
       const localDateTimeStr = String(schedule.scheduledLocal).slice(0, 16)
       const wall = `${localDateTimeStr}:00`
-      const scheduledForISO = fromZonedTime(wall, 'America/New_York').toISOString()
+      const scheduledForISO = fromZonedTime(wall, timezone).toISOString()
       const scheduledForDate = new Date(scheduledForISO)
 
       let scheduledAppointmentId: string | null = null
@@ -411,7 +413,7 @@ export async function POST(
             googleCalendarEventId = await createInspectionEventOnCloserCalendar(admin, {
               closerUserId: assignedCloserId,
               scheduledAppointmentId,
-              localDateTimeStr,
+              scheduledForISO,
               inspectionDuration,
               customerName,
               phone: customerPhone,
@@ -477,7 +479,7 @@ export async function POST(
         googleCalendarEventId = await createInspectionEventOnCloserCalendar(admin, {
           closerUserId,
           scheduledAppointmentId: insertedAppointment.id,
-          localDateTimeStr,
+          scheduledForISO,
           inspectionDuration,
           customerName,
           phone: customerPhone,
