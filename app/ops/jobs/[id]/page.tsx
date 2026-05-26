@@ -710,7 +710,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         .maybeSingle()
       measurementRow = data
     }
-    if (!measurementRow && !proposalId && resolvedOppId) {
+    if (!measurementRow && resolvedOppId) {
       const { data } = await supabaseService
         .from('roof_measurements')
         .select(measureSelect)
@@ -721,7 +721,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         .maybeSingle()
       measurementRow = data
     }
-    if (!measurementRow && !proposalId && jr.project_id) {
+    if (!measurementRow && jr.project_id) {
       const { data } = await supabaseService
         .from('roof_measurements')
         .select(measureSelect)

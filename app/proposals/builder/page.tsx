@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 
@@ -364,10 +364,7 @@ export default function ProposalBuilderPage() {
   const effectiveWastePercent =
     savedProposalWastePercent != null
       ? toHalfPercent(savedProposalWastePercent)
-      : measuredSuggestedWaste > 0
-      ? Math.max(toHalfPercent(wastePercent), toHalfPercent(measuredSuggestedWaste))
       : toHalfPercent(wastePercent)
-  const adjustedByMeasuredFloor = measuredSuggestedWaste > 0 && effectiveWastePercent > toHalfPercent(wastePercent)
 
   // Calculate waste squares and total squares
   const wasteSquares = baseSquares * (effectiveWastePercent / 100)
@@ -377,6 +374,52 @@ export default function ProposalBuilderPage() {
   const bundleRoundedSquares = roundedBundles / BUNDLES_PER_SQUARE
   const recommendedOrderSquares = Math.ceil(bundleRoundedSquares)
 
+  const buildRoofingLineItem = useCallback((type: RoofingType): LineItem => {
+    const quantity = totalSquaresWithWaste
+    const lineTotal = quantity * (type.price_per_square || 0)
+
+    return {
+      id: `roofing-${type.id}`,
+      pricebook_item_id: null,
+      category: 'Roofing',
+      name: `${type.name} Installation`,
+      description: `${baseSquares.toFixed(2)} sq + ${effectiveWastePercent}% waste = ${quantity.toFixed(2)} sq (order rec: ${recommendedOrderSquares} sq)`,
+      unit: 'square',
+      quantity,
+      unit_price: type.price_per_square || 0,
+      line_total: lineTotal,
+      is_adder: false,
+    }
+  }, [baseSquares, effectiveWastePercent, recommendedOrderSquares, totalSquaresWithWaste])
+
+  useEffect(() => {
+    if (!selectedRoofingType || totalSquaresWithWaste <= 0) return
+
+    const lineItemId = `roofing-${selectedRoofingType.id}`
+    const nextRoofingItem = buildRoofingLineItem(selectedRoofingType)
+
+    setLineItems(prev => {
+      const existing = prev.find(item => item.id === lineItemId)
+      if (!existing) return prev
+
+      if (
+        existing.quantity === nextRoofingItem.quantity &&
+        existing.unit_price === nextRoofingItem.unit_price &&
+        existing.line_total === nextRoofingItem.line_total &&
+        existing.description === nextRoofingItem.description
+      ) {
+        return prev
+      }
+
+      return prev.map(item => (item.id === lineItemId ? { ...item, ...nextRoofingItem } : item))
+    })
+  }, [
+    buildRoofingLineItem,
+    recommendedOrderSquares,
+    selectedRoofingType,
+    totalSquaresWithWaste,
+  ])
+
   useEffect(() => {
     if (!baseSquares) return
     // Temporary debug output per roof for ordering audits.
@@ -385,9 +428,7 @@ export default function ProposalBuilderPage() {
       userWastePercent: wastePercent,
       measuredSuggestedWastePercent: measuredSuggestedWaste || null,
       effectiveWastePercent,
-      wasteReason: adjustedByMeasuredFloor
-        ? 'Raised to measured suggested waste floor'
-        : measurementData?.waste_category || 'Manual/default waste',
+      wasteReason: 'User selected waste',
       complexityTier: measurementData?.waste_category || 'N/A',
       finalOrderSquaresRaw: Number(totalSquaresWithWaste.toFixed(3)),
       bundleRounding: {
@@ -405,7 +446,6 @@ export default function ProposalBuilderPage() {
   }, [
     baseSquares,
     bundleRoundedSquares,
-    adjustedByMeasuredFloor,
     effectiveWastePercent,
     measurementData?.facet_count,
     measurementData?.predominant_pitch,
@@ -1158,7 +1198,7 @@ export default function ProposalBuilderPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-700">
                   <p>Measured squares before waste: <strong>{baseSquares.toFixed(2)}</strong></p>
                   <p>Waste % used: <strong>{effectiveWastePercent}%</strong></p>
-                  <p>Waste reason / tier: <strong>{measurementData.waste_category || 'N/A'}</strong>{adjustedByMeasuredFloor ? ' (raised to measured suggested floor)' : ''}</p>
+                  <p>Suggested waste / tier: <strong>{measuredSuggestedWaste || 'N/A'}% / {measurementData.waste_category || 'N/A'}</strong></p>
                   <p>Final order squares (pre-round): <strong>{totalSquaresWithWaste.toFixed(3)}</strong></p>
                   <p>Bundle rounding: <strong>{rawBundleCount.toFixed(2)}</strong> {'->'} <strong>{roundedBundles}</strong> bundles</p>
                   <p>Recommended order squares: <strong>{recommendedOrderSquares}</strong></p>
@@ -1217,20 +1257,8 @@ export default function ProposalBuilderPage() {
                         }
                         // Auto-populate line items based on roofing type (using total with waste)
                         if (totalSquaresWithWaste > 0) {
-                          const lineTotal = totalSquaresWithWaste * (type.price_per_square || 0)
-                          console.log('Creating line item:', totalSquaresWithWaste, 'squares x $', type.price_per_square, '= $', lineTotal, '(recommended order:', recommendedOrderSquares, 'sq)')
-                          const newLineItem: LineItem = {
-                            id: `roofing-${type.id}`,
-                            pricebook_item_id: null,
-                            category: 'Roofing',
-                            name: `${type.name} Installation`,
-                            description: `${baseSquares.toFixed(2)} sq + ${effectiveWastePercent}% waste = ${totalSquaresWithWaste.toFixed(2)} sq (order rec: ${recommendedOrderSquares} sq)`,
-                            unit: 'square',
-                            quantity: totalSquaresWithWaste,
-                            unit_price: type.price_per_square || 0,
-                            line_total: lineTotal,
-                            is_adder: false,
-                          }
+                          const newLineItem = buildRoofingLineItem(type)
+                          console.log('Creating line item:', totalSquaresWithWaste, 'squares x $', type.price_per_square, '= $', newLineItem.line_total, '(recommended order:', recommendedOrderSquares, 'sq)')
                           // Replace any existing roofing line items
                           setLineItems(prev => {
                             const nonRoofingItems = prev.filter(item => 
@@ -1302,7 +1330,7 @@ export default function ProposalBuilderPage() {
                     <div>
                       <p className="text-sm font-medium text-gray-700">Estimated Base Price</p>
                       <p className="text-xs text-gray-500">
-                        {totalSquaresWithWaste.toFixed(1)} squares (incl. {wastePercent}% waste) × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
+                        {totalSquaresWithWaste.toFixed(1)} squares (incl. {effectiveWastePercent}% waste) × ${(selectedRoofingType?.price_per_square || 0).toLocaleString()}/sq
                       </p>
                     </div>
                     <p className="text-2xl font-bold text-indigo-600">

@@ -63,6 +63,27 @@ function safeLinear(scope: JobSoldScope): JobSoldScopeRoofMeasureLf | null {
   return m
 }
 
+function formatLf(value: number): string {
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)
+}
+
+function linearMeasureRows(linear: JobSoldScopeRoofMeasureLf): Array<{ label: string; value: number }> {
+  const rows: Array<{ label: string; value: number }> = []
+  const add = (label: string, value: number | null) => {
+    if (value == null || value <= 0) return
+    rows.push({ label, value })
+  }
+
+  add('Ridge', linear.ridges_lf)
+  add('Valley', linear.valleys_lf)
+  add('Hip', linear.hips_lf)
+  add('Flashing', linear.flashing_lf)
+  add('Step flashing', linear.step_flashing_lf)
+  add('Wall flashing', linear.wall_flashing_lf)
+
+  return rows
+}
+
 export default function JobSoldScopeSummary({
   scope,
   showSquareMetrics,
@@ -178,17 +199,9 @@ export default function JobSoldScopeSummary({
           const srcLabel = m.source
             ? ROOF_MEASURE_SOURCE_LABEL[m.source] || m.source.replace(/_/g, ' ')
             : 'Roof measure'
-          const parts: string[] = []
-          if (m.ridges_lf != null) parts.push(`Ridge ${m.ridges_lf} LF`)
-          if (m.valleys_lf != null) parts.push(`Valley ${m.valleys_lf} LF`)
-          if (m.hips_lf != null) parts.push(`Hip ${m.hips_lf} LF`)
-          if (m.eaves_lf != null) parts.push(`Eave ${m.eaves_lf} LF`)
-          if (m.rakes_lf != null) parts.push(`Rake ${m.rakes_lf} LF`)
-          if (m.flashing_lf != null) parts.push(`Flashing ${m.flashing_lf} LF`)
-          if (m.step_flashing_lf != null) parts.push(`Step flashing ${m.step_flashing_lf} LF`)
-          if (m.wall_flashing_lf != null) parts.push(`Wall flashing ${m.wall_flashing_lf} LF`)
-          if (parts.length === 0) return null
-          return { srcLabel, parts }
+          const rows = linearMeasureRows(m)
+          if (rows.length === 0) return null
+          return { srcLabel, rows }
         })()
       : null
 
@@ -244,12 +257,19 @@ export default function JobSoldScopeSummary({
       )}
 
       {linearLfSubline != null && (
-        <p className="text-[11px] text-sky-800 mt-1 leading-snug tabular-nums">
-          <span className="text-sky-700">Linear: </span>
-          <span className="font-medium text-sky-900">{linearLfSubline.srcLabel}</span>
-          <span className="text-sky-700"> — </span>
-          <span>{linearLfSubline.parts.join(' · ')}</span>
-        </p>
+        <div className="mt-2 rounded border border-sky-200 bg-white/60 px-2 py-1.5">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-sky-700">
+            Linear measurements · {linearLfSubline.srcLabel}
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+            {linearLfSubline.rows.map((row) => (
+              <div key={row.label} className="flex items-baseline justify-between gap-2 tabular-nums">
+                <span className="text-[11px] text-sky-700">{row.label}</span>
+                <span className="text-xs font-semibold text-sky-950">{formatLf(row.value)} LF</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {showNoWasteFlag && (
