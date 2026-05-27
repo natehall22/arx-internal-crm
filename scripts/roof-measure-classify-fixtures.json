@@ -1,0 +1,16 @@
+{
+  "baseLat": 35.487,
+  "baseLng": -80.6217,
+  "cases": [
+    {
+      "id": "florida-ave-eagleview-gable",
+      "provider": "EagleView via Allstate (2402 Florida Ave)",
+      "facets": [
+        { "id": "south", "west": -50, "south": -50, "east": 50, "north": 0 },
+        { "id": "north", "west": -50, "south": 0, "east": 50, "north": 50 }
+      ],
+      "targets": { "ridges_lf": 101, "hips_lf": 0, "valleys_lf": 0 },
+      "tolerancePct": 15
+    }
+  ]
+}

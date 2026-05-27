@@ -42,6 +42,8 @@ const MAX_SPLIT_FACETS_OUTPUT = 16
 const MAX_VERTICES_PER_RING = 48
 /** Per-plane mask contours — more vertices follow hips and irregular eaves. */
 const MAX_VERTICES_PER_SPLIT_RING = 72
+/** Split plane contours below this footprint fail the mask-quality gate (bbox/whole fallback). */
+const MIN_PLANE_FOOTPRINT_SQFT = 35
 
 type SegPx = {
   segment_index: number
@@ -325,6 +327,39 @@ function segmentByIndex(segments: SolarMaskSegment[], idx: number): SolarMaskSeg
   return segments.find((s) => s.segment_index === idx) ?? null
 }
 
+/** Pitch/azimuth/ground-area suggestions from a Solar segment (null when segment missing). */
+export function segmentFacetSuggestions(seg: SolarMaskSegment | null): Pick<
+  SolarMaskFacetPayload,
+  'suggested_pitch_degrees' | 'suggested_azimuth_degrees' | 'suggested_ground_area_sqft'
+> {
+  if (!seg) {
+    return {
+      suggested_pitch_degrees: null,
+      suggested_azimuth_degrees: null,
+      suggested_ground_area_sqft: null,
+    }
+  }
+  return {
+    suggested_pitch_degrees: seg.pitch_degrees,
+    suggested_azimuth_degrees: seg.azimuth_degrees,
+    suggested_ground_area_sqft:
+      typeof seg.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
+  }
+}
+
+/**
+ * Prefer `solar_mask_plane` over `solar_bbox` / whole-roof contour when split facets pass this gate.
+ */
+export function splitFacetsMeetMaskQualityThreshold(facets: SolarMaskFacetPayload[]): boolean {
+  const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
+  if (planes.length === 0) return false
+  return planes.some((f) => {
+    if (f.lat_lng_vertices.length < 3) return false
+    const sqft = f.estimated_sq_ft ?? Math.round(planarPolygonAreaSqFt(f.lat_lng_vertices))
+    return sqft >= MIN_PLANE_FOOTPRINT_SQFT
+  })
+}
+
 function buildSegmentPxList(
   segments: SolarMaskSegment[],
   lngLatToColRow: (lat: number, lng: number) => { col: number; row: number } | null
@@ -462,10 +497,7 @@ function facetsFromSplitMask(options: {
       confidence: 0.9,
       estimated_sq_ft: estSqFt > 0 ? estSqFt : null,
       solar_segment_index: meta.segment_index,
-      suggested_pitch_degrees: seg?.pitch_degrees ?? null,
-      suggested_azimuth_degrees: seg?.azimuth_degrees ?? null,
-      suggested_ground_area_sqft:
-        typeof seg?.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
+      ...segmentFacetSuggestions(seg),
       facet_source: 'solar_mask_plane',
     })
   }
@@ -602,8 +634,13 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         pixelToLngLat,
       })
       const splitFiltered = filterSplitFacetsByPin(splitFacets, ref)
-      if (splitFiltered.length > 0) {
+      if (splitFiltered.length > 0 && splitFacetsMeetMaskQualityThreshold(splitFiltered)) {
         return splitFiltered
+      }
+      if (splitFiltered.length > 0) {
+        console.info(
+          '[solar-mask] split planes below quality threshold; falling back to whole-roof contour'
+        )
       }
     }
 
@@ -668,9 +705,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         confidence: 0.92,
         estimated_sq_ft: estSqFt > 0 ? estSqFt : null,
         solar_segment_index: seg?.segment_index ?? null,
-        suggested_pitch_degrees: null,
-        suggested_azimuth_degrees: null,
-        suggested_ground_area_sqft: null,
+        ...segmentFacetSuggestions(seg),
         facet_source: 'solar_mask_whole',
       })
     }

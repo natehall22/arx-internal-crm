@@ -1,0 +1,61 @@
+{
+  "description": "Minimal measurement payload: map classify → save columns → proposal builder LF fields.",
+  "baseLat": 33.45,
+  "baseLng": -112.07,
+  "measurement": {
+    "address": "2402 Florida Ave roundtrip fixture",
+    "lat": 33.45,
+    "lng": -112.07,
+    "total_area_sqft": 2400,
+    "total_squares": 24,
+    "facets": [
+      {
+        "id": "south",
+        "west": -50,
+        "south": -50,
+        "east": 50,
+        "north": 0,
+        "pitch": "6/12",
+        "pitch_rise": 6,
+        "pitch_degrees": 26.565,
+        "pitch_multiplier": 1.118,
+        "pitch_source": "manual",
+        "geometry_reviewed": true,
+        "geometry_source": "solar_mask_plane",
+        "facing_azimuth_degrees": 180,
+        "suggested_azimuth_degrees": 178,
+        "solar_segment_index": 0
+      },
+      {
+        "id": "north",
+        "west": -50,
+        "south": 0,
+        "east": 50,
+        "north": 50,
+        "pitch": "6/12",
+        "pitch_rise": 6,
+        "pitch_degrees": 26.565,
+        "pitch_multiplier": 1.118,
+        "pitch_source": "manual",
+        "geometry_reviewed": true,
+        "geometry_source": "solar_mask_plane",
+        "facing_azimuth_degrees": 0,
+        "suggested_azimuth_degrees": 2,
+        "solar_segment_index": 1
+      }
+    ],
+    "manual_ridges_lf": 0,
+    "manual_valleys_lf": 0
+  },
+  "expected": {
+    "ridges_lf": 100,
+    "hips_lf": 0,
+    "valleys_lf": 0,
+    "suggested_waste_min": 10,
+    "raw_data_facet_fields": [
+      "facing_azimuth_degrees",
+      "suggested_azimuth_degrees",
+      "solar_segment_index"
+    ]
+  }
+}

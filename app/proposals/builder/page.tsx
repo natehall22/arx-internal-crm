@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 
@@ -121,6 +121,8 @@ const adderCategories = [
 ]
 
 const BUNDLES_PER_SQUARE = 3
+const RIDGE_CAP_LF_PER_BUNDLE = 25  // GAF Seal-A-Ridge standard: 25 LF coverage per bundle
+const HIP_CAP_LF_PER_BUNDLE = 25    // Same standard; ordered separately as a distinct product
 
 function toHalfPercent(value: number): number {
   return Math.round(value * 2) / 2
@@ -167,6 +169,10 @@ export default function ProposalBuilderPage() {
     monthly_payment: number
     financed_contract_total: number
   } | null>(null)
+
+  // Tracks whether cap line items have been auto-injected for this session.
+  // Prevents re-adding if the estimator deletes one, and avoids duplication on re-renders.
+  const capLineItemsInjectedRef = useRef(false)
 
   const effectiveOpportunityId = opportunityId || resolvedOpportunityId
 
@@ -374,6 +380,14 @@ export default function ProposalBuilderPage() {
   const bundleRoundedSquares = roundedBundles / BUNDLES_PER_SQUARE
   const recommendedOrderSquares = Math.ceil(bundleRoundedSquares)
 
+  // Cap shingle quantities — ordered separately from field shingles
+  const ridgesLf = Number(measurementData?.ridges_lf || 0)
+  const hipsLf = Number(measurementData?.hips_lf || 0)
+  const ridgeCapBundles = ridgesLf > 0 ? Math.ceil(ridgesLf / RIDGE_CAP_LF_PER_BUNDLE) : 0
+  const hipCapBundles = hipsLf > 0 ? Math.ceil(hipsLf / HIP_CAP_LF_PER_BUNDLE) : 0
+  const totalCapBundles = ridgeCapBundles + hipCapBundles
+  const hasCapData = ridgesLf > 0 || hipsLf > 0
+
   const buildRoofingLineItem = useCallback((type: RoofingType): LineItem => {
     const quantity = totalSquaresWithWaste
     const lineTotal = quantity * (type.price_per_square || 0)
@@ -419,6 +433,53 @@ export default function ProposalBuilderPage() {
     selectedRoofingType,
     totalSquaresWithWaste,
   ])
+
+  // Auto-inject ridge cap and hip cap line items once when measurement data first loads.
+  // Uses stable IDs so duplicates are never created. Runs once per builder session.
+  useEffect(() => {
+    if (capLineItemsInjectedRef.current) return
+    if (!measurementData) return
+    if (!hasCapData) return
+
+    capLineItemsInjectedRef.current = true
+
+    setLineItems(prev => {
+      const hasRidge = prev.some(i => i.id === 'ridge-cap-auto')
+      const hasHip = prev.some(i => i.id === 'hip-cap-auto')
+      if (hasRidge && hasHip) return prev
+
+      const next = [...prev]
+      if (!hasRidge && ridgesLf > 0) {
+        next.push({
+          id: 'ridge-cap-auto',
+          pricebook_item_id: null,
+          category: 'Roofing',
+          name: 'Ridge Cap Shingles',
+          description: `${ridgesLf} LF ridge ÷ ${RIDGE_CAP_LF_PER_BUNDLE} LF/bundle = ${ridgeCapBundles} bundles`,
+          unit: 'bundle',
+          quantity: ridgeCapBundles,
+          unit_price: 0,
+          line_total: 0,
+          is_adder: false,
+        })
+      }
+      if (!hasHip && hipsLf > 0) {
+        next.push({
+          id: 'hip-cap-auto',
+          pricebook_item_id: null,
+          category: 'Roofing',
+          name: 'Hip Cap Shingles',
+          description: `${hipsLf} LF hip ÷ ${HIP_CAP_LF_PER_BUNDLE} LF/bundle = ${hipCapBundles} bundles`,
+          unit: 'bundle',
+          quantity: hipCapBundles,
+          unit_price: 0,
+          line_total: 0,
+          is_adder: false,
+        })
+      }
+      return next
+    })
+  }, [measurementData, hasCapData, ridgesLf, hipsLf, ridgeCapBundles, hipCapBundles])
 
   useEffect(() => {
     if (!baseSquares) return
@@ -1188,6 +1249,47 @@ export default function ProposalBuilderPage() {
                 </div>
                 <div className="text-xs text-gray-500">
                   {roundedBundles} bundles ({BUNDLES_PER_SQUARE} bundles/square), rounded up from {rawBundleCount.toFixed(2)} bundles.
+                </div>
+              </div>
+            </div>
+
+            {/* Materials to Order — full bundle breakdown including cap shingles */}
+            <div className="mt-4 bg-gray-900 text-white rounded-xl p-5">
+              <h3 className="text-sm font-bold text-gray-300 uppercase tracking-widest mb-4">Materials to Order</h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-semibold text-white">Field Shingles</p>
+                    <p className="text-xs text-gray-400">{baseSquares.toFixed(2)} sq + {effectiveWastePercent}% waste</p>
+                  </div>
+                  <p className="text-lg font-bold text-white">{roundedBundles} bundles</p>
+                </div>
+
+                {ridgesLf > 0 && (
+                  <div className="flex justify-between items-start border-t border-gray-700 pt-3">
+                    <div>
+                      <p className="font-semibold text-white">Ridge Cap Shingles</p>
+                      <p className="text-xs text-amber-400 font-medium">Order separately from field shingles</p>
+                      <p className="text-xs text-gray-400">{ridgesLf} LF ÷ {RIDGE_CAP_LF_PER_BUNDLE} LF/bundle</p>
+                    </div>
+                    <p className="text-lg font-bold text-white">{ridgeCapBundles} bundles</p>
+                  </div>
+                )}
+
+                {hipsLf > 0 && (
+                  <div className="flex justify-between items-start border-t border-gray-700 pt-3">
+                    <div>
+                      <p className="font-semibold text-white">Hip Cap Shingles</p>
+                      <p className="text-xs text-amber-400 font-medium">Order separately from field shingles</p>
+                      <p className="text-xs text-gray-400">{hipsLf} LF ÷ {HIP_CAP_LF_PER_BUNDLE} LF/bundle</p>
+                    </div>
+                    <p className="text-lg font-bold text-white">{hipCapBundles} bundles</p>
+                  </div>
+                )}
+
+                <div className="border-t border-gray-500 pt-3 flex justify-between items-center">
+                  <p className="font-bold text-white text-base">Total Bundles to Order</p>
+                  <p className="text-2xl font-black text-green-400">{roundedBundles + totalCapBundles}</p>
                 </div>
               </div>
             </div>

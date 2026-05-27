@@ -14,6 +14,15 @@ import {
   squareMetersToSquareFeet,
   metersToFeet,
 } from '@/lib/roof-measure-geometry'
+import {
+  classifyRoofEdges,
+  azimuthToCompassString,
+  computeFacetDrainAzimuth,
+} from '@/lib/roof-measure-edge-classification'
+import {
+  facingCompassFromAzimuthDegrees,
+  normalizeAzimuthDegrees,
+} from '@/lib/roof-face-solar-alignment'
 
 declare const google: any
 
@@ -40,10 +49,13 @@ interface RoofFacet {
   pitch_degrees: number       // Angle in degrees
   pitch_multiplier: number    // Slope factor used
   perimeter_ft: number        // Perimeter of this facet
-  orientation: string         // Compass direction
+  orientation: string         // 8-wind facing (Solar/Aurora convention when known)
+  facing_azimuth_degrees?: number | null
+  suggested_azimuth_degrees?: number | null
   section_type?: SectionType  // Optional classification for multi-level roofs
   suggested_pitch?: string | null
   suggested_pitch_degrees?: number | null
+  solar_segment_index?: number | null
   pitch_source?: 'manual' | 'unknown'
   geometry_source?: string | null
   geometry_reviewed?: boolean
@@ -108,9 +120,28 @@ interface AIDraftSection {
   estimated_sq_ft?: number
   suggested_pitch?: string | null
   suggested_pitch_degrees?: number | null
+  suggested_azimuth_degrees?: number | null
   solar_segment_index?: number | null
   facet_source?: string | null
   status: 'pending' | 'accepted' | 'rejected'
+}
+
+function resolveFacingAzimuthDegrees(facet: {
+  facing_azimuth_degrees?: number | null
+  suggested_azimuth_degrees?: number | null
+}): number | null {
+  if (facet.facing_azimuth_degrees != null && Number.isFinite(facet.facing_azimuth_degrees)) {
+    return normalizeAzimuthDegrees(facet.facing_azimuth_degrees)
+  }
+  if (facet.suggested_azimuth_degrees != null && Number.isFinite(facet.suggested_azimuth_degrees)) {
+    return normalizeAzimuthDegrees(facet.suggested_azimuth_degrees)
+  }
+  return null
+}
+
+function orientationForFacet(points: Point[], facingAzimuth: number | null): string {
+  if (facingAzimuth != null) return facingCompassFromAzimuthDegrees(facingAzimuth)
+  return azimuthToCompassString(computeFacetDrainAzimuth(points))
 }
 
 interface EstimateConfig {
@@ -912,13 +943,15 @@ export default function RoofMeasurePage() {
     const flatAreaSqft = Math.max(0, Math.round(squareMetersToSquareFeet(areaMeters)))
     const perimeterFt = calculatePerimeter(points)
 
+    const facing = resolveFacingAzimuthDegrees(facet)
     return {
       ...facet,
       points,
       flat_area_sqft: flatAreaSqft,
       area_sqft: Math.round(flatAreaSqft * (facet.pitch_multiplier || 1)),
       perimeter_ft: Math.round(perimeterFt),
-      orientation: calculateOrientation(points),
+      orientation: orientationForFacet(points, facing),
+      facing_azimuth_degrees: facing,
     }
   }
 
@@ -1098,6 +1131,8 @@ export default function RoofMeasurePage() {
         suggested_pitch: getClosestPitchOption(facet.suggested_pitch_degrees)?.value || null,
         suggested_pitch_degrees:
           typeof facet.suggested_pitch_degrees === 'number' ? Number(facet.suggested_pitch_degrees) : null,
+        suggested_azimuth_degrees:
+          typeof facet.suggested_azimuth_degrees === 'number' ? Number(facet.suggested_azimuth_degrees) : null,
         solar_segment_index: typeof facet.solar_segment_index === 'number' ? facet.solar_segment_index : null,
         facet_source: typeof facet.facet_source === 'string' ? facet.facet_source : null,
         id: facet.id || `ai_facet_${idx + 1}`,
@@ -1256,9 +1291,15 @@ export default function RoofMeasurePage() {
       const perimeterFt = calculatePerimeter(validPoints.map(([lat, lng]) => ({ lat, lng })))
       const colorIndex = facetsRef.current.length % FACET_COLORS.length
 
+      const points = validPoints.map(([lat, lng]) => ({ lat, lng }))
+      const facingAz =
+        typeof draft.suggested_azimuth_degrees === 'number'
+          ? normalizeAzimuthDegrees(draft.suggested_azimuth_degrees)
+          : null
+
       const newFacet: RoofFacet = {
         id: `facet-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        points: validPoints.map(([lat, lng]) => ({ lat, lng })),
+        points,
         flat_area_sqft: flatAreaSqft,
         area_sqft: flatAreaSqft,
         pitch: 'Unset',
@@ -1266,7 +1307,11 @@ export default function RoofMeasurePage() {
         pitch_degrees: 0,
         pitch_multiplier: 1,
         perimeter_ft: Math.round(perimeterFt),
-        orientation: calculateOrientation(validPoints.map(([lat, lng]) => ({ lat, lng }))),
+        facing_azimuth_degrees: facingAz,
+        suggested_azimuth_degrees: facingAz,
+        solar_segment_index:
+          typeof draft.solar_segment_index === 'number' ? draft.solar_segment_index : null,
+        orientation: calculateOrientation(points, facingAz),
         section_type: 'main_roof',
         suggested_pitch: draft.suggested_pitch || null,
         suggested_pitch_degrees: draft.suggested_pitch_degrees ?? null,
@@ -1592,30 +1637,9 @@ export default function RoofMeasurePage() {
     setShowPitchModal(true)
   }
 
-  const calculateOrientation = (points: Point[]): string => {
-    // Calculate centroid
-    const centroid = points.reduce(
-      (acc, p) => ({ lat: acc.lat + p.lat / points.length, lng: acc.lng + p.lng / points.length }),
-      { lat: 0, lng: 0 }
-    )
-    
-    // For simplicity, use the first edge to determine orientation
-    if (points.length >= 2) {
-      const dx = points[1].lng - points[0].lng
-      const dy = points[1].lat - points[0].lat
-      const angle = Math.atan2(dy, dx) * (180 / Math.PI)
-      
-      if (angle >= -22.5 && angle < 22.5) return 'E'
-      if (angle >= 22.5 && angle < 67.5) return 'NE'
-      if (angle >= 67.5 && angle < 112.5) return 'N'
-      if (angle >= 112.5 && angle < 157.5) return 'NW'
-      if (angle >= 157.5 || angle < -157.5) return 'W'
-      if (angle >= -157.5 && angle < -112.5) return 'SW'
-      if (angle >= -112.5 && angle < -67.5) return 'S'
-      if (angle >= -67.5 && angle < -22.5) return 'SE'
-    }
-    
-    return 'N'
+  const calculateOrientation = (points: Point[], facingAzimuth?: number | null): string => {
+    if (points.length < 3) return 'N'
+    return orientationForFacet(points, facingAzimuth ?? null)
   }
 
   const confirmFacetPitch = (pitch: string, pitchDegrees: number, pitchRise: number, _pitchMultiplier: number) => {
@@ -1871,14 +1895,18 @@ export default function RoofMeasurePage() {
     const flatScale = 1
     const solarRef = solarGroundFootprintReferenceRef.current
     const SOLAR_OVERLAP_THRESHOLD = 1.08
-    if (
+    const solarOverlapDetected = (
       !fromOpenAiVision &&
       solarRef != null &&
       solarRef >= 350 &&
       flatAreaRaw > solarRef * SOLAR_OVERLAP_THRESHOLD
-    ) {
+    )
+    if (solarOverlapDetected) {
+      const overlapPct = Math.round((flatAreaRaw / solarRef! - 1) * 100)
       validationNotes.push(
-        `Google Solar reports a smaller reference footprint (~${Math.round(solarRef).toLocaleString()} sq ft). Totals are using the visible roof section geometry; check for duplicate or overlapping sections if this looks high.`
+        `Polygon overlap detected: drawn sections total ${Math.round(flatAreaRaw).toLocaleString()} sq ft ` +
+        `but Google Solar shows ~${Math.round(solarRef!).toLocaleString()} sq ft footprint (${overlapPct}% over). ` +
+        `Delete or resize overlapping sections before saving.`
       )
     }
 
@@ -1912,75 +1940,33 @@ export default function RoofMeasurePage() {
     }
     
     // ============================================================
-    // LINEAR FOOTAGE CALCULATIONS - Geometry-Based Algorithm
-    // Based on EagleView methodology and roofing industry standards
+    // LINEAR FOOTAGE — 2D edge graph; interior types use Solar facing azimuth when set.
     // ============================================================
-    
-    // For accurate linear footage, we analyze the roof geometry:
-    // 1. Simple gable (2 facets): Ridge = building length, Eaves = 2x building length
-    // 2. Hip roof (4 facets): Ridge shorter, Hips at corners
-    // 3. Complex (5+ facets): More valleys, dormers, intersections
-    
-    // Calculate average facet dimensions to estimate building footprint
-    const avgFacetArea = flatArea / Math.max(facetCount, 1)
-    const avgFacetPerimeter = totalPerimeter / Math.max(facetCount, 1)
-    
-    // Estimate building dimensions from total flat area
-    // Assume roughly rectangular footprint for estimation
-    // Guard against 0 or very small areas
-    const safeArea = Math.max(flatArea, 100) // Minimum 100 sqft to avoid division issues
-    const estimatedBuildingLength = Math.sqrt(safeArea * 1.5) // Length typically 1.5x width
-    const estimatedBuildingWidth = safeArea / Math.max(estimatedBuildingLength, 1)
-    
-    // ---- RIDGE CALCULATION ----
-    // Ridge runs along the peak. For gable: ~= building length
-    // For hip: ridge is shorter (building length - 2x hip offset)
-    // Complex roofs have multiple ridge lines
-    let ridges: number
-    if (facetCount <= 2) {
-      // Simple gable - ridge equals building length
-      ridges = Math.round(estimatedBuildingLength)
-    } else if (facetCount <= 4) {
-      // Hip roof - ridge is shorter
-      ridges = Math.round(estimatedBuildingLength * 0.6)
-    } else {
-      // Complex roof - multiple ridges
-      // Estimate based on: main ridge + secondary ridges for dormers/additions
-      const mainRidge = estimatedBuildingLength * 0.5
-      const secondaryRidges = (facetCount - 4) * 8 // ~8ft per additional ridge section
-      ridges = Math.round(mainRidge + secondaryRidges)
-    }
-    
-    // If ridge lines are manually drawn, use those as source of truth.
-    // Otherwise, fall back to geometry estimate.
+
+    const geoEdges = classifyRoofEdges(
+      currentFacets.map((f) => ({
+        id: f.id,
+        points: f.points,
+        facing_azimuth_degrees: resolveFacingAzimuthDegrees(f),
+      }))
+    )
+
     const manualRidges = features
       .filter(f => f.type === 'ridge')
       .reduce((sum, f) => sum + f.length_ft, 0)
-    if (manualRidges > 0) {
-      ridges = Math.round(manualRidges)
-    }
-    
-    // ---- EAVES CALCULATION ----
-    // Eaves are the horizontal bottom edges of the roof
-    // For gable: 2x building length (front and back)
-    // For hip: full perimeter minus rakes
-    let eaves: number
-    if (facetCount <= 2) {
-      // Gable - eaves on two sides
-      eaves = Math.round(estimatedBuildingLength * 2)
-    } else if (facetCount <= 4) {
-      // Hip - eaves on all four sides
-      eaves = Math.round((estimatedBuildingLength + estimatedBuildingWidth) * 2)
-    } else {
-      // Complex - estimate from perimeter (eaves typically 35-45% of total perimeter)
-      eaves = Math.round(totalPerimeter * 0.40)
-    }
-    
-    // ---- RAKES CALCULATION ----
-    // Rakes are the sloped edges on gable ends
-    // Must account for pitch - rakes are longer than horizontal measurement
-    // Until a section has confirmed pitch, use 1× (horizontal projection) so auto linear
-    // estimates stay consistent with footprint-based area_sqft for Unset facets — not Solar "suggestions".
+    const ridges = manualRidges > 0 ? Math.round(manualRidges) : geoEdges.ridges_lf
+
+    const hips  = geoEdges.hips_lf
+    const eaves = geoEdges.eaves_lf
+    const rakes = geoEdges.rakes_lf
+
+    const manualValleys = features
+      .filter(f => f.type === 'valley')
+      .reduce((sum, f) => sum + f.length_ft, 0)
+    const valleys = geoEdges.valleys_lf + Math.round(manualValleys)
+
+    const dripEdge = eaves + rakes
+
     const estimatedPitchMultipliers = currentFacets
       .map((facet) => {
         if (facet.pitch && facet.pitch !== 'Unset') return facet.pitch_multiplier || 1.118
@@ -1991,62 +1977,6 @@ export default function RoofMeasurePage() {
     const avgPitchMultiplier = estimatedPitchMultipliers.length > 0
       ? estimatedPitchMultipliers.reduce((sum, value) => sum + value, 0) / estimatedPitchMultipliers.length
       : 1
-    
-    let rakes: number
-    if (facetCount <= 2) {
-      // Gable - rakes on both ends (4 rake edges total)
-      // Rake length = (building width / 2) * pitch multiplier * 4
-      rakes = Math.round((estimatedBuildingWidth / 2) * avgPitchMultiplier * 4)
-    } else if (facetCount <= 4) {
-      // Hip - minimal or no rakes (hips replace rakes at corners)
-      rakes = 0
-    } else {
-      // Complex - estimate based on gable sections
-      const gableSections = Math.max(0, facetCount - 4)
-      rakes = Math.round(gableSections * estimatedBuildingWidth * avgPitchMultiplier * 0.5)
-    }
-    
-    // ---- HIPS CALCULATION ----
-    // Hips are diagonal ridges where roof planes meet at external corners
-    // Hip length = √(width² + (width/2)²) for 45° hip angle
-    let hips: number
-    if (facetCount <= 2) {
-      // Gable - no hips
-      hips = 0
-    } else if (facetCount <= 4) {
-      // Standard hip roof - 4 hip lines
-      const hipLength = Math.sqrt(Math.pow(estimatedBuildingWidth / 2, 2) * 2) * avgPitchMultiplier
-      hips = Math.round(hipLength * 4)
-    } else {
-      // Complex - additional hips for dormers/additions
-      const baseHips = Math.sqrt(Math.pow(estimatedBuildingWidth / 2, 2) * 2) * avgPitchMultiplier * 4
-      const additionalHips = (facetCount - 4) * 6 // ~6ft per additional hip
-      hips = Math.round(baseHips + additionalHips)
-    }
-    
-    // ---- VALLEYS CALCULATION ----
-    // Valleys are internal intersections where roof planes meet
-    // Auto-calculated + manually drawn
-    let autoValleys: number
-    if (facetCount <= 4) {
-      // Simple roofs typically have no valleys
-      autoValleys = 0
-    } else {
-      // Complex roofs - valleys form at intersections
-      // Each additional facet pair can create a valley
-      const valleyCount = Math.floor((facetCount - 4) / 2)
-      const avgValleyLength = Math.sqrt(Math.pow(estimatedBuildingWidth / 2, 2) * 2) * avgPitchMultiplier
-      autoValleys = Math.round(valleyCount * avgValleyLength)
-    }
-    
-    const manualValleys = features
-      .filter(f => f.type === 'valley')
-      .reduce((sum, f) => sum + f.length_ft, 0)
-    const valleys = autoValleys + manualValleys
-    
-    // ---- DRIP EDGE ----
-    // Total drip edge = eaves + rakes (all edges that need drip edge)
-    const dripEdge = eaves + rakes
     
     // ---- FLASHING FROM MANUAL DRAWINGS ----
     const stepFlashing = features
@@ -2098,7 +2028,28 @@ export default function RoofMeasurePage() {
       confidence = 'low'
       validationNotes.push(`Assign pitch to ${unsetPitchFacets.length} roof section${unsetPitchFacets.length === 1 ? '' : 's'} before quoting.`)
     }
-    
+
+    if (geoEdges.unclassified_shared_lf > 0) {
+      validationNotes.push(
+        'Some shared roof edges could not be classified — verify outlines snap together or draw ridge/valley lines.'
+      )
+      if (confidence !== 'low') confidence = 'medium'
+    }
+
+    const segmentUse = new Map<number, number>()
+    for (const facet of currentFacets) {
+      if (typeof facet.solar_segment_index !== 'number' || facet.solar_segment_index < 0) continue
+      segmentUse.set(facet.solar_segment_index, (segmentUse.get(facet.solar_segment_index) || 0) + 1)
+    }
+    for (const [idx, count] of Array.from(segmentUse.entries())) {
+      if (count > 1) {
+        validationNotes.push(
+          `Multiple sections use the same Google Solar plane (#${idx}) — remove duplicates or assign unique outlines.`
+        )
+        if (confidence !== 'low') confidence = 'medium'
+      }
+    }
+
     // Verify linear footage totals are reasonable
     const linearTotal = ridges + eaves + rakes + hips + valleys
     const expectedLinearRatio = linearTotal / Math.sqrt(totalArea)
@@ -2182,13 +2133,16 @@ export default function RoofMeasurePage() {
       confidence = 'low'
     }
 
-    const measuredRidges = Math.round(manualRidges)
-    const measuredValleys = Math.round(manualValleys)
+    const measuredRidges = ridges
+    const measuredValleys = valleys
     const measuredStepFlashing = Math.round(stepFlashing)
     const measuredWallFlashing = Math.round(wallFlashing)
-    const measuredEaves = 0
-    const measuredRakes = 0
-    const measuredHips = 0
+    // Use geometrically estimated values for non-drawn features.
+    // manualRidges/manualValleys (set above) override geometry when manually drawn;
+    // hips/eaves/rakes have no draw tool so always use the geometric estimate.
+    const measuredHips = Math.round(hips)
+    const measuredEaves = Math.round(eaves)
+    const measuredRakes = Math.round(rakes)
     const measuredDripEdge = measuredEaves + measuredRakes
     const hasMeasuredLinework =
       measuredRidges > 0 ||
@@ -2204,7 +2158,8 @@ export default function RoofMeasurePage() {
       unsetPitchFacets.length === 0 &&
       facetsNeedingGeometryReview.length === 0 &&
       facetsWithoutManualPitch.length === 0 &&
-      unsupportedGeometryFacets.length === 0
+      unsupportedGeometryFacets.length === 0 &&
+      !solarOverlapDetected
     
     // Helper to ensure no NaN values
     const safeNum = (n: number, fallback = 0) => isNaN(n) || !isFinite(n) ? fallback : n
@@ -2310,19 +2265,25 @@ export default function RoofMeasurePage() {
     // Valleys require more cuts and waste
     if (valleyLength > 20) adjustments += Math.min(3, Math.floor(valleyLength / 30))
     
-    // Hip adjustment (+1% for hip roofs)
-    if (hipLength > 20) adjustments += 1
-    
+    // Hip adjustment — scaled by linear footage (EagleView/ARMA methodology).
+    // Each 50 LF of hip = 1% additional waste; minimum 2% for any hip roof.
+    if (hipLength > 20) {
+      adjustments += Math.max(2, Math.min(5, Math.ceil(hipLength / 50)))
+    }
+
     // Small facet adjustment (many small facets = more waste)
     const avgFacetSize = totalArea / facetCount
     if (avgFacetSize < 200) adjustments += 2
     else if (avgFacetSize < 400) adjustments += 1
-    
+
     // Mixed pitch adjustment (different pitches = more complexity)
     const uniquePitches = new Set(currentFacets.map(f => f.pitch)).size
     if (uniquePitches > 2) adjustments += 1
-    
-    const finalWaste = Math.min(baseWaste + adjustments, 25) // Cap at 25%
+
+    let finalWaste = Math.min(baseWaste + adjustments, 25)
+    // Industry floor: hip+valley roofs must be at least 17%; hip-only at least 15%
+    if (hipLength > 60 && valleyLength > 40) finalWaste = Math.max(finalWaste, 17)
+    else if (hipLength > 60) finalWaste = Math.max(finalWaste, 15)
     
     return { 
       wastePercent: finalWaste, 
@@ -2356,6 +2317,17 @@ export default function RoofMeasurePage() {
       alert(
         'These satellite boxes are only a starting shape—finish aligning corners to the roof, or redraw sections by hand, before saving.'
       )
+      return
+    }
+
+    // Block save when drawn sections significantly exceed Google Solar footprint —
+    // this indicates overlapping polygons that would inflate the square count.
+    const solarRef = solarGroundFootprintReferenceRef.current
+    const facetGeomSrc = facetGeometrySourceRef.current
+    const fromVision = facetGeomSrc === 'vision' || facetGeomSrc === 'vision_solar_guided'
+    const flatAreaForCheck = measurements?.flat_area_sqft || 0
+    if (!fromVision && solarRef != null && solarRef >= 350 && flatAreaForCheck / solarRef > 1.08) {
+      alert('Fix overlapping roof sections before saving. Check the validation notes panel for details.')
       return
     }
 
@@ -2846,6 +2818,14 @@ export default function RoofMeasurePage() {
                             : ''}
                         </p>
                       )}
+                      {(resolveFacingAzimuthDegrees(facet) != null || facet.orientation) && (
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          Facing: {facet.orientation}
+                          {resolveFacingAzimuthDegrees(facet) != null
+                            ? ` (${resolveFacingAzimuthDegrees(facet)!.toFixed(0)}° — panel direction, not drain)`
+                            : ''}
+                        </p>
+                      )}
                     </div>
                     {facet.geometry_reviewed !== true && (
                       <button
@@ -3017,6 +2997,11 @@ export default function RoofMeasurePage() {
               {/* Linear footage breakdown */}
               <div className="mt-3 pt-3 border-t border-gray-700">
                 <p className="text-xs text-gray-500 mb-2">Linear Footage</p>
+                {measurements.hips_lf > 0 && (
+                  <p className="text-[10px] text-gray-500 mb-2">
+                    Hip length affects waste % and hip cap bundle count on the proposal.
+                  </p>
+                )}
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div className="text-center p-1.5 bg-gray-700/30 rounded">
                     <div className="text-white font-medium">{measurements.ridges_lf}</div>
@@ -3248,6 +3233,14 @@ export default function RoofMeasurePage() {
                   Suggested: {selectedFacetData.suggested_pitch}
                   {typeof selectedFacetData.suggested_pitch_degrees === 'number'
                     ? ` (${selectedFacetData.suggested_pitch_degrees.toFixed(1)}°)`
+                    : ''}
+                </p>
+              )}
+              {(resolveFacingAzimuthDegrees(selectedFacetData) != null || selectedFacetData.orientation) && (
+                <p className="mt-1.5 text-[11px] text-gray-400">
+                  Facing: {selectedFacetData.orientation}
+                  {resolveFacingAzimuthDegrees(selectedFacetData) != null
+                    ? ` (${resolveFacingAzimuthDegrees(selectedFacetData)!.toFixed(0)}°)`
                     : ''}
                 </p>
               )}

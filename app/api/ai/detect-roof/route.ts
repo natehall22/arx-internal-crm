@@ -1353,11 +1353,13 @@ export async function POST(request: Request) {
           })
         }
 
-        const rawFacetSource = facetsOut[0]?.facet_source
-        const facetSource =
-          rawFacetSource === 'solar_mask_plane' || rawFacetSource === 'solar_mask_whole'
-            ? rawFacetSource
-            : 'solar_bbox'
+        const facetSource = facetsOut.some((f) => f.facet_source === 'solar_mask_plane')
+          ? 'solar_mask_plane'
+          : facetsOut.some((f) => f.facet_source === 'solar_mask_whole')
+            ? 'solar_mask_whole'
+            : facetsOut.some((f) => f.facet_source === 'solar_bbox')
+              ? 'solar_bbox'
+              : 'none'
         const solarNotes =
           facetSource === 'solar_mask_plane'
             ? 'Roof sections from satellite mask (GeoTIFF), split to follow edges better than plain boxes. Drag corners to fine-tune. Use “Trace from photo” only if you need an AI redraw (extra cost).'
