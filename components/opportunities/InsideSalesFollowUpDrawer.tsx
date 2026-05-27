@@ -112,7 +112,10 @@ export default function InsideSalesFollowUpDrawer({
     const payload: Record<string, string> = { action: kind }
     if (note.trim()) payload.note = note.trim()
     if (result.trim()) payload.result = result.trim()
-    if (nextFollowUpValue) payload.next_follow_up_at = nextFollowUpValue
+    if (nextFollowUpValue) {
+      payload.next_follow_up_at = nextFollowUpValue
+      payload.next_follow_up_timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
+    }
 
     const response = await fetch(`/api/opportunities/${opportunityId}/inside-sales-follow-up`, {
       method: 'POST',

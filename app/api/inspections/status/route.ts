@@ -377,7 +377,7 @@ export async function POST(request: NextRequest) {
       insideSalesHandoffConfig.enabled && insideSalesHandoffConfig.delayDays !== null
     const routesToDidntSitQueue = inspectionOutcomeRoutesToInsideSalesDidntSit(inspectionOutcomes, outcome)
     const shouldCreateOpportunity =
-      Boolean(outcomeConfig?.converts_to_opportunity) || delayedInsideSalesHandoffEnabled
+      Boolean(outcomeConfig?.converts_to_opportunity) || delayedInsideSalesHandoffEnabled || routesToDidntSitQueue
 
     const staticOutcomeLabels: Record<string, string> = {
       sale: 'Sale!',

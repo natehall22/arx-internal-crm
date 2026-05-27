@@ -179,16 +179,16 @@ function repWorkingHandoffQueueEligible(
   const onRepWorking = onRepWorkingInsurancePipeline(pipelineStage)
   if (!onRepWorking) return false
   const fu = opportunity.follow_up_at
+  if (fu) {
+    const t = new Date(fu).getTime()
+    return Number.isFinite(t) && t <= Date.now()
+  }
   const handoff = getInspectionOutcomeInsideSalesHandoff(
     inspectionRows(orgInspectionOutcomes),
     opportunity.inspection_outcome
   )
   if (!handoff.enabled || handoff.delayDays === null) return false
   const delayDays = handoff.delayDays
-  if (fu) {
-    const t = new Date(fu).getTime()
-    return Number.isFinite(t) && t <= Date.now()
-  }
   if (!opportunity.inspection_outcome_at) return false
   const cutoff = Date.now() - delayDays * 24 * 60 * 60 * 1000
   return new Date(opportunity.inspection_outcome_at).getTime() <= cutoff
@@ -241,6 +241,7 @@ export function getInsideSalesFollowUpKind(
   if (
     (pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
       pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)) ||
+    onRepWorkingInsurancePipeline(pipelineStage) ||
     (handoffEnabled && onRepWorkingInsurancePipeline(pipelineStage)) ||
     (handoffEnabled && delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) ||
     repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ||
@@ -310,10 +311,10 @@ export function getInsideSalesFollowUpStatus(
   if (getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes) === 'didnt_sit') {
     return 'new'
   }
-  if (!inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)) return null
   if (onRepWorkingInsurancePipeline(pipelineStage)) {
     return repWorkingHandoffQueueEligible(opportunity, orgInspectionOutcomes) ? 'new' : 'rep_working'
   }
+  if (!inspectionOutcomeHasInsideSalesHandoff(opportunity, orgInspectionOutcomes)) return null
   if (delayedHandoffStillGraceEmptyPipeline(opportunity, orgInspectionOutcomes)) return 'rep_working'
   if (delayedHandoffPastDueEmptyPipeline(opportunity, orgInspectionOutcomes)) return 'new'
   if (legacyPipelineInsideSalesHandoffVisible(opportunity, orgInspectionOutcomes)) {
@@ -346,6 +347,25 @@ export type InsideSalesCallability = {
   adminHandoffDelayDays: number | null
 }
 
+export type InsideSalesQueueState = {
+  active: boolean
+  kind: InsideSalesQueueKind | null
+  status: string | null
+  callability: InsideSalesCallability | null
+}
+
+function futureFollowUpCallability(opportunity: OpportunityLike): InsideSalesCallability | null {
+  const fu = opportunity.follow_up_at
+  if (!fu) return null
+  const t = new Date(fu).getTime()
+  if (!Number.isFinite(t) || t <= Date.now()) return null
+  return {
+    callableNow: false,
+    eligibleAtIso: new Date(t).toISOString(),
+    adminHandoffDelayDays: null,
+  }
+}
+
 export function getInsideSalesCallability(
   opportunity: OpportunityLike,
   orgInspectionOutcomes?: OrgInspectionOutcomesArg
@@ -358,7 +378,10 @@ export function getInsideSalesCallability(
   const delayDays = handoff.enabled && handoff.delayDays !== null ? handoff.delayDays : null
   const pipelineStage = normalize(opportunity.pipeline_stage)
 
+  const futureFollowUp = futureFollowUpCallability(opportunity)
+
   if (kind === 'didnt_sit') {
+    if (futureFollowUp) return futureFollowUp
     return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: null }
   }
 
@@ -366,6 +389,9 @@ export function getInsideSalesCallability(
     pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
     pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)
   ) {
+    if (futureFollowUp) {
+      return { ...futureFollowUp, adminHandoffDelayDays: delayDays }
+    }
     return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: delayDays }
   }
 
@@ -440,4 +466,27 @@ export function getInsideSalesCallability(
   }
 
   return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: delayDays }
+}
+
+export function getInsideSalesQueueState(
+  opportunity: OpportunityLike,
+  orgInspectionOutcomes?: OrgInspectionOutcomesArg
+): InsideSalesQueueState {
+  const active = hasActiveInsideSalesFollowUp(opportunity, orgInspectionOutcomes)
+  if (!active) {
+    return {
+      active: false,
+      kind: null,
+      status: null,
+      callability: null,
+    }
+  }
+
+  const kind = getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes)
+  return {
+    active: Boolean(kind),
+    kind,
+    status: getInsideSalesFollowUpStatus(opportunity, orgInspectionOutcomes),
+    callability: getInsideSalesCallability(opportunity, orgInspectionOutcomes),
+  }
 }

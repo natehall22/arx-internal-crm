@@ -12,6 +12,7 @@ import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
+  pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
@@ -104,6 +105,17 @@ function resolvedPipelineStage(
     return kind === 'handoff' ? `${prefix}_scheduled` : `${prefix}_rescheduled`
   }
   return `${prefix}_${status}`
+}
+
+function activePipelinePrefix(kind: 'didnt_sit' | 'handoff' | null): string {
+  return kind === 'handoff' ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX : DIDNT_SIT_PIPELINE_PREFIX
+}
+
+function parseFollowUpInput(value: unknown, timezone: string): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const localDateTimeStr = value.trim().slice(0, 16)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(localDateTimeStr)) return null
+  return fromZonedTime(`${localDateTimeStr}:00`, timezone).toISOString()
 }
 
 async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
@@ -266,7 +278,7 @@ export async function POST(
     const [{ data: opportunity }, { data: orgRow }] = await Promise.all([
       admin
         .from('opportunities')
-        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, notes, created_at, updated_at, inspection_notes, pipeline_stage, follow_up_at')
+        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, notes, created_at, updated_at, inspection_notes, pipeline_stage, follow_up_at, assigned_user_id')
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
         .single(),
@@ -318,6 +330,11 @@ export async function POST(
     const note = typeof body.note === 'string' ? body.note.trim() : ''
     const result = typeof body.result === 'string' ? body.result.trim() : ''
     const schedule = body.schedule && typeof body.schedule === 'object' ? body.schedule : null
+    const followUpTimezone =
+      typeof body.next_follow_up_timezone === 'string' && body.next_follow_up_timezone.trim()
+        ? body.next_follow_up_timezone.trim()
+        : 'America/New_York'
+    const nextFollowUpAt = parseFollowUpInput(body.next_follow_up_at, followUpTimezone)
 
     if (!action) {
       return NextResponse.json({ error: 'Missing action' }, { status: 400 })
@@ -577,6 +594,11 @@ export async function POST(
       }
       activityType = 'status_change'
       activityBody = 'Inside sales follow-up claimed.'
+      updateData.assigned_user_id = profile.id
+      updateData.pipeline_stage = pipelineStageForInsideSalesClaim(
+        opportunityEffective,
+        activePipelinePrefix(followUpKind)
+      )
     } else {
       if (action === 'log_call' || action === 'log_text') {
         if (!result) {
@@ -584,6 +606,13 @@ export async function POST(
         }
         activityType = action === 'log_call' ? 'call' : 'text'
         activityBody = `${action === 'log_call' ? 'Inside sales call' : 'Inside sales text'}: ${result}${note ? ` — ${note}` : ''}`
+        updateData.pipeline_stage = pipelineStageForInsideSalesClaim(
+          opportunityEffective,
+          activePipelinePrefix(followUpKind)
+        )
+        if (nextFollowUpAt) {
+          updateData.follow_up_at = nextFollowUpAt
+        }
       } else if (action === 'mark_rescheduled') {
         activityType = 'status_change'
         activityBody = `Inside sales marked rescheduled${note ? ` — ${note}` : ''}`
@@ -625,6 +654,7 @@ export async function POST(
       inspection_notes: opportunity.inspection_notes ?? null,
       pipeline_stage: opportunity.pipeline_stage ?? null,
       follow_up_at: opportunity.follow_up_at ?? null,
+      assigned_user_id: opportunity.assigned_user_id ?? null,
     }
 
     if (Object.keys(updateData).length > 0) {
@@ -633,7 +663,7 @@ export async function POST(
         .update(updateData)
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
-        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes, pipeline_stage, follow_up_at')
+        .select('id, status, notes, inspection_outcome, inspection_outcome_at, inspection_notes, pipeline_stage, follow_up_at, assigned_user_id')
         .single()
 
       if (updateError || !data) {

@@ -8,6 +8,7 @@ import {
   getInsideSalesFollowUpKind,
   getInsideSalesFollowUpStatus,
   hasActiveInsideSalesFollowUp,
+  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 
@@ -167,6 +168,59 @@ describe('inside sales follow-up queue visibility', () => {
     expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
       callableNow: true,
       eligibleAtIso: null,
+      adminHandoffDelayDays: null,
+    })
+  })
+
+  it('keeps close-feedback rep-working handoffs visible before the follow-up time', () => {
+    const opportunity = {
+      status: 'in_progress',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+      follow_up_at: '2026-05-03T13:00:00.000Z',
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('handoff')
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(true)
+    expect(getInsideSalesFollowUpStatus(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('rep_working')
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
+      callableNow: false,
+      eligibleAtIso: '2026-05-03T13:00:00.000Z',
+      adminHandoffDelayDays: null,
+    })
+  })
+
+  it('makes close-feedback rep-working handoffs callable when follow-up time is due', () => {
+    const opportunity = {
+      status: 'in_progress',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+      follow_up_at: '2026-05-01T12:59:00.000Z',
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('handoff')
+    expect(getInsideSalesFollowUpStatus(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('new')
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
+      callableNow: true,
+      eligibleAtIso: '2026-05-01T12:59:00.000Z',
+      adminHandoffDelayDays: null,
+    })
+  })
+
+  it('keeps active handoffs out of ready calls until their next follow-up time', () => {
+    const opportunity = {
+      status: 'in_progress',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+      follow_up_at: '2026-05-01T18:00:00.000Z',
+    }
+
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
+      callableNow: false,
+      eligibleAtIso: '2026-05-01T18:00:00.000Z',
       adminHandoffDelayDays: null,
     })
   })

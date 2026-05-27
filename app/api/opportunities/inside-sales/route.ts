@@ -12,12 +12,13 @@ import {
 } from '@/lib/inspection-outcomes'
 import {
   canViewInsideSalesFollowUp,
-  getInsideSalesCallability,
-  getInsideSalesFollowUpKind,
-  getInsideSalesFollowUpStatus,
-  hasActiveInsideSalesFollowUp,
+  getInsideSalesQueueState,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
+import {
+  getCloseOutcomeConfig,
+  normalizeCloseOutcomeRows,
+} from '@/lib/close-outcomes'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,6 +85,13 @@ function getAdminClient() {
 
 function getInspectionOutcomeSettings(settings: any): InspectionOutcomeConfigRow[] | null {
   const raw = settings?.inspection_outcomes
+  if (Array.isArray(raw)) return raw
+  if (Array.isArray(raw?.outcomes)) return raw.outcomes
+  return null
+}
+
+function getCloseOutcomeSettings(settings: any) {
+  const raw = settings?.close_outcomes
   if (Array.isArray(raw)) return raw
   if (Array.isArray(raw?.outcomes)) return raw.outcomes
   return null
@@ -207,6 +215,7 @@ export async function GET(request: NextRequest) {
 
     const inspectionOutcomeSettings = getInspectionOutcomeSettings(orgRow?.settings)
     const inspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
+    const closeOutcomeRows = normalizeCloseOutcomeRows(getCloseOutcomeSettings(orgRow?.settings))
 
     const rawOpportunities = (opportunities || []).map((opportunity: any) => ({
       ...opportunity,
@@ -280,22 +289,45 @@ export async function GET(request: NextRequest) {
       leadInspectionMap = mapLatestInspectionByLeadId(leadStatuses || [])
     }
 
+    const closeOutcomeMap = new Map<string, { outcome: string; created_at: string }>()
+    if (opportunityIds.length > 0) {
+      const { data: closeRows } = await adminClient
+        .from('close_appointments')
+        .select('opportunity_id, outcome, outcome_submitted_at, created_at')
+        .in('opportunity_id', opportunityIds)
+        .order('outcome_submitted_at', { ascending: false })
+        .order('created_at', { ascending: false })
+
+      for (const closeRow of closeRows || []) {
+        if (!closeRow.opportunity_id || closeOutcomeMap.has(closeRow.opportunity_id)) continue
+        closeOutcomeMap.set(closeRow.opportunity_id, {
+          outcome: closeRow.outcome,
+          created_at: closeRow.outcome_submitted_at || closeRow.created_at,
+        })
+      }
+    }
+
     const queueItems = rawOpportunities
       .map((opportunity: any) =>
         withEffectiveInspectionFields(opportunity, inspectionMap, leadInspectionMap)
       )
       .filter((opportunity: any) =>
-        hasActiveInsideSalesFollowUp(opportunity, inspectionOutcomeRows)
+        getInsideSalesQueueState(opportunity, inspectionOutcomeRows).active
       )
       .map((opportunity: any) => {
         const lead = opportunity.lead_id ? leadMap.get(opportunity.lead_id) : null
         const customer = opportunity.customer_id ? customerMap.get(opportunity.customer_id) : null
-        const kind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeRows)
+        const queueState = getInsideSalesQueueState(opportunity, inspectionOutcomeRows)
+        const kind = queueState.kind
+        const closeOutcome = closeOutcomeMap.get(opportunity.id)
+        const closeOutcomeCfg =
+          kind === 'handoff' && closeOutcome?.outcome
+            ? getCloseOutcomeConfig(closeOutcomeRows, closeOutcome.outcome)
+            : null
         const outcomeCfg =
           kind === 'handoff'
             ? getInspectionOutcomeConfig(inspectionOutcomeRows, opportunity.inspection_outcome)
             : null
-        const callability = getInsideSalesCallability(opportunity, inspectionOutcomeRows)
         return {
           id: opportunity.id,
           status: opportunity.status,
@@ -308,11 +340,15 @@ export async function GET(request: NextRequest) {
           closerUserId: lead?.closer_user_id || null,
           assigned_user_id: opportunity.assigned_user_id,
           followUpKind: kind,
-          followUpOutcomeLabel: outcomeCfg?.label ?? null,
-          followUpStatus: getInsideSalesFollowUpStatus(opportunity, inspectionOutcomeRows),
-          callableNow: callability?.callableNow ?? true,
-          eligibleAtIso: callability?.eligibleAtIso ?? null,
-          adminHandoffDelayDays: callability?.adminHandoffDelayDays ?? null,
+          followUpOutcomeLabel: outcomeCfg?.label ?? closeOutcomeCfg?.label ?? null,
+          followUpStatus: queueState.status,
+          callableNow: queueState.callability?.callableNow ?? true,
+          eligibleAtIso: queueState.callability?.eligibleAtIso ?? null,
+          adminHandoffDelayDays:
+            queueState.callability?.adminHandoffDelayDays ??
+            (typeof closeOutcomeCfg?.inside_sales_handoff_delay_days === 'number'
+              ? closeOutcomeCfg.inside_sales_handoff_delay_days
+              : null),
         }
       })
       .filter((opportunity: any) => opportunity.followUpKind)
