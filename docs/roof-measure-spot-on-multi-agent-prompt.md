@@ -1,5 +1,18 @@
 # Multi-agent prompt: Make ARX roof measure spot-on
 
+## Related docs
+
+| Doc | Purpose |
+|-----|---------|
+| [roof-measure-README.md](./roof-measure-README.md) | Quick start, commands, architecture |
+| [roof-measure-launch-prompt.md](./roof-measure-launch-prompt.md) | Production launch orchestration |
+| [roof-measure-launch-checklist.md](./roof-measure-launch-checklist.md) | Human QA before prod |
+| [roof-measure-accuracy-report.md](./roof-measure-accuracy-report.md) | Calibration & prelaunch gate |
+| [roof-measure-qa-TEMPLATE.md](./roof-measure-qa-TEMPLATE.md) | Browser QA report template |
+| [roof-measurement-providers.md](./roof-measurement-providers.md) | Aurora / Solo / Google vs ARX |
+
+
+
 **Status:** Wave 1 implemented in-repo (see `docs/roof-measure-accuracy-report.md`). Re-run agents only for gaps.
 
 **Copy everything below the line into a new Cursor session (or orchestrator).** Run agents in parallel where marked `PARALLEL`; respect `BLOCKED BY` order for merges.
