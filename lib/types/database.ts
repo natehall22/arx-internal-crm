@@ -22,13 +22,7 @@ export type UserRole =
 
 export type LeadStatus = 'new' | 'contacted' | 'appointment' | 'inspection' | 'estimate_sent' | 'won' | 'lost'
 
-export type CanvassDisposition =
-  | 'not_home'
-  | 'bad_roof'
-  | 'renter'
-  | 'go_back'
-  | 'hot_lead'
-  | 'not_interested'
+export type CanvassDisposition = string
 
 export type ProjectStatus = 'open' | 'in_progress' | 'on_hold' | 'complete' | 'collected'
 
