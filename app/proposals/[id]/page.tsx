@@ -962,21 +962,30 @@ export default function ProposalDetailPage() {
                     <div className="text-xs text-white uppercase">Sections</div>
                   </div>
                 </div>
-                {(measurement.ridges_lf || measurement.eaves_lf || measurement.valleys_lf) && (
-                  <div className="mt-4 pt-4 border-t border-slate-500 grid grid-cols-3 gap-4 text-center">
-                    {measurement.ridges_lf && (
+                {(measurement.ridges_lf ||
+                  measurement.hips_lf ||
+                  measurement.eaves_lf ||
+                  measurement.valleys_lf) && (
+                  <div className="mt-4 pt-4 border-t border-slate-500 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                    {measurement.ridges_lf > 0 && (
                       <div>
                         <div className="text-lg font-semibold text-white">{measurement.ridges_lf} LF</div>
                         <div className="text-xs text-white">Ridges</div>
                       </div>
                     )}
-                    {measurement.eaves_lf && (
+                    {measurement.hips_lf > 0 && (
+                      <div>
+                        <div className="text-lg font-semibold text-white">{measurement.hips_lf} LF</div>
+                        <div className="text-xs text-white">Hips</div>
+                      </div>
+                    )}
+                    {measurement.eaves_lf > 0 && (
                       <div>
                         <div className="text-lg font-semibold text-white">{measurement.eaves_lf} LF</div>
                         <div className="text-xs text-white">Eaves</div>
                       </div>
                     )}
-                    {measurement.valleys_lf && (
+                    {measurement.valleys_lf > 0 && (
                       <div>
                         <div className="text-lg font-semibold text-white">{measurement.valleys_lf} LF</div>
                         <div className="text-xs text-white">Valleys</div>

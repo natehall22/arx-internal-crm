@@ -2518,6 +2518,17 @@ export default function RoofMeasurePage() {
     if (!hasMeasuredLinework) {
       validationNotes.push('Linear footage is not auto-estimated. Draw ridge, valley, and flashing lines when those quantities are needed.')
     }
+    if (
+      facetCount >= 4 &&
+      measuredHips === 0 &&
+      measuredValleys >= 60 &&
+      measuredRidges > 0
+    ) {
+      validationNotes.push(
+        'No hip LF on a multi-section roof — hip length may be counted as ridge or valley. Re-check outlines or draw ridge/valley lines before quoting.'
+      )
+      if (confidence === 'high') confidence = 'medium'
+    }
 
     const quoteReady =
       currentFacets.length > 0 &&

@@ -133,6 +133,24 @@ describe('roof-measure-edge-classification', () => {
     expect(result.unclassified_shared_lf).toBe(0)
   })
 
+  it('ignores Solar panel-facing azimuth for interior R/H/V (uses drain bearing)', () => {
+    const facets: FacetInput[] = [
+      { ...rect('nw', -60, 0, 0, 60), facing_azimuth_degrees: 90 },
+      { ...rect('ne', 0, 0, 60, 60), facing_azimuth_degrees: 90 },
+      { ...rect('se', 0, -60, 60, 0), facing_azimuth_degrees: 90 },
+      { ...rect('sw', -60, -60, 0, 0), facing_azimuth_degrees: 90 },
+    ]
+    const withMisleadingFacing = classifyRoofEdges(facets)
+    const footprintOnly = classifyRoofEdges(
+      facets.map(({ facing_azimuth_degrees: _f, ...rest }) => rest)
+    )
+
+    expect(withMisleadingFacing.hips_lf).toBe(footprintOnly.hips_lf)
+    expect(withMisleadingFacing.ridges_lf).toBe(footprintOnly.ridges_lf)
+    expect(withMisleadingFacing.valleys_lf).toBe(footprintOnly.valleys_lf)
+    expect(withMisleadingFacing.hips_lf).toBeGreaterThan(0)
+  })
+
   it('manual ridge replaces geo and manual valley adds to geo', () => {
     const geo = classifyRoofEdges([rect('a', 0, 0, 40, 40)])
     const manualRidges = 55

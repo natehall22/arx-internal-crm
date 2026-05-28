@@ -25,7 +25,7 @@ export interface EdgeClassificationResult {
 export interface FacetInput {
   id: string
   points: RoofMeasurePoint[]
-  /** Panel-facing azimuth (Google Solar / Aurora). Used for interior ridge/hip/valley when set. */
+  /** Panel-facing azimuth (Google Solar). Display only — interior R/H/V use drain azimuth from footprint. */
   facing_azimuth_degrees?: number | null
 }
 
@@ -221,12 +221,14 @@ export function classifySharedEdge(
 
 function azimuthForInteriorEdge(
   facetId: string,
-  facingAzimuths: Map<string, number>,
+  _facingAzimuths: Map<string, number>,
   drainAzimuths: Map<string, number>
 ): number {
-  const facing = facingAzimuths.get(facetId)
+  const drain = drainAzimuths.get(facetId)
+  if (drain != null && Number.isFinite(drain)) return drain
+  const facing = _facingAzimuths.get(facetId)
   if (facing != null && Number.isFinite(facing)) return facing
-  return drainAzimuths.get(facetId)!
+  return 0
 }
 
 function classifyInteriorEdge(
