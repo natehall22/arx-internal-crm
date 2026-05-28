@@ -1,8 +1,10 @@
 import {
+  applyHeightAwareValleyHint,
   applyShortEdgeRidgeHeuristic,
   classifyRoofEdges,
   classifySharedEdge,
   computeFacetDrainAzimuth,
+  edgeCloserToLowerPlane,
   azimuthToCompassString,
   FacetInput,
   SHORT_EDGE_RIDGE_MAX_LF,
@@ -239,6 +241,91 @@ describe('roof-measure-edge-classification', () => {
     expect(withMisleadingFacing.ridges_lf).toBe(footprintOnly.ridges_lf)
     expect(withManualDrain.ridges_lf).toBe(footprintOnly.ridges_lf)
     expect(withManualDrain.valleys_lf).toBe(footprintOnly.valleys_lf)
+  })
+
+  it('edgeCloserToLowerPlane is true when shared edge hugs the lower facet', () => {
+    const lower = {
+      ...rect('lower', -80, -50, 80, 0),
+      plane_height_at_center_meters: 8,
+    }
+    const upper = {
+      ...rect('upper', -80, 0, 80, 40),
+      plane_height_at_center_meters: 14,
+    }
+    const sharedP1 = ft(0, -80)
+    const sharedP2 = ft(0, 80)
+
+    expect(edgeCloserToLowerPlane(lower, upper, sharedP1, sharedP2)).toBe(true)
+    expect(edgeCloserToLowerPlane(upper, lower, sharedP1, sharedP2)).toBe(true)
+    expect(
+      edgeCloserToLowerPlane(
+        { ...lower, plane_height_at_center_meters: 12 },
+        { ...upper, plane_height_at_center_meters: 12 },
+        sharedP1,
+        sharedP2
+      )
+    ).toBe(false)
+  })
+
+  it('applyHeightAwareValleyHint promotes ridge/hip to valley near lower plane', () => {
+    const lower: FacetInput = {
+      ...rect('lower', -80, -50, 80, 0),
+      plane_height_at_center_meters: 8,
+    }
+    const upper: FacetInput = {
+      ...rect('upper', -80, 0, 80, 40),
+      plane_height_at_center_meters: 14,
+    }
+    const sharedP1 = ft(0, -80)
+    const sharedP2 = ft(0, 80)
+
+    expect(applyHeightAwareValleyHint('ridge', lower, upper, sharedP1, sharedP2)).toBe('valley')
+    expect(applyHeightAwareValleyHint('hip', lower, upper, sharedP1, sharedP2)).toBe('valley')
+    expect(applyHeightAwareValleyHint('valley', lower, upper, sharedP1, sharedP2)).toBe('valley')
+    expect(
+      applyHeightAwareValleyHint(
+        'ridge',
+        { ...lower, plane_height_at_center_meters: undefined },
+        upper,
+        sharedP1,
+        sharedP2
+      )
+    ).toBe('ridge')
+  })
+
+  it('classifyRoofEdges uses plane height to count valley on lower-plane junction', () => {
+    const lowerBase = rect('lower', -80, -50, 80, 0)
+    const upperBase = rect('upper', -80, 0, 80, 40)
+    const manualDrain = (f: FacetInput, degrees: number): FacetInput => ({
+      ...f,
+      drain_azimuth_source: 'manual',
+      drain_azimuth_degrees: degrees,
+    })
+
+    const sharedP1 = ft(0, -80)
+    const sharedP2 = ft(0, 80)
+    expect(classifySharedEdge(sharedP1, sharedP2, 0, 180)).toBe('ridge')
+
+    const withoutHeights = classifyRoofEdges([
+      manualDrain(lowerBase, 0),
+      manualDrain(upperBase, 180),
+    ])
+    const withHeights = classifyRoofEdges([
+      {
+        ...manualDrain(lowerBase, 0),
+        plane_height_at_center_meters: 8,
+      },
+      {
+        ...manualDrain(upperBase, 180),
+        plane_height_at_center_meters: 14,
+      },
+    ])
+
+    const sharedLen = edgeLength(sharedP1, sharedP2)
+    expect(withoutHeights.ridges_lf).toBeGreaterThanOrEqual(sharedLen - 2)
+    expect(withHeights.valleys_lf).toBeGreaterThanOrEqual(sharedLen - 2)
+    expect(withHeights.ridges_lf).toBeLessThan(withoutHeights.ridges_lf)
+    expect(withHeights.unclassified_shared_lf).toBe(0)
   })
 
   it('applyShortEdgeRidgeHeuristic only overrides valley when dots agree', () => {

@@ -3,7 +3,12 @@ import path from 'node:path'
 import { classifyRoofEdges, FacetInput } from '@/lib/roof-measure-edge-classification'
 import { RoofMeasurePoint } from '@/lib/roof-measure-geometry'
 
-type RectSpec = {
+type FacetMeta = {
+  pitch_degrees?: number
+  solar_segment_index?: number
+}
+
+type RectSpec = FacetMeta & {
   id: string
   west: number
   south: number
@@ -11,7 +16,7 @@ type RectSpec = {
   north: number
 }
 
-type PointSpec = { id: string; points: [number, number][] }
+type PointSpec = FacetMeta & { id: string; points: [number, number][] }
 
 type GoldenCase = {
   id: string
@@ -45,15 +50,21 @@ function ft(
 }
 
 function toFacetInput(file: GoldenFile, spec: RectSpec | PointSpec): FacetInput {
+  const meta: Pick<FacetInput, 'pitch_degrees' | 'solar_segment_index'> = {}
+  if (spec.pitch_degrees != null) meta.pitch_degrees = spec.pitch_degrees
+  if (spec.solar_segment_index != null) meta.solar_segment_index = spec.solar_segment_index
+
   if ('points' in spec) {
     return {
       id: spec.id,
+      ...meta,
       points: spec.points.map(([n, e]) => ft(file.baseLat, file.baseLng, n, e)),
     }
   }
   const { id, west, south, east, north } = spec
   return {
     id,
+    ...meta,
     points: [
       ft(file.baseLat, file.baseLng, south, west),
       ft(file.baseLat, file.baseLng, south, east),
@@ -83,6 +94,12 @@ describe('roof-edge-golden fixtures', () => {
       }
       if (typeof t.hips_lf_min === 'number') {
         expect(r.hips_lf).toBeGreaterThanOrEqual(t.hips_lf_min)
+      }
+      if (typeof t.ridges_lf_min === 'number') {
+        expect(r.ridges_lf).toBeGreaterThanOrEqual(t.ridges_lf_min)
+      }
+      if (typeof t.valleys_lf_min === 'number') {
+        expect(r.valleys_lf).toBeGreaterThanOrEqual(t.valleys_lf_min)
       }
       expect(r.unclassified_shared_lf).toBe(0)
     })

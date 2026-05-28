@@ -268,6 +268,54 @@ function metadataDiffersForShortEdgeRidge(a: FacetInput, b: FacetInput): boolean
   )
 }
 
+function planeHeightMeters(f: FacetInput): number | null {
+  const h = f.plane_height_at_center_meters
+  return typeof h === 'number' && Number.isFinite(h) ? h : null
+}
+
+/**
+ * Shared edge sits between lower and higher facet centroids (footprint), hugging the
+ * lower plane — typical when a higher section caps a larger lower roof (valley hint).
+ */
+export function edgeCloserToLowerPlane(
+  facetA: FacetInput,
+  facetB: FacetInput,
+  p1: RoofMeasurePoint,
+  p2: RoofMeasurePoint
+): boolean {
+  const hA = planeHeightMeters(facetA)
+  const hB = planeHeightMeters(facetB)
+  if (hA == null || hB == null || hA === hB) return false
+
+  const lower = hA < hB ? facetA : facetB
+  const higher = hA < hB ? facetB : facetA
+  const mid = midpoint(p1, p2)
+  const lowerCent = centroidOfPoints(lower.points)
+  const higherCent = centroidOfPoints(higher.points)
+  const distMidLower = haversineDistanceFeet(mid, lowerCent)
+  const distMidHigher = haversineDistanceFeet(mid, higherCent)
+  const distLowerHigher = haversineDistanceFeet(lowerCent, higherCent)
+  if (distLowerHigher < 1e-6) return false
+
+  return (
+    distMidLower > distMidHigher &&
+    distMidLower < distLowerHigher
+  )
+}
+
+/** When Solar heights exist, ridge/hip on an edge hugging the lower plane → valley. */
+export function applyHeightAwareValleyHint(
+  baseType: EdgeType,
+  facetA: FacetInput,
+  facetB: FacetInput,
+  p1: RoofMeasurePoint,
+  p2: RoofMeasurePoint
+): EdgeType {
+  if (baseType !== 'ridge' && baseType !== 'hip') return baseType
+  if (!edgeCloserToLowerPlane(facetA, facetB, p1, p2)) return baseType
+  return 'valley'
+}
+
 /** Short dormer peaks: parallel auto-drain dots → valley; override to ridge when pitches/segments differ. */
 export function applyShortEdgeRidgeHeuristic(
   baseType: EdgeType,
@@ -303,7 +351,17 @@ function classifyInteriorEdge(
   const facetA = facetMap.get(ea.facetId)
   const facetB = facetMap.get(eb.facetId)
   if (!facetA || !facetB) return base
-  return applyShortEdgeRidgeHeuristic(base, lengthFt, facetA, facetB, azA, azB, ea.p1, ea.p2)
+  const withHeightHint = applyHeightAwareValleyHint(base, facetA, facetB, ea.p1, ea.p2)
+  return applyShortEdgeRidgeHeuristic(
+    withHeightHint,
+    lengthFt,
+    facetA,
+    facetB,
+    azA,
+    azB,
+    ea.p1,
+    ea.p2
+  )
 }
 
 function addInteriorLength(result: EdgeClassificationResult, type: EdgeType, lengthFt: number) {

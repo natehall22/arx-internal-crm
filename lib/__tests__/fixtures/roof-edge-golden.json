@@ -34,6 +34,50 @@
         { "id": "sw", "west": -60, "south": -60, "east": 0, "north": 0 }
       ],
       "targets": { "hips_lf_min": 1, "interior_lf_min": 1 }
+    },
+    {
+      "id": "dormer-head-ridge",
+      "facets": [
+        { "id": "main", "west": -80, "south": -50, "east": 80, "north": 10 },
+        {
+          "id": "dormer_l",
+          "pitch_degrees": 28,
+          "solar_segment_index": 1,
+          "points": [[10, -15], [10, 0], [22, 0], [18, -8]]
+        },
+        {
+          "id": "dormer_r",
+          "pitch_degrees": 32,
+          "solar_segment_index": 2,
+          "points": [[10, 0], [10, 15], [18, 8], [22, 0]]
+        }
+      ],
+      "targets": { "ridges_lf_min": 1, "valleys_lf": 0 }
+    },
+    {
+      "id": "l-valley",
+      "facets": [
+        {
+          "id": "west",
+          "pitch_degrees": 22,
+          "points": [[-40, -40], [-40, 40], [0, 35], [0, -40]]
+        },
+        {
+          "id": "east",
+          "pitch_degrees": 22,
+          "points": [[0, -40], [0, 35], [40, 40], [40, -40]]
+        }
+      ],
+      "targets": { "ridges_lf": 75, "valleys_lf": 0, "interior_lf_min": 1 }
+    },
+    {
+      "id": "t-intersection",
+      "facets": [
+        { "id": "bar_left", "west": -50, "south": 10, "east": 0, "north": 50 },
+        { "id": "bar_right", "west": 0, "south": 10, "east": 50, "north": 50 },
+        { "id": "stem", "west": -15, "south": -40, "east": 15, "north": 10 }
+      ],
+      "targets": { "ridges_lf": 40, "hips_lf": 0, "valleys_lf": 0, "interior_lf_min": 1 }
     }
   ]
 }
