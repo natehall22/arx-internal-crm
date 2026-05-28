@@ -589,7 +589,7 @@ export default function RoofMeasurePage() {
   const restoreMeasurementOverlays = (saved: MeasurementData) => {
     if (!googleMapRef.current || !window.google?.maps) return false
 
-    const restoredFacets = saved.facets.filter((facet) => facet.points?.length >= 3)
+    const restoredFacets = (saved.facets || []).filter((facet) => facet.points?.length >= 3)
     const restoredFeatures = (saved.linear_features || []).filter((feature) => feature.points?.length >= 2)
     if (restoredFacets.length === 0 && restoredFeatures.length === 0) return false
 
