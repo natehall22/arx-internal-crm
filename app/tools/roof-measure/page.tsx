@@ -387,6 +387,7 @@ export default function RoofMeasurePage() {
   }, [isDetecting])
   const [aiDraftSections, setAiDraftSections] = useState<AIDraftSection[]>([])
   const [aiNotes, setAiNotes] = useState('')
+  const [detectionDiagnostics, setDetectionDiagnostics] = useState('')
   const [showEstimateConfigModal, setShowEstimateConfigModal] = useState(false)
   const [isGeneratingEstimate, setIsGeneratingEstimate] = useState(false)
   const [generatedEstimate, setGeneratedEstimate] = useState<GeneratedEstimateResult | null>(null)
@@ -1421,6 +1422,25 @@ export default function RoofMeasurePage() {
         incomingNotes === SOLAR_BBOX_ONLY_USER_NOTES ||
         incomingNotes.includes('rough outlines only') ||
         incomingNotes.includes('rough boxes here')
+      const maskFallback =
+        typeof data.solar_mask_fallback_reason === 'string' &&
+        data.solar_mask_fallback_reason !== 'ok'
+          ? data.solar_mask_fallback_reason
+          : null
+      const dsmCoverage =
+        typeof data.dsm_coverage === 'string' ? data.dsm_coverage : null
+      const detectDiagParts: string[] = []
+      if (maskFallback) {
+        detectDiagParts.push(`Outline: satellite boxes (${maskFallback.replaceAll('_', ' ')})`)
+      }
+      if (dsmCoverage === 'unavailable') {
+        detectDiagParts.push('Elevation (DSM): unavailable for this pin')
+      } else if (dsmCoverage === 'ok') {
+        detectDiagParts.push('Elevation (DSM): sampled')
+      }
+      const detectDiag =
+        detectDiagParts.length > 0 ? detectDiagParts.join(' · ') + '.' : ''
+      setDetectionDiagnostics(detectDiag)
       setAiNotes(
         isSolarBboxOnlyNotes
           ? SOLAR_BBOX_ONLY_USER_NOTES
@@ -2819,8 +2839,16 @@ export default function RoofMeasurePage() {
                 </p>
               </div>
             )}
+            {detectionDiagnostics && facets.length > 0 && !isDetecting && (
+              <p className="text-[11px] text-amber-200/90 mb-2 rounded border border-amber-500/25 bg-amber-950/20 px-2 py-1.5">
+                {detectionDiagnostics}
+              </p>
+            )}
             {aiNotes && facets.length === 0 && !isDetecting && (
-              <p className="text-[11px] text-sky-200/90 mb-2 rounded border border-sky-500/25 bg-sky-950/20 px-2 py-1.5">{aiNotes}</p>
+              <p className="text-[11px] text-sky-200/90 mb-2 rounded border border-sky-500/25 bg-sky-950/20 px-2 py-1.5">
+                {detectionDiagnostics ? `${detectionDiagnostics} ` : ''}
+                {aiNotes}
+              </p>
             )}
 
             <div className="flex gap-2 mb-3 mt-3">

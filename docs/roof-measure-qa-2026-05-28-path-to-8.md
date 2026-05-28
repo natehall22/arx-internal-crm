@@ -2,122 +2,132 @@
 
 **Program:** `docs/prompts/roof-measure-path-to-8.md`  
 **Baseline:** `docs/roof-measure-qa-2026-05-28-final.md` (2.5D ship GO, score ~6/10)  
-**Code shipped (local):** Phase A trust UX + Phase B mask/bbox diagnostics & segment retention + Phase C1 DSM logging  
 **Prod URL:** https://arx-internal-crm.vercel.app/tools/roof-measure  
+
+---
+
+## Head engineer review — Greenway screenshot (2026-05-28 00:13)
+
+**URL:** `?opportunity_id=78248c1d-…&address=304 Greenway Dr`  
+**Screenshot:** `assets/Screenshot_2026-05-28_at_12.13.34_AM-*.png`
+
+| Phase | Verdict | Evidence |
+|-------|---------|----------|
+| **A — Trust UX** | **PASS (visual)** | 9 sections on map (not blank); **Solar applied**; **Looks good ✓**; pitch/facing on Section 1 (5/12, NW 306°); sidebar sloped sq (729 sqft §1). Save not shown — D pending. |
+| **B — Geometry** | **PARTIAL** | Still **Satellite box (rough)** (`solar_bbox`). **9 auto sections** (Google **12** segments; dedupe → 9). Target was **7** case-study planes — acceptable band (≥7) but watch overlap. **Mask path:** API diagnose → `label_budget_exceeded` + `whole_contour_pin_miss`; split planes **~184 m** off pin → mask/bbox misalignment still open. |
+| **C — DSM** | **LIKELY OK (not visible)** | Offline: `dataLayers` returns **mask + DSM** for Greenway. UI had no DSM conflict banner (C2). Prod `dsm_coverage` not yet logged in browser. |
+| **D — Save → builder** | **PENDING** | Need save after vertex align on all 9 §; confirm **~28 sq ±5%**, **~17% waste**, hip LF **~100+**, builder caps. |
+
+**Blunt score after deploy `3bc0a02`:** **~7/10** — trustworthy enough to edit; not yet “order without Roofr” until save math + mask planes or stable 7–9 bbox with &lt;2 min tweak.
+
+---
+
+## API diagnose (local key, post-fix branch)
+
+Script: `npx tsx scripts/roof-measure-mask-diagnose.ts`
+
+| Address | Solar segments | Mask layers | Mask result (before single-whole guard) |
+|---------|----------------|-------------|----------------------------------------|
+| **304 Greenway Dr** | **12** | mask + DSM yes | split pin miss (~184 m); whole contour → **1** `solar_mask_whole` |
+| **1361 Kison Ct NW** | **8** | mask + DSM yes | split pin miss (~138 m); whole contour → **1** facet |
+
+**Prod behavior:** detect prefers **solar_bbox** when mask would return only one whole-roof polygon on ≥5 segments (`single_whole_multisegment`).
 
 ---
 
 ## Score estimate
 
-| Dimension | Before (prod 2026-05-27) | After deploy (estimate) | Evidence |
-|-----------|---------------------------|-------------------------|----------|
-| Auto geometry | 4–5 | **6–7** | B2 projection/pin fix + B3 relaxed dedupe for ≥5 segments; needs prod API retest |
-| Trust UX | 5 | **7–8** | A1–A4 merged: hip LF linework note, vertex → re-review, sloped reload, map settle |
-| Save → builder | 7 | **7** (unchanged) | No save/schema changes in this PR |
-| DSM credibility | 3 | **4** (pending) | C1 structured logs; C2 already null-safe; prod smoke table below |
-| **Blunt “order without Roofr first?”** | **~6** | **~7** | **8** blocked until Greenway prod save + Concord ≥5 auto confirmed |
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+| Auto geometry | **6–7** | 9 bbox ≥7; mask planes still blocked |
+| Trust UX | **7–8** | Phase A + detection diagnostics banner |
+| Save → builder | **7** | Unchanged until D |
+| DSM | **5–6** | Layers fetch OK; sampling TBD on prod |
+| **Overall** | **~7** | D + Concord matrix → 8 |
 
 ---
 
 ## Collateral gate
 
-| NO-GO check | Status | Notes |
-|-------------|--------|-------|
-| POST rejects valid `solar_auto` + reviewed save | **PASS** | No measurements API changes |
-| Builder drops caps when R/H LF > 0 | **PASS** | Untouched |
-| Reload bypasses `slopedAreaSqft` | **PASS** | A3: `recalculateFacetFromPoints` on restore |
-| P-00093 waste <15% at 80+ hip LF | **PASS** | 38 Jest tests green |
-| Untested shared `lib/*` | **PASS** | Consumers grepped; mask/DSM only detect + tool + tests |
+| NO-GO check | Status |
+|-------------|--------|
+| POST rejects valid `solar_auto` + reviewed | **PASS** |
+| Builder caps when R/H LF > 0 | **PASS** |
+| Reload bypasses slopedAreaSqft | **PASS** |
+| P-00093 waste floor | **PASS** |
+| Untested shared lib/* | **PASS** (mask/dsm/tool only) |
 
 ---
 
-## Phase A — Trust UX (code)
+## Phase A — Trust UX
 
-| ID | Acceptance | Status |
-|----|------------|--------|
-| A1 | `hasMeasuredLinework` when hips/eaves/rakes > 0 | **PASS** |
-| A2 | Vertex edit clears `geometry_reviewed` | **PASS** |
-| A3 | Reload recomputes sloped `area_sqft` | **PASS** |
-| A4 | `loadSavedMeasurement` awaits map settle | **PASS** |
+| ID | Status |
+|----|--------|
+| A1–A4 | **PASS** (shipped `3bc0a02`) |
 
 ---
 
-## Phase B — Mask/bbox (code + prod retest required)
+## Phase B — Mask/bbox
 
-### Root cause hypotheses (pre-deploy)
+| ID | Status |
+|----|--------|
+| B1 | **PASS** — root cause documented (label budget + pin/projection on split) |
+| B2 | **IN PROGRESS** — segment cap for labeling; structure ref; whole-contour pin relax; prefer bbox over single-whole |
+| B3 | **PASS on Greenway** (9 ≥ 7); Concord retest pending |
+| B4 | **PASS** — map not blank |
 
-| Address | Hypothesis | Fix in PR |
-|---------|------------|-----------|
-| **304 Greenway Dr** | WGS84→mask pixel projection mismatch; pin vs `capture_center` | DSM-aligned `lngLatToColRow`; pin-first mask query; `solar_mask_fallback_reason` |
-| **1361 Kison Ct NW** | Over-filtering when Solar returns ≥5 segments | Relaxed dedupe / pin bypass when `segments.length >= 5` |
+### Prod matrix
 
-### Prod API matrix (human — fill after deploy)
-
-| Address | Auto sections | `facet_source` | `solar_mask_fallback_reason` | Pass? |
-|---------|---------------|----------------|------------------------------|-------|
-| 304 Greenway Dr | _ | _ | _ | _ |
-| 1361 Kison Ct NW | _ (target ≥5) | _ | _ | _ |
-| _NC job 3_ | _ | _ | _ | _ |
-| _NC job 4_ | _ | _ | _ | _ |
-| _NC job 5_ | _ | _ | _ | _ |
-
-**Greenway save criteria:** ~28 sq ±5%, ~17% waste, hip LF ~100+, builder ridge/hip cap lines.
-
-**Concord criteria:** Not blank; ≤2 manual sections vs auto; save → builder.
+| Address | Auto § | Source | `solar_mask_fallback_reason` | Pass? |
+|---------|--------|--------|-------------------------------|-------|
+| 304 Greenway Dr | **9** | `solar_bbox` | `single_whole_multisegment` (expected post-fix) | **PARTIAL** — count OK; mask plane **FAIL** |
+| 1361 Kison Ct NW | _ | _ | _ | **PENDING** |
 
 ---
 
 ## Phase C — DSM
 
-| ID | Status | Notes |
-|----|--------|-------|
-| C1 | **PARTIAL** | Structured `dataLayers:get` logs (`http_error`, `api_error`, `empty_layers`) |
-| C2 | **PASS** | `dsmPitchDisagreesWithSolar` returns false when DSM pitch null |
-
-### DSM smoke table (prod logs after deploy)
-
-| Address | `dsm_available` | `dsm_coverage` | Log reason if unavailable |
-|---------|-----------------|----------------|---------------------------|
-| Greenway | _ | _ | _ |
-| Concord | _ | _ | _ |
-| _+3 NC_ | _ | _ | _ |
-
-Target: ≥50% of 5-address table not `unavailable`.
-
----
-
-## Phase D — Deferred until prod matrix filled
-
-- [ ] Greenway save matches case study within tolerance
-- [ ] Builder caps confirmed on Pricing step
-- [ ] 10-address prod matrix complete
-- [ ] Ops sign-off one P-00093-class job
-
----
-
-## Phase E — Plane LF (staging only)
-
 | ID | Status |
 |----|--------|
-| E1 | **DEFERRED** — run after Phase B Greenway prod PASS |
-| E2 | **PASS** — `USE_PLANE_INTERSECTION_LF` off by default |
+| C1 | **PARTIAL** — structured logs + offline confirms layers for NC goldens |
+| C2 | **PASS** |
+
+| Address | mask+dsm fetch | Prod UI |
+|---------|----------------|---------|
+| Greenway | yes / yes | TBD |
+| Concord | yes / yes | TBD |
 
 ---
 
-## Machine gates (2026-05-28)
+## Phase D — Human
+
+- [ ] Greenway: Looks good on **all 9** sections after vertex align
+- [ ] Save → ~28 sq, ~17% waste, caps in builder
+- [ ] Concord: ≥5 auto, ≤2 manual
+- [ ] +3 NC jobs in matrix
+
+---
+
+## Phase E
+
+**DEFERRED** — plane LF staging after B2 + Greenway save PASS.
+
+---
+
+## Machine gates
 
 ```text
-npm run roof-measure:prelaunch  → PASS
-npm test (roof-measure pattern)  → 10 suites, 38 tests PASS
-npm run build                    → PASS
+npm run roof-measure:prelaunch  → run before merge
+npm test (roof-measure pattern)
+npm run build
 ```
 
 ---
 
-## Explicit deferrals
+## Next engineering tranche (ordered)
 
-- EagleView / Roofr / Hover integrations
-- iOS LiDAR parity
-- `google_solar` fast-path behavior change
-- Plane LF in Production
-- P1: measurements list View/Use → `?measurement_id=`
+1. **Mask GeoTIFF row/origin alignment** — split planes 130–180 m off pin (Concord/Greenway).
+2. **Prod D** — Greenway save + builder caps screenshot.
+3. **Concord** — confirm ≥5 bbox after deploy.
+4. **C1 prod** — Vercel logs `dataLayers:get` for 5 pins.
+5. **Phase E** — classify eval when D green.

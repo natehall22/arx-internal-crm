@@ -62,6 +62,7 @@ export type SolarMaskFallbackReason =
   | 'split_pin_miss'
   | 'split_quality_below_threshold'
   | 'whole_contour_pin_miss'
+  | 'single_whole_multisegment'
   | 'unexpected_error'
 
 export type SolarMaskAttemptResult = {
@@ -564,7 +565,42 @@ function facetsFromSplitMask(options: {
 }
 
 const PIN_MATCH_MAX_METERS = 24
+/** Whole-roof contour: geocode pin can sit on driveway; allow farther ring match. */
+const WHOLE_CONTOUR_PIN_MAX_METERS = 85
 const HOUSE_CLUSTER_MAX_METERS = 22
+
+function solarStructureReference(
+  segments: SolarMaskSegment[],
+  fallback: { lat: number; lng: number }
+): { lat: number; lng: number } {
+  const centers = segments
+    .map((s) => s.center)
+    .filter((c): c is { lat: number; lng: number } => Boolean(c))
+  if (centers.length === 0) return fallback
+  return centers.reduce(
+    (acc, c) => ({
+      lat: acc.lat + c.lat / centers.length,
+      lng: acc.lng + c.lng / centers.length,
+    }),
+    { lat: 0, lng: 0 }
+  )
+}
+
+/** When Voronoi label ops exceed budget, label only the largest planes (by ground area). */
+function segmentsForMaskLabeling(
+  segments: SolarMaskSegment[],
+  width: number,
+  height: number
+): SolarMaskSegment[] {
+  const withCenter = segments.filter((s) => s.center)
+  if (withCenter.length === 0) return []
+  const sorted = [...withCenter].sort(
+    (a, b) => (b.ground_area_m2 ?? b.area_m2 ?? 0) - (a.ground_area_m2 ?? a.area_m2 ?? 0)
+  )
+  let n = Math.min(sorted.length, MAX_SEGMENTS_FOR_SPLIT)
+  while (n > 1 && width * height * n > MAX_LABEL_OPS) n--
+  return sorted.slice(0, n)
+}
 
 /** Keep only facets that plausibly belong to the user’s pin; otherwise fail closed. */
 export function filterSplitFacetsByPin(
@@ -690,20 +726,22 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       })
     }
 
-    const segsPx = buildSegmentPxList(
-      segments.filter((s) => s.center).slice(0, MAX_SEGMENTS_FOR_SPLIT),
-      lngLatToColRow
-    )
+    const labelSegments = segmentsForMaskLabeling(segments, width, height)
+    const segsPx = buildSegmentPxList(labelSegments, lngLatToColRow)
 
-    const ref = { lat: referenceLat, lng: referenceLng }
-    const refPx = lngLatToColRow(referenceLat, referenceLng)
+    const pinRef = { lat: referenceLat, lng: referenceLng }
+    const structureRef = solarStructureReference(segments, pinRef)
+    const ref = structureRef
+    const refPx = lngLatToColRow(ref.lat, ref.lng)
 
     const labelBudget = width * height * Math.max(1, segsPx.length)
     if (segsPx.length === 0) {
       // Fall through to whole-roof contour below.
     } else if (labelBudget > MAX_LABEL_OPS) {
-      console.info('[solar-mask] label budget exceeded; using whole-roof contour', {
+      console.info('[solar-mask] label budget exceeded after segment cap; whole-roof contour', {
         labelBudget,
+        label_segment_count: labelSegments.length,
+        raw_segment_count: segments.length,
         ...baseDetails,
       })
     } else if (bin.some((v) => v === 1)) {
@@ -717,17 +755,20 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         segments,
         pixelToLngLat,
       })
-      const splitFiltered = filterSplitFacetsByPin(splitFacets, ref)
-      if (splitFiltered.length > 0 && splitFacetsMeetMaskQualityThreshold(splitFiltered)) {
-        return maskAttempt('ok', splitFiltered, {
+      const splitFiltered = filterSplitFacetsByPin(splitFacets, structureRef)
+      const splitFilteredPin =
+        splitFiltered.length > 0 ? splitFiltered : filterSplitFacetsByPin(splitFacets, pinRef)
+      const splitOut = splitFilteredPin.length > 0 ? splitFilteredPin : splitFiltered
+      if (splitOut.length > 0 && splitFacetsMeetMaskQualityThreshold(splitOut)) {
+        return maskAttempt('ok', splitOut, {
           ...baseDetails,
           mask_width: width,
           mask_height: height,
-          split_plane_count: splitFiltered.length,
+          split_plane_count: splitOut.length,
           path: 'split_mask_plane',
         })
       }
-      if (splitFacets.length > 0 && splitFiltered.length === 0) {
+      if (splitFacets.length > 0 && splitOut.length === 0) {
         const nearestDist =
           splitFacets.length > 0
             ? Math.min(
@@ -747,13 +788,13 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           nearest_split_m: nearestDist,
         })
         // Try whole-roof before giving up on this query.
-      } else if (splitFiltered.length > 0) {
+      } else if (splitOut.length > 0) {
         const maxSqft = Math.max(
-          ...splitFiltered.map((f) => f.estimated_sq_ft ?? planarPolygonAreaSqFt(f.lat_lng_vertices))
+          ...splitOut.map((f) => f.estimated_sq_ft ?? planarPolygonAreaSqFt(f.lat_lng_vertices))
         )
         console.info('[solar-mask] split planes below quality threshold; whole-roof fallback', {
           ...baseDetails,
-          split_filtered_count: splitFiltered.length,
+          split_filtered_count: splitOut.length,
           max_plane_sqft: maxSqft,
           min_required_sqft: MIN_PLANE_FOOTPRINT_SQFT,
         })
@@ -792,7 +833,12 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       return b.areaPx - a.areaPx
     })
 
-    const scored = scoredAll.filter((x) => x.containsPin || x.dist <= PIN_MATCH_MAX_METERS)
+    let scored = scoredAll.filter(
+      (x) => x.containsPin || x.dist <= PIN_MATCH_MAX_METERS || x.dist <= WHOLE_CONTOUR_PIN_MAX_METERS
+    )
+    if (scored.length === 0 && scoredAll.length > 0) {
+      scored = [scoredAll[0]]
+    }
     if (scored.length === 0) {
       const nearestM = scoredAll[0]?.dist ?? null
       return maskAttempt('whole_contour_pin_miss', null, {
@@ -800,6 +846,8 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         contour_rings: rings.length,
         nearest_contour_m: nearestM,
         ref_px_ok: refPx != null,
+        structure_ref_lat: structureRef.lat,
+        structure_ref_lng: structureRef.lng,
       })
     }
 

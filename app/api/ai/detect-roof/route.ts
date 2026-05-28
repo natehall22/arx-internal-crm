@@ -1391,6 +1391,23 @@ export async function POST(request: Request) {
         maskDiagnostics = resolved.maskDiagnostics
         solarReferenceForFilter = resolved.solarReferenceForFilter
         usedSolarAnchorFallback = resolved.usedSolarAnchorFallback
+
+        /** One whole-roof mask on a multi-plane building is worse than per-segment bboxes. */
+        const maskIsSingleWhole =
+          solarFacets.length === 1 &&
+          solarFacets[0]?.facet_source === 'solar_mask_whole' &&
+          solarSegments.length >= 5
+        if (maskIsSingleWhole) {
+          console.info('[detect-roof] single whole-roof mask; prefer solar_bbox for multi-segment', {
+            segment_count: solarSegments.length,
+            ...maskDiagnostics,
+          })
+          solarFacets = []
+          maskDiagnostics = {
+            ...maskDiagnostics,
+            solar_mask_fallback_reason: 'single_whole_multisegment',
+          }
+        }
       }
 
       if (solarFacets.length === 0) {
