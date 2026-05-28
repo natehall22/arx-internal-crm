@@ -23,13 +23,59 @@
 
 **Success:** Complex hip job (e.g. Greenway) has **defensible LF + waste + caps** without users learning a new tool.
 
+**Blocked until Phase 0 passes:** User still reports **no satellite outline on the map** after deploy (see below).
+
+---
+
+## Phase 0 — Satellite outline visible on map (BLOCKER — do this first)
+
+**Do not start Phase 1–4 until Phase 0 is fixed, verified on production, and signed off.**
+
+### Active production bug (user report)
+
+| Field | Value |
+|-------|--------|
+| **URL** | `arx-internal-crm.vercel.app/tools/roof-measure` |
+| **Example address** | `1361 Kison Court Northwest, Concord NC` (`1361 Kison Ct NW, Concord, NC 28027, USA`) |
+| **Symptom** | Satellite imagery loads; sidebar shows **“Satellite data for this address has rough outlines only…”** but **no blue/colored polygons** on the roof after search or **Reload outline from satellite** |
+| **Expected** | At minimum **visible draft or accepted facet polygons** (even if rough bbox quads), plus ridge/valley lines when API returns them |
+
+This is **not** a 2.5D problem — it is **detect → render** (or **API returned zero drawable facets**). Fix before plane/DSM work.
+
+### Read together
+
+- [roof-measure-missing-google-polygons.md](./roof-measure-missing-google-polygons.md) — architecture, repro matrix, hypotheses
+- [roof-measure-industry-patterns.md](../roof-measure-industry-patterns.md) — P0-1 through P0-5
+
+### Phase 0 worker tasks
+
+| ID | Task | Files |
+|----|------|--------|
+| **P0-A** | Reproduce Concord on **prod + local**; capture HAR for `POST /api/ai/detect-roof` (`facet_source`, `facets[]` length, coordinates) | — |
+| **P0-B** | If API returns `facets` but map empty: trace `detectRoofWithAI` → `autoAcceptAllDrafts` → `acceptDraftItem` → `polygonsRef.setMap`; log `acceptDraftItem: skipped` | `page.tsx` |
+| **P0-C** | If API returns **zero facets** + bbox-only note: **still draw** `solar_bbox` quads as dashed drafts (do not leave map blank); user must see *something* to drag | `detect-roof/route.ts`, `page.tsx` |
+| **P0-D** | Gate auto-detect on `mapsLoaded && googleMapRef && google.maps.geometry`; run `restoreMeasurementOverlays` after `waitForMapToSettle` on saved load | `page.tsx` |
+| **P0-E** | After **Reload outline from satellite**, user must see overlays within 10s; `isDetecting` must not clear drafts before attach completes | `page.tsx` |
+
+### Phase 0 acceptance (all required)
+
+- [ ] **Concord** (`1361 Kison Ct NW`): polygons **visible** on map after reload (rough is OK; blank is FAIL)
+- [ ] **Greenway** (`304 Greenway Dr, Huntersville NC`): polygons visible (regression)
+- [ ] Fresh address: auto-detect shows overlays without manual draw
+- [ ] Saved `measurement_id` reload: overlays redrawn
+- [ ] Console: no silent skip of **all** facets on accept
+- [ ] `npm run roof-measure:prelaunch` + `npm run build` pass
+- [ ] QA note in `docs/roof-measure-qa-YYYY-MM-DD.md` with screenshots (prod)
+
+**Phase 0 commit message pattern:** `fix(roof): show satellite outline overlays when …`
+
 ---
 
 ## Prerequisites (must be green before Phase 2+)
 
-- [ ] P0 overlay path: detect → visible polygons; saved `measurement_id` → `restoreMeasurementOverlays` on map idle ([missing-google-polygons prompt](./roof-measure-missing-google-polygons.md))
+- [x] Overlay commits on `main` (`617f2d9`, `f1e5177`, `19d8793`) — **insufficient alone** until Phase 0 acceptance passes on prod
+- [ ] **Phase 0 complete** (Concord + Greenway visible polygons)
 - [ ] `npm run roof-measure:prelaunch` + `npm run build` pass
-- [ ] `main` deployed with overlay fixes (`617f2d9`, `f1e5177`, `19d8793`+)
 
 ---
 
@@ -119,8 +165,15 @@ Feature flag: `USE_PLANE_INTERSECTION_LF` (env or constant default **false** unt
 ```
 You are implementing ARX roof measure 2.5D (NOT full 3D).
 
-Read:
-- docs/prompts/roof-measure-2.5d-implementation.md
+BLOCKER FIRST — satellite outline not visible:
+- Prod bug: 1361 Kison Ct NW, Concord NC — map loads, sidebar says "rough outlines only", NO polygons on roof after Reload outline from satellite.
+- Read docs/prompts/roof-measure-missing-google-polygons.md and Phase 0 in docs/prompts/roof-measure-2.5d-implementation.md.
+- Fix detect → draft/accept → google.maps.Polygon on map. If API returns bbox-only, STILL draw rough quads on map (never blank map + text only).
+- Verify Concord + Greenway on arx-internal-crm.vercel.app after fix. Screenshot QA doc required.
+- Do NOT start Phase 1 until Phase 0 passes.
+
+Then 2.5D (phases 1–4 only after Phase 0):
+- Read docs/prompts/roof-measure-2.5d-implementation.md
 - docs/roof-measure-industry-patterns.md
 - docs/roof-measurement-providers.md
 
@@ -129,8 +182,7 @@ Rules:
 - No Three.js, no Hover capture, no EagleView API.
 - Cite Google Solar docs for any API field you use.
 - Every phase ends with: jest roof tests, roof-measure:prelaunch, build, tsc.
-
-Start with Phase 1 only. Commit when tests pass. Do not start Phase 3 until Phase 1+2 merged and Greenway browser spot-check documented in docs/roof-measure-qa-YYYY-MM-DD.md.
+- Commit only when 100% certain for real-world use; push after Phase 0 + each phase.
 
 If planeHeightAtCenterMeters is missing from detect-roof response, add it from buildingInsights roofSegmentStats[segment_index] — do not invent fields.
 ```
@@ -141,6 +193,7 @@ If planeHeightAtCenterMeters is missing from detect-roof response, add it from b
 
 | Phase | Ship when |
 |-------|-----------|
+| **0** | **Concord + Greenway** polygons visible on prod; QA doc with screenshots |
 | 1 | Plane metadata persisted; solar pitch policy documented; tests green |
 | 2 | DSM sampled; failures graceful; no mask regression |
 | 3 | Plane LF beats or matches 2D on golden + Greenway; flag default off until ops OK |

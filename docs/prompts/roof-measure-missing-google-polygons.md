@@ -30,12 +30,13 @@ Test on **`arx-internal-crm.vercel.app/tools/roof-measure`** (logged in) **and**
 
 | # | Steps | Polygons visible? | Console / Network notes |
 |---|--------|-------------------|------------------------|
-| A | Fresh URL with `?address=` + `opportunity_id=` (e.g. Greenway) | | |
-| B | Hard refresh (Cmd+Shift+R) on same job | | |
-| C | Click **Reload outline from satellite** | | |
-| D | Job with **existing saved** `measurement_id` in URL | | |
-| E | Zoom in/out after load; pan map | | |
-| F | Second tab / port conflict (3000 vs 3001) — use **one** server | | |
+| A | **Concord NC** — `1361 Kison Ct NW, Concord, NC 28027` (user report: rough-outline note, **no map polygons**) | | |
+| B | Fresh URL with `?address=` + `opportunity_id=` (e.g. Greenway) | | |
+| C | Hard refresh (Cmd+Shift+R) on Concord | | |
+| D | Click **Reload outline from satellite** on Concord | | |
+| E | Job with **existing saved** `measurement_id` in URL | | |
+| F | Zoom in/out after load; pan map | | |
+| G | Second tab / port conflict (3000 vs 3001) — use **one** server | | |
 
 Capture screenshots + HAR for `/api/ai/detect-roof` on failure.
 
