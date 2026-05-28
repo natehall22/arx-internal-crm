@@ -25,7 +25,11 @@
         "facing_azimuth_degrees": 180,
         "suggested_azimuth_degrees": 178,
         "solar_segment_index": 0,
-        "plane_height_at_center_meters": 10.78
+        "plane_height_at_center_meters": 10.78,
+        "suggested_sloped_area_sqft": 11200,
+        "dsm_available": true,
+        "dsm_median_height_m": 10.75,
+        "pitch_suggested_from_dsm": 26.2
       },
       {
         "id": "north",
@@ -43,7 +47,9 @@
         "facing_azimuth_degrees": 0,
         "suggested_azimuth_degrees": 2,
         "solar_segment_index": 1,
-        "plane_height_at_center_meters": 10.67
+        "plane_height_at_center_meters": 10.67,
+        "suggested_sloped_area_sqft": 11200,
+        "dsm_available": false
       }
     ],
     "manual_ridges_lf": 0,
@@ -58,7 +64,9 @@
       "facing_azimuth_degrees",
       "suggested_azimuth_degrees",
       "solar_segment_index",
-      "plane_height_at_center_meters"
+      "plane_height_at_center_meters",
+      "suggested_sloped_area_sqft",
+      "dsm_available"
     ]
   }
 }

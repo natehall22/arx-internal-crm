@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { classifyRoofEdges, FacetInput } from '@/lib/roof-measure-edge-classification'
-import { RoofMeasurePoint } from '@/lib/roof-measure-geometry'
+import { RoofMeasurePoint, slopedAreaSqft } from '@/lib/roof-measure-geometry'
 import { calculateRoofWaste } from '@/lib/roof-waste-model'
 
 type RectFacet = {
@@ -14,6 +14,10 @@ type RectFacet = {
   suggested_azimuth_degrees?: number | null
   solar_segment_index?: number | null
   pitch_multiplier?: number
+  pitch_rise?: number
+  geometry_source?: string | null
+  suggested_sloped_area_sqft?: number | null
+  dsm_available?: boolean
 }
 
 type RoundtripFixture = {
@@ -130,6 +134,23 @@ describe('roof measure save/load roundtrip fixture', () => {
       avgPitchMultiplier,
     })
     expect(waste).toBeGreaterThanOrEqual(fixture.expected.suggested_waste_min)
+  })
+
+  it('prefers Google sloped area for solar_mask_plane facets in totals', () => {
+    for (const spec of fixture.measurement.facets) {
+      const flatSqft = 10000
+      const fromGoogle = slopedAreaSqft({
+        flat_area_sqft: flatSqft,
+        pitch_rise: spec.pitch_rise ?? 6,
+        suggested_sloped_area_sqft: spec.suggested_sloped_area_sqft ?? null,
+        geometry_source: spec.geometry_source ?? null,
+      })
+      const fromMultiplier = Math.round(flatSqft * (spec.pitch_multiplier ?? 1.118))
+      if (spec.geometry_source === 'solar_mask_plane' && spec.suggested_sloped_area_sqft) {
+        expect(fromGoogle).toBe(Math.round(spec.suggested_sloped_area_sqft))
+        expect(fromGoogle).not.toBe(fromMultiplier)
+      }
+    }
   })
 
   it('uses live hips/valleys for waste (not zeroed legacy path)', () => {

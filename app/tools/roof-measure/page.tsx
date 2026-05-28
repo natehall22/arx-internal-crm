@@ -293,6 +293,28 @@ function geometrySourceLabel(source: string | null | undefined): string | null {
   }
 }
 
+function pitchSourceLabel(source: RoofFacet['pitch_source']): string | null {
+  switch (source) {
+    case 'manual':
+      return 'You chose'
+    case 'solar_auto':
+      return 'Solar applied'
+    default:
+      return null
+  }
+}
+
+function sectionDisplaySlopedSqft(facet: RoofFacet, footprintScale: number): number {
+  const displayFlat = Math.round((facet.flat_area_sqft || 0) * footprintScale)
+  if (facet.pitch === 'Unset') return displayFlat
+  return slopedAreaSqft({
+    flat_area_sqft: displayFlat,
+    pitch_rise: facet.pitch_rise || 0,
+    suggested_sloped_area_sqft: facet.suggested_sloped_area_sqft ?? null,
+    geometry_source: facet.geometry_source ?? null,
+  })
+}
+
 /**
  * Same satellite frame as `/api/ai/detect-roof` when `mapBounds` is set — request it here first so vision
  * sees the exact bitmap we georeference with the live map viewport (avoids a second Static Maps fetch skew).
@@ -628,7 +650,15 @@ export default function RoofMeasurePage() {
   const restoreMeasurementOverlays = (saved: MeasurementData) => {
     if (!googleMapRef.current || !window.google?.maps) return false
 
-    const restoredFacets = (saved.facets || []).filter((facet) => facet.points?.length >= 3)
+    const restoredFacets = (saved.facets || [])
+      .filter((facet) => facet.points?.length >= 3)
+      .map((facet) => {
+        if (isConfirmedPitchSource(facet.pitch_source)) return facet
+        if (facet.pitch && facet.pitch !== 'Unset') {
+          return { ...facet, pitch_source: 'manual' as const }
+        }
+        return facet
+      })
     const restoredFeatures = (saved.linear_features || []).filter((feature) => feature.points?.length >= 2)
     if (restoredFacets.length === 0 && restoredFeatures.length === 0) return false
 
@@ -698,7 +728,12 @@ export default function RoofMeasurePage() {
 
     commitFacets(restoredFacets)
     commitLinearFeatures(restoredFeatures)
-    setMeasurements(saved)
+
+    const primaryGeometrySource =
+      restoredFacets.find((facet) => facet.geometry_source)?.geometry_source ?? null
+    facetGeometrySourceRef.current = primaryGeometrySource
+
+    updateMeasurements(restoredFacets, restoredFeatures)
     setAiDraftSections([])
     setAiNotes('')
     skipAutoDetectAfterFailureRef.current = true
@@ -734,6 +769,7 @@ export default function RoofMeasurePage() {
       if (saved) {
         const restored = restoreMeasurementOverlays(saved)
         if (restored) {
+          loadedMeasurementIdRef.current = measurementId
           return
         }
       }
@@ -748,10 +784,9 @@ export default function RoofMeasurePage() {
         setMapCenter({ lat, lng })
         focusMapOnProperty(googleMapRef.current, lat, lng)
       }
+      loadedMeasurementIdRef.current = measurementId
     } catch (error) {
       console.error('Error loading saved measurement:', error)
-    } finally {
-      loadedMeasurementIdRef.current = measurementId
     }
   }
 
@@ -1132,7 +1167,12 @@ export default function RoofMeasurePage() {
       ...facet,
       points,
       flat_area_sqft: flatAreaSqft,
-      area_sqft: Math.round(flatAreaSqft * (facet.pitch_multiplier || 1)),
+      area_sqft: slopedAreaSqft({
+        flat_area_sqft: flatAreaSqft,
+        pitch_rise: facet.pitch_rise || 0,
+        suggested_sloped_area_sqft: facet.suggested_sloped_area_sqft ?? null,
+        geometry_source: facet.geometry_source ?? null,
+      }),
       perimeter_ft: Math.round(perimeterFt),
       orientation: orientationForFacet(points, facing),
       facing_azimuth_degrees: facing,
@@ -2944,11 +2984,12 @@ export default function RoofMeasurePage() {
               <div className="space-y-2">
                 {facets.map((facet, idx) => {
                   const fpScale = measurements?.footprint_scale ?? 1
-                  const rawFlat = facet.flat_area_sqft || 0
-                  const displayFlat = Math.round(rawFlat * fpScale)
-                  const mult = facet.pitch_multiplier || 1
-                  const displaySurface =
-                    facet.pitch === 'Unset' ? displayFlat : Math.round(displayFlat * mult)
+                  const displayFlat = Math.round((facet.flat_area_sqft || 0) * fpScale)
+                  const displaySurface = sectionDisplaySlopedSqft(facet, fpScale)
+                  const dsmConflict = dsmPitchDisagreesWithSolar(
+                    facet.suggested_pitch_degrees ?? facet.pitch_degrees ?? null,
+                    facet.pitch_suggested_from_dsm ?? null
+                  )
                   return (
                   <div
                     key={facet.id}
@@ -2981,6 +3022,11 @@ export default function RoofMeasurePage() {
                         {geometrySourceLabel(facet.geometry_source) ? (
                           <span className="text-[10px] px-1.5 py-0 rounded bg-gray-800 text-gray-400 font-medium">
                             {geometrySourceLabel(facet.geometry_source)}
+                          </span>
+                        ) : null}
+                        {pitchSourceLabel(facet.pitch_source) ? (
+                          <span className="text-[10px] px-1.5 py-0 rounded bg-indigo-900/50 text-indigo-300 font-medium">
+                            {pitchSourceLabel(facet.pitch_source)}
                           </span>
                         ) : null}
                       </div>
@@ -3041,6 +3087,11 @@ export default function RoofMeasurePage() {
                           {typeof facet.suggested_pitch_degrees === 'number'
                             ? ` (${facet.suggested_pitch_degrees.toFixed(1)}°)`
                             : ''}
+                        </p>
+                      )}
+                      {dsmConflict && facet.pitch !== 'Unset' && (
+                        <p className="mt-1 text-[11px] text-amber-300">
+                          DSM elevation differs from Solar pitch by more than 3° — confirm slope manually.
                         </p>
                       )}
                       {(resolveFacingAzimuthDegrees(facet) != null || facet.orientation) && (
@@ -3153,15 +3204,26 @@ export default function RoofMeasurePage() {
               {/* Confidence indicator */}
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-gray-300">Measurements</h3>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  measurements.measurement_confidence === 'high' 
-                    ? 'bg-green-900/50 text-green-400' 
-                    : measurements.measurement_confidence === 'medium'
-                    ? 'bg-yellow-900/50 text-yellow-400'
-                    : 'bg-red-900/50 text-red-400'
-                }`}>
-                  {measurements.measurement_confidence} confidence
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {measurements.quote_ready ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-400">
+                      Quote ready
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/80 text-gray-400">
+                      Not quote ready
+                    </span>
+                  )}
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    measurements.measurement_confidence === 'high' 
+                      ? 'bg-green-900/50 text-green-400' 
+                      : measurements.measurement_confidence === 'medium'
+                      ? 'bg-yellow-900/50 text-yellow-400'
+                      : 'bg-red-900/50 text-red-400'
+                  }`}>
+                    {measurements.measurement_confidence} confidence
+                  </span>
+                </div>
               </div>
               {unresolvedPitchCount > 0 && (
                 <div className="mb-3 rounded-lg border border-amber-700/40 bg-amber-900/20 p-2">

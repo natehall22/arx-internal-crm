@@ -9,8 +9,10 @@
 import { haversineDistanceFeet, type RoofMeasurePoint } from './roof-measure-geometry'
 import {
   classifyRoofEdges,
+  RIDGE_HIP_AZIMUTH_THRESHOLD_DEG,
   SHARED_EDGE_TOLERANCE_DEG,
   type EdgeClassificationResult,
+  type EdgeType,
   type FacetInput,
 } from './roof-measure-edge-classification'
 
@@ -89,6 +91,45 @@ function dihedralAngleDeg(n1: [number, number, number], n2: [number, number, num
   return (Math.acos(clamped) * 180) / Math.PI
 }
 
+function normalizeAngleDiff(a: number, b: number): number {
+  let d = Math.abs(a - b) % 360
+  if (d > 180) d = 360 - d
+  return d
+}
+
+function facetFacingAzimuth(f: PlaneFacetInput): number | null {
+  const az = f.facing_azimuth_degrees
+  if (az == null || !Number.isFinite(az)) return null
+  return ((az % 360) + 360) % 360
+}
+
+/**
+ * Ridge/hip/valley from plane normals plus Solar facet azimuths.
+ * Normal angle alone is ambiguous (~2×pitch for both ridge and hip corners); azimuth
+ * separation disambiguates opposing facets (ridge) vs perpendicular (hip) vs parallel (valley).
+ */
+function classifySharedEdgeFromPlanes(
+  azimuthA: number | null,
+  azimuthB: number | null,
+  n1: [number, number, number],
+  n2: [number, number, number]
+): EdgeType {
+  const angle = dihedralAngleDeg(n1, n2)
+
+  if (azimuthA != null && azimuthB != null) {
+    const azDiff = normalizeAngleDiff(azimuthA, azimuthB)
+    if (angle < 25) return 'valley'
+    if (azDiff >= RIDGE_HIP_AZIMUTH_THRESHOLD_DEG) return 'ridge'
+    if (azDiff >= 45 && azDiff <= 135) return 'hip'
+  }
+
+  // Fallback when azimuth missing: coarse normal-angle buckets (legacy thresholds, fixed).
+  if (angle < 25) return 'valley'
+  if (angle >= 110) return 'ridge'
+  if (angle >= 45 && angle <= 100) return 'hip'
+  return 'valley'
+}
+
 function edgesMatch(a1: RoofMeasurePoint, a2: RoofMeasurePoint, b1: RoofMeasurePoint, b2: RoofMeasurePoint): boolean {
   const tol = SHARED_EDGE_TOLERANCE_DEG
   const eq = (p: RoofMeasurePoint, q: RoofMeasurePoint) =>
@@ -137,7 +178,12 @@ export function classifyRoofEdgesFromPlanes(facets: PlaneFacetInput[]): EdgeClas
 
       const n1: [number, number, number] = [p1[0], p1[1], p1[2]]
       const n2: [number, number, number] = [p2[0], p2[1], p2[2]]
-      const angle = dihedralAngleDeg(n1, n2)
+      const edgeType = classifySharedEdgeFromPlanes(
+        facetFacingAzimuth(facets[i]),
+        facetFacingAzimuth(facets[j]),
+        n1,
+        n2
+      )
 
       let sharedLen = 0
       const ptsA = facets[i].points
@@ -157,9 +203,9 @@ export function classifyRoofEdgesFromPlanes(facets: PlaneFacetInput[]): EdgeClas
       }
       if (sharedLen <= 0) continue
 
-      if (angle >= 155) ridges += sharedLen
-      else if (angle >= 60 && angle <= 120) hips += sharedLen
-      else if (angle < 60) valleys += sharedLen
+      if (edgeType === 'ridge') ridges += sharedLen
+      else if (edgeType === 'hip') hips += sharedLen
+      else if (edgeType === 'valley') valleys += sharedLen
     }
   }
 

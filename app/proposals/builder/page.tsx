@@ -371,6 +371,8 @@ export default function ProposalBuilderPage() {
 
   // Calculate base squares from measurement data
   const baseSquares = measurementData?.total_squares || parseFloat(urlSquares || '0')
+  const measurementWasteCategory =
+    measurementData?.raw_data?.waste_category ?? measurementData?.waste_category ?? 'N/A'
   const measuredSuggestedWaste = Number(measurementData?.suggested_waste_percent || 0)
   const effectiveWastePercent =
     savedProposalWastePercent != null
@@ -496,7 +498,7 @@ export default function ProposalBuilderPage() {
       measuredSuggestedWastePercent: measuredSuggestedWaste || null,
       effectiveWastePercent,
       wasteReason: 'User selected waste',
-      complexityTier: measurementData?.waste_category || 'N/A',
+      complexityTier: measurementWasteCategory,
       finalOrderSquaresRaw: Number(totalSquaresWithWaste.toFixed(3)),
       bundleRounding: {
         bundlesPerSquare: BUNDLES_PER_SQUARE,
@@ -517,8 +519,8 @@ export default function ProposalBuilderPage() {
     measurementData?.facet_count,
     measurementData?.predominant_pitch,
     measurementData?.ridges_lf,
-    measurementData?.waste_category,
     measurementData?.valleys_lf,
+    measurementWasteCategory,
     measuredSuggestedWaste,
     rawBundleCount,
     recommendedOrderSquares,
@@ -1310,7 +1312,7 @@ export default function ProposalBuilderPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-700">
                   <p>Measured squares before waste: <strong>{baseSquares.toFixed(2)}</strong></p>
                   <p>Waste % used: <strong>{effectiveWastePercent}%</strong></p>
-                  <p>Suggested waste / tier: <strong>{measuredSuggestedWaste || 'N/A'}% / {measurementData.waste_category || 'N/A'}</strong></p>
+                  <p>Suggested waste / tier: <strong>{measuredSuggestedWaste || 'N/A'}% / {measurementWasteCategory}</strong></p>
                   <p>Final order squares (pre-round): <strong>{totalSquaresWithWaste.toFixed(3)}</strong></p>
                   <p>Bundle rounding: <strong>{rawBundleCount.toFixed(2)}</strong> {'->'} <strong>{roundedBundles}</strong> bundles</p>
                   <p>Recommended order squares: <strong>{recommendedOrderSquares}</strong></p>
