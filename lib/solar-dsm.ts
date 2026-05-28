@@ -49,24 +49,37 @@ export async function fetchSolarDataLayerUrls(
     key: apiKey,
   })
   const url = `https://solar.googleapis.com/v1/dataLayers:get?${params}`
+  const logCtx = { lat: lat.toFixed(6), lng: lng.toFixed(6), radiusMeters: 100, view: 'IMAGERY_LAYERS' }
   const response = await fetch(url)
   if (!response.ok) {
-    console.warn('[solar-dsm] dataLayers:get failed:', response.status)
+    const bodySnippet = await response.text().catch(() => '')
+    console.warn('[solar-dsm] dataLayers:get http_error', {
+      ...logCtx,
+      status: response.status,
+      body_snippet: bodySnippet.slice(0, 200),
+    })
     return { maskUrl: null, dsmUrl: null }
   }
   const data = (await response.json().catch(() => null)) as {
     maskUrl?: string
     dsmUrl?: string
-    error?: { message?: string }
+    error?: { message?: string; code?: number }
   } | null
   if (data?.error?.message) {
-    console.warn('[solar-dsm] dataLayers error:', data.error.message)
+    console.warn('[solar-dsm] dataLayers:get api_error', {
+      ...logCtx,
+      message: data.error.message,
+      code: data.error.code ?? null,
+    })
     return { maskUrl: null, dsmUrl: null }
   }
-  return {
-    maskUrl: typeof data?.maskUrl === 'string' && data.maskUrl.length > 0 ? data.maskUrl : null,
-    dsmUrl: typeof data?.dsmUrl === 'string' && data.dsmUrl.length > 0 ? data.dsmUrl : null,
+  const maskUrl =
+    typeof data?.maskUrl === 'string' && data.maskUrl.length > 0 ? data.maskUrl : null
+  const dsmUrl = typeof data?.dsmUrl === 'string' && data.dsmUrl.length > 0 ? data.dsmUrl : null
+  if (!maskUrl && !dsmUrl) {
+    console.warn('[solar-dsm] dataLayers:get empty_layers', logCtx)
   }
+  return { maskUrl, dsmUrl }
 }
 
 async function loadDsmRaster(dsmUrl: string, apiKey: string): Promise<DsmRaster | null> {

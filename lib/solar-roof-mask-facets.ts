@@ -48,6 +48,37 @@ const MAX_VERTICES_PER_SPLIT_RING = 72
 /** Split plane contours below this footprint fail the mask-quality gate (bbox/whole fallback). */
 const MIN_PLANE_FOOTPRINT_SQFT = 35
 
+/** Structured reason when mask path does not return `solar_mask_plane` facets. */
+export type SolarMaskFallbackReason =
+  | 'ok'
+  | 'no_mask_url'
+  | 'geotiff_fetch_failed'
+  | 'geotiff_parse_failed'
+  | 'mask_too_large'
+  | 'crs_unsupported'
+  | 'no_roof_pixels'
+  | 'no_segments_with_center'
+  | 'label_budget_exceeded'
+  | 'split_pin_miss'
+  | 'split_quality_below_threshold'
+  | 'whole_contour_pin_miss'
+  | 'unexpected_error'
+
+export type SolarMaskAttemptResult = {
+  facets: SolarMaskFacetPayload[] | null
+  reason: SolarMaskFallbackReason
+  /** Diagnostic fields for logs / detect-roof response (additive). */
+  details?: Record<string, string | number | boolean | null>
+}
+
+function maskAttempt(
+  reason: SolarMaskFallbackReason,
+  facets: SolarMaskFacetPayload[] | null = null,
+  details?: Record<string, string | number | boolean | null>
+): SolarMaskAttemptResult {
+  return { facets, reason, details }
+}
+
 type SegPx = {
   segment_index: number
   col: number
@@ -192,16 +223,24 @@ type MaskRasterAndProjector = {
   lngLatToColRow: (lat: number, lng: number) => { col: number; row: number } | null
 }
 
+type MaskRasterLoadResult =
+  | { ok: true; data: MaskRasterAndProjector }
+  | { ok: false; reason: SolarMaskFallbackReason; details?: Record<string, string | number | boolean | null> }
+
 async function loadMaskRasterAndProjector(
   maskUrl: string,
   apiKey: string
-): Promise<MaskRasterAndProjector | null> {
+): Promise<MaskRasterLoadResult> {
   const fetchUrl = appendApiKeyToGeoTiffUrl(maskUrl, apiKey)
   const response = await fetch(fetchUrl)
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
     console.warn('[solar-mask] GeoTIFF fetch failed:', response.status, detail.slice(0, 200))
-    return null
+    return {
+      ok: false,
+      reason: 'geotiff_fetch_failed',
+      details: { http_status: response.status },
+    }
   }
   const arrayBuffer = await response.arrayBuffer()
   const tiff = await geotiff.fromArrayBuffer(arrayBuffer)
@@ -210,13 +249,17 @@ async function loadMaskRasterAndProjector(
   const height = image.getHeight()
   if (width * height > MAX_MASK_PIXELS) {
     console.warn('[solar-mask] mask too large:', width, height)
-    return null
+    return {
+      ok: false,
+      reason: 'mask_too_large',
+      details: { mask_width: width, mask_height: height },
+    }
   }
 
   const geoKeys = image.getGeoKeys()
   if (!geoKeys) {
     console.warn('[solar-mask] GeoTIFF missing geokeys')
-    return null
+    return { ok: false, reason: 'geotiff_parse_failed', details: { stage: 'missing_geokeys' } }
   }
 
   let projObj: ReturnType<typeof geokeysToProj4.toProj4>
@@ -224,14 +267,15 @@ async function loadMaskRasterAndProjector(
     projObj = geokeysToProj4.toProj4(geoKeys as Parameters<typeof geokeysToProj4.toProj4>[0])
   } catch (e) {
     console.warn('[solar-mask] geokeysToProj4 failed:', e)
-    return null
+    return { ok: false, reason: 'geotiff_parse_failed', details: { stage: 'geokeys_to_proj4' } }
   }
   if (projObj.errors?.CRSNotSupported != null) {
     console.warn('[solar-mask] CRS not supported for mask GeoTIFF')
-    return null
+    return { ok: false, reason: 'crs_unsupported' }
   }
 
   const toWgs84 = proj4(projObj.proj4, '+proj=longlat +datum=WGS84 +no_defs')
+  const fromWgs84 = proj4('+proj=longlat +datum=WGS84 +no_defs', projObj.proj4)
   const conv = projObj.coordinatesConversionParameters
   const [ox, oy] = image.getOrigin()
   const [rx, ry] = image.getResolution()
@@ -246,14 +290,13 @@ async function loadMaskRasterAndProjector(
     return { lat, lng }
   }
 
+  /** Match `lib/solar-dsm.ts` WGS84→raster path so segment centers align with mask pixels. */
   const lngLatToColRow = (lat: number, lng: number): { col: number; row: number } | null => {
-    if (!Number.isFinite(conv.x) || !Number.isFinite(conv.y) || conv.x === 0 || conv.y === 0) return null
     try {
-      const inv = toWgs84.inverse([lng, lat])
-      const gx = inv[0] / conv.x
-      const gy = inv[1] / conv.y
-      const col = (gx - ox) / rx
-      const row = (gy - oy) / ry
+      const projected = fromWgs84.forward([lng, lat])
+      const c = geokeysToProj4.convertCoordinates(projected[0], projected[1], 0, conv)
+      const col = (c.x - ox) / rx
+      const row = (c.y - oy) / ry
       if (!Number.isFinite(col) || !Number.isFinite(row)) return null
       return { col, row }
     } catch {
@@ -265,10 +308,13 @@ async function loadMaskRasterAndProjector(
   const band0 = rasters[0]
   if (!band0 || rasters.width !== width || rasters.height !== height) {
     console.warn('[solar-mask] failed to read mask band')
-    return null
+    return { ok: false, reason: 'geotiff_parse_failed', details: { stage: 'read_rasters' } }
   }
 
-  return { band0, width, height, pixelToLngLat, lngLatToColRow }
+  return {
+    ok: true,
+    data: { band0, width, height, pixelToLngLat, lngLatToColRow },
+  }
 }
 
 function pointInPolygonLngLat(pt: { lat: number; lng: number }, ring: { lat: number; lng: number }[]): boolean {
@@ -594,7 +640,7 @@ export function contourRingsFromMask(
 
 /**
  * Fetches Solar API roof mask GeoTIFF and builds facet polygons (no OpenAI).
- * Returns null if the mask is unavailable or could not be parsed.
+ * Returns structured `reason` when mask planes are unavailable (bbox fallback in detect-roof).
  */
 export async function tryFacetPayloadsFromSolarRoofMask(options: {
   lat: number
@@ -603,22 +649,45 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
   referenceLat: number
   referenceLng: number
   segments: SolarMaskSegment[]
-}): Promise<SolarMaskFacetPayload[] | null> {
-  const { lat, lng, apiKey, referenceLat, referenceLng, segments } = options
+  /** Optional label for diagnostics (e.g. requested_pin vs solar_anchor). */
+  querySource?: string
+}): Promise<SolarMaskAttemptResult> {
+  const { lat, lng, apiKey, referenceLat, referenceLng, segments, querySource } = options
+  const baseDetails = {
+    query_lat: lat,
+    query_lng: lng,
+    reference_lat: referenceLat,
+    reference_lng: referenceLng,
+    segment_count: segments.length,
+    query_source: querySource ?? 'unspecified',
+  }
 
   try {
     const maskUrl = await fetchDataLayersMaskUrl(lat, lng, apiKey)
-    if (!maskUrl) return null
+    if (!maskUrl) {
+      return maskAttempt('no_mask_url', null, baseDetails)
+    }
 
     const loaded = await loadMaskRasterAndProjector(maskUrl, apiKey)
-    if (!loaded) return null
+    if (!loaded.ok) {
+      return maskAttempt(loaded.reason, null, { ...baseDetails, ...loaded.details })
+    }
 
-    const { band0, width, height, pixelToLngLat, lngLatToColRow } = loaded
+    const { band0, width, height, pixelToLngLat, lngLatToColRow } = loaded.data
 
     const bin = new Uint8Array(width * height)
     for (let i = 0; i < band0.length; i++) {
       const v = band0[i]
       bin[i] = v !== 0 && Number(v) > 0 ? 1 : 0
+    }
+
+    const roofPixelCount = bin.reduce((s, v) => s + (v === 1 ? 1 : 0), 0)
+    if (roofPixelCount === 0) {
+      return maskAttempt('no_roof_pixels', null, {
+        ...baseDetails,
+        mask_width: width,
+        mask_height: height,
+      })
     }
 
     const segsPx = buildSegmentPxList(
@@ -630,11 +699,14 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
     const refPx = lngLatToColRow(referenceLat, referenceLng)
 
     const labelBudget = width * height * Math.max(1, segsPx.length)
-    if (
-      segsPx.length >= 1 &&
-      labelBudget <= MAX_LABEL_OPS &&
-      bin.some((v) => v === 1)
-    ) {
+    if (segsPx.length === 0) {
+      // Fall through to whole-roof contour below.
+    } else if (labelBudget > MAX_LABEL_OPS) {
+      console.info('[solar-mask] label budget exceeded; using whole-roof contour', {
+        labelBudget,
+        ...baseDetails,
+      })
+    } else if (bin.some((v) => v === 1)) {
       const labels = labelRoofMaskBySegments(bin, width, height, segsPx)
       const splitFacets = facetsFromSplitMask({
         bin,
@@ -647,19 +719,58 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       })
       const splitFiltered = filterSplitFacetsByPin(splitFacets, ref)
       if (splitFiltered.length > 0 && splitFacetsMeetMaskQualityThreshold(splitFiltered)) {
-        return splitFiltered
+        return maskAttempt('ok', splitFiltered, {
+          ...baseDetails,
+          mask_width: width,
+          mask_height: height,
+          split_plane_count: splitFiltered.length,
+          path: 'split_mask_plane',
+        })
       }
-      if (splitFiltered.length > 0) {
-        console.info(
-          '[solar-mask] split planes below quality threshold; falling back to whole-roof contour'
+      if (splitFacets.length > 0 && splitFiltered.length === 0) {
+        const nearestDist =
+          splitFacets.length > 0
+            ? Math.min(
+                ...splitFacets.map((f) => {
+                  const vs = f.lat_lng_vertices
+                  const c = {
+                    lat: vs.reduce((s, p) => s + p.lat, 0) / vs.length,
+                    lng: vs.reduce((s, p) => s + p.lng, 0) / vs.length,
+                  }
+                  return distanceMeters(ref, c)
+                })
+              )
+            : null
+        console.info('[solar-mask] split planes missed pin filter', {
+          ...baseDetails,
+          split_raw_count: splitFacets.length,
+          nearest_split_m: nearestDist,
+        })
+        // Try whole-roof before giving up on this query.
+      } else if (splitFiltered.length > 0) {
+        const maxSqft = Math.max(
+          ...splitFiltered.map((f) => f.estimated_sq_ft ?? planarPolygonAreaSqFt(f.lat_lng_vertices))
         )
+        console.info('[solar-mask] split planes below quality threshold; whole-roof fallback', {
+          ...baseDetails,
+          split_filtered_count: splitFiltered.length,
+          max_plane_sqft: maxSqft,
+          min_required_sqft: MIN_PLANE_FOOTPRINT_SQFT,
+        })
       }
     }
 
     let rings = contourRingsFromMask(band0, width, height)
     rings = rings.filter((r) => polygonAreaPx(r) >= MIN_RING_AREA_PX)
 
-    if (rings.length === 0) return null
+    if (rings.length === 0) {
+      return maskAttempt('no_roof_pixels', null, {
+        ...baseDetails,
+        mask_width: width,
+        mask_height: height,
+        contour_rings: 0,
+      })
+    }
 
     const scoreRing = (ring: [number, number][]) => {
       const [cx, cy] = ringCentroid(ring)
@@ -682,7 +793,15 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
     })
 
     const scored = scoredAll.filter((x) => x.containsPin || x.dist <= PIN_MATCH_MAX_METERS)
-    if (scored.length === 0) return null
+    if (scored.length === 0) {
+      const nearestM = scoredAll[0]?.dist ?? null
+      return maskAttempt('whole_contour_pin_miss', null, {
+        ...baseDetails,
+        contour_rings: rings.length,
+        nearest_contour_m: nearestM,
+        ref_px_ok: refPx != null,
+      })
+    }
 
     const picked = scored
       .slice(0, MAX_FACETS)
@@ -722,9 +841,25 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       })
     }
 
-    return out.length > 0 ? out : null
+    if (out.length > 0) {
+      return maskAttempt('ok', out, {
+        ...baseDetails,
+        mask_width: width,
+        mask_height: height,
+        whole_contour_count: out.length,
+        path: 'whole_mask_contour',
+      })
+    }
+
+    return maskAttempt('whole_contour_pin_miss', null, {
+      ...baseDetails,
+      contour_rings: rings.length,
+    })
   } catch (e) {
     console.warn('[solar-mask] unexpected error:', e)
-    return null
+    return maskAttempt('unexpected_error', null, {
+      ...baseDetails,
+      error: e instanceof Error ? e.message : 'unknown',
+    })
   }
 }

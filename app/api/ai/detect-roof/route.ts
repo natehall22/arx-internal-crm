@@ -8,7 +8,11 @@ import {
   buildSolarBboxFacetPayloads,
   SOLAR_BBOX_ONLY_USER_NOTES,
 } from '@/lib/solar-bbox-facet-payloads'
-import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
+import {
+  tryFacetPayloadsFromSolarRoofMask,
+  type SolarMaskAttemptResult,
+  type SolarMaskFallbackReason,
+} from '@/lib/solar-roof-mask-facets'
 import { isPlaceholderVisionFacet, isStackedBandVisionTrace } from '@/lib/roof-vision-quality'
 import { fetchSolarDataLayerUrls, sampleDsmForFacetVertices } from '@/lib/solar-dsm'
 
@@ -341,6 +345,17 @@ async function enrichFacetsWithDsmSamples(
   return { facets: enriched, dsm_coverage: anySample ? 'ok' : 'unavailable' }
 }
 
+/** Concord-class roofs: Google often returns ≥5 segments; relax dedupe so bbox path keeps more planes. */
+function dedupeOptsForSolarSegmentCount(segmentCount: number) {
+  if (segmentCount < 5) return undefined
+  return {
+    minFacetSqFt: 18,
+    duplicateCentroidFt: 4,
+    solarGroundSumFactor: 1.55,
+    nestedCentroidDuplicateMaxFrac: 0.06,
+  }
+}
+
 function prepareSolarBboxFacetsForResponse(
   segments: SolarRoofSegment[],
   validBounds: MapBounds | null,
@@ -351,15 +366,120 @@ function prepareSolarBboxFacetsForResponse(
   if (bboxFacets.length === 0) return { facets: [], dropped_note: null }
 
   const filtered = filterFacetsToRequestedStructure(bboxFacets, requestedCenter)
-  const candidates = filtered.length > 0 ? filtered : bboxFacets
+  /** Hip/complex roofs: pin filter can drop legitimate segment boxes — keep all Solar boxes when under-splitting. */
+  const pinFilterUnderSplit =
+    segments.length >= 5 && filtered.length > 0 && filtered.length < Math.min(5, bboxFacets.length)
+  const candidates = pinFilterUnderSplit ? bboxFacets : filtered.length > 0 ? filtered : bboxFacets
   const { facets: deduped, dropped_note } = dedupeAndCapFacetFootprints(
     candidates,
     validBounds,
-    solarGroundFootprintSqFt
+    solarGroundFootprintSqFt,
+    dedupeOptsForSolarSegmentCount(segments.length)
   )
   return {
     facets: deduped.length > 0 ? deduped : candidates,
     dropped_note,
+  }
+}
+
+function logSolarMaskAttempt(label: string, attempt: SolarMaskAttemptResult) {
+  console.info(`[detect-roof] solar mask ${label}`, {
+    reason: attempt.reason,
+    facet_count: attempt.facets?.length ?? 0,
+    ...attempt.details,
+  })
+}
+
+async function resolveSolarMaskFacets(options: {
+  mapsKey: string
+  requestedCenter: { lat: number; lng: number }
+  captureCenter: { lat: number; lng: number }
+  solarAnchor: { lat: number; lng: number } | null
+  solarAnchorDistance: number | null
+  segments: SolarRoofSegment[]
+}): Promise<{
+  facets: FacetResponsePayload[]
+  maskDiagnostics: {
+    solar_mask_fallback_reason: SolarMaskFallbackReason
+    solar_mask_attempts: Array<{ label: string; reason: SolarMaskFallbackReason; facet_count: number }>
+  }
+  solarReferenceForFilter: { lat: number; lng: number }
+  usedSolarAnchorFallback: boolean
+}> {
+  const {
+    mapsKey,
+    requestedCenter,
+    captureCenter,
+    solarAnchor,
+    solarAnchorDistance,
+    segments,
+  } = options
+
+  const attempts: Array<{ label: string; attempt: SolarMaskAttemptResult }> = []
+  const run = async (label: string, lat: number, lng: number, ref: { lat: number; lng: number }) => {
+    const attempt = await tryFacetPayloadsFromSolarRoofMask({
+      lat,
+      lng,
+      apiKey: mapsKey,
+      referenceLat: ref.lat,
+      referenceLng: ref.lng,
+      segments,
+      querySource: label,
+    })
+    attempts.push({ label, attempt })
+    logSolarMaskAttempt(label, attempt)
+    return attempt
+  }
+
+  let solarFacets: FacetResponsePayload[] = []
+  let solarReferenceForFilter = requestedCenter
+  let usedSolarAnchorFallback = false
+
+  const pinAttempt = await run('requested_pin', requestedCenter.lat, requestedCenter.lng, requestedCenter)
+  if (pinAttempt.facets && pinAttempt.facets.length > 0) {
+    solarFacets = pinAttempt.facets as FacetResponsePayload[]
+  }
+
+  if (
+    solarFacets.length === 0 &&
+    (captureCenter.lat !== requestedCenter.lat || captureCenter.lng !== requestedCenter.lng)
+  ) {
+    const captureAttempt = await run('capture_center', captureCenter.lat, captureCenter.lng, requestedCenter)
+    if (captureAttempt.facets && captureAttempt.facets.length > 0) {
+      solarFacets = captureAttempt.facets as FacetResponsePayload[]
+    }
+  }
+
+  if (
+    solarFacets.length === 0 &&
+    solarAnchor &&
+    solarAnchorDistance !== null &&
+    solarAnchorDistance <= SOLAR_ANCHOR_FALLBACK_MAX_METERS
+  ) {
+    const anchorAttempt = await run('solar_anchor', solarAnchor.lat, solarAnchor.lng, solarAnchor)
+    if (anchorAttempt.facets && anchorAttempt.facets.length > 0) {
+      solarFacets = anchorAttempt.facets as FacetResponsePayload[]
+      solarReferenceForFilter = solarAnchor
+      usedSolarAnchorFallback = true
+    }
+  }
+
+  const lastReason = attempts[attempts.length - 1]?.attempt.reason ?? 'no_mask_url'
+  const fallbackReason: SolarMaskFallbackReason =
+    solarFacets.length > 0 ? 'ok' : lastReason
+
+  return {
+    facets: solarFacets,
+    maskDiagnostics: {
+      solar_mask_fallback_reason: fallbackReason,
+      solar_mask_attempts: attempts.map(({ label, attempt }) => ({
+        label,
+        reason: attempt.reason,
+        facet_count: attempt.facets?.length ?? 0,
+      })),
+    },
+    solarReferenceForFilter,
+    usedSolarAnchorFallback,
   }
 }
 
@@ -1250,42 +1370,35 @@ export async function POST(request: Request) {
       let solarFacets: FacetResponsePayload[] = []
       let solarReferenceForFilter = requestedCenter
       let usedSolarAnchorFallback = false
+      let maskDiagnostics: {
+        solar_mask_fallback_reason: SolarMaskFallbackReason
+        solar_mask_attempts: Array<{ label: string; reason: SolarMaskFallbackReason; facet_count: number }>
+      } = {
+        solar_mask_fallback_reason: mapsKey ? 'no_mask_url' : 'no_mask_url',
+        solar_mask_attempts: [],
+      }
+
       if (mapsKey) {
-        const maskFacets = await tryFacetPayloadsFromSolarRoofMask({
-          lat: captureCenter.lat,
-          lng: captureCenter.lng,
-          apiKey: mapsKey,
-          /** Prefer outlines enclosing the pin the user actually placed (may differ slightly from Solar anchor). */
-          referenceLat: requestedCenter.lat,
-          referenceLng: requestedCenter.lng,
+        const resolved = await resolveSolarMaskFacets({
+          mapsKey,
+          requestedCenter,
+          captureCenter,
+          solarAnchor: solarContext.anchor,
+          solarAnchorDistance,
           segments: solarSegments,
         })
-        if (maskFacets && maskFacets.length > 0) {
-          solarFacets = maskFacets as FacetResponsePayload[]
-        }
-        if (
-          solarFacets.length === 0 &&
-          solarContext.anchor &&
-          solarAnchorDistance !== null &&
-          solarAnchorDistance <= SOLAR_ANCHOR_FALLBACK_MAX_METERS
-        ) {
-          const anchorMaskFacets = await tryFacetPayloadsFromSolarRoofMask({
-            lat: solarContext.anchor.lat,
-            lng: solarContext.anchor.lng,
-            apiKey: mapsKey,
-            referenceLat: solarContext.anchor.lat,
-            referenceLng: solarContext.anchor.lng,
-            segments: solarSegments,
-          })
-          if (anchorMaskFacets && anchorMaskFacets.length > 0) {
-            solarFacets = anchorMaskFacets as FacetResponsePayload[]
-            solarReferenceForFilter = solarContext.anchor
-            usedSolarAnchorFallback = true
-          }
-        }
+        solarFacets = resolved.facets
+        maskDiagnostics = resolved.maskDiagnostics
+        solarReferenceForFilter = resolved.solarReferenceForFilter
+        usedSolarAnchorFallback = resolved.usedSolarAnchorFallback
       }
 
       if (solarFacets.length === 0) {
+        console.info('[detect-roof] solar mask unavailable; using bbox fallback', {
+          ...maskDiagnostics,
+          segment_count: solarSegments.length,
+          align_with_client_map: alignWithClientMap,
+        })
         const bboxFallback = prepareSolarBboxFacetsForResponse(
           solarSegments,
           validBounds,
@@ -1325,6 +1438,7 @@ export async function POST(request: Request) {
             detection_mode: 'solar',
             openai_calls: 0,
             static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+            ...maskDiagnostics,
           })
         }
       }
@@ -1362,10 +1476,15 @@ export async function POST(request: Request) {
         const { facets: facetsOut, dropped_note } = dedupeAndCapFacetFootprints(
           fallbackTargetFacets,
           validBounds,
-          solarGroundFootprintSqFtEarly
+          solarGroundFootprintSqFtEarly,
+          dedupeOptsForSolarSegmentCount(solarSegments.length)
         )
 
         if (facetsOut.length === 0) {
+          console.info('[detect-roof] mask facets filtered to zero; bbox fallback', {
+            ...maskDiagnostics,
+            segment_count: solarSegments.length,
+          })
           const bboxFallback = prepareSolarBboxFacetsForResponse(
             solarSegments,
             validBounds,
@@ -1405,6 +1524,8 @@ export async function POST(request: Request) {
               detection_mode: 'solar',
               openai_calls: 0,
               static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+              ...maskDiagnostics,
+              solar_mask_post_filter_empty: true,
             })
           }
           return NextResponse.json({
@@ -1475,6 +1596,7 @@ export async function POST(request: Request) {
           detection_mode: 'solar',
           openai_calls: 0,
           static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+          ...maskDiagnostics,
         })
       }
 
@@ -1501,6 +1623,7 @@ export async function POST(request: Request) {
         detection_mode: 'solar',
         openai_calls: 0,
         static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+        ...maskDiagnostics,
       })
     }
 

@@ -726,14 +726,18 @@ export default function RoofMeasurePage() {
       attachPolylineEditListeners(feature.id, polyline)
     })
 
-    commitFacets(restoredFacets)
+    const facetsWithRecomputedArea = restoredFacets.map((facet) =>
+      recalculateFacetFromPoints(facet, facet.points)
+    )
+
+    commitFacets(facetsWithRecomputedArea)
     commitLinearFeatures(restoredFeatures)
 
     const primaryGeometrySource =
-      restoredFacets.find((facet) => facet.geometry_source)?.geometry_source ?? null
+      facetsWithRecomputedArea.find((facet) => facet.geometry_source)?.geometry_source ?? null
     facetGeometrySourceRef.current = primaryGeometrySource
 
-    updateMeasurements(restoredFacets, restoredFeatures)
+    updateMeasurements(facetsWithRecomputedArea, restoredFeatures)
     setAiDraftSections([])
     setAiNotes('')
     skipAutoDetectAfterFailureRef.current = true
@@ -766,7 +770,8 @@ export default function RoofMeasurePage() {
         setOpportunityId(measurement.opportunity_id)
       }
 
-      if (saved) {
+      if (saved && googleMapRef.current) {
+        await waitForMapToSettle(googleMapRef.current)
         const restored = restoreMeasurementOverlays(saved)
         if (restored) {
           loadedMeasurementIdRef.current = measurementId
@@ -1205,7 +1210,7 @@ export default function RoofMeasurePage() {
     const nextFacet = recalculateFacetFromPoints(currentFacet, points)
     const nextFacets = facetsRef.current.map((facet) =>
       facet.id === facetId
-        ? { ...nextFacet, geometry_reviewed: true, geometry_source: 'manual_corrected' }
+        ? { ...nextFacet, geometry_reviewed: false, geometry_source: 'manual_corrected' }
         : facet
     )
     commitFacets(nextFacets)
@@ -2484,7 +2489,10 @@ export default function RoofMeasurePage() {
     const measuredDripEdge = measuredEaves + measuredRakes
     const hasMeasuredLinework =
       measuredRidges > 0 ||
+      measuredHips > 0 ||
       measuredValleys > 0 ||
+      measuredEaves > 0 ||
+      measuredRakes > 0 ||
       measuredStepFlashing > 0 ||
       measuredWallFlashing > 0
     if (!hasMeasuredLinework) {
