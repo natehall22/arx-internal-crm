@@ -22,11 +22,19 @@ export interface EdgeClassificationResult {
   classifiedEdges: ClassifiedEdge[]
 }
 
+export type DrainAzimuthSource = 'footprint_auto' | 'manual' | 'solar_hint'
+
 export interface FacetInput {
   id: string
   points: RoofMeasurePoint[]
   /** Panel-facing azimuth (Google Solar). Display only — interior R/H/V use drain azimuth from footprint. */
   facing_azimuth_degrees?: number | null
+  /** Confirmed downslope (0=N, 90=E). Used when drain_azimuth_source === 'manual'. */
+  drain_azimuth_degrees?: number | null
+  drain_azimuth_source?: DrainAzimuthSource
+  plane_height_at_center_meters?: number | null
+  pitch_degrees?: number | null
+  solar_segment_index?: number | null
 }
 
 /** ~0.3 m vertex snap for hand-drawn shared edges */
@@ -40,6 +48,9 @@ export const MIN_DOT_THRESHOLD = 0.15
 
 /** |dot| below this → rake; else eave on exterior edges */
 export const EAVE_RAKE_DOT_THRESHOLD = 0.5
+
+/** Dormer head / short peak edges: prefer ridge over valley when metadata differs */
+export const SHORT_EDGE_RIDGE_MAX_LF = 12
 
 interface PolygonEdge {
   facetId: string
@@ -169,7 +180,7 @@ export function computeFacetDrainAzimuth(
   return vecToAzimuth(drainVec)
 }
 
-function buildSharedEdgeSet(facets: FacetInput[]): Set<string> {
+export function buildSharedEdgeSet(facets: Pick<FacetInput, 'id' | 'points'>[]): Set<string> {
   const allEdges: PolygonEdge[] = []
   for (const f of facets) {
     const n = f.points.length
@@ -219,30 +230,80 @@ export function classifySharedEdge(
   return azdiff >= RIDGE_HIP_AZIMUTH_THRESHOLD_DEG ? 'ridge' : 'hip'
 }
 
-function azimuthForInteriorEdge(
-  facetId: string,
-  _facingAzimuths: Map<string, number>,
-  drainAzimuths: Map<string, number>
-): number {
-  const drain = drainAzimuths.get(facetId)
-  if (drain != null && Number.isFinite(drain)) return drain
-  const facing = _facingAzimuths.get(facetId)
-  if (facing != null && Number.isFinite(facing)) return facing
-  return 0
+function resolveFacetDrainAzimuth(f: FacetInput, sharedEdgeSet: Set<string>): number {
+  if (
+    f.drain_azimuth_source === 'manual' &&
+    f.drain_azimuth_degrees != null &&
+    Number.isFinite(f.drain_azimuth_degrees)
+  ) {
+    return ((f.drain_azimuth_degrees % 360) + 360) % 360
+  }
+  return computeFacetDrainAzimuth(f.points, f.id, sharedEdgeSet)
+}
+
+function facetById(facets: FacetInput[]): Map<string, FacetInput> {
+  return new Map(facets.map((f) => [f.id, f]))
+}
+
+function metadataDiffersForShortEdgeRidge(a: FacetInput, b: FacetInput): boolean {
+  const pitchA = a.pitch_degrees
+  const pitchB = b.pitch_degrees
+  if (
+    pitchA != null &&
+    pitchB != null &&
+    Number.isFinite(pitchA) &&
+    Number.isFinite(pitchB) &&
+    pitchA !== pitchB
+  ) {
+    return true
+  }
+  const segA = a.solar_segment_index
+  const segB = b.solar_segment_index
+  return (
+    segA != null &&
+    segB != null &&
+    Number.isFinite(segA) &&
+    Number.isFinite(segB) &&
+    segA !== segB
+  )
+}
+
+/** Short dormer peaks: parallel auto-drain dots → valley; override to ridge when pitches/segments differ. */
+export function applyShortEdgeRidgeHeuristic(
+  baseType: EdgeType,
+  lengthFt: number,
+  facetA: FacetInput,
+  facetB: FacetInput,
+  azimuthA: number,
+  azimuthB: number,
+  p1: RoofMeasurePoint,
+  p2: RoofMeasurePoint
+): EdgeType {
+  if (baseType !== 'valley' || lengthFt >= SHORT_EDGE_RIDGE_MAX_LF) return baseType
+  if (!metadataDiffersForShortEdgeRidge(facetA, facetB)) return baseType
+
+  const edgeVec = normalize(vec2(p1, p2))
+  const edgeNormal = perpCCW(edgeVec)
+  const dotA = dot(azimuthToVec(azimuthA), edgeNormal)
+  const dotB = dot(azimuthToVec(azimuthB), edgeNormal)
+  if (dotA * dotB > 0) return 'ridge'
+  return baseType
 }
 
 function classifyInteriorEdge(
   ea: PolygonEdge,
   eb: PolygonEdge,
-  facingAzimuths: Map<string, number>,
-  drainAzimuths: Map<string, number>
+  drainAzimuths: Map<string, number>,
+  facetMap: Map<string, FacetInput>,
+  lengthFt: number
 ): EdgeType {
-  return classifySharedEdge(
-    ea.p1,
-    ea.p2,
-    azimuthForInteriorEdge(ea.facetId, facingAzimuths, drainAzimuths),
-    azimuthForInteriorEdge(eb.facetId, facingAzimuths, drainAzimuths)
-  )
+  const azA = drainAzimuths.get(ea.facetId) ?? 0
+  const azB = drainAzimuths.get(eb.facetId) ?? 0
+  const base = classifySharedEdge(ea.p1, ea.p2, azA, azB)
+  const facetA = facetMap.get(ea.facetId)
+  const facetB = facetMap.get(eb.facetId)
+  if (!facetA || !facetB) return base
+  return applyShortEdgeRidgeHeuristic(base, lengthFt, facetA, facetB, azA, azB, ea.p1, ea.p2)
 }
 
 function addInteriorLength(result: EdgeClassificationResult, type: EdgeType, lengthFt: number) {
@@ -267,12 +328,9 @@ export function classifyRoofEdges(facets: FacetInput[]): EdgeClassificationResul
   const sharedEdgeSet = buildSharedEdgeSet(facets)
 
   const drainAzimuths = new Map<string, number>()
-  const facingAzimuths = new Map<string, number>()
+  const facetMap = facetById(facets)
   for (const f of facets) {
-    drainAzimuths.set(f.id, computeFacetDrainAzimuth(f.points, f.id, sharedEdgeSet))
-    if (f.facing_azimuth_degrees != null && Number.isFinite(f.facing_azimuth_degrees)) {
-      facingAzimuths.set(f.id, ((f.facing_azimuth_degrees % 360) + 360) % 360)
-    }
+    drainAzimuths.set(f.id, resolveFacetDrainAzimuth(f, sharedEdgeSet))
   }
 
   const processedInterior = new Set<string>()
@@ -303,7 +361,7 @@ export function classifyRoofEdges(facets: FacetInput[]): EdgeClassificationResul
       processedInterior.add(keyB)
 
       const lengthFt = haversineDistanceFeet(ea.p1, ea.p2)
-      const type = classifyInteriorEdge(ea, eb, facingAzimuths, drainAzimuths)
+      const type = classifyInteriorEdge(ea, eb, drainAzimuths, facetMap, lengthFt)
 
       result.classifiedEdges.push({ type, lengthFt, facetIdA: ea.facetId, facetIdB: eb.facetId })
       addInteriorLength(result, type, lengthFt)

@@ -29,7 +29,7 @@ Across solar tools, a **roof face** is a single continuous sloped surface (one p
 | **Azimuth** | Compass direction the plane **faces** (solar/panel convention: where the surface normal points horizontally) |
 | **Drain direction** | Direction water runs **down** the slope — often ~180° from panel-facing azimuth on simple gable planes, but not always on complex shapes |
 
-ARX must keep **panel-facing azimuth** (Solar/Aurora) separate from **drain azimuth** (`computeFacetDrainAzimuth`). **Facing** drives the UI label and interior ridge/hip/valley when Solar (or saved) azimuth is present; **drain** is used for eave/rake and as a fallback when facing is unknown.
+ARX must keep **panel-facing azimuth** (Solar/Aurora) separate from **drain azimuth** (`computeFacetDrainAzimuth`). **Facing** is display-only (Solar panel label in the facet panel). **Confirmed downslope** — footprint auto or manual `drain_azimuth_degrees` — drives interior ridge/hip/valley and eave/rake classification.
 
 ---
 
@@ -115,7 +115,7 @@ Google does **not** give ridge/hip/valley lengths. It gives **roof segments** = 
 - **Footprint vs surface:** `flat_area_sqft` from drawn/mask polygon; `area_sqft` after user pitch via `pitchMultiplierFromRise` (same idea as sloped area, but footprint comes from drawing not Google’s plane area).  
 - **No Solar edge LF:** `classifyRoofEdges()` runs on **drawn** facet polygons only.
 
-Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same as ARX **drain** azimuth. Interior ridge/hip/valley use **facing** when `facing_azimuth_degrees` is set; drain is used for eave/rake and as the interior fallback.
+Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same as ARX **drain** azimuth. Interior ridge/hip/valley use **confirmed downslope** (footprint auto or manual `drain_azimuth_degrees`); facing is display-only and does not drive edge classification.
 
 ---
 
@@ -127,7 +127,7 @@ Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same 
 | User | Adjust vertices; assign **pitch** per facet (required before save) |
 | Face label | UI **Facing** / `orientation` = 8-wind from Solar **panel-facing** when available; else `computeFacetDrainAzimuth` (footprint guess) |
 | Areas | `flat_area_sqft` on polygon; `area_sqft` = footprint × pitch multiplier |
-| Linear LF | `classifyRoofEdges()` — interior ridge/hip/valley from **facing** when set, else drain; eave/rake from **drain** |
+| Linear LF | `classifyRoofEdges()` — interior ridge/hip/valley and eave/rake from **confirmed downslope** (footprint auto or manual `drain_azimuth_degrees`) |
 
 ### Important mismatch vs Aurora / Solo
 
@@ -136,7 +136,7 @@ Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same 
 | Face definition | 3D tilted plane | 2D lat/lng polygon + user pitch |
 | Pitch | Per-face on 3D model | User `rise/12` after draw |
 | Azimuth | Plane **faces** (solar) | Solar suggests; saved `orientation` matches **facing** when azimuth is known, else drain 8-wind |
-| Ridge/hip/valley | Typed on 3D edges | Inferred from 2D adjacency; interior uses **facing** when set, else drain |
+| Ridge/hip/valley | Typed on 3D edges | Inferred from 2D adjacency; interior uses **confirmed downslope** (auto or manual arrow) |
 | Area | Sloped face area from model | Footprint measured; slope applied via multiplier |
 
 So ARX can match **Google/Aurora pitch and facing** on each facet, but **edge lengths** will only align with Aurora when footprints snap together the same way Aurora’s 3D faces meet — expect calibration gaps on complex hips.
@@ -148,8 +148,9 @@ So ARX can match **Google/Aurora pitch and facing** on each facet, but **edge le
 | Feature | Module / location |
 |---------|-------------------|
 | Facing azimuth from Solar | `lib/roof-face-solar-alignment.ts`, facet fields in `page.tsx` |
-| Interior edge LF uses facing when set | `classifyRoofEdges` + `facing_azimuth_degrees` on `FacetInput` |
-| Drain azimuth | `computeFacetDrainAzimuth` — eave/rake + interior fallback; never labeled “Facing” in UI |
+| Interior edge LF uses confirmed downslope | `classifyRoofEdges` + `resolveFacetDrainAzimuth` (`drain_azimuth_degrees` when manual, else `computeFacetDrainAzimuth`) |
+| Facing azimuth (display only) | `facing_azimuth_degrees` on `FacetInput` — Solar panel label; not used for edge classification |
+| Drain azimuth | `computeFacetDrainAzimuth` or manual `drain_azimuth_degrees`; separate “Downslope” row in UI |
 | Classify golden tests | `lib/__tests__/fixtures/roof-edge-golden.json`, `npm run roof-measure:classify` |
 | Duplicate Solar segment warning | `updateMeasurements` validation |
 | Aurora mapper (reference only) | `lib/aurora-roof-summary-mapper.ts` |
@@ -158,7 +159,7 @@ So ARX can match **Google/Aurora pitch and facing** on each facet, but **edge le
 
 1. **Treat each drawn facet as one Solar/Aurora plane** — one pitch, one panel-facing azimuth (from Solar suggestion or manual).  
 2. **Facing shown in facet panel** — `orientation` + degrees from Solar when available.  
-3. **Use panel-facing azimuth for interior edge classification** when `facing_azimuth_degrees` is set; drain azimuth for eave/rake and hand-drawn-only facets.  
+3. **Use confirmed downslope** (footprint auto or manual drain arrow) for interior ridge/hip/valley and eave/rake; keep panel-facing azimuth for display only.  
 4. **Do not expect** 2D `classifyRoofEdges` to equal Aurora `edges_length` without 3D edge typing.  
 5. **Calibrate** with `npm run roof-measure:classify` and manual draws against `scripts/roof-measure-eval-fixtures.json`.
 

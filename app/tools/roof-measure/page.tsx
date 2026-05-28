@@ -19,6 +19,13 @@ import {
   azimuthToCompassString,
   computeFacetDrainAzimuth,
 } from '@/lib/roof-measure-edge-classification'
+import {
+  displayFacetDrainAzimuth,
+  drainSourceLabel,
+  enrichFacetDrainDefaults,
+  needsDrainReview,
+  snapAzimuthDegrees,
+} from '@/lib/roof-measure-drain-overlay'
 import { classifyRoofEdgesWithOptionalPlanes } from '@/lib/roof-plane-edge-classification'
 import { dsmPitchDisagreesWithSolar } from '@/lib/solar-dsm'
 import {
@@ -65,6 +72,9 @@ interface RoofFacet {
   orientation: string         // 8-wind facing (Solar/Aurora convention when known)
   facing_azimuth_degrees?: number | null
   suggested_azimuth_degrees?: number | null
+  drain_azimuth_degrees?: number | null
+  drain_azimuth_source?: 'footprint_auto' | 'manual' | 'solar_hint'
+  suggested_drain_azimuth_degrees?: number | null
   section_type?: SectionType  // Optional classification for multi-level roofs
   suggested_pitch?: string | null
   suggested_pitch_degrees?: number | null
@@ -128,6 +138,7 @@ interface MeasurementData {
   linear_review_status?: 'measured' | 'missing'
   measurement_confidence: 'high' | 'medium' | 'low'
   validation_notes: string[]
+  unclassified_shared_lf?: number
 }
 
 interface AIDraftSection {
@@ -219,6 +230,9 @@ const LINEAR_FEATURE_LABELS: Record<string, string> = {
   valley: 'Valley',
   custom: 'Custom line',
 }
+
+/** Map arrow length from facet centroid to downslope tip (meters). */
+const DRAIN_ARROW_LENGTH_METERS = 7
 
 const SECTION_TYPE_OPTIONS: Array<{ value: SectionType; label: string }> = [
   { value: 'main_roof', label: 'Main Roof' },
@@ -353,6 +367,7 @@ export default function RoofMeasurePage() {
   const drawingManagerRef = useRef<any>(null)
   const polygonsRef = useRef<Map<string, any>>(new Map())
   const labelsRef = useRef<Map<string, any>>(new Map())
+  const drainOverlaysRef = useRef<{ polyline: any; tipMarker: any | null } | null>(null)
   const aiDraftPolygonsRef = useRef<Map<string, any>>(new Map())
   const aiDraftBoundaryRef = useRef<Map<string, any>>(new Map())
   const aiDraftLinesRef = useRef<Map<string, any>>(new Map())
@@ -369,6 +384,7 @@ export default function RoofMeasurePage() {
   const [mapCenter, setMapCenter] = useState({ lat: 32.7767, lng: -96.7970 })
   const [facets, setFacets] = useState<RoofFacet[]>([])
   const [selectedFacet, setSelectedFacet] = useState<string | null>(null)
+  const [isAdjustingDrain, setIsAdjustingDrain] = useState(false)
   const [isDrawing, setIsDrawing] = useState(false)
   const [showPitchModal, setShowPitchModal] = useState(false)
   const [pendingFacet, setPendingFacet] = useState<Partial<RoofFacet> | null>(null)
@@ -467,6 +483,32 @@ export default function RoofMeasurePage() {
     linearFeaturesRef.current = nextFeatures
     setLinearFeatures(nextFeatures)
   }
+
+  const selectFacet = (facetId: string | null) => {
+    setIsAdjustingDrain(false)
+    setSelectedFacet(facetId)
+  }
+
+  const clearDrainOverlay = () => {
+    const overlay = drainOverlaysRef.current
+    if (!overlay) return
+    overlay.polyline?.setMap(null)
+    overlay.tipMarker?.setMap(null)
+    drainOverlaysRef.current = null
+  }
+
+  const enrichAllFacetsWithDrainDefaults = (input: RoofFacet[]): RoofFacet[] =>
+    input.map((facet) => enrichFacetDrainDefaults(facet, input))
+
+  const getDrainReviewContext = (m: MeasurementData | null) => ({
+    measurementConfidence: m?.measurement_confidence,
+    validationNotes: m?.validation_notes,
+    unclassifiedSharedLf: m?.unclassified_shared_lf,
+    hipsLf: m?.hips_lf,
+    valleysLf: m?.valleys_lf,
+    ridgesLf: m?.ridges_lf,
+    facetCount: m?.facet_count,
+  })
 
   useEffect(() => {
     const oppId = searchParams.get('opportunity_id') || searchParams.get('opportunity')
@@ -574,7 +616,7 @@ export default function RoofMeasurePage() {
     const n = facets.length
     const prev = prevFacetCountForAutoExpandRef.current
     if (prev === 0 && n > 0 && facets[0]?.id) {
-      setSelectedFacet(facets[0].id)
+      selectFacet(facets[0].id)
       window.requestAnimationFrame(() => {
         firstSectionListItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       })
@@ -666,6 +708,7 @@ export default function RoofMeasurePage() {
     polygonsRef.current.forEach((polygon) => polygon.setMap(null))
     labelsRef.current.forEach((label) => label.setMap(null))
     polylinesRef.current.forEach((polyline) => polyline.setMap(null))
+    clearDrainOverlay()
     polygonsRef.current.clear()
     labelsRef.current.clear()
     polylinesRef.current.clear()
@@ -685,7 +728,7 @@ export default function RoofMeasurePage() {
       })
 
       polygonsRef.current.set(facet.id, polygon)
-      polygon.addListener('click', () => setSelectedFacet(facet.id))
+      polygon.addListener('click', () => selectFacet(facet.id))
       attachPolygonEditListeners(facet.id, polygon)
 
       const centroid = facet.points.reduce(
@@ -727,8 +770,8 @@ export default function RoofMeasurePage() {
       attachPolylineEditListeners(feature.id, polyline)
     })
 
-    const facetsWithRecomputedArea = restoredFacets.map((facet) =>
-      recalculateFacetFromPoints(facet, facet.points)
+    const facetsWithRecomputedArea = enrichAllFacetsWithDrainDefaults(
+      restoredFacets.map((facet) => recalculateFacetFromPoints(facet, facet.points))
     )
 
     commitFacets(facetsWithRecomputedArea)
@@ -1079,7 +1122,7 @@ export default function RoofMeasurePage() {
     commitFacets([])
     commitLinearFeatures([])
     setMeasurements(null)
-    setSelectedFacet(null)
+    selectFacet(null)
     setAiDraftSections([])
     setAiNotes('')
     facetGeometrySourceRef.current = null
@@ -1646,7 +1689,7 @@ export default function RoofMeasurePage() {
       })
 
       polygonsRef.current.set(newFacet.id, polygon)
-      polygon.addListener('click', () => setSelectedFacet(newFacet.id))
+      polygon.addListener('click', () => selectFacet(newFacet.id))
       attachPolygonEditListeners(newFacet.id, polygon)
 
       const facetIndex = facetsRef.current.length + 1
@@ -1675,7 +1718,7 @@ export default function RoofMeasurePage() {
       })
       labelsRef.current.set(newFacet.id, labelMarker)
 
-      const nextFacets = [...facetsRef.current, newFacet]
+      const nextFacets = enrichAllFacetsWithDrainDefaults([...facetsRef.current, newFacet])
       commitFacets(nextFacets)
       updateMeasurements(nextFacets, linearFeaturesRef.current)
     } else if (draft.points && draft.points.length >= 2) {
@@ -2005,7 +2048,7 @@ export default function RoofMeasurePage() {
       
       // Add click listener
       polygon.addListener('click', () => {
-        setSelectedFacet(newFacet.id)
+        selectFacet(newFacet.id)
       })
       attachPolygonEditListeners(newFacet.id, polygon)
       
@@ -2040,7 +2083,7 @@ export default function RoofMeasurePage() {
       labelsRef.current.set(newFacet.id, labelMarker)
     }
     
-    const nextFacets = [...facetsRef.current, newFacet]
+    const nextFacets = enrichAllFacetsWithDrainDefaults([...facetsRef.current, newFacet])
     commitFacets(nextFacets)
     setPendingFacet(null)
     setShowPitchModal(false)
@@ -2074,8 +2117,9 @@ export default function RoofMeasurePage() {
     }
     
     const newFacets = facets.filter(f => f.id !== facetId)
+    clearDrainOverlay()
     commitFacets(newFacets)
-    setSelectedFacet(null)
+    selectFacet(null)
     updateMeasurements(newFacets, linearFeaturesRef.current)
     
     // Update remaining labels to reflect new numbering
@@ -2144,6 +2188,146 @@ export default function RoofMeasurePage() {
       (acc, p) => ({ lat: acc.lat + p.lat / points.length, lng: acc.lng + p.lng / points.length }),
       { lat: 0, lng: 0 }
     )
+  }
+
+  const renderSelectedDrainOverlay = (
+    facet: RoofFacet,
+    allFacets: RoofFacet[],
+    options: { draggable?: boolean; onDragEnd?: (azimuth: number) => void } = {}
+  ) => {
+    if (!googleMapRef.current || !window.google?.maps?.geometry?.spherical) return
+
+    clearDrainOverlay()
+    const map = googleMapRef.current
+    const centroid = getFacetCentroid(facet.points)
+    const azimuth = displayFacetDrainAzimuth(facet, allFacets)
+    const tip = google.maps.geometry.spherical.computeOffset(
+      new google.maps.LatLng(centroid.lat, centroid.lng),
+      DRAIN_ARROW_LENGTH_METERS,
+      azimuth
+    )
+    const tipPoint = { lat: tip.lat(), lng: tip.lng() }
+    const color = options.draggable ? '#60A5FA' : '#9CA3AF'
+
+    const polyline = new google.maps.Polyline({
+      path: [centroid, tipPoint],
+      strokeColor: color,
+      strokeWeight: 3,
+      strokeOpacity: 0.95,
+      map,
+      clickable: false,
+      icons: [
+        {
+          icon: {
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            scale: 4,
+            fillColor: color,
+            fillOpacity: 1,
+            strokeColor: color,
+            strokeWeight: 1,
+          },
+          offset: '100%',
+        },
+      ],
+    })
+
+    let tipMarker: any | null = null
+    if (options.draggable) {
+      tipMarker = new google.maps.Marker({
+        position: tipPoint,
+        map,
+        draggable: true,
+        title: 'Drag toward eave (low side)',
+        icon: {
+          path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+          scale: 5,
+          fillColor: '#60A5FA',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 1,
+          rotation: azimuth,
+        },
+      })
+      tipMarker.addListener('drag', () => {
+        const pos = tipMarker.getPosition()
+        if (!pos) return
+        polyline.setPath([centroid, { lat: pos.lat(), lng: pos.lng() }])
+        const heading = google.maps.geometry.spherical.computeHeading(
+          new google.maps.LatLng(centroid.lat, centroid.lng),
+          pos
+        )
+        tipMarker.setIcon({
+          path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+          scale: 5,
+          fillColor: '#60A5FA',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 1,
+          rotation: heading,
+        })
+      })
+      tipMarker.addListener('dragend', () => {
+        const pos = tipMarker.getPosition()
+        if (!pos) return
+        const heading = google.maps.geometry.spherical.computeHeading(
+          new google.maps.LatLng(centroid.lat, centroid.lng),
+          pos
+        )
+        options.onDragEnd?.(snapAzimuthDegrees(heading, 15))
+      })
+    }
+
+    drainOverlaysRef.current = { polyline, tipMarker }
+  }
+
+  const commitManualDrainAzimuth = (facetId: string, azimuth: number) => {
+    const nextFacets = facetsRef.current.map((facet) =>
+      facet.id === facetId
+        ? {
+            ...facet,
+            drain_azimuth_degrees: snapAzimuthDegrees(azimuth, 15),
+            drain_azimuth_source: 'manual' as const,
+          }
+        : facet
+    )
+    commitFacets(nextFacets)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
+  }
+
+  const resetFacetDrainToAuto = (facetId: string) => {
+    const nextFacets = facetsRef.current.map((facet) =>
+      facet.id === facetId
+        ? {
+            ...facet,
+            drain_azimuth_degrees: null,
+            drain_azimuth_source: 'footprint_auto' as const,
+          }
+        : facet
+    )
+    commitFacets(nextFacets)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
+    setIsAdjustingDrain(false)
+  }
+
+  const setFacetDrainMode = (facetId: string, mode: 'auto' | 'manual') => {
+    if (mode === 'auto') {
+      resetFacetDrainToAuto(facetId)
+      return
+    }
+    const facet = facetsRef.current.find((item) => item.id === facetId)
+    if (!facet) return
+    const azimuth = displayFacetDrainAzimuth(facet, facetsRef.current)
+    const nextFacets = facetsRef.current.map((item) =>
+      item.id === facetId
+        ? {
+            ...item,
+            drain_azimuth_degrees: azimuth,
+            drain_azimuth_source: 'manual' as const,
+          }
+        : item
+    )
+    commitFacets(nextFacets)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
   }
 
   const getDistanceFeet = (a: Point, b: Point): number => {
@@ -2269,7 +2453,7 @@ export default function RoofMeasurePage() {
     }
     
     // ============================================================
-    // LINEAR FOOTAGE — 2D edge graph; interior types use Solar facing azimuth when set.
+    // LINEAR FOOTAGE — 2D edge graph uses footprint drain azimuth; 2.5D plane path uses facing+pitch when flag on.
     // ============================================================
 
     const geoEdges = classifyRoofEdgesWithOptionalPlanes(
@@ -2280,6 +2464,9 @@ export default function RoofMeasurePage() {
         pitch_degrees: f.pitch_degrees,
         suggested_pitch_degrees: f.suggested_pitch_degrees,
         plane_height_at_center_meters: f.plane_height_at_center_meters ?? null,
+        solar_segment_index: f.solar_segment_index ?? null,
+        drain_azimuth_degrees: f.drain_azimuth_degrees ?? null,
+        drain_azimuth_source: f.drain_azimuth_source,
       })),
       USE_PLANE_INTERSECTION_LF
     )
@@ -2530,6 +2717,24 @@ export default function RoofMeasurePage() {
       if (confidence === 'high') confidence = 'medium'
     }
 
+    const drainReviewContext = {
+      measurementConfidence: confidence,
+      validationNotes,
+      unclassifiedSharedLf: geoEdges.unclassified_shared_lf,
+      hipsLf: measuredHips,
+      valleysLf: measuredValleys,
+      ridgesLf: measuredRidges,
+      facetCount,
+    }
+    const facetsPendingDrainReview = currentFacets.filter(
+      (facet) => needsDrainReview(facet, drainReviewContext) && facet.drain_azimuth_source !== 'manual'
+    )
+    if (facetsPendingDrainReview.length > 0) {
+      validationNotes.push(
+        `${facetsPendingDrainReview.length} section${facetsPendingDrainReview.length === 1 ? '' : 's'} may need manual downslope for accurate ridge/hip/valley LF. Point the arrow toward the eave — not the Solar facing label.`
+      )
+    }
+
     const quoteReady =
       currentFacets.length > 0 &&
       unsetPitchFacets.length === 0 &&
@@ -2576,8 +2781,49 @@ export default function RoofMeasurePage() {
       linear_review_status: hasMeasuredLinework ? 'measured' : 'missing',
       measurement_confidence: confidence,
       validation_notes: validationNotes,
+      unclassified_shared_lf: geoEdges.unclassified_shared_lf,
     })
   }
+
+  useEffect(() => {
+    if (isDrawing || isDrawingLine || !mapsLoaded) {
+      clearDrainOverlay()
+      return
+    }
+    if (!selectedFacet) {
+      clearDrainOverlay()
+      return
+    }
+    const facet = facets.find((item) => item.id === selectedFacet)
+    if (!facet || facet.points.length < 3) {
+      clearDrainOverlay()
+      return
+    }
+
+    const reviewCtx = getDrainReviewContext(measurements)
+    const canAdjust = needsDrainReview(facet, reviewCtx)
+    const draggable = isAdjustingDrain && canAdjust
+
+    renderSelectedDrainOverlay(facet, facets, {
+      draggable,
+      onDragEnd: (azimuth) => {
+        commitManualDrainAzimuth(facet.id, azimuth)
+        setIsAdjustingDrain(false)
+      },
+    })
+
+    return () => {
+      clearDrainOverlay()
+    }
+  }, [selectedFacet, facets, isAdjustingDrain, measurements, mapsLoaded, isDrawing, isDrawingLine])
+
+  useEffect(() => {
+    const map = googleMapRef.current
+    if (!map) return
+    map.setOptions({
+      gestureHandling: isAdjustingDrain ? 'cooperative' : 'greedy',
+    })
+  }, [isAdjustingDrain, mapsLoaded])
 
   const calculatePerimeter = (points: Point[]): number => {
     if (!window.google || points.length < 2) return 0
@@ -2684,12 +2930,13 @@ export default function RoofMeasurePage() {
     // Clear polylines (linear features)
     polylinesRef.current.forEach(polyline => polyline.setMap(null))
     polylinesRef.current.clear()
+    clearDrainOverlay()
     clearAIDraftOverlays()
     
     commitFacets([])
     commitLinearFeatures([])
     setMeasurements(null)
-    setSelectedFacet(null)
+    selectFacet(null)
     setAiDraftSections([])
     setAiNotes('')
     facetGeometrySourceRef.current = null
@@ -2702,6 +2949,91 @@ export default function RoofMeasurePage() {
   const hasAnyRoofPitchSet = facets.some((f) => f.pitch && f.pitch !== 'Unset')
   const selectedFacetData = selectedFacet ? facets.find((f) => f.id === selectedFacet) ?? null : null
   const selectedFacetNumber = selectedFacetData ? facets.findIndex((f) => f.id === selectedFacetData.id) + 1 : 0
+
+  const renderFacetDrainSidebar = (facet: RoofFacet) => {
+    if (facet.points.length < 3) return null
+    const drainAz = displayFacetDrainAzimuth(facet, facets)
+    const drainCompass = azimuthToCompassString(drainAz)
+    const reviewCtx = getDrainReviewContext(measurements)
+    const showAdjust = selectedFacet === facet.id && needsDrainReview(facet, reviewCtx)
+    const tooltip = showAdjust
+      ? isAdjustingDrain
+        ? 'Drag arrow tip toward the eave. Two fingers pan the map.'
+        : 'Linear edges use downslope from outline; drag to adjust when this section needs review.'
+      : 'Linear edges use downslope from outline; auto on simple sections.'
+
+    return (
+      <div className="mt-1">
+        <p className="text-[11px] text-gray-400" title={tooltip}>
+          Downslope (water runs this way): {drainCompass} ({drainAz.toFixed(0)}°) — {drainSourceLabel(facet.drain_azimuth_source)}
+        </p>
+        {showAdjust && (
+          <div className="mt-1.5 space-y-1">
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setFacetDrainMode(facet.id, 'auto')
+                }}
+                className={`flex-1 rounded border px-2 py-1 text-[10px] ${
+                  facet.drain_azimuth_source !== 'manual'
+                    ? 'border-gray-500 bg-gray-600 text-white'
+                    : 'border-gray-600 bg-gray-700/60 text-gray-300 hover:border-gray-500'
+                }`}
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setFacetDrainMode(facet.id, 'manual')
+                  setIsAdjustingDrain(true)
+                }}
+                className={`flex-1 rounded border px-2 py-1 text-[10px] ${
+                  facet.drain_azimuth_source === 'manual'
+                    ? 'border-sky-500 bg-sky-900/40 text-sky-100'
+                    : 'border-gray-600 bg-gray-700/60 text-gray-300 hover:border-gray-500'
+                }`}
+              >
+                Manual
+              </button>
+            </div>
+            {facet.drain_azimuth_source === 'manual' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  resetFacetDrainToAuto(facet.id)
+                }}
+                className="w-full rounded border border-gray-600 bg-gray-700/60 px-2 py-1 text-[10px] text-gray-300 hover:border-gray-500"
+              >
+                Reset to auto
+              </button>
+            )}
+            {!isAdjustingDrain || selectedFacet !== facet.id ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedFacet(facet.id)
+                  setIsAdjustingDrain(true)
+                }}
+                className="w-full rounded border border-sky-600/50 bg-sky-900/25 px-2 py-1 text-[10px] font-medium text-sky-200 hover:bg-sky-900/40"
+              >
+                Adjust downslope
+              </button>
+            ) : (
+              <p className="text-[10px] text-sky-300">
+                Drag the blue arrow tip toward the eave. Two fingers pan the map.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // Show error page only for configuration errors (like missing API key)
   if (mapError && mapError.includes('API key')) {
@@ -3041,7 +3373,7 @@ export default function RoofMeasurePage() {
                   <div
                     key={facet.id}
                     ref={idx === 0 ? firstSectionListItemRef : undefined}
-                    onClick={() => setSelectedFacet(facet.id)}
+                    onClick={() => selectFacet(facet.id)}
                     className={`p-3 rounded-lg cursor-pointer transition ${
                       selectedFacet === facet.id 
                         ? 'bg-indigo-600/20 border border-indigo-500' 
@@ -3149,6 +3481,7 @@ export default function RoofMeasurePage() {
                             : ''}
                         </p>
                       )}
+                      {renderFacetDrainSidebar(facet)}
                     </div>
                     {facet.geometry_reviewed !== true && (
                       <button
@@ -3644,10 +3977,11 @@ export default function RoofMeasurePage() {
                 <p className="mt-1.5 text-[11px] text-gray-400">
                   Facing: {selectedFacetData.orientation}
                   {resolveFacingAzimuthDegrees(selectedFacetData) != null
-                    ? ` (${resolveFacingAzimuthDegrees(selectedFacetData)!.toFixed(0)}°)`
+                    ? ` (${resolveFacingAzimuthDegrees(selectedFacetData)!.toFixed(0)}° — panel direction, not drain)`
                     : ''}
                 </p>
               )}
+              {renderFacetDrainSidebar(selectedFacetData)}
               {selectedFacetData.geometry_reviewed !== true && (
                 <button
                   type="button"
@@ -3659,7 +3993,7 @@ export default function RoofMeasurePage() {
               )}
               <button
                 type="button"
-                onClick={() => setSelectedFacet(null)}
+                onClick={() => selectFacet(null)}
                 className="mt-2 w-full text-center text-[11px] text-gray-500 hover:text-gray-300"
               >
                 Close

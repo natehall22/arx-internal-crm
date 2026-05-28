@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { classifyRoofEdges, FacetInput } from '@/lib/roof-measure-edge-classification'
+import { computeSuggestedDrainAzimuth, enrichFacetDrainDefaults } from '@/lib/roof-measure-drain-overlay'
 import { RoofMeasurePoint, slopedAreaSqft } from '@/lib/roof-measure-geometry'
 import { calculateRoofWaste } from '@/lib/roof-waste-model'
 
@@ -109,10 +110,23 @@ describe('roof measure save/load roundtrip fixture', () => {
 
     const rawPayload = {
       ...fixture.measurement,
-      facets: fixture.measurement.facets.map((f) => ({
-        ...f,
-        points: toFacetInput(fixture, f).points,
-      })),
+      facets: fixture.measurement.facets.map((f) => {
+        const points = toFacetInput(fixture, f).points
+        const allSpecs = fixture.measurement.facets.map((spec) => ({
+          id: spec.id,
+          points: toFacetInput(fixture, spec).points,
+        }))
+        const suggested = computeSuggestedDrainAzimuth({ id: f.id, points }, allSpecs)
+        return enrichFacetDrainDefaults(
+          {
+            ...f,
+            points,
+            drain_azimuth_degrees: null,
+            suggested_drain_azimuth_degrees: suggested,
+          },
+          allSpecs
+        )
+      }),
       ridges_lf: ridgesLf,
       hips_lf: hipsLf,
       valleys_lf: valleysLf,

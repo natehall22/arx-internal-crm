@@ -66,7 +66,10 @@
       "solar_segment_index",
       "plane_height_at_center_meters",
       "suggested_sloped_area_sqft",
-      "dsm_available"
+      "dsm_available",
+      "drain_azimuth_degrees",
+      "drain_azimuth_source",
+      "suggested_drain_azimuth_degrees"
     ]
   }
 }

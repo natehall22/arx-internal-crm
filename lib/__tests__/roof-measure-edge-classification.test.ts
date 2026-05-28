@@ -1,9 +1,11 @@
 import {
+  applyShortEdgeRidgeHeuristic,
   classifyRoofEdges,
   classifySharedEdge,
   computeFacetDrainAzimuth,
   azimuthToCompassString,
   FacetInput,
+  SHORT_EDGE_RIDGE_MAX_LF,
 } from '@/lib/roof-measure-edge-classification'
 import { haversineDistanceFeet, RoofMeasurePoint } from '@/lib/roof-measure-geometry'
 
@@ -149,6 +151,110 @@ describe('roof-measure-edge-classification', () => {
     expect(withMisleadingFacing.ridges_lf).toBe(footprintOnly.ridges_lf)
     expect(withMisleadingFacing.valleys_lf).toBe(footprintOnly.valleys_lf)
     expect(withMisleadingFacing.hips_lf).toBeGreaterThan(0)
+  })
+
+  it('prefers ridge over valley on short dormer peak with differing pitch', () => {
+    const main = rect('main', -80, -50, 80, 10)
+    const dormerL: FacetInput = {
+      id: 'dormer_l',
+      pitch_degrees: 28,
+      solar_segment_index: 1,
+      points: [ft(10, -15), ft(10, 0), ft(22, 0), ft(18, -8)],
+    }
+    const dormerR: FacetInput = {
+      id: 'dormer_r',
+      pitch_degrees: 32,
+      solar_segment_index: 2,
+      points: [ft(10, 0), ft(10, 15), ft(18, 8), ft(22, 0)],
+    }
+    const peakP1 = ft(22, 0)
+    const peakP2 = ft(18, -8)
+    const peakLen = edgeLength(peakP1, peakP2)
+    expect(peakLen).toBeLessThan(SHORT_EDGE_RIDGE_MAX_LF)
+
+    const sharedEdgeSet = new Set(['dormer_l:2', 'dormer_r:3'])
+    const azL = computeFacetDrainAzimuth(dormerL.points, dormerL.id, sharedEdgeSet)
+    const azR = computeFacetDrainAzimuth(dormerR.points, dormerR.id, sharedEdgeSet)
+    expect(classifySharedEdge(peakP1, peakP2, azL, azR)).toBe('valley')
+
+    const result = classifyRoofEdges([main, dormerL, dormerR])
+    expect(result.ridges_lf).toBeGreaterThan(0)
+    expect(result.valleys_lf).toBe(0)
+    expect(result.unclassified_shared_lf).toBe(0)
+  })
+
+  it('keeps L-valley on long converging shared edge (same pitch, no short-edge override)', () => {
+    const west: FacetInput = {
+      id: 'west',
+      pitch_degrees: 22,
+      points: [ft(-40, -40), ft(-40, 40), ft(0, 35), ft(0, -40)],
+    }
+    const east: FacetInput = {
+      id: 'east',
+      pitch_degrees: 22,
+      points: [ft(0, -40), ft(0, 35), ft(40, 40), ft(40, -40)],
+    }
+    const valleyP1 = ft(0, -40)
+    const valleyP2 = ft(0, 35)
+    expect(edgeLength(valleyP1, valleyP2)).toBeGreaterThanOrEqual(SHORT_EDGE_RIDGE_MAX_LF)
+
+    const sharedEdgeSet = new Set(['west:2', 'east:0'])
+    const azW = computeFacetDrainAzimuth(west.points, west.id, sharedEdgeSet)
+    const azE = computeFacetDrainAzimuth(east.points, east.id, sharedEdgeSet)
+    const sharedType = classifySharedEdge(valleyP1, valleyP2, azW, azE)
+
+    const result = classifyRoofEdges([west, east])
+    if (sharedType === 'valley') {
+      expect(result.valleys_lf).toBeGreaterThan(0)
+    }
+    expect(result.unclassified_shared_lf).toBe(0)
+    expect(result.ridges_lf + result.hips_lf + result.valleys_lf).toBeGreaterThan(0)
+  })
+
+  it('uses manual drain_azimuth for interior edges instead of footprint or facing', () => {
+    const south = rect('south', -50, -50, 50, 0)
+    const north = rect('north', -50, 0, 50, 50)
+
+    const footprintOnly = classifyRoofEdges([south, north])
+    const withMisleadingFacing = classifyRoofEdges([
+      { ...south, facing_azimuth_degrees: 90 },
+      { ...north, facing_azimuth_degrees: 270 },
+    ])
+    const withManualDrain = classifyRoofEdges([
+      {
+        ...south,
+        facing_azimuth_degrees: 90,
+        drain_azimuth_source: 'manual',
+        drain_azimuth_degrees: 180,
+      },
+      {
+        ...north,
+        facing_azimuth_degrees: 270,
+        drain_azimuth_source: 'manual',
+        drain_azimuth_degrees: 0,
+      },
+    ])
+
+    expect(footprintOnly.ridges_lf).toBeGreaterThan(0)
+    expect(withMisleadingFacing.ridges_lf).toBe(footprintOnly.ridges_lf)
+    expect(withManualDrain.ridges_lf).toBe(footprintOnly.ridges_lf)
+    expect(withManualDrain.valleys_lf).toBe(footprintOnly.valleys_lf)
+  })
+
+  it('applyShortEdgeRidgeHeuristic only overrides valley when dots agree', () => {
+    const facetA: FacetInput = { id: 'a', pitch_degrees: 20, points: [] }
+    const facetB: FacetInput = { id: 'b', pitch_degrees: 30, points: [] }
+    const peakP1 = ft(22, 0)
+    const peakP2 = ft(18, -8)
+    const azL = 180
+    const azR = 180
+    expect(classifySharedEdge(peakP1, peakP2, azL, azR)).toBe('valley')
+    expect(
+      applyShortEdgeRidgeHeuristic('valley', 8, facetA, facetB, azL, azR, peakP1, peakP2)
+    ).toBe('ridge')
+    expect(
+      applyShortEdgeRidgeHeuristic('hip', 8, facetA, facetB, azL, azR, peakP1, peakP2)
+    ).toBe('hip')
   })
 
   it('manual ridge replaces geo and manual valley adds to geo', () => {
