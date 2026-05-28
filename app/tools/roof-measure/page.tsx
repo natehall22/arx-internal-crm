@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { shouldShowRoofMeasureDrawingHintsForUser } from '@/lib/permissions'
-import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
+import { ROOF_MEASURE_VISION_TRACE_ENABLED, USE_PLANE_INTERSECTION_LF } from '@/lib/roof-measure-flags'
 import { clampVisionAlignStaticZoom } from '@/lib/static-satellite-map'
 import {
   haversineDistanceFeet,
@@ -16,10 +16,11 @@ import {
   metersToFeet,
 } from '@/lib/roof-measure-geometry'
 import {
-  classifyRoofEdges,
   azimuthToCompassString,
   computeFacetDrainAzimuth,
 } from '@/lib/roof-measure-edge-classification'
+import { classifyRoofEdgesWithOptionalPlanes } from '@/lib/roof-plane-edge-classification'
+import { dsmPitchDisagreesWithSolar } from '@/lib/solar-dsm'
 import {
   facingCompassFromAzimuthDegrees,
   normalizeAzimuthDegrees,
@@ -70,6 +71,9 @@ interface RoofFacet {
   solar_segment_index?: number | null
   plane_height_at_center_meters?: number | null
   suggested_sloped_area_sqft?: number | null
+  dsm_median_height_m?: number | null
+  pitch_suggested_from_dsm?: number | null
+  dsm_available?: boolean
   pitch_source?: 'manual' | 'unknown' | 'solar_auto'
   geometry_source?: string | null
   geometry_reviewed?: boolean
@@ -139,6 +143,9 @@ interface AIDraftSection {
   solar_segment_index?: number | null
   plane_height_at_center_meters?: number | null
   suggested_sloped_area_sqft?: number | null
+  dsm_median_height_m?: number | null
+  pitch_suggested_from_dsm?: number | null
+  dsm_available?: boolean
   facet_source?: string | null
   status: 'pending' | 'accepted' | 'rejected'
 }
@@ -265,6 +272,25 @@ const getClosestPitchOption = (degrees: number | null | undefined) => {
     if (!closest) return option
     return Math.abs(option.degrees - degrees) < Math.abs(closest.degrees - degrees) ? option : closest
   }, null as (typeof PITCH_OPTIONS)[number] | null)
+}
+
+function geometrySourceLabel(source: string | null | undefined): string | null {
+  switch (source) {
+    case 'solar_mask_plane':
+      return 'Satellite mask (planes)'
+    case 'solar_bbox':
+      return 'Satellite box (rough)'
+    case 'solar_mask_whole':
+      return 'Satellite mask (whole roof)'
+    case 'manual_draw':
+      return 'Hand-drawn'
+    case 'manual_corrected':
+      return 'Edited outline'
+    case 'ai_draft':
+      return 'Satellite draft'
+    default:
+      return source ? String(source).replaceAll('_', ' ') : null
+  }
 }
 
 /**
@@ -1306,6 +1332,13 @@ export default function RoofMeasurePage() {
           typeof facet.suggested_sloped_area_sqft === 'number'
             ? Number(facet.suggested_sloped_area_sqft)
             : null,
+        dsm_median_height_m:
+          typeof facet.dsm_median_height_m === 'number' ? Number(facet.dsm_median_height_m) : null,
+        pitch_suggested_from_dsm:
+          typeof facet.pitch_suggested_from_dsm === 'number'
+            ? Number(facet.pitch_suggested_from_dsm)
+            : null,
+        dsm_available: facet.dsm_available === true,
         id: facet.id || `ai_facet_${idx + 1}`,
         type: 'facet',
         points: (facet.lat_lng_vertices || []).map((p: any) => [Number(p.lat), Number(p.lng)] as [number, number]),
@@ -1521,6 +1554,11 @@ export default function RoofMeasurePage() {
           typeof draft.suggested_sloped_area_sqft === 'number'
             ? draft.suggested_sloped_area_sqft
             : null,
+        dsm_median_height_m:
+          typeof draft.dsm_median_height_m === 'number' ? draft.dsm_median_height_m : null,
+        pitch_suggested_from_dsm:
+          typeof draft.pitch_suggested_from_dsm === 'number' ? draft.pitch_suggested_from_dsm : null,
+        dsm_available: draft.dsm_available === true,
         orientation: calculateOrientation(points, facingAz),
         section_type: 'main_roof',
         suggested_pitch: draft.suggested_pitch || null,
@@ -2169,12 +2207,16 @@ export default function RoofMeasurePage() {
     // LINEAR FOOTAGE — 2D edge graph; interior types use Solar facing azimuth when set.
     // ============================================================
 
-    const geoEdges = classifyRoofEdges(
+    const geoEdges = classifyRoofEdgesWithOptionalPlanes(
       currentFacets.map((f) => ({
         id: f.id,
         points: f.points,
         facing_azimuth_degrees: resolveFacingAzimuthDegrees(f),
-      }))
+        pitch_degrees: f.pitch_degrees,
+        suggested_pitch_degrees: f.suggested_pitch_degrees,
+        plane_height_at_center_meters: f.plane_height_at_center_meters ?? null,
+      })),
+      USE_PLANE_INTERSECTION_LF
     )
 
     const manualRidges = features
@@ -2260,6 +2302,20 @@ export default function RoofMeasurePage() {
     
     // Calculate measurement confidence
     let confidence: 'high' | 'medium' | 'low' = 'high'
+
+    const dsmPitchConflicts = currentFacets.filter((facet) =>
+      dsmPitchDisagreesWithSolar(
+        facet.suggested_pitch_degrees ?? facet.pitch_degrees ?? null,
+        facet.pitch_suggested_from_dsm ?? null
+      )
+    )
+    if (dsmPitchConflicts.length > 0) {
+      validationNotes.push(
+        `DSM elevation suggests a different slope on ${dsmPitchConflicts.length} section${dsmPitchConflicts.length === 1 ? '' : 's'} (>3° from Solar). Confirm pitch manually.`
+      )
+      confidence = 'medium'
+    }
+
     if (facetCount === 1) {
       confidence = 'medium'
       validationNotes.push('Single roof section—consider splitting into multiple sections if the house has several distinct planes.')
@@ -2469,7 +2525,7 @@ export default function RoofMeasurePage() {
     }
     if (facets.some((facet) => !isConfirmedPitchSource(facet.pitch_source))) {
       alert(
-        'Confirm roof pitch on every section before saving. Choose a pitch or accept the Solar suggestion with “Looks good ✓”.'
+        'Confirm roof pitch on every section before saving. Choose a pitch from the dropdown, or keep the Solar suggestion applied on load.'
       )
       return
     }
@@ -2920,6 +2976,11 @@ export default function RoofMeasurePage() {
                         ) : facet.origin === 'manual_draw' ? (
                           <span className="text-[10px] px-1.5 py-0 rounded bg-gray-600/80 text-gray-300 font-medium">
                             Drawn
+                          </span>
+                        ) : null}
+                        {geometrySourceLabel(facet.geometry_source) ? (
+                          <span className="text-[10px] px-1.5 py-0 rounded bg-gray-800 text-gray-400 font-medium">
+                            {geometrySourceLabel(facet.geometry_source)}
                           </span>
                         ) : null}
                       </div>

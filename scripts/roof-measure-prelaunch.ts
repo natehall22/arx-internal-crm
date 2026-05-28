@@ -8,7 +8,7 @@ const steps: Array<{ name: string; cmd: string }> = [
   { name: 'TypeScript', cmd: 'npx tsc --noEmit' },
   {
     name: 'Roof measure unit tests',
-    cmd: 'npm test -- --testPathPattern="roof-measure|roof-edge|roof-face|aurora-roof-summary-mapper|hip-ridge-cap" --passWithNoTests',
+    cmd: 'npm test -- --testPathPattern="roof-measure|roof-edge|roof-face|roof-plane|solar-dsm|solar-bbox|measurements-pitch|aurora-roof-summary-mapper|hip-ridge-cap" --passWithNoTests',
   },
   { name: 'Edge classify golden', cmd: 'npm run roof-measure:classify' },
 ]

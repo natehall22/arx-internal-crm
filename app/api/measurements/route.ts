@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
+import { isConfirmedPitchSource } from '@/lib/roof-measure-solar-pitch'
 
 export const dynamic = 'force-dynamic'
 
@@ -82,10 +83,12 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const hasNonManualPitch = facetRows.some((f: { pitch_source?: string }) => f.pitch_source !== 'manual')
-      if (hasNonManualPitch) {
+      const hasUnconfirmedPitch = facetRows.some(
+        (f: { pitch_source?: string }) => !isConfirmedPitchSource(f.pitch_source as 'manual' | 'unknown' | 'solar_auto' | undefined)
+      )
+      if (hasUnconfirmedPitch) {
         return NextResponse.json(
-          { error: 'Every roof section must have a manually confirmed slope before saving.' },
+          { error: 'Every roof section must have a confirmed slope before saving (choose pitch or accept Solar suggestion).' },
           { status: 400 }
         )
       }

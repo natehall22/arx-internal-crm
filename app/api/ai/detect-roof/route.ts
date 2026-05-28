@@ -10,6 +10,7 @@ import {
 } from '@/lib/solar-bbox-facet-payloads'
 import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
 import { isPlaceholderVisionFacet, isStackedBandVisionTrace } from '@/lib/roof-vision-quality'
+import { fetchSolarDataLayerUrls, sampleDsmForFacetVertices } from '@/lib/solar-dsm'
 
 type PixelPoint = [number, number]
 
@@ -256,6 +257,9 @@ type FacetResponsePayload = {
   suggested_ground_area_sqft: number | null
   suggested_sloped_area_sqft: number | null
   plane_height_at_center_meters: number | null
+  dsm_median_height_m?: number | null
+  pitch_suggested_from_dsm?: number | null
+  dsm_available?: boolean
   facet_source?: string
 }
 
@@ -302,6 +306,39 @@ function filterFacetsToRequestedStructure(
     })
     .sort((a, b) => b.area - a.area)
     .map((item) => item.facet)
+}
+
+async function enrichFacetsWithDsmSamples(
+  facets: FacetResponsePayload[],
+  lat: number,
+  lng: number,
+  apiKey: string
+): Promise<{ facets: FacetResponsePayload[]; dsm_coverage: 'ok' | 'unavailable' }> {
+  if (facets.length === 0) return { facets, dsm_coverage: 'unavailable' }
+  const { dsmUrl } = await fetchSolarDataLayerUrls(lat, lng, apiKey)
+  if (!dsmUrl) return { facets, dsm_coverage: 'unavailable' }
+
+  let anySample = false
+  const enriched = await Promise.all(
+    facets.map(async (facet) => {
+      const vertices = facet.lat_lng_vertices
+      if (!vertices || vertices.length < 3) return facet
+      const sample = await sampleDsmForFacetVertices(
+        dsmUrl,
+        apiKey,
+        vertices,
+        facet.suggested_azimuth_degrees
+      )
+      if (sample.dsm_available) anySample = true
+      return {
+        ...facet,
+        dsm_median_height_m: sample.dsm_median_height_m,
+        pitch_suggested_from_dsm: sample.pitch_suggested_from_dsm,
+        dsm_available: sample.dsm_available,
+      }
+    })
+  )
+  return { facets: enriched, dsm_coverage: anySample ? 'ok' : 'unavailable' }
 }
 
 function prepareSolarBboxFacetsForResponse(
@@ -1257,8 +1294,16 @@ export async function POST(request: Request) {
         )
         if (bboxFallback.facets.length > 0) {
           const notes = [bboxFallback.dropped_note, SOLAR_BBOX_ONLY_USER_NOTES].filter(Boolean).join(' ')
+          const dsmResult = mapsKey
+            ? await enrichFacetsWithDsmSamples(
+                bboxFallback.facets,
+                captureCenter.lat,
+                captureCenter.lng,
+                mapsKey
+              )
+            : { facets: bboxFallback.facets, dsm_coverage: 'unavailable' as const }
           return NextResponse.json({
-            facets: bboxFallback.facets,
+            facets: dsmResult.facets,
             ridges: [],
             valleys: [],
             step_flashing: [],
@@ -1276,6 +1321,7 @@ export async function POST(request: Request) {
             detection_zoom: normalizedZoom,
             localization: null,
             facet_source: 'solar_bbox',
+            dsm_coverage: dsmResult.dsm_coverage,
             detection_mode: 'solar',
             openai_calls: 0,
             static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
@@ -1328,8 +1374,16 @@ export async function POST(request: Request) {
           )
           if (bboxFallback.facets.length > 0) {
             const notes = [bboxFallback.dropped_note, SOLAR_BBOX_ONLY_USER_NOTES].filter(Boolean).join(' ')
+            const dsmResult = mapsKey
+              ? await enrichFacetsWithDsmSamples(
+                  bboxFallback.facets,
+                  captureCenter.lat,
+                  captureCenter.lng,
+                  mapsKey
+                )
+              : { facets: bboxFallback.facets, dsm_coverage: 'unavailable' as const }
             return NextResponse.json({
-              facets: bboxFallback.facets,
+              facets: dsmResult.facets,
               ridges: [],
               valleys: [],
               step_flashing: [],
@@ -1347,6 +1401,7 @@ export async function POST(request: Request) {
               detection_zoom: normalizedZoom,
               localization: null,
               facet_source: 'solar_bbox',
+              dsm_coverage: dsmResult.dsm_coverage,
               detection_mode: 'solar',
               openai_calls: 0,
               static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
@@ -1393,8 +1448,12 @@ export async function POST(request: Request) {
               : 'Roof sections from satellite (no photo AI). Shapes may be simple boxes—drag corners to match the roof. Use “Trace from photo” only for an AI redraw (extra cost).'
         const notes = [dropped_note, solarNotes].filter(Boolean).join(' ')
 
+        const dsmResult = mapsKey
+          ? await enrichFacetsWithDsmSamples(facetsOut, captureCenter.lat, captureCenter.lng, mapsKey)
+          : { facets: facetsOut, dsm_coverage: 'unavailable' as const }
+
         return NextResponse.json({
-          facets: facetsOut,
+          facets: dsmResult.facets,
           ridges: [],
           valleys: [],
           step_flashing: [],
@@ -1412,6 +1471,7 @@ export async function POST(request: Request) {
           detection_zoom: normalizedZoom,
           localization: null,
           facet_source: facetSource,
+          dsm_coverage: dsmResult.dsm_coverage,
           detection_mode: 'solar',
           openai_calls: 0,
           static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },

@@ -25,7 +25,7 @@ Google Solar helps you **see** the roof on the map. **You** confirm pitch and ge
 
 1. Open **Roof measure** for the job address (search often loads a **satellite outline** automatically).
 2. If sections are missing or stale, click **Reload outline from satellite** (Google Solar — not a third-party measurement vendor).
-3. On **every section**, **choose roof pitch** from the dropdown. Satellite suggestions alone do not count — you must pick pitch manually. The save button stays **disabled** until every section has pitch.
+3. On **every section**, **choose roof pitch** from the dropdown, or keep the Solar suggestion applied on load (`solar_auto`). The save button stays **disabled** until every section has pitch set (not `Unset`).
 4. Tap **Looks good ✓** on each section you accept (especially after Solar load). If you skip this, save will **stop with a message** — the button is not grayed out for geometry, but save will not go through.
 5. If save complains about **whole-roof outline only** (`solar_bbox` / `solar_mask_whole`), redraw or split sections until you have proper plane outlines.
 6. Watch **Notes** (yellow) for overlap warnings (footprint much larger than Solar’s estimate).
