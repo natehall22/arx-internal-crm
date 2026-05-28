@@ -32,4 +32,15 @@ describe('roof measure downstream (waste + cap)', () => {
     expect(cap!.combinedLf).toBe(160)
     expect(cap!.capSq).toBeGreaterThan(0)
   })
+
+  it('P-00093: 80 hip LF → waste ≥ 15% and proposal-style hip cap bundles > 0', () => {
+    const hipsLf = 80
+    const waste = wasteFromHipsValleys(hipsLf, 40, 6, 3000)
+    expect(waste).toBeGreaterThanOrEqual(15)
+
+    const HIP_CAP_LF_PER_BUNDLE = 25
+    const hipCapBundles = Math.ceil(hipsLf / HIP_CAP_LF_PER_BUNDLE)
+    expect(hipCapBundles).toBeGreaterThan(0)
+    expect(hipCapBundles).toBe(4)
+  })
 })

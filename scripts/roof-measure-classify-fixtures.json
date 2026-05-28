@@ -4,7 +4,7 @@
   "cases": [
     {
       "id": "florida-ave-eagleview-gable",
-      "provider": "EagleView via Allstate (2402 Florida Ave)",
+      "provider": "Report benchmark — 2402 Florida Ave (legacy id florida-ave-eagleview-gable)",
       "facets": [
         { "id": "south", "west": -50, "south": -50, "east": 50, "north": 0 },
         { "id": "north", "west": -50, "south": 0, "east": 50, "north": 50 }

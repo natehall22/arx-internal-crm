@@ -135,7 +135,7 @@ function main() {
   const mode = fixtureMode()
   const golden = mode === 'classify' ? { passed: 0, total: 0 } : runFile(goldenPath, 'golden')
   const calibration =
-    mode === 'golden' ? { passed: 0, total: 0 } : runFile(calibrationPath, 'EagleView/Roofr calibration')
+    mode === 'golden' ? { passed: 0, total: 0 } : runFile(calibrationPath, 'Report-benchmark calibration')
   const passed = golden.passed + calibration.passed
   const total = golden.total + calibration.total
   console.log(`\n${passed}/${total} total classify fixtures passed`)

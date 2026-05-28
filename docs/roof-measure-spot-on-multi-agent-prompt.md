@@ -1,5 +1,7 @@
 # Multi-agent prompt: Make ARX roof measure spot-on
 
+> **Superseded for product scope:** [roof-measure-in-house-capability-prompt.md](./roof-measure-in-house-capability-prompt.md) — ARX does **not** use EagleView software; vendor names here mean **report-benchmark targets** only.
+
 ## Related docs
 
 | Doc | Purpose |

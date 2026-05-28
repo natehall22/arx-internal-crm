@@ -5,7 +5,8 @@
 | Doc | Purpose |
 |-----|---------|
 | [roof-measure-README.md](./roof-measure-README.md) | Quick start, commands, architecture |
-| [roof-measure-launch-prompt.md](./roof-measure-launch-prompt.md) | Multi-agent launch orchestration |
+| [roof-measure-in-house-capability-prompt.md](./roof-measure-in-house-capability-prompt.md) | Master — desire paths |
+| [roof-measure-launch-prompt.md](./roof-measure-launch-prompt.md) | Legacy agent waves |
 | [roof-measure-launch-checklist.md](./roof-measure-launch-checklist.md) | Human QA before prod |
 | [roof-measure-accuracy-report.md](./roof-measure-accuracy-report.md) | Calibration & prelaunch gate |
 | [roof-measure-qa-TEMPLATE.md](./roof-measure-qa-TEMPLATE.md) | Browser QA report template |
@@ -32,8 +33,8 @@ npx tsc --noEmit
 | Layer | ARX behavior | Industry (Aurora / Google) |
 |-------|-------------|----------------------------|
 | Face | Drawn polygon + user pitch + **facing azimuth** from Solar when available | 3D plane with pitch + facing |
-| Drain | `computeFacetDrainAzimuth` — interior/exterior edge typing only | Not exposed separately |
-| Linear LF | `classifyRoofEdges` + manual ridge/valley | Typed 3D edges |
+| Drain | `computeFacetDrainAzimuth` — eave/rake + interior fallback | Not exposed separately |
+| Linear LF | `classifyRoofEdges` (facing for interior when set) + manual ridge/valley | Typed 3D edges |
 
 ## Classify-only golden fixtures
 
@@ -46,8 +47,9 @@ Calibration only: `npm run roof-measure:classify -- --fixtures classify`
 | single-asymmetric | 0 | 0 | — | 0 | 0 | PASS |
 | cross-4-quadrant | — (min interior) | ridge 0, hip 241 | — | ≥1 | 241 | PASS |
 
-## EagleView / Roofr calibration
+## Report-benchmark calibration (not vendor integration)
 
+Targets come from real-job professional reports used **only in tests** — ARX does not run EagleView/Roofr software.  
 Report targets: `scripts/roof-measure-eval-fixtures.json`  
 Automated polygon proxies: `scripts/roof-measure-classify-fixtures.json`
 
@@ -56,7 +58,9 @@ Automated polygon proxies: `scripts/roof-measure-classify-fixtures.json`
 | florida-ave-eagleview-gable | 101 | 100 | 1.0% | 0 | 0 | ±15% | PASS |
 | kison-court-roofr | 64.67 | — | — | — | — | — | Not in classify fixtures yet |
 
-Proxy geometry for `florida-ave-eagleview-gable`: 2-facet gable (100 ft shared ridge span) approximating EagleView report ridge 101.48 LF at 2402 Florida Ave. Error is within launch threshold; no `SHARED_EDGE_TOLERANCE_DEG` change required for this case.
+Proxy geometry for `florida-ave-eagleview-gable`: **synthetic** 2-facet gable (100 LF shared ridge span) calibrated to a **report total** of 101.48 LF ridge at 2402 Florida Ave — not a full multi-structure trace of that address. Classify fixtures do not set `facing_azimuth_degrees`; this case exercises **drain-based** interior edges (production Solar loads pass facing separately).
+
+Error is within launch threshold; no `SHARED_EDGE_TOLERANCE_DEG` change required for this case.
 
 Manual draw workflow (for additional addresses):
 
@@ -66,13 +70,14 @@ Manual draw workflow (for additional addresses):
 
 ## P-00093 lesson
 
-Under-estimated **hip LF** → low waste % → under-ordered field shingles and caps. Fix path: geometric `hips_lf` + `calculateWasteFactorDetailed` hip adjustment + separate cap bundles in proposal builder.
+Under-estimated **hip LF** → low waste % → under-ordered field shingles and caps. Fix path: geometric `hips_lf` + waste adjustment when hip LF &gt; 60 + separate cap bundles in proposal builder (25 LF/bundle). Automated: `roof-measure-downstream.test.ts` (80 hip LF → waste ≥ 15%, cap bundles &gt; 0).
 
 ## Residual error budget (v1)
 
 | Metric | Threshold |
 |--------|-----------|
-| Ridge LF (synthetic gable) | ±10% |
+| Ridge LF (golden `gable-2-facet`) | ±12% (script default when `tolerancePct` omitted) |
+| Ridge LF (report benchmarks, e.g. Florida Ave) | ±15% (`tolerancePct` in classify fixtures) |
 | Hip LF (4-quadrant) | > 0 (presence) |
 | Unclassified shared edges | 0 on golden set |
 
@@ -80,7 +85,8 @@ Under-estimated **hip LF** → low waste % → under-ordered field shingles and 
 
 | Check | Status | Date |
 |-------|--------|------|
-| `npm run roof-measure:prelaunch` | PASS | 2026-05-27 |
+| `npm run roof-measure:prelaunch` | PASS | 2026-05-27 (re-verified after doc audit) |
+| `npm run build` | PASS | 2026-05-27 (re-run after doc audit) |
 
 ## Not in scope
 

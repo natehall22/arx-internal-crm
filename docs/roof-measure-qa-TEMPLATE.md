@@ -1,42 +1,54 @@
-# Roof measure QA report
+# Roof measure — QA day report
 
-## Related docs
+Copy this file to `docs/roof-measure-qa-YYYY-MM-DD.md` after a browser test.
 
-| Doc | Purpose |
-|-----|---------|
-| [roof-measure-README.md](./roof-measure-README.md) | Quick start, commands, architecture |
-| [roof-measure-launch-prompt.md](./roof-measure-launch-prompt.md) | Multi-agent launch orchestration |
-| [roof-measure-launch-checklist.md](./roof-measure-launch-checklist.md) | Human QA before prod |
-| [roof-measure-accuracy-report.md](./roof-measure-accuracy-report.md) | Calibration & prelaunch gate |
-| [roof-measure-qa-TEMPLATE.md](./roof-measure-qa-TEMPLATE.md) | Browser QA report template |
-| [roof-measurement-providers.md](./roof-measurement-providers.md) | Aurora / Solo / Google vs ARX |
+**Context:** [Desire paths](./roof-measure-in-house-capability-prompt.md) · [Checklist](./roof-measure-launch-checklist.md)
 
+---
 
 **Date:**  
 **Tester:**  
-**Build / branch:**  
-**Prelaunch:** `npm run roof-measure:prelaunch` → PASS / FAIL
+**Address tested:**  
+**Machine gate:** `npm run roof-measure:prelaunch` → PASS / FAIL
 
-## Checklist results
+---
 
-| Item | Pass | Notes |
+## “Can I quote this job?”
+
+| Step | Pass | Notes |
 |------|------|-------|
-| Map loads | | |
-| Solar load facets | | |
-| Facing shown | | |
+| Map + Solar load | | |
+| Facing visible | | |
 | Pitch on all sections | | |
-| Ridge LF > 0 (gable) | | |
-| Hip LF (complex) | | |
-| Manual ridge override | | |
+| Looks good on sections | | |
+| Ridge LF sensible (gable) | | |
+| Hips LF (complex) | | |
+| Manual ridge / valley | | |
 | Save → builder | | |
-| Cap line items | | |
+| Cap lines on proposal | | |
+
+---
+
+## “Would I order material from this?”
+
+| Check | Pass | Notes |
+|-------|------|-------|
+| Waste % moves with hips | | |
+| Hip → cap note seen in UI | | |
+| Validation notes read (if not high confidence) | | |
+
+---
 
 ## Blockers
 
 - 
 
-## Sign-off recommendation
+---
 
-- [ ] Ready for production
-- [ ] Ready with documented limitations
-- [ ] Not ready
+## Recommendation
+
+- [ ] Ready for production  
+- [ ] Ready with known limits (document below)  
+- [ ] Not ready  
+
+**Limits / follow-ups:**

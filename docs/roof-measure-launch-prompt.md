@@ -1,5 +1,9 @@
 # LAUNCH PROMPT — Roof measure 100% production ready
 
+> **Use this instead:** [roof-measure-in-house-capability-prompt.md](./roof-measure-in-house-capability-prompt.md) — organized by **desire paths** (how people work), not agent IDs.  
+> **We do not use EagleView software** — benchmark numbers in tests only.  
+> This file is legacy L1–L7 task lists for agents who already reference those labels.
+
 ## Related docs
 
 | Doc | Purpose |
@@ -9,7 +13,8 @@
 | [roof-measure-launch-checklist.md](./roof-measure-launch-checklist.md) | Human QA before prod |
 | [roof-measure-accuracy-report.md](./roof-measure-accuracy-report.md) | Calibration & prelaunch gate |
 | [roof-measure-qa-TEMPLATE.md](./roof-measure-qa-TEMPLATE.md) | Browser QA report template |
-| [roof-measurement-providers.md](./roof-measurement-providers.md) | Aurora / Solo / Google vs ARX |
+| [roof-measure-in-house-capability-prompt.md](./roof-measure-in-house-capability-prompt.md) | **Master** — in-house tool, no EagleView software |
+| [roof-measurement-providers.md](./roof-measurement-providers.md) | Aurora / Solo / Google vs ARX (semantics only) |
 
 
 **Repo:** `/Users/nathanhall/arx-internal-crm`  
@@ -209,10 +214,11 @@ Ship only if ALL true:
 ## Agent spawn template (copy per agent)
 
 ```text
-You are Agent L[N] for ARX roof measure LAUNCH.
+You are Agent L[N] for ARX IN-HOUSE roof measure.
 Workspace: /Users/nathanhall/arx-internal-crm
-Read: docs/roof-measure-launch-prompt.md (section L[N]) and docs/roof-measurement-providers.md
-Rules: No webhooks. Minimal diff. Tests for logic changes. Run npm run roof-measure:prelaunch when done.
+Read: docs/roof-measure-in-house-capability-prompt.md (master) + section L[N] here
+Rules: No EagleView/vendor software. Google Solar only. Benchmarks ≠ integrations. Minimal diff.
+Run npm run roof-measure:prelaunch when done.
 Return: files changed, commands run, pass/fail, blockers.
 ```
 

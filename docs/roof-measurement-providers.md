@@ -5,7 +5,8 @@
 | Doc | Purpose |
 |-----|---------|
 | [roof-measure-README.md](./roof-measure-README.md) | Quick start, commands, architecture |
-| [roof-measure-launch-prompt.md](./roof-measure-launch-prompt.md) | Multi-agent launch orchestration |
+| [roof-measure-in-house-capability-prompt.md](./roof-measure-in-house-capability-prompt.md) | Master — desire paths |
+| [roof-measure-launch-prompt.md](./roof-measure-launch-prompt.md) | Legacy agent waves |
 | [roof-measure-launch-checklist.md](./roof-measure-launch-checklist.md) | Human QA before prod |
 | [roof-measure-accuracy-report.md](./roof-measure-accuracy-report.md) | Calibration & prelaunch gate |
 | [roof-measure-qa-TEMPLATE.md](./roof-measure-qa-TEMPLATE.md) | Browser QA report template |
@@ -28,7 +29,7 @@ Across solar tools, a **roof face** is a single continuous sloped surface (one p
 | **Azimuth** | Compass direction the plane **faces** (solar/panel convention: where the surface normal points horizontally) |
 | **Drain direction** | Direction water runs **down** the slope — often ~180° from panel-facing azimuth on simple gable planes, but not always on complex shapes |
 
-ARX must keep **panel-facing azimuth** (Solar/Aurora) separate from **drain azimuth** (`computeFacetDrainAzimuth` in `lib/roof-measure-edge-classification.ts`), which is only used for edge typing and the 8-wind `orientation` label on hand-drawn facets.
+ARX must keep **panel-facing azimuth** (Solar/Aurora) separate from **drain azimuth** (`computeFacetDrainAzimuth`). **Facing** drives the UI label and interior ridge/hip/valley when Solar (or saved) azimuth is present; **drain** is used for eave/rake and as a fallback when facing is unknown.
 
 ---
 
@@ -114,7 +115,7 @@ Google does **not** give ridge/hip/valley lengths. It gives **roof segments** = 
 - **Footprint vs surface:** `flat_area_sqft` from drawn/mask polygon; `area_sqft` after user pitch via `pitchMultiplierFromRise` (same idea as sloped area, but footprint comes from drawing not Google’s plane area).  
 - **No Solar edge LF:** `classifyRoofEdges()` runs on **drawn** facet polygons only.
 
-Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same as ARX **drain** azimuth used for edge classification.
+Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same as ARX **drain** azimuth. Interior ridge/hip/valley use **facing** when `facing_azimuth_degrees` is set; drain is used for eave/rake and as the interior fallback.
 
 ---
 
@@ -124,9 +125,9 @@ Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same 
 |------|----------------|
 | Import | Google Solar mask/bbox/vision → facet **polygons** + pitch suggestions |
 | User | Adjust vertices; assign **pitch** per facet (required before save) |
-| Face label | `orientation` = 8-wind from `computeFacetDrainAzimuth` (downslope guess from footprint) |
+| Face label | UI **Facing** / `orientation` = 8-wind from Solar **panel-facing** when available; else `computeFacetDrainAzimuth` (footprint guess) |
 | Areas | `flat_area_sqft` on polygon; `area_sqft` = footprint × pitch multiplier |
-| Linear LF | `classifyRoofEdges()` — shared 2D edges + drain azimuth → ridge/hip/valley/eave/rake |
+| Linear LF | `classifyRoofEdges()` — interior ridge/hip/valley from **facing** when set, else drain; eave/rake from **drain** |
 
 ### Important mismatch vs Aurora / Solo
 
@@ -134,8 +135,8 @@ Solar **azimuth** ≈ Aurora **azimuth** (panel-facing). It is **not** the same 
 |--|-------------------------|-----------|
 | Face definition | 3D tilted plane | 2D lat/lng polygon + user pitch |
 | Pitch | Per-face on 3D model | User `rise/12` after draw |
-| Azimuth | Plane **faces** (solar) | Solar suggests; saved `orientation` is **drain** 8-wind |
-| Ridge/hip/valley | Typed on 3D edges | Inferred from 2D adjacency + drain vectors |
+| Azimuth | Plane **faces** (solar) | Solar suggests; saved `orientation` matches **facing** when azimuth is known, else drain 8-wind |
+| Ridge/hip/valley | Typed on 3D edges | Inferred from 2D adjacency; interior uses **facing** when set, else drain |
 | Area | Sloped face area from model | Footprint measured; slope applied via multiplier |
 
 So ARX can match **Google/Aurora pitch and facing** on each facet, but **edge lengths** will only align with Aurora when footprints snap together the same way Aurora’s 3D faces meet — expect calibration gaps on complex hips.
@@ -148,7 +149,7 @@ So ARX can match **Google/Aurora pitch and facing** on each facet, but **edge le
 |---------|-------------------|
 | Facing azimuth from Solar | `lib/roof-face-solar-alignment.ts`, facet fields in `page.tsx` |
 | Interior edge LF uses facing when set | `classifyRoofEdges` + `facing_azimuth_degrees` on `FacetInput` |
-| Drain azimuth (edge typing only) | `computeFacetDrainAzimuth` — not shown as “facing” in UI |
+| Drain azimuth | `computeFacetDrainAzimuth` — eave/rake + interior fallback; never labeled “Facing” in UI |
 | Classify golden tests | `lib/__tests__/fixtures/roof-edge-golden.json`, `npm run roof-measure:classify` |
 | Duplicate Solar segment warning | `updateMeasurements` validation |
 | Aurora mapper (reference only) | `lib/aurora-roof-summary-mapper.ts` |
@@ -163,9 +164,11 @@ So ARX can match **Google/Aurora pitch and facing** on each facet, but **edge le
 
 ---
 
-## EagleView / roofing reports (brief)
+## Professional roofing reports (benchmark only — not ARX integrations)
 
-EagleView reports give per-roof **facets** with pitch and **typed edge lengths** from photogrammetry — closer to Aurora’s output than to Google Solar segments. ARX webhook mapping targets those report fields when integrated.
+Photogrammetry-style reports (historically from vendors such as EagleView or Roofr) typically include per-roof **facets** with pitch and **typed edge lengths**. That output shape is what ARX **replicates in-house** via draw + `classifyRoofEdges` — we do **not** use EagleView software in this tool.
+
+Test fixtures may cite report LF from a real address (e.g. ~101 LF ridge) only to set **±15% calibration targets** in `scripts/roof-measure-classify-fixtures.json`. Admin webhook stubs for future vendors are out of scope for roof-measure launch.
 
 ---
 
