@@ -1,223 +1,278 @@
-# Roof measurement industry patterns (research)
+# Roof measure industry patterns (research for ARX in-house tool)
 
-**Purpose:** Document how real in-house / hybrid satellite roof-measure products work, common failure modes, and actionable recommendations for ARX CRM roof measure.
+**Scope:** Real products and documented APIs for satellite / hybrid roof measurement — not fiction.  
+**ARX codebase:** `/tools/roof-measure` (`app/tools/roof-measure/page.tsx`), `app/api/ai/detect-roof/route.ts`, `app/api/measurements/route.ts`.  
+**Date:** 2026-05-27 (Worker R1 research).
 
-**Scope:** Public documentation, vendor help centers, Google Solar API docs, academic/industry papers describing Google’s pipeline, contractor-facing reviews. **No invented APIs or features.**
+---
 
-**Related ARX docs:** [roof-measurement-providers.md](./roof-measurement-providers.md), [prompts/roof-measure-missing-google-polygons.md](./prompts/roof-measure-missing-google-polygons.md)
+## Executive summary
 
-**Research date:** 2026-05-27
+Industry tools converge on a **draft → human review → persist → redraw** loop, but they differ on **geometry source**:
+
+| Product | Geometry source | Human step | Turnaround |
+|---------|-----------------|------------|------------|
+| **Google Solar API** | ML roof segments + mask GeoTIFF; `buildingInsights` returns stats + **bounding boxes**, not facet polygons | Developer vectorizes mask / traces imagery | API seconds |
+| **Roofr (report)** | Satellite/aerial imagery + internal trace + **multi-check human QA** | Optional edit after delivery | 2–24 h ([Roofr blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses)) |
+| **Roofr (DIY)** | User draws edges on imagery with grid snap | Operator draws every edge | Instant ([Roofr DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)) |
+| **Hover** | Smartphone **photogrammetry** → 3D model | On-site photo capture (≥8 photos) | Hours ([Hover exterior scans](https://help.hover.to/en/articles/9185612-exterior-scans)) |
+| **EagleView** | Proprietary **ortho + oblique aerial** → AI + photogrammetry → 3D twin | Usually none (report product) | Order-based ([EagleView aerial measurements](https://www.eagleview.com/blog/aerial-roof-measurements/)) |
+| **ARX (today)** | Google Solar mask/bbox + optional vision trace | Confirm pitch, review geometry, edit vertices | Seconds (in-app) |
+
+ARX is closest to **Google Solar + DIY overlay** (Roofr DIY / MapMeasure-style), not to Hover/EagleView 3D pipelines.
 
 ---
 
 ## 1. Common architecture patterns
 
-Industry products converge on a **detect → draft → accept → persist → redraw on load** loop, even when backend detection differs.
+### 1.1 Detect → draft → accept → persist → redraw on load
+
+**Pattern (observed across vendors + ARX):**
 
 ```mermaid
 flowchart LR
-  A[Address / pin] --> B[Fetch imagery + model]
-  B --> C[Auto geometry draft]
-  C --> D[Human review / edit]
-  D --> E[Confirm pitch + edges]
-  E --> F[Persist measurement]
-  F --> G[Reload overlays on map]
+  A[Address / pin] --> B[Fetch imagery + model hints]
+  B --> C[Generate draft geometry]
+  C --> D[Map overlays — dashed / low opacity]
+  D --> E{Operator accepts?}
+  E -->|Edit vertices| D
+  E -->|Accept facet| F[Solid polygons + pitch]
+  F --> G[POST measurements API]
+  G --> H[DB: roof_measurements + roof_facets]
+  H --> I[Reload: restoreMeasurementOverlays]
 ```
 
-### 1.1 Google Solar API (Building Insights + dataLayers)
+| Stage | Industry examples | ARX implementation |
+|-------|-------------------|-------------------|
+| **Detect** | Roofr: pull imagery by address ([Roofr blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses)). Google: `buildingInsights:findClosest` + optional `dataLayers` GeoTIFF ([Solar overview](https://developers.google.com/maps/documentation/solar/overview)). EagleView: order against imagery vault ([EagleView developer overview](https://www.eagleview.com/blog/developer-overview-the-geospatial-building-blocks-of-eagleviews-imagery-platform/)). | `detectRoofWithAI()` → `POST /api/ai/detect-roof` with `detectionMode: 'solar'` (default) or `'vision'`. |
+| **Draft** | Roofr DIY: outline on imagery before report finalize ([DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)). | `aiDraftSections` with `status: 'pending'`; dashed blue overlays in `useEffect` on `[aiDraftSections]` (`page.tsx` ~1352–1407). Auto-load path calls `detectRoofWithAI(true, 'solar')` which **auto-accepts** drafts (~1320–1326). |
+| **Accept** | Roofr reports editable after delivery ([Contractor ToolStack Roofr review](https://contractortoolstack.com/software/roofr/) — cites Roofr FAQ). Hover: reference measurement note optional ([Hover scans](https://help.hover.to/en/articles/9185612-exterior-scans)). | `acceptDraftItem()` → `polygonsRef`, sets `geometry_reviewed: false`, applies Solar pitch suggestion when allowed (~1446–1530). |
+| **Persist** | External CRMs store PDF/ESX; EagleView/Xactimate integrations ([EagleView geospatial software blog](https://www.eagleview.com/eagleview/geospatial-intelligence-software/)). | `POST /api/measurements` requires **manual pitch** + `geometry_reviewed: true`; blocks `solar_bbox` / `solar_mask_whole` (~72–108). |
+| **Redraw on load** | Standard in any map-based tool. | `restoreMeasurementOverlays()` rebuilds `google.maps.Polygon` from saved `facet.points` (~589–617). |
 
-Google exposes **two complementary surfaces**:
+**Inferred from docs:** Roofr **paid reports** insert a **human QA queue** between detect and delivery; ARX replaces that with **in-app geometry review + pitch confirmation** gates.
 
-| Endpoint | What it returns | Polygon detail |
-|----------|-----------------|----------------|
-| [`buildingInsights:findClosest`](https://developers.google.com/maps/documentation/solar/building-insights) | Per-segment **stats** (pitch, azimuth, sloped/ground area), **center**, **boundingBox**, panel layouts with `segmentIndex` | **No GeoJSON polygon** — only axis-aligned `LatLngBox` per segment ([docs](https://developers.google.com/maps/documentation/solar/building-insights)) |
-| [`dataLayers:get`](https://developers.google.com/maps/documentation/solar/data-layers) | URLs to GeoTIFF rasters: DSM, RGB, **mask**, flux, shade ([mask spec](https://developers.google.com/maps/documentation/solar/geotiff)) | **1-bit rooftop mask** at ~0.1 m/px — raster, not pre-segmented vectors ([REST `maskUrl`](https://developers.google.com/maps/documentation/solar/reference/rest/v1/dataLayers)) |
+---
 
-**How developers map segments to polygons (documented + inferred):**
+### 1.2 Google Solar API — what devs actually get vs. what they draw
 
-1. **Bounding-box quads (fast, coarse):** Convert each `roofSegmentStats[].boundingBox` SW/NE corners to a lat/lng quadrilateral. Google docs show `center`, `boundingBox`, pitch, azimuth — not vertex rings ([Building Insights reference](https://developers.google.com/maps/documentation/solar/building-insights)). *Inferred from docs:* acceptable for solar panel placement hints, **not** quote-grade roof facets.
+#### `buildingInsights` (segment metadata, not polygons)
 
-2. **Mask vectorization (better footprints):** Fetch `maskUrl` GeoTIFF → contour/polygonize rooftop pixels → optionally **split** using segment centers/bboxes or DSM plane labels. Google does **not** ship segment polygons in the mask file ([GeoTIFF layers](https://developers.google.com/maps/documentation/solar/geotiff)). *Inferred from docs + ARX implementation:* this is what `lib/solar-roof-mask-facets.ts` does (d3-contour + segment labeling).
+Documented fields per `roofSegmentStats[]` ([Building Insights](https://developers.google.com/maps/documentation/solar/building-insights), [REST RoofSegmentSizeAndSunshineStats](https://developers.google.com/maps/documentation/solar/reference/rest/v1/buildingInsights/findClosest#RoofSegmentSizeAndSunshineStats)):
 
-3. **Vision trace on aligned imagery (hybrid):** Use segment metadata as **hints only** (pitch, azimuth, count); trace visible eaves/ridges in satellite/RGB. Google’s own “Satellite Sunroof” paper describes an internal pipeline: DSM + roof segments from graph-cut on photogrammetry labels, U-Net affinity masks, tile stitching, then ray-tracing for flux ([arXiv:2408.14400](https://arxiv.org/html/2408.14400)) — **not** a public “draw polygon” API.
+- `pitchDegrees`, `azimuthDegrees`
+- `stats.areaMeters2` (sloped), `stats.groundAreaMeters2` (footprint)
+- `center`, `boundingBox` (sw/ne LatLng)
+- `planeHeightAtCenterMeters`
+- Panel placement uses `segmentIndex` on each `solarPanels[]` entry — filter panels by segment orientation ([Building Insights — select roof segments](https://developers.google.com/maps/documentation/solar/building-insights))
 
-4. **Panel → segment join:** `solarPanels[].segmentIndex` links proposed panels to `roofSegmentStats` indices ([Building Insights — select roof segments](https://developers.google.com/maps/documentation/solar/building-insights)). Useful for solar apps; roofing apps still need facet polygons separately.
+**There is no documented GeoJSON polygon per segment in `buildingInsights`.** Developers map segments to map geometry by:
 
-**ARX mapping today:** `app/api/ai/detect-roof/route.ts` tries mask planes first (`tryFacetPayloadsFromSolarRoofMask`), falls back to bbox quads (`buildSolarPlaneFacetPayloads`), optional vision path with Solar hints (`buildSolarPixelPlaneHints`, `buildSolarFacetDetectionPromptText`).
+1. **Bounding-box quads** — convert `boundingBox` corners to a rectangle (ARX: `buildSolarPlaneFacetPayloads()` in `detect-roof/route.ts` ~299–340). *Inferred:* fast but poor for hips/valleys; ARX labels `facet_source: 'solar_bbox'`.
+2. **Mask vectorization** — fetch `dataLayers.maskUrl` (1-bit rooftop mask, 0.1 m/px) ([GeoTIFF docs](https://developers.google.com/maps/documentation/solar/geotiff), [dataLayers REST](https://developers.google.com/maps/documentation/solar/reference/rest/v1/dataLayers)); contour + label pixels by nearest segment center/bbox (ARX: `lib/solar-roof-mask-facets.ts`). *Inferred from ARX code + Google mask spec.*
+3. **Vision trace on RGB** — use `dataLayers.rgbUrl` or Static Maps; ML traces edges (ARX vision mode; Google’s internal pipeline described in [Satellite Sunroof paper](https://arxiv.org/html/2408.14400) — U-Net DSM + affinity masks, graph-cut segments, tile stitching).
 
-### 1.2 Roofr (hybrid satellite + human QA)
+Google’s published ML pipeline ([Satellite Sunroof](https://arxiv.org/html/2408.14400)):
 
-Public positioning ([Roofr measurements](https://roofr.com/measurements), [satellite blog 2026](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses)):
+- Regresses **DSM** + **roof-segment affinity** from satellite RGB
+- Builds segment labels via **graph cut on DSM** within building instances
+- Stitches tiled inference with weighted kernels
+- **`buildingInsights` consumer API exposes aggregated stats**, not raw segment rasters
 
-- **Ordered reports:** Address → pull satellite/aerial imagery (Google Earth + third parties, per blog) → internal trace + formulas → **human multi-check** → PDF/diagram in **2–24 hours** ([measurements product page](https://roofr.com/measurements)).
-- **DIY tool:** Operator selects imagery, zooms, uses **90° grid overlay**, draws edges, assigns edge types and per-facet pitch ([Roofr DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)).
-- **Deliverables contractors expect:** squares, pitch per slope, ridge/hip/valley/eave/rake LF, diagram, waste/material lists ([satellite blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses)).
-- **Accuracy claim:** “within 1–2 inches” on standard residential roofs ([Roofr measurement guide](https://roofr.com/blog/roof-measurements)) — **vendor marketing**, not independent benchmark.
+#### `dataLayers` (rasters for custom vectorization)
 
-*Inferred from docs:* Roofr’s default path is **not** “instant auto-polygons on map”; speed comes from outsourced/human-assisted trace. DIY is explicitly manual accept/edit.
+Returns URLs for DSM, RGB, **building mask**, flux layers ([data layers request](https://developers.google.com/maps/documentation/solar/data-layers)). Mask = “one bit per pixel… part of a rooftop” ([GeoTIFF table](https://developers.google.com/maps/documentation/solar/geotiff)). URLs expire (~1 hour); cached searches up to 30 days ([GeoTIFF docs](https://developers.google.com/maps/documentation/solar/geotiff)).
 
-### 1.3 Hover (capture-first 3D, not satellite-first)
+**ARX default path:** `tryFacetPayloadsFromSolarRoofMask()` → `facet_source: 'solar_mask_plane'`; fallback empty mask → bbox message with **empty facets** (~1263–1289 in `route.ts`).
 
-Hover is **photogrammetry from smartphone photos**, not satellite inference ([Hover exterior scans help](https://help.hover.to/en/articles/9185612-exterior-scans)):
+---
 
-- Minimum ~8 exterior photos (sides + corners) → cloud 3D model → measurement PDF + interactive model ([exterior scans](https://help.hover.to/en/articles/9185612-exterior-scans)).
-- **Site visit required** for capture; reference measurement recommended in notes ([multi-family scan help](https://help.hover.to/en/articles/13168718-how-do-i-scan-the-exterior-of-a-multi-family-residential-property)).
-- Deliverables: roof/exterior areas, pitch, openings, optional Xactimate export paths ([measurement PDF help](https://help.hover.to/en/articles/1215021-understanding-hover-s-measurement-pdf)).
+### 1.3 Hybrid / in-house products (high level only)
 
-*Architecture pattern:* **capture → async model build → review PDF/3D → export to CRM/estimator** — different from satellite auto-load.
+#### Roofr
 
-### 1.4 EagleView (proprietary aerial + ML + 3D twin)
+- **Ordered report:** Address → imagery (Google Earth + third parties per [Roofr blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses)) → internal measurement → **human multi-check** → PDF/diagram with pitch, squares, ridge/hip/valley LF, waste ([measurements product](https://roofr.com/measurements)).
+- **DIY:** Operator selects imagery, uses **90° grid**, draws edges, assigns pitch per facet, classifies edge types ([DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)).
+- **Not public:** Trace ML models, API for segments, pricing logic. No API keys assumed here.
 
-High-level public architecture ([aerial roof measurements blog](https://www.eagleview.com/blog/aerial-roof-measurements/), [geospatial intelligence overview](https://www.eagleview.com/eagleview/geospatial-intelligence-software/), [developer imagery platform](https://www.eagleview.com/blog/developer-overview-the-geospatial-building-blocks-of-eagleviews-imagery-platform/)):
+#### Hover
 
-1. **Capture:** Manned aircraft / drones; **orthogonal + oblique** imagery (sub–1-inch GSD claimed).
-2. **Extract:** Photogrammetry + ML detect facets, pitch, penetrations, damage.
-3. **Model:** 3D digital twin / property viewer ([EagleView One](https://www.eagleview.com/eagleview-one/)).
-4. **Deliver:** Reports + **Imagery API** (AOI, ortho/oblique, historical) — enterprise contracts, not a drop-in free polygon API.
+- **Capture:** ≥8 exterior photos (sides + corners) via mobile app ([exterior scans](https://help.hover.to/en/articles/9185612-exterior-scans)).
+- **Process:** Photogrammetry → 3D model + measurement PDF; optional reference measurement note ([multi-family scan help](https://help.hover.to/en/articles/13168718-how-do-i-scan-the-exterior-of-a-multi-family-residential-property)).
+- **Output:** Interactive 3D + PDF (roof-only or full exterior) ([measurement PDF help](https://help.hover.to/en/articles/1215021-understanding-hover-s-measurement-pdf)).
+- **Architecture:** 3D-first; **not** satellite auto-outline at address entry.
 
-*Inferred from docs:* EagleView optimizes for **insurance-grade** verified reports; turnaround and cost are higher than satellite DIY ([EagleView review aggregator](https://roofingsoftwareguide.com/reviews/eagleview-review/) — secondary source).
+#### EagleView
 
-### 1.5 Maps JavaScript overlay timing (open knowledge)
+- **Capture:** Manned aircraft / drones; **orthogonal + oblique** at sub-inch GSD in premium products ([aerial measurements blog](https://www.eagleview.com/blog/aerial-roof-measurements/), [Reveal / Vault](https://www.eagleview.com/blog/developer-overview-the-geospatial-building-blocks-of-eagleviews-imagery-platform/)).
+- **Process:** Photogrammetry + custom AI → 3D property twin, facet-level pitch/area, penetrations ([geospatial intelligence blog](https://www.eagleview.com/eagleview/geospatial-intelligence-software/)).
+- **Delivery:** Reports, EagleView One viewer, Imagery API for developers ([developer overview](https://www.eagleview.com/blog/developer-overview-the-geospatial-building-blocks-of-eagleviews-imagery-platform/)).
+- **Not public:** Full edge-detection stack; treat as **vendor lock-in imagery + 3D** benchmark.
 
-Community/documented patterns for drawing polygons on Google Maps:
+---
 
-| Signal | Use | Caveat |
-|--------|-----|--------|
-| [`map` `idle`](https://developers.google.com/maps/documentation/javascript/reference/map#Map.idle) | Map finished pan/zoom; safe to read center/bounds/projection | Fires when map is idle, **not** when all `Polygon` DOM paint completes ([SO: polygon async draw](https://stackoverflow.com/questions/9850444/handle-when-drawing-of-polygons-is-complete-in-google-maps-api-v3)) |
-| [`tilesloaded`](https://developers.google.com/maps/documentation/javascript/reference/map#Map.tilesloaded) | Base map tiles loaded | Custom `ImageMapType` may need custom idle ([SO: overlay tiles](https://stackoverflow.com/questions/7341769/google-maps-v3-how-to-tell-when-an-imagemaptype-overlays-tiles-are-finished-lo)) |
-| `OverlayView.draw` | Re-sync DOM overlay on zoom/pan | Pattern in [multi-layer Maps blog](https://reintech.io/blog/creating-multi-layered-map-google-maps-api) |
-| Bind `idle` inside map `initialize` | Listener must attach after map exists ([SO: idle not firing](https://stackoverflow.com/questions/31700017/google-maps-idle-event-not-firing)) | Common bug in roof tools |
+### 1.4 Open-source / engineering blogs — map overlays & polygon timing
 
-*Inferred from docs + ARX code:* roof measure should **`await idle`** (or timeout fallback) before POSTing detect with center/zoom — ARX implements `waitForMapToSettle` in `page.tsx`.
+| Topic | Finding | Source |
+|-------|---------|--------|
+| When to attach overlays | Prefer `map` **`idle`** (fires after pan/zoom/tiles settle) over `bounds_changed` | [Stack Overflow — heatmap polygons + idle](https://stackoverflow.com/questions/45160365/google-maps-render-unique-polygons-based-on-id) |
+| `idle` binding | Listener must attach **after** map init | [Stack Overflow — idle not firing](https://stackoverflow.com/questions/31700017/google-maps-idle-event-not-firing) |
+| Polygon draw async | Adding many polygons returns before browser paint; `idle` may not fire if map didn’t move — may need micro-recenter or `OverlayView.draw` | [Stack Overflow — polygon complete timing](https://stackoverflow.com/questions/9850444/handle-when-drawing-of-polygons-is-complete-in-google-maps-api-v3) |
+| Custom raster layers | `ImageMapType` **`tilesloaded`** or custom pending-tile counter | [Stack Overflow — ImageMapType tiles](https://stackoverflow.com/questions/7341769/google-maps-v3-how-to-tell-when-an-imagemaptype-overlays-tiles-are-finished-lo), [Maps JS ImageMapType.tilesloaded](https://developers.google.com/maps/documentation/javascript/reference/image-overlay#ImageMapType.tilesloaded) |
+| Multi-layer maps | Reload data on `idle`; `OverlayView` for image overlays synced to projection | [Reintech — multi-layered Maps blog](https://reintech.io/blog/creating-multi-layered-map-google-maps-api) |
+
+**ARX already uses:** `waitForMapToSettle()` → `addListenerOnce(map, 'idle')` + 500 ms cap (`page.tsx` ~1056–1070); called before detect (~1191). Auto-detect on address search uses **550 ms `setTimeout`**, not `idle` (~531–546) — *inferred race risk* (see §2).
+
+---
+
+### 1.5 What contractors expect (forums + aggregated reviews)
+
+Direct **Reddit** threads were **not reliably indexed** in this research pass (search returned no primary threads). Findings below combine **vendor docs**, **third-party contractor reviews**, and **ARX-adjacent industry blogs** — labeled accordingly.
+
+| Expectation | Evidence |
+|-------------|----------|
+| **Squares + pitch per slope** | Roofr reports: area, pitch, direction, ridge/hip/valley, diagram ([Roofr blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses), [order help](https://roofrhelp.zendesk.com/hc/en-us/articles/31322662330775-How-to-Order-a-Roofr-Measurement-Report)) |
+| **Fast turnaround for satellite** | 2 h on paid Roofr plans; 2–24 h range ([Roofr blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses)) |
+| **Editable / fixable reports** | Roofr FAQ cited: no service 100% accurate; reports editable ([Contractor ToolStack](https://contractortoolstack.com/software/roofr/)) |
+| **Verify complex roofs on-site** | Pitch misreads on multi-plane roofs; tree cover / complex geometry issues ([RooferBase Roofr review](https://www.rooferbase.com/blog/roofr-software-what-roofers-need-to-know-in-2025), [Roofr vs Hover comparison](https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/)) |
+| **Insurance / Xactimate** | EagleView widely used for claims; Hover Xactimate integration; Roofr ESX export (2026) ([EagleView review](https://roofingsoftwareguide.com/reviews/eagleview-review/), [Contractor ToolStack](https://contractortoolstack.com/software/roofr/)) |
+| **Instant satellite for lead widgets** | SkyRoof / RuufPro / RoofMammoth: address → immediate ballpark ([SkyRoof](https://skyroof.io/), [RuufPro](https://www.ruufpro.com/)) — *lower bar than production takeoff* |
+| **DIY grid + edge typing** | Roofr DIY: grid snap, color-coded angles, edge type toolbox ([DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)) |
+
+**Inferred for ARX:** Contractors accept **satellite-first** for standard suburban re-roofs but expect **visible diagram on map**, ability to **fix pitch and outline**, and **ridge/valley LF** for material/waste — matching ARX’s facet panel + `classifyRoofEdges` path ([internal providers doc](./roof-measurement-providers.md)).
 
 ---
 
 ## 2. Known failure modes
 
-| Failure mode | Symptom | Evidence / mechanism |
-|--------------|---------|----------------------|
-| **Overlay race** | API returns facets; map shows metrics/notes but no polygons | Detect runs before `map idle` / before `googleMapRef` ready; auto-accept clears drafts while polygon attach fails ([ARX repro doc](./prompts/roof-measure-missing-google-polygons.md)) |
-| **Draft effect cleanup** | Polygons flash then disappear | `useEffect([aiDraftSections])` cleanup calls `clearAIDraftOverlays` on every deps change ([`page.tsx` ~1352–1407](./app/tools/roof-measure/page.tsx)) |
-| **Bbox-only vs segment polygons** | Rough rectangles offset from roof; user distrust | Solar `boundingBox` is axis-aligned, not edge-snapped ([Building Insights](https://developers.google.com/maps/documentation/solar/building-insights)); mask may fail → API returns empty facets + bbox-only note ([`detect-roof/route.ts`](app/api/ai/detect-roof/route.ts) lines ~1263–1289) |
-| **Zoom mismatch (vision/static vs live map)** | AI trace “floats” off roof | Static Maps uses integer zoom; JS map often fractional; pixel→lat/lng must use **same** center/zoom as snapshot ([`page.tsx` ~1193–1197, 1541–1550](app/tools/roof-measure/page.tsx), [`detect-roof/route.ts` ~1596–1602](app/api/ai/detect-roof/route.ts)) |
-| **Bounds stretch** | Polygons scaled wrong vs imagery | Mapping vision pixels to full `map.getBounds()` wider than Static Map snapshot ([`detect-roof/route.ts` comment ~1597–1599](app/api/ai/detect-roof/route.ts)) |
-| **Pin vs Solar anchor drift** | Wrong structure’s roof selected | `buildingInsights.center` can differ from user pin; multi-structure parcels ([`detect-roof/route.ts`](app/api/ai/detect-roof/route.ts) `filterFacetsToRequestedStructure`, anchor fallback) |
-| **Tree cover / stale imagery** | Under-measure or wrong pitch | Contractor reviews note accuracy drops ([RooferBase Roofr review](https://www.rooferbase.com/blog/roofr-software-what-roofers-need-to-know-in-2025)); EagleView unusable if no capture yet ([EagleView review](https://roofingsoftwareguide.com/reviews/eagleview-review/)) |
-| **2D footprint + inferred edges** | Ridge/hip LF disagree with Aurora/EagleView | Industry 3D tools type edges on model; ARX infers from 2D adjacency ([roof-measurement-providers.md](./roof-measurement-providers.md)) |
-| **Quote-ready gate vs draft geometry** | User sees outline but cannot save | API allows `solar_bbox` / `solar_mask_whole`; POST rejects unsupported geometry ([`measurements/route.ts`](app/api/measurements/route.ts) ~101–108) |
+| Failure mode | Mechanism | Industry parallel | ARX touchpoints |
+|--------------|-----------|-------------------|-----------------|
+| **Overlay / detect race** | Detect reads center/zoom before `fitBounds` / tile load completes; overlays drawn then cleared by effect cleanup | Maps `idle` vs timeout ([SO idle](https://stackoverflow.com/questions/31700017/google-maps-idle-event-not-firing)) | Auto-detect `setTimeout(550)` (~531–546); draft effect cleanup clears overlays on `[aiDraftSections]` change (~1404–1406); `autoAcceptAllDrafts` skips draft UI (~1320–1326) |
+| **Bbox-only vs segment polygons** | `buildingInsights.boundingBox` is axis-aligned, not roof outline | Google docs — bbox is location hint, not edge geometry ([REST](https://developers.google.com/maps/documentation/solar/reference/rest/v1/buildingInsights/findClosest#RoofSegmentSizeAndSunshineStats)) | `buildSolarPlaneFacetPayloads`, `facet_source: 'solar_bbox'`; API returns **empty facets** + notes when only bbox (~1266–1288) |
+| **Zoom / projection mismatch** | Static Maps / vision bitmap uses **integer zoom**; JS map may be fractional; pixel→lat/lng uses wrong zoom → shifted polygons | *Inferred from Web Mercator static map behavior* | Vision path snaps zoom + `alignWithClientMap` / `geoZoomForPixels` logic (`route.ts` ~1536–1550, `page.tsx` ~1193–1207) |
+| **Viewport vs snapshot bounds** | `map.getBounds()` wider than Static Maps snapshot — scaling facets to full bounds stretches geometry | Comment in `route.ts` ~1596–1600 | Vision uses Mercator from snapshot center/zoom, not bounds stretch |
+| **Mask without split** | Single connected mask for whole roof — no facet boundaries | Mask is binary rooftop, not per-segment ([GeoTIFF](https://developers.google.com/maps/documentation/solar/geotiff)) | `solar_mask_whole` blocked at save (~101–108); needs manual split |
+| **Duplicate / stacked facets** | ML or vision traces same plane twice | *Inferred* | `dedupeAndCapFacetFootprints`, `isStackedBandVisionTrace` (`route.ts`, `lib/roof-vision-quality.ts`) |
+| **Solar anchor vs user pin** | `buildingInsights.center` ≠ geocoded address pin | Documented `findClosest` behavior | `filterFacetsToRequestedStructure`, anchor fallback ~70 m (`route.ts`) |
+| **Accept silently drops facets** | Invalid coords or area &lt; 10 sq ft | *Inferred* | `acceptDraftItem` ~1469–1471 — metrics in sidebar without polygons |
+| **Geometry library missing** | `google.maps.geometry.spherical.computeArea` fails | Maps JS **geometry** library required | `hasRequiredGoogleMapMeasureLibraries` (see [missing polygons prompt](./prompts/roof-measure-missing-google-polygons.md)) |
+| **Stale imagery / no coverage** | Solar `imageryQuality`, expanded coverage experimental ([expanded coverage](https://developers.google.com/maps/documentation/solar/expanded-coverage)) | EagleView unusable on new construction without capture ([EagleView review](https://roofingsoftwareguide.com/reviews/eagleview-review/)) | Empty detect response + `skipAutoDetectAfterFailureRef` (~1338–1340) |
+| **3D pitch vs 2D footprint** | Satellite infer pitch; user sees wrong slope area | Hover/Roofr pitch from model/imagery | ARX requires **manual pitch** before save (`measurements/route.ts` ~85–90) |
 
 ---
 
-## 3. What contractors expect (forums + industry reviews)
+## 3. Actionable recommendations for ARX
 
-Direct **Reddit** threads were not reliably indexed in this research pass. Claims below come from **contractor-facing reviews and vendor-adjacent surveys** (treat accuracy numbers as marketing unless independently verified).
+Priority legend: **P0** = blocks correct outlines or save path; **P1** = quality / contractor trust.
 
-| Expectation | Source |
-|-------------|--------|
-| **Fast remote quoting** — measure from truck/office without ladder | [QuoteIQ contractor survey 2026](https://myquoteiq.com/what-roofing-contractors-want-in-crm-software/) (“satellite measurement is non-negotiable”) |
-| **Squares + pitch per slope + LF breakdown + diagram** | [Roofr satellite guide](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses), [Roofr order help](https://roofrhelp.zendesk.com/hc/en-us/articles/31322662330775-How-to-Order-a-Roofr-Measurement-Report) |
-| **Editable after delivery** when auto trace is wrong | [ContractorToolStack Roofr review](https://contractortoolstack.com/software/roofr/) (contrast with locked EagleView PDFs) |
-| **Verify on site** for complex roofs / insurance — don’t trust satellite alone | [Roofr vs Hover comparison](https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/) (no published third-party accuracy benchmarks) |
-| **Turnaround:** instant for sales widgets vs hours for full takeoff | [RoofMammoth vs Roofr comparison table](https://roofmammoth.ai/) (instant sq ft/pitch vs 2–24 hr full report) |
-| **CRM integration** — measure → proposal/materials without re-entry | [Roofr products](https://roofr.com/products), [RooferApp](https://rooferapp.com/) |
+### P0
 
-*Inferred from docs:* ARX sits between **instant satellite draft** (MapMeasure-style) and **human-QA report** (Roofr ordered report). Operators expect **visible outlines quickly**, then **edit + confirm pitch** before quote.
+| # | Recommendation | Rationale | ARX files |
+|---|----------------|-----------|-----------|
+| **P0-1** | **Unify auto-detect gating on `waitForMapToSettle` (idle), not 550 ms alone** | Industry pattern: read map state after `idle` ([Maps JS](https://developers.google.com/maps/documentation/javascript/reference/map#Map.idle)). ARX detect already waits; auto-detect on address search does not. | `page.tsx` auto-detect effect ~523–549; reuse `waitForMapToSettle` ~1056–1070 |
+| **P0-2** | **When API returns zero facets, never show sidebar-only success** — banner + CTA (“Draw a section”, “Reload outline”) | Roofr DIY always shows imagery + grid before measure ([DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)). Empty map + notes = reported prod bug ([missing polygons prompt](./prompts/roof-measure-missing-google-polygons.md)). | `page.tsx` `detectRoofWithAI` ~1338–1340, notes ~1312–1316; `detect-roof/route.ts` empty responses ~1266–1419 |
+| **P0-3** | **Keep blocking `solar_bbox` / `solar_mask_whole` at save; surface in UI before save attempt** | Bbox ≠ quote-ready geometry (Google bbox is not outline). Already enforced server-side. | `app/api/measurements/route.ts` ~101–108; `page.tsx` save guards ~2369–2480 |
+| **P0-4** | **Log / UI feedback when `acceptDraftItem` skips facets** (area &lt; 10 sq ft, invalid coords) | Auto-accept path hides draft overlays; silent skips look like “missing polygons”. | `page.tsx` `acceptDraftItem` ~1458–1471; auto-accept ~1320–1326 |
+| **P0-5** | **Pass identical `mapBounds`, `mapWidthPx`, `mapHeightPx`, rounded zoom to detect-roof on every call** | Vision path documents bounds/snapshot mismatch failure (`route.ts` ~1596–1600). Solar mask georeferencing depends on consistent lat/lng + zoom. | `page.tsx` ~1219–1257; `detect-roof/route.ts` body ~1148–1183, vision geo ~1536–1550 |
+| **P0-6** | **Require explicit “Review outline” (`geometry_reviewed`) in UI for auto-accepted Solar facets** | Replaces Roofr human QA with operator attestation. Server already requires `geometry_reviewed: true`. | `page.tsx` facet cards ~2994+; `measurements/route.ts` ~93–98 |
 
----
+### P1
 
-## 4. Actionable recommendations for ARX
-
-Mapped to **`app/tools/roof-measure/page.tsx`**, **`app/api/ai/detect-roof/route.ts`**, **`app/api/measurements/route.ts`**.
-
-### P0 — ship-stoppers / user-visible correctness
-
-| # | Recommendation | Rationale | Files |
-|---|----------------|-----------|-------|
-| P0-1 | **Never auto-accept until map + geometry library ready** — gate `detectRoofWithAI(true)` on `mapsLoaded && googleMapRef && google.maps.geometry`; log/surface skips from `acceptDraftItem` | Prevents “data returned, map empty” ([repro doc](./prompts/roof-measure-missing-google-polygons.md)) | [`page.tsx`](app/tools/roof-measure/page.tsx) auto-detect effect ~523–549, `acceptDraftItem` ~1409+, `detectRoofWithAI` ~1172+ |
-| P0-2 | **Keep `waitForMapToSettle` before every detect** (idle + 500ms cap); extend auto-detect defer beyond 550ms if `fitBounds` still running | Matches Maps `idle` best practice ([Map.idle](https://developers.google.com/maps/documentation/javascript/reference/map#Map.idle)) | [`page.tsx`](app/tools/roof-measure/page.tsx) `waitForMapToSettle` ~1056–1071, auto-detect ~531 |
-| P0-3 | **When API returns `facet_source: none` or empty facets, show explicit CTA** (center map, draw section) — never silent empty map with sidebar warnings | Roofr/EagleView always deliver *something* or an order failure state | [`page.tsx`](app/tools/roof-measure/page.tsx) notes handling ~1308–1316, empty response ~1338–1340; [`detect-roof/route.ts`](app/api/ai/detect-roof/route.ts) empty paths ~1263–1419 |
-| P0-4 | **Block or flag `solar_bbox` / `solar_mask_whole` in UI before user invests in pitch** — align with POST rejection in measurements API | Save API already rejects unsupported geometry ([`measurements/route.ts`](app/api/measurements/route.ts) ~101–108) | [`page.tsx`](app/tools/roof-measure/page.tsx) `facetGeometrySourceRef`, save flow; optional server-side consistency |
-| P0-5 | **On saved measurement reload, call `restoreMeasurementOverlays` only after map idle** (same settle helper) | Persist → redraw is a distinct race from detect → draft | [`page.tsx`](app/tools/roof-measure/page.tsx) `restoreMeasurementOverlays` ~589+, load path |
-
-### P1 — accuracy, trust, operator workflow
-
-| # | Recommendation | Rationale | Files |
-|---|----------------|-----------|-------|
-| P1-1 | **Prefer `solar_mask_plane` path**; monitor mask failure rate by ZIP/quality | Industry best public polygon source is mask vectorization, not bbox ([GeoTIFF mask](https://developers.google.com/maps/documentation/solar/geotiff)) | [`detect-roof/route.ts`](app/api/ai/detect-roof/route.ts), [`lib/solar-roof-mask-facets.ts`](lib/solar-roof-mask-facets.ts) |
-| P1-2 | **Integer-zoom snap for solar reload too** (not only vision) if static snapshot used for QA | Reduces fractional-zoom skew ([`page.tsx`](app/tools/roof-measure/page.tsx) vision snap ~1198–1206) | [`page.tsx`](app/tools/roof-measure/page.tsx) |
-| P1-3 | **Draft-first for low-confidence / bbox sources**; require explicit accept per facet when `confidence < 0.75` or `facet_source !== solar_mask_plane` | Mirrors Roofr DIY + human QA pattern ([DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)) | [`page.tsx`](app/tools/roof-measure/page.tsx) `autoAcceptAllDrafts` param ~1320–1328 |
-| P1-4 | **Expose Solar segment pitch/azimuth as suggestions only**; keep manual pitch + `geometry_reviewed` gates | Matches Google segment semantics ([Building Insights](https://developers.google.com/maps/documentation/solar/building-insights)); already in POST validation | [`measurements/route.ts`](app/api/measurements/route.ts) ~74–98, [`page.tsx`](app/tools/roof-measure/page.tsx) pitch UI |
-| P1-5 | **Dedupe overlay IDs on pan/zoom** if adding tile-based layers later | Heatmap/polygon duplicate pattern ([SO: polygon IDs](https://stackoverflow.com/questions/45160365/google-maps-render-unique-polygons-based-on-id)) | Future overlay work in [`page.tsx`](app/tools/roof-measure/page.tsx) |
-| P1-6 | **Telemetry:** log `facet_source`, segment count, `openai_calls`, detect duration, accept skip reasons | Enables mask-vs-bbox monitoring without guessing | [`detect-roof/route.ts`](app/api/ai/detect-roof/route.ts) response fields; client console → structured log |
+| # | Recommendation | Rationale | ARX files |
+|---|----------------|-----------|-----------|
+| **P1-1** | **Prefer `solar_mask_plane` quality gate; tune `MIN_PLANE_FOOTPRINT_SQFT` vs fallback to bbox** | Google mask is 0.1 m/px; segment split uses `roofSegmentStats` centers/bboxes ([GeoTIFF](https://developers.google.com/maps/documentation/solar/geotiff)). | `lib/solar-roof-mask-facets.ts` ~45–46, `detect-roof/route.ts` ~1221–1260 |
+| **P1-2** | **Show `imageryQuality` / facet_source badge in UI** | Google documents `imageryQuality: HIGH \| MEDIUM \| BASE` on insights ([building insights response](https://developers.google.com/maps/documentation/solar/building-insights)). Sets contractor expectations. | `detect-roof/route.ts` fetch ~577–624 (extend response); `page.tsx` notes area |
+| **P1-3** | **Optional draft mode: `autoAcceptAllDrafts: false` for first visit** | Roofr DIY keeps dashed outline until operator confirms ([DIY help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)). | `page.tsx` ~1320–1328, ~545 |
+| **P1-4** | **On measurement reload, call `restoreMeasurementOverlays` only after `mapsLoaded` + map idle** | Same race class as detect. | `page.tsx` `restoreMeasurementOverlays` ~589+; load measurement effect |
+| **P1-5** | **Vision: always send client-aligned static snapshot (already partial)** | Fractional zoom skew ([page.tsx comment](~1193–1197)). | `fetchVisionAlignedStaticSnapshotBase64`, `clampVisionAlignStaticZoom` |
+| **P1-6** | **Document for ops: verify one pitch on-site for complex roofs** | Contractor reviews ([Roofr vs Hover](https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/), [RooferBase](https://www.rooferbase.com/blog/roofr-software-what-roofers-need-to-know-in-2025)). | QA template [roof-measure-qa-TEMPLATE.md](./roof-measure-qa-TEMPLATE.md) |
+| **P1-7** | **Dedupe warning when multiple facets share `solar_segment_index`** | Solar segments can merge planes ([Satellite Sunroof](https://arxiv.org/html/2408.14400)). | `page.tsx` `updateMeasurements` (see [providers doc](./roof-measurement-providers.md)) |
 
 ---
 
-## 5. What NOT to copy
+## 4. What NOT to copy
 
-| Anti-pattern | Why avoid | Source |
-|--------------|-----------|--------|
-| **Treat Solar `boundingBox` as final facet geometry** | Axis-aligned boxes ≠ roof planes; Google does not ship segment polygons in Building Insights | [Building Insights](https://developers.google.com/maps/documentation/solar/building-insights) |
-| **Vendor lock-in to EagleView/Roofr report APIs as core geometry** | Per-report cost, locked deliverables, CRM mismatch; ARX goal is in-house capability ([in-house prompt](./roof-measure-in-house-capability-prompt.md)) | [EagleView review](https://roofingsoftwareguide.com/reviews/eagleview-review/), [Roofr pricing](https://contractortoolstack.com/software/roofr/) |
-| **3D-only / photogrammetry-first (Hover model) inside satellite tool** | Requires site visit; different workflow | [Hover exterior scans](https://help.hover.to/en/articles/9185612-exterior-scans) |
-| **Auto-quote from unreviewed satellite trace** | Contractors verify pitch/LF on complex jobs; insurance paths need audit trail | [Roofr vs Hover](https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/) |
-| **Promise sub-inch accuracy from satellite** | Vendor “1–2 inch” claims are marketing; no independent benchmarks cited | [Roofr blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses), [Roofr vs Hover](https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/) |
-| **Infer ridge/hip/valley LF purely from 2D without user review** | Aurora/EagleView type edges in 3D; 2D adjacency drifts on hips | [roof-measurement-providers.md](./roof-measurement-providers.md) |
-| **Rely on `idle` alone for polygon paint completion** | Polygon rendering can lag idle; use user-visible draft state | [SO: async polygon draw](https://stackoverflow.com/questions/9850444/handle-when-drawing-of-polygons-is-complete-in-google-maps-api-v3) |
-| **Copy Google panel placement as roofing takeoff** | `solarPanels` / `segmentIndex` is for PV layout, not drip edge/flashing | [Building Insights — segment selection](https://developers.google.com/maps/documentation/solar/building-insights) |
-
----
-
-## 6. ARX file reference (implementation map)
-
-| Concern | Primary files |
-|---------|----------------|
-| Map lifecycle, detect, draft/accept, polygon refs | [`app/tools/roof-measure/page.tsx`](app/tools/roof-measure/page.tsx) |
-| Solar fetch, mask/bbox/vision, facet filtering | [`app/api/ai/detect-roof/route.ts`](app/api/ai/detect-roof/route.ts) |
-| Mask → polygon vectorization | [`lib/solar-roof-mask-facets.ts`](lib/solar-roof-mask-facets.ts) |
-| Save gates (pitch manual, geometry reviewed, quote-ready) | [`app/api/measurements/route.ts`](app/api/measurements/route.ts), [`app/api/measurements/[id]/route.ts`](app/api/measurements/[id]/route.ts) |
-| Edge LF inference (2D) | [`lib/roof-measure-edge-classification.ts`](lib/roof-measure-edge-classification.ts) |
+| Anti-pattern | Why avoid for ARX |
+|--------------|-------------------|
+| **EagleView / Hover 3D-only pipeline** | Requires proprietary capture or on-site photos ([Hover scans](https://help.hover.to/en/articles/9185612-exterior-scans), [EagleView One](https://www.eagleview.com/eagleview-one/)); conflicts with address-in → outline-out desire path. |
+| **Vendor lock-in imagery** | EagleView Vault/Reveal licensing ([developer overview](https://www.eagleview.com/blog/developer-overview-the-geospatial-building-blocks-of-eagleviews-imagery-platform/)); not interchangeable with Google Solar. |
+| **Treating `boundingBox` as final facet** | Documented as segment location bounds, not roof edge geometry ([REST](https://developers.google.com/maps/documentation/solar/reference/rest/v1/buildingInsights/findClosest#RoofSegmentSizeAndSunshineStats)). ARX correctly blocks save. |
+| **Roofr “2 hour human report” SLA** | Ops model, not API — copying SLA without QA staff misleads users ([Roofr measurements](https://roofr.com/measurements)). |
+| **Instant lead-widget accuracy claims** | Products like SkyRoof claim ~98% ([SkyRoof](https://skyroof.io/)) without independent benchmarks — [Roofr vs Hover](https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/) notes **no published third-party accuracy studies**. |
+| **Auto pitch save without confirmation** | Contractor distrust on complex roofs ([Contractor ToolStack](https://contractortoolstack.com/software/roofr/)). ARX manual pitch gate is correct. |
+| **2D adjacency = Aurora 3D edge LF** | Documented ARX limitation ([roof-measurement-providers.md](./roof-measurement-providers.md)). |
+| **LLM vision as default detect** | Cost + placeholder traces; Google mask path is $0 LLM ([detect-roof/route.ts](~1221–1222)). |
+| **Assuming Reddit consensus** | Primary Reddit threads not verified in this pass — use paying-customer QA over anecdotal votes. |
 
 ---
 
-## 7. Source index
+## 5. Claim index (sources)
 
-### Google / academic
-- [Solar API overview](https://developers.google.com/maps/documentation/solar/overview)
-- [Building Insights request](https://developers.google.com/maps/documentation/solar/building-insights)
-- [Data layers request](https://developers.google.com/maps/documentation/solar/data-layers)
-- [GeoTIFF layers (mask, DSM, RGB)](https://developers.google.com/maps/documentation/solar/geotiff)
-- [dataLayers REST (`maskUrl`)](https://developers.google.com/maps/documentation/solar/reference/rest/v1/dataLayers)
-- [Satellite Sunroof paper (Google pipeline)](https://arxiv.org/html/2408.14400)
-- [Maps JS Map.idle](https://developers.google.com/maps/documentation/javascript/reference/map#Map.idle)
+### Primary documentation
 
-### Vendors (high level)
-- [Roofr measurements](https://roofr.com/measurements)
-- [Roofr satellite measurements blog](https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses)
-- [Roofr DIY measurement help](https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY)
-- [Hover exterior scans](https://help.hover.to/en/articles/9185612-exterior-scans)
-- [Hover measurement PDF](https://help.hover.to/en/articles/1215021-understanding-hover-s-measurement-pdf)
-- [EagleView aerial measurements](https://www.eagleview.com/blog/aerial-roof-measurements/)
-- [EagleView geospatial software](https://www.eagleview.com/eagleview/geospatial-intelligence-software/)
-- [EagleView developer imagery platform](https://www.eagleview.com/blog/developer-overview-the-geospatial-building-blocks-of-eagleviews-imagery-platform/)
+- Google Solar overview — https://developers.google.com/maps/documentation/solar/overview  
+- Building Insights — https://developers.google.com/maps/documentation/solar/building-insights  
+- RoofSegmentSizeAndSunshineStats REST — https://developers.google.com/maps/documentation/solar/reference/rest/v1/buildingInsights/findClosest#RoofSegmentSizeAndSunshineStats  
+- Data layers — https://developers.google.com/maps/documentation/solar/data-layers  
+- GeoTIFF / mask — https://developers.google.com/maps/documentation/solar/geotiff  
+- Expanded coverage — https://developers.google.com/maps/documentation/solar/expanded-coverage  
+- Maps JS Map.idle — https://developers.google.com/maps/documentation/javascript/reference/map#Map.idle  
+- Maps JS ImageMapType.tilesloaded — https://developers.google.com/maps/documentation/javascript/reference/image-overlay#ImageMapType.tilesloaded  
 
-### Contractor expectations (secondary reviews / surveys)
-- [Roofr vs Hover — accuracy patterns](https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/)
-- [ContractorToolStack Roofr review 2026](https://contractortoolstack.com/software/roofr/)
-- [EagleView review 2026](https://roofingsoftwareguide.com/reviews/eagleview-review/)
-- [RooferBase Roofr review](https://www.rooferbase.com/blog/roofr-software-what-roofers-need-to-know-in-2025)
-- [QuoteIQ — what contractors want in CRM 2026](https://myquoteiq.com/what-roofing-contractors-want-in-crm-software/)
+### Vendor product / help
 
-### Maps overlay timing (community)
-- [Google Maps idle listener placement](https://stackoverflow.com/questions/31700017/google-maps-idle-event-not-firing)
-- [Polygon draw async vs idle](https://stackoverflow.com/questions/9850444/handle-when-drawing-of-polygons-is-complete-in-google-maps-api-v3)
-- [ImageMapType tilesloaded pattern](https://stackoverflow.com/questions/7341769/google-maps-v3-how-to-tell-when-an-imagemaptype-overlays-tiles-are-finished-lo)
-- [Polygon dedupe on map move](https://stackoverflow.com/questions/45160365/google-maps-render-unique-polygons-based-on-id)
+- Roofr satellite blog — https://roofr.com/blog/satellite-roof-measurements-for-roofing-businesses  
+- Roofr measurements — https://roofr.com/measurements  
+- Roofr DIY — https://roofrhelp.zendesk.com/hc/en-us/articles/31482569335319-How-to-Create-a-Measurement-Report-DIY  
+- Hover exterior scans — https://help.hover.to/en/articles/9185612-exterior-scans  
+- Hover measurement PDF — https://help.hover.to/en/articles/1215021-understanding-hover-s-measurement-pdf  
+- EagleView aerial measurements — https://www.eagleview.com/blog/aerial-roof-measurements/  
+- EagleView geospatial software — https://www.eagleview.com/eagleview/geospatial-intelligence-software/  
+- EagleView developer / imagery platform — https://www.eagleview.com/blog/developer-overview-the-geospatial-building-blocks-of-eagleviews-imagery-platform/  
+
+### Research / engineering
+
+- Satellite Sunroof (Google Solar ML pipeline) — https://arxiv.org/html/2408.14400  
+- Stack Overflow: idle, polygon timing, ImageMapType tiles — links in §1.4  
+- Reintech multi-layer Maps — https://reintech.io/blog/creating-multi-layered-map-google-maps-api  
+
+### Contractor market (secondary — not independent benchmarks)
+
+- Contractor ToolStack Roofr review — https://contractortoolstack.com/software/roofr/  
+- Roofing Software Guide Roofr vs Hover — https://roofingsoftwareguide.com/comparisons/roofr-vs-hover/  
+- Roofing Software Guide EagleView review — https://roofingsoftwareguide.com/reviews/eagleview-review/  
+- RooferBase Roofr review — https://www.rooferbase.com/blog/roofr-software-what-roofers-need-to-know-in-2025  
+
+### ARX internal (implementation truth)
+
+- [roof-measurement-providers.md](./roof-measurement-providers.md)  
+- [prompts/roof-measure-missing-google-polygons.md](./prompts/roof-measure-missing-google-polygons.md)  
+- `app/tools/roof-measure/page.tsx`  
+- `app/api/ai/detect-roof/route.ts`  
+- `app/api/measurements/route.ts`  
+- `lib/solar-roof-mask-facets.ts`  
+
+### Uncertain / not verified
+
+- **Reddit r/Roofing, r/solar threads** — not retrieved; contractor expectations above use vendor + secondary review sources.  
+- **Exact Roofr internal ML** — not public; described only as satellite + human QA from marketing/help.  
+- **EagleView 98.77% accuracy** — cited on third-party review ([EagleView review](https://roofingsoftwareguide.com/reviews/eagleview-review/)), not verified against primary EagleView docs in this pass.  
+- **IH forum posts** — no on-topic threads found in search.
 
 ---
 
-## 8. Uncertainties
+## Appendix: ARX detect source precedence (today)
 
-- **Reddit r/Roofing / r/solar:** No stable, citable thread set retrieved in this pass; contractor expectations section uses secondary review sites above. *Uncertain:* representative sentiment vs selection bias in SEO review blogs.
-- **Roofr internal CV/human split:** Public docs describe human multi-check; exact ML stack not published. *Inferred from marketing.*
-- **EagleView ML accuracy (98.77%):** Cited on third-party review sites referencing EagleView marketing; not re-verified against independent study. *Uncertain.*
-- **Google mask → segment split algorithm:** Public API gives combined mask + segment stats; plane splitting is implementation detail (see arXiv for research pipeline, not guaranteed to match `dataLayers` behavior in all regions). *Partially documented.*
+```
+detectionMode=solar (default)
+  1. solar_mask_plane   ← dataLayers mask + segment labeling (lib/solar-roof-mask-facets.ts)
+  2. solar_mask_whole   ← whole-roof mask contour
+  3. (empty facets)     ← if only bbox available — user must draw or vision
+  4. solar_bbox         ← built internally but not returned as facets when mask fails (empty + note)
+
+detectionMode=vision (flag-gated)
+  GPT-4o trace + optional geometry review pass
+  Solar hints = pixel regions from bbox, NOT coordinates (route.ts buildSolarFacetDetectionPromptText)
+```
+
+*Inferred from* `app/api/ai/detect-roof/route.ts` control flow ~1221–1420, 1422–1764.

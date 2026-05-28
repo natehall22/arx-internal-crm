@@ -52,9 +52,26 @@ Use this **in the real tool** while logged into the CRM — not as a code checkl
 
 ---
 
+## Prod notes (2026-05-27)
+
+**Concord — 1361 Kison Ct NW, Concord NC 28027** ([full QA](./roof-measure-qa-2026-05-28-final.md#human-prod-verification--concord-2026-05-27)):
+
+- Solar auto-loaded **3** sections on map (not blank); operator added **5** more → **8** at save.
+- Save → proposal builder OK (~17.6 sq, ~17.5% waste, ridge/hip caps in LF summary).
+- **Limit (P1):** Solar under-splits this roof — manual sections expected for full quote.
+- Tool warned possible duplicate **sections 3 & 4** — delete overlap before final quote.
+
+**Greenway — 304 Greenway Dr** ([full QA](./roof-measure-qa-2026-05-28-final.md#human-prod-verification--greenway-2026-05-27)):
+
+- Solar auto-loaded **7** sections (case study count) — **not blank**.
+- Geometry: **Satellite box (rough)** (`solar_bbox`); operator **drags vertices** to roof lines (no +N manual sections like Concord).
+- **Pending:** Looks good all → save → confirm ~28.13 sq, ~17% waste, ridge/hip/valley LF vs case study; builder caps.
+
+---
+
 ## Sign-off
 
 | Role | Name | Date |
 |------|------|------|
-| Engineering | | |
+| Engineering | Nathan Hall | 2026-05-28 — **GO** (known limits: bbox quads, manual sections on under-split addresses, plane LF off) |
 | Ops / production | | |
