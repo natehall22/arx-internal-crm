@@ -26,6 +26,10 @@ import {
 import { calculateRoofWaste } from '@/lib/roof-waste-model'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { roofWasteAndOrder, roofCapBundlesFromLf } from '@/lib/roof-material-order'
+import {
+  buildSolarBboxFacetPayloads,
+  SOLAR_BBOX_ONLY_USER_NOTES,
+} from '@/lib/solar-bbox-facet-payloads'
 
 declare const google: any
 
@@ -1272,7 +1276,12 @@ export default function RoofMeasurePage() {
         solarGroundFootprintReferenceRef.current = data.solar_ground_footprint_sqft
       }
 
-      const draftFacets: AIDraftSection[] = (data.facets || []).map((facet: any, idx: number) => ({
+      const apiFacets =
+        Array.isArray(data.facets) && data.facets.length > 0
+          ? data.facets
+          : (buildSolarBboxFacetPayloads(data.solar_segments || []) as typeof data.facets)
+
+      const draftFacets: AIDraftSection[] = (apiFacets || []).map((facet: any, idx: number) => ({
         suggested_pitch: getClosestPitchOption(facet.suggested_pitch_degrees)?.value || null,
         suggested_pitch_degrees:
           typeof facet.suggested_pitch_degrees === 'number' ? Number(facet.suggested_pitch_degrees) : null,
@@ -1309,12 +1318,23 @@ export default function RoofMeasurePage() {
       const traceFromPhotoPhrase = ['Trace', 'from', 'photo'].join(' ')
       const solarBboxOnlyNotesLegacy = `Satellite data only had rough boxes here, not clean outlines. Try \u201C${traceFromPhotoPhrase}\u201D or draw roof sections on the map.`
       const solarBboxOnlyNotesBoundingBoxes = `Satellite data only had rough bounding boxes here, not clean outlines. Try \u201C${traceFromPhotoPhrase}\u201D or draw roof sections on the map.`
+      const solarBboxOnlyNotesFromApi = `Satellite data only had rough boxes here, not clean outlines. Try "${traceFromPhotoPhrase}" or draw roof sections on the map.`
+      const isSolarBboxOnlyNotes =
+        incomingNotes === solarBboxOnlyNotesLegacy ||
+        incomingNotes === solarBboxOnlyNotesBoundingBoxes ||
+        incomingNotes === solarBboxOnlyNotesFromApi ||
+        incomingNotes === SOLAR_BBOX_ONLY_USER_NOTES ||
+        incomingNotes.includes('rough outlines only') ||
+        incomingNotes.includes('rough boxes here')
       setAiNotes(
-        incomingNotes === solarBboxOnlyNotesLegacy || incomingNotes === solarBboxOnlyNotesBoundingBoxes
-          ? 'Satellite data for this address has rough outlines only — they may not match the roof exactly. Drag the corners to adjust, or use Draw a section to trace it yourself.'
+        isSolarBboxOnlyNotes
+          ? SOLAR_BBOX_ONLY_USER_NOTES
           : incomingNotes.replaceAll(traceFromPhotoPhrase, 'Draw a section'),
       )
-      const facetSrc = typeof data.facet_source === 'string' ? data.facet_source : null
+      let facetSrc = typeof data.facet_source === 'string' ? data.facet_source : null
+      if ((!facetSrc || facetSrc === 'none') && apiFacets.length > 0) {
+        facetSrc = typeof apiFacets[0]?.facet_source === 'string' ? apiFacets[0].facet_source : 'solar_bbox'
+      }
       facetGeometrySourceRef.current = facetSrc
 
       if (autoAcceptAllDrafts) {
@@ -1328,7 +1348,7 @@ export default function RoofMeasurePage() {
         setAiDraftSections(allDrafts)
       }
 
-      const anyFacetsFromApi = (data.facets || []).length > 0
+      const anyFacetsFromApi = (apiFacets || []).length > 0
       const anyLinesFromApi =
         (data.ridges || []).length +
           (data.valleys || []).length +

@@ -4,6 +4,10 @@ import { requireAuthApi } from '@/lib/auth'
 import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
 import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
 import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
+import {
+  buildSolarBboxFacetPayloads,
+  SOLAR_BBOX_ONLY_USER_NOTES,
+} from '@/lib/solar-bbox-facet-payloads'
 import { tryFacetPayloadsFromSolarRoofMask } from '@/lib/solar-roof-mask-facets'
 import { isPlaceholderVisionFacet, isStackedBandVisionTrace } from '@/lib/roof-vision-quality'
 
@@ -296,48 +300,26 @@ function filterFacetsToRequestedStructure(
     .map((item) => item.facet)
 }
 
-/** One lat/lng quad per Google Solar segment (engineering footprint). No OpenAI. */
-function buildSolarPlaneFacetPayloads(
+function prepareSolarBboxFacetsForResponse(
   segments: SolarRoofSegment[],
-  validBounds: MapBounds | null
-): FacetResponsePayload[] {
-  const out: FacetResponsePayload[] = []
-  for (const seg of segments) {
-    const box = seg.bounding_box
-    if (!box) continue
-    const { ne, sw } = box
-    if (!(ne.lat > sw.lat) || !(ne.lng > sw.lng)) continue
+  validBounds: MapBounds | null,
+  requestedCenter: { lat: number; lng: number },
+  solarGroundFootprintSqFt: number | null
+): { facets: FacetResponsePayload[]; dropped_note: string | null } {
+  const bboxFacets = buildSolarBboxFacetPayloads(segments, validBounds) as FacetResponsePayload[]
+  if (bboxFacets.length === 0) return { facets: [], dropped_note: null }
 
-    const nw = { lat: ne.lat, lng: sw.lng }
-    const se = { lat: sw.lat, lng: ne.lng }
-    const latLngVertices = [nw, ne, se, sw]
-
-    const cLat = latLngVertices.reduce((s, p) => s + p.lat, 0) / 4
-    const cLng = latLngVertices.reduce((s, p) => s + p.lng, 0) / 4
-    if (validBounds && !centroidInExpandedBounds(cLat, cLng, validBounds, 0.18)) continue
-
-    const estSqFt =
-      typeof seg.ground_area_m2 === 'number'
-        ? Math.round(seg.ground_area_m2 * 10.7639)
-        : typeof seg.area_m2 === 'number'
-          ? Math.round(seg.area_m2 * 10.7639)
-          : null
-
-    out.push({
-      id: `solar_plane_${seg.segment_index}`,
-      vertices: [],
-      lat_lng_vertices: latLngVertices,
-      confidence: 0.35,
-      estimated_sq_ft: estSqFt,
-      solar_segment_index: seg.segment_index,
-      suggested_pitch_degrees: seg.pitch_degrees,
-      suggested_azimuth_degrees: seg.azimuth_degrees,
-      suggested_ground_area_sqft:
-        typeof seg.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
-      facet_source: 'solar_bbox',
-    })
+  const filtered = filterFacetsToRequestedStructure(bboxFacets, requestedCenter)
+  const candidates = filtered.length > 0 ? filtered : bboxFacets
+  const { facets: deduped, dropped_note } = dedupeAndCapFacetFootprints(
+    candidates,
+    validBounds,
+    solarGroundFootprintSqFt
+  )
+  return {
+    facets: deduped.length > 0 ? deduped : candidates,
+    dropped_note,
   }
-  return out
 }
 
 const MIN_FACET_SQFT = 35
@@ -1261,16 +1243,21 @@ export async function POST(request: Request) {
       }
 
       if (solarFacets.length === 0) {
-        const bboxFacets = buildSolarPlaneFacetPayloads(solarSegments, validBounds)
-        if (bboxFacets.length > 0) {
+        const bboxFallback = prepareSolarBboxFacetsForResponse(
+          solarSegments,
+          validBounds,
+          solarReferenceForFilter,
+          solarGroundFootprintSqFtEarly
+        )
+        if (bboxFallback.facets.length > 0) {
+          const notes = [bboxFallback.dropped_note, SOLAR_BBOX_ONLY_USER_NOTES].filter(Boolean).join(' ')
           return NextResponse.json({
-            facets: [],
+            facets: bboxFallback.facets,
             ridges: [],
             valleys: [],
             step_flashing: [],
             wall_flashing: [],
-            notes:
-              'Satellite data only had rough boxes here, not clean outlines. Try “Trace from photo” or draw roof sections on the map.',
+            notes,
             solar_segments: solarSegments,
             solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
             requested_center: requestedCenter,
@@ -1282,7 +1269,7 @@ export async function POST(request: Request) {
                 : 'requested_center',
             detection_zoom: normalizedZoom,
             localization: null,
-            facet_source: 'none',
+            facet_source: 'solar_bbox',
             detection_mode: 'solar',
             openai_calls: 0,
             static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
@@ -1327,6 +1314,38 @@ export async function POST(request: Request) {
         )
 
         if (facetsOut.length === 0) {
+          const bboxFallback = prepareSolarBboxFacetsForResponse(
+            solarSegments,
+            validBounds,
+            solarReferenceForFilter,
+            solarGroundFootprintSqFtEarly
+          )
+          if (bboxFallback.facets.length > 0) {
+            const notes = [bboxFallback.dropped_note, SOLAR_BBOX_ONLY_USER_NOTES].filter(Boolean).join(' ')
+            return NextResponse.json({
+              facets: bboxFallback.facets,
+              ridges: [],
+              valleys: [],
+              step_flashing: [],
+              wall_flashing: [],
+              notes,
+              solar_segments: solarSegments,
+              solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
+              requested_center: requestedCenter,
+              capture_center: usedSolarAnchorFallback ? solarReferenceForFilter : captureCenter,
+              capture_center_source: alignWithClientMap
+                ? 'requested_center'
+                : usedSolarAnchorFallback || shouldUseSolarAnchor
+                  ? 'solar_anchor'
+                  : 'requested_center',
+              detection_zoom: normalizedZoom,
+              localization: null,
+              facet_source: 'solar_bbox',
+              detection_mode: 'solar',
+              openai_calls: 0,
+              static_map_size: { width: imageWidth, height: imageHeight, logical: `${logicalSizeW}x${logicalSizeH}` },
+            })
+          }
           return NextResponse.json({
             facets: [],
             ridges: [],
