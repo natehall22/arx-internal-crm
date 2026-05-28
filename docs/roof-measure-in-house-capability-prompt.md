@@ -30,9 +30,9 @@ Google Solar helps you **see** the roof on the map. **You** confirm pitch and ge
 5. If save complains about **whole-roof outline only** (`solar_bbox` / `solar_mask_whole`), redraw or split sections until you have proper plane outlines.
 6. Watch **Notes** (yellow) for overlap warnings (footprint much larger than Solar’s estimate).
 7. Check the sidebar: **ridge / hip / valley** LF, **waste %**, squares (ridge/hip may be 0 until pitches are set or lines are drawn).
-8. **Save** → you land in the **proposal builder** with `measurement_id`. **Ridge cap** and **hip cap** lines appear when ridge or hip LF is greater than zero.
+8. **Save** → you land in the **proposal builder** with `measurement_id`. **Ridge cap** and **hip cap** lines appear when ridge or hip LF is greater than zero (ordered in **cap squares**, bundles in description).
 
-**Done when:** proposal shows believable squares, waste, and cap bundles for that address.
+**Done when:** proposal shows believable squares (with waste), waste %, cap sq, and bundle counts for that address.
 
 ---
 
@@ -157,7 +157,7 @@ npm run dev   # → /tools/roof-measure
 | Desire path | What to protect in code |
 |-------------|-------------------------|
 | Quote the job | Save stores full measurement; builder reads `ridges_lf`, `hips_lf`, `valleys_lf`, waste, caps |
-| Trust material | `calculateWasteFactorDetailed` gets live hips/valleys; hip note in UI |
+| Trust material | `calculateRoofWaste` gets live hips/valleys; hip note when hips &gt; 0 |
 | Simple gable | `classifyRoofEdges` ridge on shared edge; golden tests pass |
 | Complex hips | Hip LF &gt; 0 when drawn; manual ridge/valley overrides |
 | Facing | Solar azimuth → `suggested_azimuth_degrees` / `facing_azimuth_degrees`; mask over bbox when quality OK |
@@ -182,6 +182,9 @@ Say which path you helped, what you changed, pass/fail, blockers.
 | Topic | Location |
 |-------|----------|
 | Edge LF math | `lib/roof-measure-edge-classification.ts` |
+| Waste + material order | `lib/roof-waste-model.ts`, `lib/roof-material-order.ts`, `lib/roof-shingle-constants.ts` |
+| Cap order (sq) | `lib/hip-ridge-cap-squares.ts` |
+| Accuracy rationale | `docs/roof-measure-accuracy-sources.md`, `docs/roof-measure-greenway-case-study.md` |
 | Facing from Solar | `lib/roof-face-solar-alignment.ts`, `page.tsx` |
 | Solar import | `app/api/ai/detect-roof`, `lib/solar-roof-mask-facets.ts` |
 | Operator UI | `app/tools/roof-measure/page.tsx` |

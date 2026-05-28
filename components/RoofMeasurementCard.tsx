@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 
 interface RoofMeasurement {
   id: string
@@ -195,14 +196,32 @@ export default function RoofMeasurementCard({ opportunityId, projectId, proposal
 
         {/* Linear Footage */}
         <div className="grid grid-cols-3 md:grid-cols-5 gap-3 text-sm">
+          {(() => {
+            const caps = ridgeHipCapOrderSummary({
+              ridges_lf: measurement.ridges_lf,
+              hips_lf: measurement.hips_lf,
+            })
+            return (
+              <>
           <div className="bg-gray-50 rounded-lg p-3">
-            <div className="font-semibold text-gray-900">{measurement.ridges_lf} LF</div>
-            <div className="text-xs text-gray-500">Ridges</div>
+            <div className="font-semibold text-gray-900">
+              {caps ? `${caps.ridgeCapSq.toFixed(2)} sq` : `${measurement.ridges_lf} LF`}
+            </div>
+            <div className="text-xs text-gray-500">
+              Ridge cap{caps ? ` · ${measurement.ridges_lf} LF` : ''}
+            </div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
-            <div className="font-semibold text-gray-900">{measurement.hips_lf} LF</div>
-            <div className="text-xs text-gray-500">Hips</div>
+            <div className="font-semibold text-gray-900">
+              {caps ? `${caps.hipCapSq.toFixed(2)} sq` : `${measurement.hips_lf} LF`}
+            </div>
+            <div className="text-xs text-gray-500">
+              Hip cap{caps ? ` · ${measurement.hips_lf} LF` : ''}
+            </div>
           </div>
+              </>
+            )
+          })()}
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="font-semibold text-gray-900">{measurement.valleys_lf} LF</div>
             <div className="text-xs text-gray-500">Valleys</div>

@@ -1,46 +1,53 @@
-import { hipRidgeCapFromLinearFt } from '@/lib/hip-ridge-cap-squares'
-
-function wasteFromHipsValleys(hipLength: number, valleyLength: number, facetCount: number, totalArea: number) {
-  let baseWaste = 10
-  if (facetCount <= 4) baseWaste = 10
-  else if (facetCount <= 8) baseWaste = 12
-  else baseWaste = 15
-
-  let adjustments = 0
-  if (valleyLength > 20) adjustments += Math.min(3, Math.floor(valleyLength / 30))
-  if (hipLength > 20) adjustments += Math.max(2, Math.min(5, Math.ceil(hipLength / 50)))
-  const avgFacetSize = totalArea / Math.max(facetCount, 1)
-  if (avgFacetSize < 200) adjustments += 2
-
-  let finalWaste = Math.min(baseWaste + adjustments, 25)
-  if (hipLength > 60 && valleyLength > 40) finalWaste = Math.max(finalWaste, 17)
-  else if (hipLength > 60) finalWaste = Math.max(finalWaste, 15)
-  return finalWaste
-}
+import { calculateRoofWaste } from '@/lib/roof-waste-model'
+import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 
 describe('roof measure downstream (waste + cap)', () => {
   it('raises waste when hip LF is substantial (P-00093 class fix)', () => {
-    const lowHip = wasteFromHipsValleys(15, 0, 6, 3000)
-    const highHip = wasteFromHipsValleys(80, 40, 6, 3000)
-    expect(highHip).toBeGreaterThan(lowHip)
-    expect(highHip).toBeGreaterThanOrEqual(15)
+    const lowHip = calculateRoofWaste({
+      baseSquares: 30,
+      facetCount: 6,
+      valleys_lf: 0,
+      hips_lf: 15,
+      ridges_lf: 40,
+      avgPitchMultiplier: 1.12,
+    })
+    const highHip = calculateRoofWaste({
+      baseSquares: 30,
+      facetCount: 6,
+      valleys_lf: 40,
+      hips_lf: 80,
+      ridges_lf: 40,
+      avgPitchMultiplier: 1.12,
+    })
+    expect(highHip.wastePercent).toBeGreaterThan(lowHip.wastePercent)
+    expect(highHip.wastePercent).toBeGreaterThanOrEqual(15)
   })
 
-  it('computes cap squares from ridge + hip LF', () => {
-    const cap = hipRidgeCapFromLinearFt({ ridges_lf: 100, hips_lf: 60 })
+  it('computes cap order squares from ridge + hip LF', () => {
+    const cap = ridgeHipCapOrderSummary({ ridges_lf: 100, hips_lf: 60 })
     expect(cap).not.toBeNull()
-    expect(cap!.combinedLf).toBe(160)
-    expect(cap!.capSq).toBeGreaterThan(0)
+    expect(cap!.ridgeCapSq).toBe(1)
+    expect(cap!.hipCapSq).toBe(0.6)
+    expect(cap!.combinedCapSq).toBe(1.6)
   })
 
-  it('P-00093: 80 hip LF → waste ≥ 15% and proposal-style hip cap bundles > 0', () => {
-    const hipsLf = 80
-    const waste = wasteFromHipsValleys(hipsLf, 40, 6, 3000)
-    expect(waste).toBeGreaterThanOrEqual(15)
-
-    const HIP_CAP_LF_PER_BUNDLE = 25
-    const hipCapBundles = Math.ceil(hipsLf / HIP_CAP_LF_PER_BUNDLE)
-    expect(hipCapBundles).toBeGreaterThan(0)
-    expect(hipCapBundles).toBe(4)
+  it('valley LF adds measurable waste squares', () => {
+    const base = calculateRoofWaste({
+      baseSquares: 25,
+      facetCount: 5,
+      valleys_lf: 0,
+      hips_lf: 50,
+      ridges_lf: 50,
+      avgPitchMultiplier: 1.05,
+    })
+    const withValleys = calculateRoofWaste({
+      baseSquares: 25,
+      facetCount: 5,
+      valleys_lf: 50,
+      hips_lf: 50,
+      ridges_lf: 50,
+      avgPitchMultiplier: 1.05,
+    })
+    expect(withValleys.breakdown.valleySq).toBeGreaterThan(base.breakdown.valleySq)
   })
 })

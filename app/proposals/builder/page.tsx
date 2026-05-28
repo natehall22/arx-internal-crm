@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
+import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
+import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
 
 interface PricebookItem {
   id: string
@@ -120,9 +122,8 @@ const adderCategories = [
   'Other',
 ]
 
-const BUNDLES_PER_SQUARE = 3
-const RIDGE_CAP_LF_PER_BUNDLE = 25  // GAF Seal-A-Ridge standard: 25 LF coverage per bundle
-const HIP_CAP_LF_PER_BUNDLE = 25    // Same standard; ordered separately as a distinct product
+const RIDGE_CAP_LF_PER_BUNDLE = CAP_LF_PER_BUNDLE
+const HIP_CAP_LF_PER_BUNDLE = CAP_LF_PER_BUNDLE
 
 function toHalfPercent(value: number): number {
   return Math.round(value * 2) / 2
@@ -288,9 +289,13 @@ export default function ProposalBuilderPage() {
         }
 
         if (!data.existingProposal && measurementQuoteReady) {
-          const squares = data.measurement.total_squares || parseFloat(urlSquares || '0')
-          if (squares > 0) {
-            autoPopulateLineItems(data.pricebookItems || [], squares)
+          const base =
+            data.measurement.total_squares || parseFloat(urlSquares || '0')
+          const wastePct = Number(data.measurement.suggested_waste_percent || 0)
+          const orderSquares =
+            base > 0 && wastePct > 0 ? base * (1 + wastePct / 100) : base
+          if (orderSquares > 0) {
+            autoPopulateLineItems(data.pricebookItems || [], orderSquares)
           }
         }
       } else if (urlSquares && !data.existingProposal) {
@@ -383,6 +388,7 @@ export default function ProposalBuilderPage() {
   // Cap shingle quantities — ordered separately from field shingles
   const ridgesLf = Number(measurementData?.ridges_lf || 0)
   const hipsLf = Number(measurementData?.hips_lf || 0)
+  const capOrder = ridgeHipCapOrderSummary({ ridges_lf: ridgesLf, hips_lf: hipsLf })
   const ridgeCapBundles = ridgesLf > 0 ? Math.ceil(ridgesLf / RIDGE_CAP_LF_PER_BUNDLE) : 0
   const hipCapBundles = hipsLf > 0 ? Math.ceil(hipsLf / HIP_CAP_LF_PER_BUNDLE) : 0
   const totalCapBundles = ridgeCapBundles + hipCapBundles
@@ -449,29 +455,29 @@ export default function ProposalBuilderPage() {
       if (hasRidge && hasHip) return prev
 
       const next = [...prev]
-      if (!hasRidge && ridgesLf > 0) {
+      if (!hasRidge && ridgesLf > 0 && capOrder && capOrder.ridgeCapSq > 0) {
         next.push({
           id: 'ridge-cap-auto',
           pricebook_item_id: null,
           category: 'Roofing',
           name: 'Ridge Cap Shingles',
-          description: `${ridgesLf} LF ridge ÷ ${RIDGE_CAP_LF_PER_BUNDLE} LF/bundle = ${ridgeCapBundles} bundles`,
-          unit: 'bundle',
-          quantity: ridgeCapBundles,
+          description: `${capOrder.ridgeCapSq.toFixed(2)} sq cap order (${ridgesLf} LF measured · ${ridgeCapBundles} bundles @ ${RIDGE_CAP_LF_PER_BUNDLE} LF)`,
+          unit: 'square',
+          quantity: capOrder.ridgeCapSq,
           unit_price: 0,
           line_total: 0,
           is_adder: false,
         })
       }
-      if (!hasHip && hipsLf > 0) {
+      if (!hasHip && hipsLf > 0 && capOrder && capOrder.hipCapSq > 0) {
         next.push({
           id: 'hip-cap-auto',
           pricebook_item_id: null,
           category: 'Roofing',
           name: 'Hip Cap Shingles',
-          description: `${hipsLf} LF hip ÷ ${HIP_CAP_LF_PER_BUNDLE} LF/bundle = ${hipCapBundles} bundles`,
-          unit: 'bundle',
-          quantity: hipCapBundles,
+          description: `${capOrder.hipCapSq.toFixed(2)} sq cap order (${hipsLf} LF measured · ${hipCapBundles} bundles @ ${HIP_CAP_LF_PER_BUNDLE} LF)`,
+          unit: 'square',
+          quantity: capOrder.hipCapSq,
           unit_price: 0,
           line_total: 0,
           is_adder: false,
@@ -479,7 +485,7 @@ export default function ProposalBuilderPage() {
       }
       return next
     })
-  }, [measurementData, hasCapData, ridgesLf, hipsLf, ridgeCapBundles, hipCapBundles])
+  }, [measurementData, hasCapData, ridgesLf, hipsLf, ridgeCapBundles, hipCapBundles, capOrder])
 
   useEffect(() => {
     if (!baseSquares) return
@@ -1265,25 +1271,29 @@ export default function ProposalBuilderPage() {
                   <p className="text-lg font-bold text-white">{roundedBundles} bundles</p>
                 </div>
 
-                {ridgesLf > 0 && (
+                {capOrder && capOrder.ridgeCapSq > 0 && (
                   <div className="flex justify-between items-start border-t border-gray-700 pt-3">
                     <div>
                       <p className="font-semibold text-white">Ridge Cap Shingles</p>
-                      <p className="text-xs text-amber-400 font-medium">Order separately from field shingles</p>
-                      <p className="text-xs text-gray-400">{ridgesLf} LF ÷ {RIDGE_CAP_LF_PER_BUNDLE} LF/bundle</p>
+                      <p className="text-xs text-amber-400 font-medium">Order separately — cap squares, not field LF</p>
+                      <p className="text-xs text-gray-400">
+                        {capOrder.ridgeCapSq.toFixed(2)} sq ({ridgesLf} LF measured · {ridgeCapBundles} bundles @ {RIDGE_CAP_LF_PER_BUNDLE} LF)
+                      </p>
                     </div>
-                    <p className="text-lg font-bold text-white">{ridgeCapBundles} bundles</p>
+                    <p className="text-lg font-bold text-white">{capOrder.ridgeCapSq.toFixed(2)} sq</p>
                   </div>
                 )}
 
-                {hipsLf > 0 && (
+                {capOrder && capOrder.hipCapSq > 0 && (
                   <div className="flex justify-between items-start border-t border-gray-700 pt-3">
                     <div>
                       <p className="font-semibold text-white">Hip Cap Shingles</p>
-                      <p className="text-xs text-amber-400 font-medium">Order separately from field shingles</p>
-                      <p className="text-xs text-gray-400">{hipsLf} LF ÷ {HIP_CAP_LF_PER_BUNDLE} LF/bundle</p>
+                      <p className="text-xs text-amber-400 font-medium">Order separately — cap squares, not field LF</p>
+                      <p className="text-xs text-gray-400">
+                        {capOrder.hipCapSq.toFixed(2)} sq ({hipsLf} LF measured · {hipCapBundles} bundles @ {HIP_CAP_LF_PER_BUNDLE} LF)
+                      </p>
                     </div>
-                    <p className="text-lg font-bold text-white">{hipCapBundles} bundles</p>
+                    <p className="text-lg font-bold text-white">{capOrder.hipCapSq.toFixed(2)} sq</p>
                   </div>
                 )}
 
@@ -1306,7 +1316,8 @@ export default function ProposalBuilderPage() {
                   <p>Recommended order squares: <strong>{recommendedOrderSquares}</strong></p>
                   <p>Pitch: <strong>{measurementData.predominant_pitch || '-'}</strong></p>
                   <p>Valleys LF: <strong>{measurementData.valleys_lf ?? 0}</strong></p>
-                  <p>Ridges LF: <strong>{measurementData.ridges_lf ?? 0}</strong></p>
+                  <p>Ridge cap order: <strong>{capOrder?.ridgeCapSq.toFixed(2) ?? '0'} sq</strong> ({measurementData.ridges_lf ?? 0} LF)</p>
+                  <p>Hip cap order: <strong>{capOrder?.hipCapSq.toFixed(2) ?? '0'} sq</strong> ({measurementData.hips_lf ?? 0} LF)</p>
                   <p>Section count: <strong>{measurementData.facet_count ?? 0}</strong></p>
                 </div>
               </div>

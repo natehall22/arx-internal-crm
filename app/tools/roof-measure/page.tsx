@@ -23,6 +23,9 @@ import {
   facingCompassFromAzimuthDegrees,
   normalizeAzimuthDegrees,
 } from '@/lib/roof-face-solar-alignment'
+import { calculateRoofWaste } from '@/lib/roof-waste-model'
+import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
+import { roofWasteAndOrder, roofCapBundlesFromLf } from '@/lib/roof-material-order'
 
 declare const google: any
 
@@ -100,6 +103,7 @@ interface MeasurementData {
   // Pitch information
   predominant_pitch: string
   avg_pitch_multiplier: number
+  avg_pitch_degrees: number
   // Material estimation
   suggested_waste: number
   waste_category: string
@@ -1977,6 +1981,10 @@ export default function RoofMeasurePage() {
     const avgPitchMultiplier = estimatedPitchMultipliers.length > 0
       ? estimatedPitchMultipliers.reduce((sum, value) => sum + value, 0) / estimatedPitchMultipliers.length
       : 1
+
+    const avgPitchDegrees = currentFacets.length > 0
+      ? currentFacets.reduce((sum, f) => sum + (f.pitch_degrees || 0), 0) / currentFacets.length
+      : 0
     
     // ---- FLASHING FROM MANUAL DRAWINGS ----
     const stepFlashing = features
@@ -2000,8 +2008,18 @@ export default function RoofMeasurePage() {
       })
     const predominantPitch = Object.entries(pitchCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unset'
     
-    // Calculate waste factor based on complexity (industry standards)
-    const { wastePercent, category } = calculateWasteFactorDetailed(currentFacets, valleys, hips, totalArea)
+    const baseSquaresForWaste = totalArea / 100
+    const wasteEst = calculateRoofWaste({
+      baseSquares: baseSquaresForWaste,
+      facetCount: currentFacets.length,
+      valleys_lf: valleys,
+      hips_lf: hips,
+      ridges_lf: ridges,
+      avgPitchMultiplier,
+      avgPitchDegrees: avgPitchDegrees,
+    })
+    const wastePercent = wasteEst.wastePercent
+    const category = wasteEst.category
     
     // ============================================================
     // VALIDATION AND CONFIDENCE
@@ -2191,6 +2209,7 @@ export default function RoofMeasurePage() {
       wall_flashing_lf: safeNum(measuredWallFlashing),
       predominant_pitch: predominantPitch,
       avg_pitch_multiplier: safeNum(Math.round(avgPitchMultiplier * 1000) / 1000, 1),
+      avg_pitch_degrees: safeNum(Math.round(avgPitchDegrees * 100) / 100, 0),
       suggested_waste: safeNum(wastePercent, 10),
       waste_category: category,
       linear_features: features,
@@ -2215,85 +2234,6 @@ export default function RoofMeasurePage() {
       perimeter += metersToFeet(distance)
     }
     return perimeter
-  }
-
-  // Detailed waste factor calculation based on industry standards
-  // EagleView and GAF QuickMeasure use similar methodology
-  const calculateWasteFactorDetailed = (
-    currentFacets: RoofFacet[],
-    valleyLength: number,
-    hipLength: number,
-    effectiveTotalSqft?: number
-  ): { wastePercent: number; category: string } => {
-    if (currentFacets.length === 0) {
-      return { wastePercent: 10, category: 'simple' }
-    }
-    
-    const facetCount = currentFacets.length
-    const totalArea =
-      typeof effectiveTotalSqft === 'number' && effectiveTotalSqft > 0
-        ? effectiveTotalSqft
-        : currentFacets.reduce((sum, f) => sum + f.area_sqft, 0)
-    
-    // Base waste by complexity category
-    let baseWaste: number
-    let category: string
-    
-    if (facetCount <= 4) {
-      baseWaste = 10
-      category = 'Simple'
-    } else if (facetCount <= 8) {
-      baseWaste = 12
-      category = 'Moderate'
-    } else if (facetCount <= 12) {
-      baseWaste = 15
-      category = 'Complex'
-    } else {
-      baseWaste = 18
-      category = 'Very Complex'
-    }
-    
-    // Adjustments based on roof characteristics
-    let adjustments = 0
-    
-    // Steep pitch adjustment (+1-3%)
-    const avgPitchDegrees = currentFacets.reduce((sum, f) => sum + f.pitch_degrees, 0) / facetCount
-    if (avgPitchDegrees > 35) adjustments += 2
-    else if (avgPitchDegrees > 25) adjustments += 1
-    
-    // Valley adjustment (+1% per significant valley)
-    // Valleys require more cuts and waste
-    if (valleyLength > 20) adjustments += Math.min(3, Math.floor(valleyLength / 30))
-    
-    // Hip adjustment — scaled by linear footage (EagleView/ARMA methodology).
-    // Each 50 LF of hip = 1% additional waste; minimum 2% for any hip roof.
-    if (hipLength > 20) {
-      adjustments += Math.max(2, Math.min(5, Math.ceil(hipLength / 50)))
-    }
-
-    // Small facet adjustment (many small facets = more waste)
-    const avgFacetSize = totalArea / facetCount
-    if (avgFacetSize < 200) adjustments += 2
-    else if (avgFacetSize < 400) adjustments += 1
-
-    // Mixed pitch adjustment (different pitches = more complexity)
-    const uniquePitches = new Set(currentFacets.map(f => f.pitch)).size
-    if (uniquePitches > 2) adjustments += 1
-
-    let finalWaste = Math.min(baseWaste + adjustments, 25)
-    // Industry floor: hip+valley roofs must be at least 17%; hip-only at least 15%
-    if (hipLength > 60 && valleyLength > 40) finalWaste = Math.max(finalWaste, 17)
-    else if (hipLength > 60) finalWaste = Math.max(finalWaste, 15)
-    
-    return { 
-      wastePercent: finalWaste, 
-      category: `${category} (${facetCount} sections)` 
-    }
-  }
-  
-  // Legacy function for compatibility
-  const calculateWasteFactor = (currentFacets: RoofFacet[]): number => {
-    return calculateWasteFactorDetailed(currentFacets, 0, 0).wastePercent
   }
 
   const saveMeasurement = async () => {
@@ -2673,7 +2613,7 @@ export default function RoofMeasurePage() {
             <button
               type="button"
               onClick={() => setShowSaveModal(true)}
-              disabled={!hasAnyRoofPitchSet}
+              disabled={unresolvedPitchCount > 0}
               className="w-full min-h-[44px] px-3 py-2.5 rounded-lg font-medium text-sm bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Save roof measurements
@@ -2986,27 +2926,88 @@ export default function RoofMeasurePage() {
                 </div>
                 <div className="flex justify-between">
                   <span>Waste:</span>
-                  <span className="text-gray-300">{measurements.suggested_waste}%</span>
+                  <span className="text-gray-300">
+                    {measurements.suggested_waste}%
+                    {measurements.valleys_lf > 0 && (
+                      <span className="text-gray-500"> (valleys + hips + cuts)</span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Drip Edge:</span>
                   <span className="text-gray-300">{measurements.drip_edge_lf} LF</span>
                 </div>
               </div>
+
+              {unresolvedPitchCount === 0 && measurements.total_squares > 0 && (
+                <div className="mt-3 rounded-lg border border-emerald-700/40 bg-emerald-900/20 p-2.5">
+                  <p className="text-[11px] font-medium text-emerald-200">Material order (squares to order)</p>
+                  {(() => {
+                    const { waste, field, caps } = roofWasteAndOrder({
+                      total_squares: measurements.total_squares,
+                      facet_count: measurements.facet_count,
+                      valleys_lf: measurements.valleys_lf,
+                      hips_lf: measurements.hips_lf,
+                      ridges_lf: measurements.ridges_lf,
+                      avg_pitch_multiplier: measurements.avg_pitch_multiplier,
+                      avg_pitch_degrees: measurements.avg_pitch_degrees,
+                    })
+                    return (
+                      <div className="mt-1 space-y-1 text-[11px] text-emerald-100/90">
+                        <p>
+                          Field shingles: <span className="font-medium text-white">{field.totalSquaresWithWaste.toFixed(1)} sq</span>
+                          {' '}({field.fieldBundles} bundles) — measured {measurements.total_squares.toFixed(2)} sq + {waste.wasteSquares.toFixed(1)} sq waste ({waste.wastePercent}%)
+                        </p>
+                        <p className="text-emerald-200/70">
+                          Field waste breakdown: valley {waste.breakdown.valleySq.toFixed(2)} sq · hip cuts {waste.breakdown.hipFieldSq.toFixed(2)} sq · ridge trim {waste.breakdown.ridgeTrimSq.toFixed(2)} sq · base {waste.breakdown.baseAreaSq.toFixed(2)} sq
+                          {waste.floorApplied ? ' (calibrated to hip+valley minimum)' : ''}
+                        </p>
+                        {caps && (
+                          <p>
+                            Ridge/hip cap: <span className="font-medium text-white">{caps.combinedCapSq.toFixed(2)} sq</span>
+                            {' '}({(() => {
+                              const b = roofCapBundlesFromLf(caps.ridges_lf, caps.hips_lf)
+                              return `${b.totalCapBundles} bundles`
+                            })()} — ridge {caps.ridgeCapSq.toFixed(2)} sq, hip {caps.hipCapSq.toFixed(2)} sq · measured {caps.ridges_lf}+{caps.hips_lf} LF)
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
               
               {/* Linear footage breakdown */}
               <div className="mt-3 pt-3 border-t border-gray-700">
                 <p className="text-xs text-gray-500 mb-2">Linear Footage</p>
                 {measurements.hips_lf > 0 && (
                   <p className="text-[10px] text-gray-500 mb-2">
-                    Hip length affects waste % and hip cap bundle count on the proposal.
+                    Hip length affects waste % and hip cap order on the proposal.
+                  </p>
+                )}
+                {(measurements.valleys_lf > 0 || measurements.hips_lf > 0) && (
+                  <p className="text-[10px] text-gray-500 mb-2">
+                    Valleys and hips add field waste (cut shingles). Ridge/hip lines order as cap squares (÷100 LF/sq), separate from field.
                   </p>
                 )}
                 <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="text-center p-1.5 bg-gray-700/30 rounded">
-                    <div className="text-white font-medium">{measurements.ridges_lf}</div>
-                    <div className="text-gray-500">Ridge</div>
-                  </div>
+                  {(() => {
+                    const caps = ridgeHipCapOrderSummary({
+                      ridges_lf: measurements.ridges_lf,
+                      hips_lf: measurements.hips_lf,
+                    })
+                    return (
+                      <div className="text-center p-1.5 bg-gray-700/30 rounded">
+                        <div className="text-white font-medium">
+                          {caps ? caps.ridgeCapSq.toFixed(2) : '0'}
+                        </div>
+                        <div className="text-gray-500">Ridge cap (sq)</div>
+                        {measurements.ridges_lf > 0 && (
+                          <div className="text-[9px] text-gray-600">{measurements.ridges_lf} LF</div>
+                        )}
+                      </div>
+                    )
+                  })()}
                   <div className="text-center p-1.5 bg-gray-700/30 rounded">
                     <div className="text-white font-medium">{measurements.eaves_lf}</div>
                     <div className="text-gray-500">Eaves</div>
@@ -3015,16 +3016,25 @@ export default function RoofMeasurePage() {
                     <div className="text-white font-medium">{measurements.rakes_lf}</div>
                     <div className="text-gray-500">Rakes</div>
                   </div>
-                  {measurements.hips_lf > 0 && (
-                    <div className="text-center p-1.5 bg-gray-700/30 rounded">
-                      <div className="text-white font-medium">{measurements.hips_lf}</div>
-                      <div className="text-gray-500">Hips</div>
-                    </div>
-                  )}
+                  {(() => {
+                    const caps = ridgeHipCapOrderSummary({
+                      ridges_lf: measurements.ridges_lf,
+                      hips_lf: measurements.hips_lf,
+                    })
+                    if (!caps || caps.hipCapSq <= 0) return null
+                    return (
+                      <div className="text-center p-1.5 bg-gray-700/30 rounded">
+                        <div className="text-white font-medium">{caps.hipCapSq.toFixed(2)}</div>
+                        <div className="text-gray-500">Hip cap (sq)</div>
+                        <div className="text-[9px] text-gray-600">{measurements.hips_lf} LF</div>
+                      </div>
+                    )
+                  })()}
                   {measurements.valleys_lf > 0 && (
-                    <div className="text-center p-1.5 bg-gray-700/30 rounded">
-                      <div className="text-white font-medium">{measurements.valleys_lf}</div>
-                      <div className="text-gray-500">Valleys</div>
+                    <div className="text-center p-1.5 bg-amber-900/25 rounded border border-amber-800/40">
+                      <div className="text-amber-100 font-medium">{measurements.valleys_lf}</div>
+                      <div className="text-amber-500/80">Valley LF</div>
+                      <div className="text-[9px] text-amber-600/80">→ field waste</div>
                     </div>
                   )}
                   {measurements.step_flashing_lf > 0 && (
@@ -3512,14 +3522,27 @@ export default function RoofMeasurePage() {
                     <thead className="bg-gray-200">
                       <tr>
                         <th className="text-left px-4 py-2 text-gray-900 font-semibold">Component</th>
-                        <th className="text-right px-4 py-2 text-gray-900 font-semibold">Length (LF)</th>
+                        <th className="text-right px-4 py-2 text-gray-900 font-semibold">Order / measured</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      <tr className="bg-white">
-                        <td className="px-4 py-2 text-gray-900">Ridge</td>
-                        <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.ridges_lf}</td>
-                      </tr>
+                      {(() => {
+                        const caps = ridgeHipCapOrderSummary({
+                          ridges_lf: measurements.ridges_lf,
+                          hips_lf: measurements.hips_lf,
+                        })
+                        return (
+                          <tr className="bg-white">
+                            <td className="px-4 py-2 text-gray-900">Ridge cap</td>
+                            <td className="px-4 py-2 text-right font-medium text-gray-900">
+                              {caps ? `${caps.ridgeCapSq.toFixed(2)} sq` : '0 sq'}
+                              {measurements.ridges_lf > 0 && (
+                                <span className="block text-xs text-gray-500">{measurements.ridges_lf} LF measured</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })()}
                       <tr className="bg-white">
                         <td className="px-4 py-2 text-gray-900">Eaves</td>
                         <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.eaves_lf}</td>
@@ -3528,16 +3551,28 @@ export default function RoofMeasurePage() {
                         <td className="px-4 py-2 text-gray-900">Rakes</td>
                         <td className="px-4 py-2 text-right font-medium text-gray-900">{isNaN(measurements.rakes_lf) ? 0 : measurements.rakes_lf}</td>
                       </tr>
-                      {measurements.hips_lf > 0 && (
-                        <tr className="bg-white">
-                          <td className="px-4 py-2 text-gray-900">Hips</td>
-                          <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.hips_lf}</td>
-                        </tr>
-                      )}
+                      {(() => {
+                        const caps = ridgeHipCapOrderSummary({
+                          ridges_lf: measurements.ridges_lf,
+                          hips_lf: measurements.hips_lf,
+                        })
+                        if (!caps || caps.hipCapSq <= 0) return null
+                        return (
+                          <tr className="bg-white">
+                            <td className="px-4 py-2 text-gray-900">Hip cap</td>
+                            <td className="px-4 py-2 text-right font-medium text-gray-900">
+                              {caps.hipCapSq.toFixed(2)} sq
+                              <span className="block text-xs text-gray-500">{measurements.hips_lf} LF measured</span>
+                            </td>
+                          </tr>
+                        )
+                      })()}
                       {measurements.valleys_lf > 0 && (
-                        <tr className="bg-white">
-                          <td className="px-4 py-2 text-gray-900">Valleys</td>
-                          <td className="px-4 py-2 text-right font-medium text-gray-900">{measurements.valleys_lf}</td>
+                        <tr className="bg-amber-50">
+                          <td className="px-4 py-2 text-amber-900">Valleys (field waste)</td>
+                          <td className="px-4 py-2 text-right font-medium text-amber-900">
+                            {measurements.valleys_lf} LF
+                          </td>
                         </tr>
                       )}
                       <tr className="bg-gray-100 font-medium">

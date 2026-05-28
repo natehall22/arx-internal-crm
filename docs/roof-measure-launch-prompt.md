@@ -86,7 +86,7 @@ Assign Wave 1 agents. Merge in order: L2 → L1 → L3 → L4 → L5 → L6. Re-
 1. Verify `POST /api/measurements` stores full `raw_data` including `facets[].facing_azimuth_degrees`, `suggested_azimuth_degrees`, `solar_segment_index`.
 2. If proposal builder loads measurement by `measurement_id`, confirm `ridges_lf`, `hips_lf`, `valleys_lf` columns populated from save.
 3. Add test or script `scripts/roof-measure-roundtrip-fixture.json` — minimal measurement payload → classify → expected LF fields.
-4. Confirm `calculateWasteFactorDetailed` receives live `hips`/`valleys` from `updateMeasurements` (grep only; add test if gap).
+4. Confirm `calculateRoofWaste` receives live `hips`/`valleys` from `updateMeasurements` (grep only; add test if gap).
 
 **Acceptance:** Documented roundtrip path; no missing fields in `raw_data`.
 

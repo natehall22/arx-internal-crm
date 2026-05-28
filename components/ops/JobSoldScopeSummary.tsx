@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { hipRidgeCapFromLinearFt } from '@/lib/hip-ridge-cap-squares'
+import { hipRidgeCapFromLinearFt, ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
+import { roofCapBundlesFromLf } from '@/lib/roof-material-order'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
 export type JobSoldScopeLineItem = {
@@ -248,11 +249,24 @@ export default function JobSoldScopeSummary({
 
       {hipRidgeCap != null && (
         <p className="text-sm text-sky-950 mt-1 leading-snug tabular-nums">
-          <span className="text-xs font-normal text-sky-800">(Hip + ridge </span>
-          <span className="font-semibold">{hipRidgeCap.combinedLf.toFixed(1)}</span>
-          <span className="text-xs font-normal text-sky-800"> LF total = </span>
+          <span className="text-xs font-normal text-sky-800">Cap order </span>
           <span className="font-semibold">{hipRidgeCap.capSq.toFixed(2)}</span>
-          <span className="text-xs font-normal text-sky-800"> sq cap)</span>
+          <span className="text-xs font-normal text-sky-800"> sq</span>
+          {linear != null && (() => {
+            const caps = ridgeHipCapOrderSummary({
+              ridges_lf: linear.ridges_lf,
+              hips_lf: linear.hips_lf,
+            })
+            if (!caps) return null
+            const bundles = roofCapBundlesFromLf(caps.ridges_lf, caps.hips_lf)
+            return (
+              <>
+                <span className="text-xs font-normal text-sky-800"> ({bundles.totalCapBundles} bundles · </span>
+                <span className="font-semibold">{hipRidgeCap.combinedLf.toFixed(1)}</span>
+                <span className="text-xs font-normal text-sky-800"> LF measured)</span>
+              </>
+            )
+          })()}
         </p>
       )}
 
@@ -262,12 +276,29 @@ export default function JobSoldScopeSummary({
             Linear measurements · {linearLfSubline.srcLabel}
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
-            {linearLfSubline.rows.map((row) => (
+            {linearLfSubline.rows.map((row) => {
+              const capOrder =
+                row.label === 'Ridge' || row.label === 'Hip'
+                  ? ridgeHipCapOrderSummary({
+                      ridges_lf: linear!.ridges_lf,
+                      hips_lf: linear!.hips_lf,
+                    })
+                  : null
+              let valueLabel = `${formatLf(row.value)} LF`
+              if (row.label === 'Ridge' && capOrder && capOrder.ridgeCapSq > 0) {
+                valueLabel = `${capOrder.ridgeCapSq.toFixed(2)} sq cap · ${formatLf(row.value)} LF`
+              } else if (row.label === 'Hip' && capOrder && capOrder.hipCapSq > 0) {
+                valueLabel = `${capOrder.hipCapSq.toFixed(2)} sq cap · ${formatLf(row.value)} LF`
+              } else if (row.label === 'Valley') {
+                valueLabel = `${formatLf(row.value)} LF · field waste`
+              }
+              return (
               <div key={row.label} className="flex items-baseline justify-between gap-2 tabular-nums">
                 <span className="text-[11px] text-sky-700">{row.label}</span>
-                <span className="text-xs font-semibold text-sky-950">{formatLf(row.value)} LF</span>
+                <span className="text-xs font-semibold text-sky-950">{valueLabel}</span>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

@@ -131,7 +131,7 @@ Goal: **Close the gap** via better plane breaks, snap, facing-aware hints, calib
 - All classification tests green.
 - Golden fixtures: max **±10%** error vs expected LF per type (document exceptions).
 
-**Do not:** Change `calculateWasteFactorDetailed` signature/behavior.
+**Do not:** Change `calculateRoofWaste` signature/behavior without updating `lib/roof-waste-model.test.ts`.
 
 ---
 
@@ -217,7 +217,7 @@ Goal: **Close the gap** via better plane breaks, snap, facing-aware hints, calib
 
 **Mission:** Correct LF → correct **waste** and **cap bundles** on proposals.
 
-**Files:** `app/tools/roof-measure/page.tsx` (`calculateWasteFactorDetailed`), `app/proposals/builder/page.tsx`, `lib/hip-ridge-cap-squares.ts`, `lib/__tests__/hip-ridge-cap-squares.test.ts`
+**Files:** `lib/roof-waste-model.ts`, `app/tools/roof-measure/page.tsx`, `app/proposals/builder/page.tsx`, `lib/hip-ridge-cap-squares.ts`, `lib/__tests__/hip-ridge-cap-squares.test.ts`
 
 **Tasks:**
 1. Integration test: synthetic measurement with `hips_lf: 80`, `valleys_lf: 40` → waste ≥ industry floor (15–17% rules already in code).

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { classifyRoofEdges, FacetInput } from '@/lib/roof-measure-edge-classification'
 import { RoofMeasurePoint } from '@/lib/roof-measure-geometry'
+import { calculateRoofWaste } from '@/lib/roof-waste-model'
 
 type RectFacet = {
   id: string
@@ -12,6 +13,7 @@ type RectFacet = {
   facing_azimuth_degrees?: number | null
   suggested_azimuth_degrees?: number | null
   solar_segment_index?: number | null
+  pitch_multiplier?: number
 }
 
 type RoundtripFixture = {
@@ -22,6 +24,7 @@ type RoundtripFixture = {
     manual_ridges_lf?: number
     manual_valleys_lf?: number
     total_area_sqft?: number
+    total_squares?: number
   }
   expected: {
     ridges_lf: number
@@ -59,26 +62,23 @@ function toFacetInput(file: RoundtripFixture, spec: RectFacet): FacetInput {
   }
 }
 
-/** Mirrors updateMeasurements → calculateWasteFactorDetailed hip/valley inputs in page.tsx */
-function wasteFromHipsValleys(
-  hipLength: number,
-  valleyLength: number,
-  facetCount: number,
-  totalArea: number
-): number {
-  let baseWaste = 10
-  if (facetCount <= 4) baseWaste = 10
-  else if (facetCount <= 8) baseWaste = 12
-  else baseWaste = 15
-
-  let adjustments = 0
-  if (valleyLength > 20) adjustments += Math.min(3, Math.floor(valleyLength / 30))
-  if (hipLength > 20) adjustments += Math.max(2, Math.min(5, Math.ceil(hipLength / 50)))
-
-  let finalWaste = Math.min(baseWaste + adjustments, 25)
-  if (hipLength > 60 && valleyLength > 40) finalWaste = Math.max(finalWaste, 17)
-  else if (hipLength > 60) finalWaste = Math.max(finalWaste, 15)
-  return finalWaste
+/** Mirrors updateMeasurements → calculateRoofWaste inputs in page.tsx */
+function wasteFromMeasurement(input: {
+  baseSquares: number
+  facetCount: number
+  ridges_lf: number
+  hips_lf: number
+  valleys_lf: number
+  avgPitchMultiplier: number
+}): number {
+  return calculateRoofWaste({
+    baseSquares: input.baseSquares,
+    facetCount: input.facetCount,
+    ridges_lf: input.ridges_lf,
+    hips_lf: input.hips_lf,
+    valleys_lf: input.valleys_lf,
+    avgPitchMultiplier: input.avgPitchMultiplier,
+  }).wastePercent
 }
 
 describe('roof measure save/load roundtrip fixture', () => {
@@ -93,6 +93,10 @@ describe('roof measure save/load roundtrip fixture', () => {
     const ridgesLf = manualRidges > 0 ? Math.round(manualRidges) : geo.ridges_lf
     const hipsLf = geo.hips_lf
     const valleysLf = geo.valleys_lf + Math.round(manualValleys)
+    const baseSquares = fixture.measurement.total_squares ?? (fixture.measurement.total_area_sqft ?? 2400) / 100
+    const avgPitchMultiplier =
+      fixture.measurement.facets.reduce((sum, f) => sum + (f.pitch_multiplier ?? 1), 0) /
+      fixture.measurement.facets.length
 
     expect(ridgesLf).toBeGreaterThanOrEqual(fixture.expected.ridges_lf - 5)
     expect(ridgesLf).toBeLessThanOrEqual(fixture.expected.ridges_lf + 5)
@@ -117,15 +121,36 @@ describe('roof measure save/load roundtrip fixture', () => {
       }
     }
 
-    const waste = wasteFromHipsValleys(hipsLf, valleysLf, facetInputs.length, fixture.measurement.total_area_sqft ?? 2400)
+    const waste = wasteFromMeasurement({
+      baseSquares,
+      facetCount: facetInputs.length,
+      ridges_lf: ridgesLf,
+      hips_lf: hipsLf,
+      valleys_lf: valleysLf,
+      avgPitchMultiplier,
+    })
     expect(waste).toBeGreaterThanOrEqual(fixture.expected.suggested_waste_min)
   })
 
   it('uses live hips/valleys for waste (not zeroed legacy path)', () => {
     const facetInputs = fixture.measurement.facets.map((f) => toFacetInput(fixture, f))
     const geo = classifyRoofEdges(facetInputs)
-    const withGeo = wasteFromHipsValleys(geo.hips_lf, geo.valleys_lf, facetInputs.length, 2400)
-    const zeroed = wasteFromHipsValleys(0, 0, facetInputs.length, 2400)
+    const withGeo = wasteFromMeasurement({
+      baseSquares: 24,
+      facetCount: facetInputs.length,
+      ridges_lf: geo.ridges_lf,
+      hips_lf: geo.hips_lf,
+      valleys_lf: geo.valleys_lf,
+      avgPitchMultiplier: 1.118,
+    })
+    const zeroed = wasteFromMeasurement({
+      baseSquares: 24,
+      facetCount: facetInputs.length,
+      ridges_lf: geo.ridges_lf,
+      hips_lf: 0,
+      valleys_lf: 0,
+      avgPitchMultiplier: 1.118,
+    })
     expect(withGeo).toBeGreaterThanOrEqual(zeroed)
   })
 })
