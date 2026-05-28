@@ -298,6 +298,7 @@ export default function RoofMeasurePage() {
   const autoDetectRequestKeyRef = useRef<string | null>(null)
   /** After load from satellite fails, skip effect-driven retries until the user searches again or runs manual load (avoids infinite loops). */
   const skipAutoDetectAfterFailureRef = useRef(false)
+  const loadedMeasurementIdRef = useRef<string | null>(null)
   const isDetectingRef = useRef(false)
   
   const [loading, setLoading] = useState(true)
@@ -486,6 +487,13 @@ export default function RoofMeasurePage() {
     focusMapOnProperty(googleMapRef.current, lat, lng)
   }, [mapsLoaded])
 
+  useEffect(() => {
+    const measurementId = searchParams.get('measurement_id')
+    if (!measurementId || !mapsLoaded || !googleMapRef.current) return
+    if (loadedMeasurementIdRef.current === measurementId) return
+    loadSavedMeasurement(measurementId)
+  }, [mapsLoaded, searchParams])
+
   // New search → allow load from satellite to run again; reset empty-state timing
   useEffect(() => {
     setSatelliteOutlineFetchSettled(false)
@@ -513,7 +521,9 @@ export default function RoofMeasurePage() {
   }, [facets])
 
   useEffect(() => {
-    if (!searchedAddress || !googleMapRef.current || isDetecting) return
+    const measurementIdParam = searchParams.get('measurement_id')
+    if (measurementIdParam && loadedMeasurementIdRef.current !== measurementIdParam) return
+    if (!mapsLoaded || !searchedAddress || !googleMapRef.current || isDetecting) return
     if (facets.length > 0 || linearFeatures.length > 0 || aiDraftSections.length > 0) return
     if (skipAutoDetectAfterFailureRef.current) return
 
@@ -536,7 +546,7 @@ export default function RoofMeasurePage() {
     }, 550)
 
     return () => window.clearTimeout(timeoutId)
-  }, [searchedAddress, facets.length, linearFeatures.length, aiDraftSections.length, isDetecting])
+  }, [mapsLoaded, searchedAddress, facets.length, linearFeatures.length, aiDraftSections.length, isDetecting, searchParams])
 
   const loadOpportunityAddress = async (oppId: string, preferredAddress?: string) => {
     try {
@@ -573,6 +583,133 @@ export default function RoofMeasurePage() {
       }
     } catch (error) {
       console.error('Error loading opportunity address:', error)
+    }
+  }
+
+  const restoreMeasurementOverlays = (saved: MeasurementData) => {
+    if (!googleMapRef.current || !window.google?.maps) return false
+
+    polygonsRef.current.forEach((polygon) => polygon.setMap(null))
+    labelsRef.current.forEach((label) => label.setMap(null))
+    polylinesRef.current.forEach((polyline) => polyline.setMap(null))
+    polygonsRef.current.clear()
+    labelsRef.current.clear()
+    polylinesRef.current.clear()
+    clearAIDraftOverlays()
+
+    const map = googleMapRef.current
+    const restoredFacets = saved.facets.filter((facet) => facet.points?.length >= 3)
+
+    restoredFacets.forEach((facet, index) => {
+      const polygon = new google.maps.Polygon({
+        paths: facet.points.map((p) => ({ lat: p.lat, lng: p.lng })),
+        fillColor: facet.color,
+        fillOpacity: 0.45,
+        strokeColor: '#FFFFFF',
+        strokeWeight: 3,
+        editable: true,
+        map,
+      })
+
+      polygonsRef.current.set(facet.id, polygon)
+      polygon.addListener('click', () => setSelectedFacet(facet.id))
+      attachPolygonEditListeners(facet.id, polygon)
+
+      const centroid = facet.points.reduce(
+        (acc, p) => ({ lat: acc.lat + p.lat / facet.points.length, lng: acc.lng + p.lng / facet.points.length }),
+        { lat: 0, lng: 0 }
+      )
+      const labelMarker = new google.maps.Marker({
+        position: centroid,
+        map,
+        label: {
+          text: `${index + 1}`,
+          color: '#FFFFFF',
+          fontSize: '14px',
+          fontWeight: 'bold',
+        },
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 16,
+          fillColor: facet.color,
+          fillOpacity: 0.9,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+        },
+        clickable: false,
+      })
+      labelsRef.current.set(facet.id, labelMarker)
+    })
+
+    const restoredFeatures = (saved.linear_features || []).filter((feature) => feature.points?.length >= 2)
+    restoredFeatures.forEach((feature) => {
+      const polyline = new google.maps.Polyline({
+        path: feature.points,
+        strokeColor: LINEAR_FEATURE_COLORS[feature.type],
+        strokeWeight: 4,
+        strokeOpacity: 0.9,
+        editable: true,
+        map,
+      })
+      polylinesRef.current.set(feature.id, polyline)
+      attachPolylineEditListeners(feature.id, polyline)
+    })
+
+    commitFacets(restoredFacets)
+    commitLinearFeatures(restoredFeatures)
+    setMeasurements(saved)
+    setAiDraftSections([])
+    setAiNotes('')
+    skipAutoDetectAfterFailureRef.current = true
+    setSatelliteOutlineFetchSettled(true)
+
+    if (saved.address) {
+      setAddress(saved.address)
+      setSearchedAddress(saved.address)
+    }
+    if (Number.isFinite(saved.lat) && Number.isFinite(saved.lng)) {
+      const target = { lat: saved.lat, lng: saved.lng }
+      setMapCenter(target)
+      focusMapOnProperty(map, target.lat, target.lng)
+    }
+
+    return restoredFacets.length > 0
+  }
+
+  const loadSavedMeasurement = async (measurementId: string) => {
+    try {
+      const response = await fetch(`/api/measurements/${measurementId}`)
+      if (!response.ok) {
+        throw new Error('Failed to load saved measurement')
+      }
+
+      const { measurement } = await response.json()
+      const saved = measurement?.raw_data as MeasurementData | null | undefined
+
+      if (measurement?.opportunity_id) {
+        setOpportunityId(measurement.opportunity_id)
+      }
+
+      if (saved?.facets?.length) {
+        const restored = restoreMeasurementOverlays(saved)
+        if (restored) {
+          loadedMeasurementIdRef.current = measurementId
+          return
+        }
+      }
+
+      if (measurement?.address_text) {
+        setAddress(measurement.address_text)
+        setSearchedAddress(measurement.address_text)
+      }
+      const lat = Number(measurement?.lat)
+      const lng = Number(measurement?.lng)
+      if (Number.isFinite(lat) && Number.isFinite(lng) && googleMapRef.current) {
+        setMapCenter({ lat, lng })
+        focusMapOnProperty(googleMapRef.current, lat, lng)
+      }
+    } catch (error) {
+      console.error('Error loading saved measurement:', error)
     }
   }
 
@@ -865,6 +1002,7 @@ export default function RoofMeasurePage() {
     facetGeometrySourceRef.current = null
     solarGroundFootprintReferenceRef.current = null
     autoDetectRequestKeyRef.current = null
+    loadedMeasurementIdRef.current = null
     skipAutoDetectAfterFailureRef.current = false
     setSatelliteOutlineFetchSettled(false)
   }
