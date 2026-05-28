@@ -589,6 +589,10 @@ export default function RoofMeasurePage() {
   const restoreMeasurementOverlays = (saved: MeasurementData) => {
     if (!googleMapRef.current || !window.google?.maps) return false
 
+    const restoredFacets = saved.facets.filter((facet) => facet.points?.length >= 3)
+    const restoredFeatures = (saved.linear_features || []).filter((feature) => feature.points?.length >= 2)
+    if (restoredFacets.length === 0 && restoredFeatures.length === 0) return false
+
     polygonsRef.current.forEach((polygon) => polygon.setMap(null))
     labelsRef.current.forEach((label) => label.setMap(null))
     polylinesRef.current.forEach((polyline) => polyline.setMap(null))
@@ -598,7 +602,6 @@ export default function RoofMeasurePage() {
     clearAIDraftOverlays()
 
     const map = googleMapRef.current
-    const restoredFacets = saved.facets.filter((facet) => facet.points?.length >= 3)
 
     restoredFacets.forEach((facet, index) => {
       const polygon = new google.maps.Polygon({
@@ -641,7 +644,6 @@ export default function RoofMeasurePage() {
       labelsRef.current.set(facet.id, labelMarker)
     })
 
-    const restoredFeatures = (saved.linear_features || []).filter((feature) => feature.points?.length >= 2)
     restoredFeatures.forEach((feature) => {
       const polyline = new google.maps.Polyline({
         path: feature.points,
@@ -673,7 +675,7 @@ export default function RoofMeasurePage() {
       focusMapOnProperty(map, target.lat, target.lng)
     }
 
-    return restoredFacets.length > 0
+    return restoredFacets.length > 0 || restoredFeatures.length > 0
   }
 
   const loadSavedMeasurement = async (measurementId: string) => {
@@ -690,10 +692,9 @@ export default function RoofMeasurePage() {
         setOpportunityId(measurement.opportunity_id)
       }
 
-      if (saved?.facets?.length) {
+      if (saved) {
         const restored = restoreMeasurementOverlays(saved)
         if (restored) {
-          loadedMeasurementIdRef.current = measurementId
           return
         }
       }
@@ -710,6 +711,8 @@ export default function RoofMeasurePage() {
       }
     } catch (error) {
       console.error('Error loading saved measurement:', error)
+    } finally {
+      loadedMeasurementIdRef.current = measurementId
     }
   }
 
@@ -2383,7 +2386,7 @@ export default function RoofMeasurePage() {
     }
     if (facets.some((facet) => facet.pitch_source !== 'manual')) {
       alert(
-        'Choose roof pitch manually on every section before saving. Satellite suggestions don’t count as measured pitch by themselves.'
+        'Confirm roof pitch manually on every section before saving. Solar suggestions alone are not enough.'
       )
       return
     }
