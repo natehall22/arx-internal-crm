@@ -4,6 +4,7 @@ export type SolarBboxSegment = {
   azimuth_degrees: number | null
   area_m2: number | null
   ground_area_m2: number | null
+  plane_height_at_center_meters: number | null
   center: { lat: number; lng: number } | null
   bounding_box: {
     sw: { lat: number; lng: number }
@@ -21,6 +22,8 @@ export type SolarBboxFacetPayload = {
   suggested_pitch_degrees: number | null
   suggested_azimuth_degrees: number | null
   suggested_ground_area_sqft: number | null
+  suggested_sloped_area_sqft: number | null
+  plane_height_at_center_meters: number | null
   facet_source: 'solar_bbox'
 }
 
@@ -95,6 +98,9 @@ export function buildSolarBboxFacetPayloads(
       suggested_azimuth_degrees: seg.azimuth_degrees,
       suggested_ground_area_sqft:
         typeof seg.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
+      suggested_sloped_area_sqft:
+        typeof seg.area_m2 === 'number' ? seg.area_m2 * 10.7639 : null,
+      plane_height_at_center_meters: seg.plane_height_at_center_meters,
       facet_source: 'solar_bbox',
     })
   }

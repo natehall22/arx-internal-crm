@@ -22,6 +22,26 @@ export function roofSurfaceSqft(flatAreaSqft: number, pitchRise: number): number
   return flatAreaSqft * pitchMultiplierFromRise(pitchRise)
 }
 
+export type SlopedAreaFacetInput = {
+  flat_area_sqft: number
+  pitch_rise: number
+  /** Google Solar stats.areaMeters2 converted to sqft (sloped roof area). */
+  suggested_sloped_area_sqft?: number | null
+  geometry_source?: string | null
+}
+
+/** Prefer Google segment sloped area for mask planes; else footprint × pitch multiplier. */
+export function slopedAreaSqft(facet: SlopedAreaFacetInput): number {
+  if (
+    facet.geometry_source === 'solar_mask_plane' &&
+    typeof facet.suggested_sloped_area_sqft === 'number' &&
+    facet.suggested_sloped_area_sqft > 0
+  ) {
+    return Math.round(facet.suggested_sloped_area_sqft)
+  }
+  return Math.round(roofSurfaceSqft(facet.flat_area_sqft, facet.pitch_rise))
+}
+
 export function metersToFeet(meters: number): number {
   return meters * FEET_PER_METER
 }

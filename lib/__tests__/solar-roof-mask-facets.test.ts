@@ -28,6 +28,8 @@ function facet(id: string, lat: number, lng: number, overrides?: Partial<SolarMa
     suggested_pitch_degrees: null,
     suggested_azimuth_degrees: null,
     suggested_ground_area_sqft: null,
+    suggested_sloped_area_sqft: null,
+    plane_height_at_center_meters: null,
     facet_source: 'solar_mask_plane',
     ...overrides,
   }
@@ -63,6 +65,7 @@ describe('segment facet suggestions', () => {
     azimuth_degrees: 142,
     area_m2: 42,
     ground_area_m2: 40,
+    plane_height_at_center_meters: 10.67585,
     center: { lat: 32, lng: -96 },
     bounding_box: null,
   }
@@ -72,6 +75,8 @@ describe('segment facet suggestions', () => {
       suggested_pitch_degrees: 18.5,
       suggested_azimuth_degrees: 142,
       suggested_ground_area_sqft: 40 * 10.7639,
+      suggested_sloped_area_sqft: 42 * 10.7639,
+      plane_height_at_center_meters: 10.67585,
     })
   })
 
@@ -80,6 +85,8 @@ describe('segment facet suggestions', () => {
       suggested_pitch_degrees: null,
       suggested_azimuth_degrees: null,
       suggested_ground_area_sqft: null,
+      suggested_sloped_area_sqft: null,
+      plane_height_at_center_meters: null,
     })
   })
 })

@@ -11,6 +11,7 @@ import {
   haversineDistanceFeet,
   pitchMultiplierFromRise,
   roofSurfaceSqft,
+  slopedAreaSqft,
   squareMetersToSquareFeet,
   metersToFeet,
 } from '@/lib/roof-measure-geometry'
@@ -30,6 +31,10 @@ import {
   buildSolarBboxFacetPayloads,
   SOLAR_BBOX_ONLY_USER_NOTES,
 } from '@/lib/solar-bbox-facet-payloads'
+import {
+  isConfirmedPitchSource,
+  shouldAutoApplySolarPitch,
+} from '@/lib/roof-measure-solar-pitch'
 
 declare const google: any
 
@@ -63,7 +68,9 @@ interface RoofFacet {
   suggested_pitch?: string | null
   suggested_pitch_degrees?: number | null
   solar_segment_index?: number | null
-  pitch_source?: 'manual' | 'unknown'
+  plane_height_at_center_meters?: number | null
+  suggested_sloped_area_sqft?: number | null
+  pitch_source?: 'manual' | 'unknown' | 'solar_auto'
   geometry_source?: string | null
   geometry_reviewed?: boolean
   color: string
@@ -130,6 +137,8 @@ interface AIDraftSection {
   suggested_pitch_degrees?: number | null
   suggested_azimuth_degrees?: number | null
   solar_segment_index?: number | null
+  plane_height_at_center_meters?: number | null
+  suggested_sloped_area_sqft?: number | null
   facet_source?: string | null
   status: 'pending' | 'accepted' | 'rejected'
 }
@@ -1288,7 +1297,15 @@ export default function RoofMeasurePage() {
         suggested_azimuth_degrees:
           typeof facet.suggested_azimuth_degrees === 'number' ? Number(facet.suggested_azimuth_degrees) : null,
         solar_segment_index: typeof facet.solar_segment_index === 'number' ? facet.solar_segment_index : null,
+        plane_height_at_center_meters:
+          typeof facet.plane_height_at_center_meters === 'number'
+            ? Number(facet.plane_height_at_center_meters)
+            : null,
         facet_source: typeof facet.facet_source === 'string' ? facet.facet_source : null,
+        suggested_sloped_area_sqft:
+          typeof facet.suggested_sloped_area_sqft === 'number'
+            ? Number(facet.suggested_sloped_area_sqft)
+            : null,
         id: facet.id || `ai_facet_${idx + 1}`,
         type: 'facet',
         points: (facet.lat_lng_vertices || []).map((p: any) => [Number(p.lat), Number(p.lng)] as [number, number]),
@@ -1462,26 +1479,54 @@ export default function RoofMeasurePage() {
           ? normalizeAzimuthDegrees(draft.suggested_azimuth_degrees)
           : null
 
+      const geometrySource = draft.facet_source || facetGeometrySourceRef.current || 'ai_draft'
+      const solarPitchOption = shouldAutoApplySolarPitch({
+        suggested_pitch: draft.suggested_pitch,
+        suggested_pitch_degrees: draft.suggested_pitch_degrees,
+        confidence: draft.confidence,
+        facet_source: draft.facet_source,
+        solar_segment_index: draft.solar_segment_index,
+      })
+        ? getClosestPitchOption(draft.suggested_pitch_degrees)
+        : null
+
+      const initialPitchRise = solarPitchOption?.rise ?? 0
+      const initialPitchDegrees = solarPitchOption?.degrees ?? 0
+      const initialPitchMultiplier = pitchMultiplierFromRise(initialPitchRise)
+
       const newFacet: RoofFacet = {
         id: `facet-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         points,
         flat_area_sqft: flatAreaSqft,
-        area_sqft: flatAreaSqft,
-        pitch: 'Unset',
-        pitch_rise: 0,
-        pitch_degrees: 0,
-        pitch_multiplier: 1,
+        area_sqft: slopedAreaSqft({
+          flat_area_sqft: flatAreaSqft,
+          pitch_rise: initialPitchRise,
+          suggested_sloped_area_sqft: draft.suggested_sloped_area_sqft ?? null,
+          geometry_source: geometrySource,
+        }),
+        pitch: solarPitchOption?.value ?? 'Unset',
+        pitch_rise: initialPitchRise,
+        pitch_degrees: initialPitchDegrees,
+        pitch_multiplier: initialPitchMultiplier,
         perimeter_ft: Math.round(perimeterFt),
         facing_azimuth_degrees: facingAz,
         suggested_azimuth_degrees: facingAz,
         solar_segment_index:
           typeof draft.solar_segment_index === 'number' ? draft.solar_segment_index : null,
+        plane_height_at_center_meters:
+          typeof draft.plane_height_at_center_meters === 'number'
+            ? draft.plane_height_at_center_meters
+            : null,
+        suggested_sloped_area_sqft:
+          typeof draft.suggested_sloped_area_sqft === 'number'
+            ? draft.suggested_sloped_area_sqft
+            : null,
         orientation: calculateOrientation(points, facingAz),
         section_type: 'main_roof',
         suggested_pitch: draft.suggested_pitch || null,
         suggested_pitch_degrees: draft.suggested_pitch_degrees ?? null,
-        pitch_source: 'unknown',
-        geometry_source: draft.facet_source || facetGeometrySourceRef.current || 'ai_draft',
+        pitch_source: solarPitchOption ? 'solar_auto' : 'unknown',
+        geometry_source: geometrySource,
         geometry_reviewed: false,
         color: FACET_COLORS[colorIndex],
         origin: 'ai_draft',
@@ -1959,7 +2004,12 @@ export default function RoofMeasurePage() {
     const nextFacets = facets.map((facet) => {
       if (facet.id !== facetId) return facet
       const pitchMultiplier = pitchMultiplierFromRise(option.rise)
-      const areaSqft = Math.round(roofSurfaceSqft(facet.flat_area_sqft || 0, option.rise))
+      const areaSqft = slopedAreaSqft({
+        flat_area_sqft: facet.flat_area_sqft || 0,
+        pitch_rise: option.rise,
+        suggested_sloped_area_sqft: facet.suggested_sloped_area_sqft ?? null,
+        geometry_source: facet.geometry_source ?? null,
+      })
       return {
         ...facet,
         pitch: option.value,
@@ -2088,6 +2138,17 @@ export default function RoofMeasurePage() {
     const flatArea = flatAreaRaw * flatScale
     const totalArea = currentFacets.reduce((sum, f) => {
       const scaledFlat = facetFlatSqft(f) * flatScale
+      if (f.pitch && f.pitch !== 'Unset') {
+        return (
+          sum +
+          slopedAreaSqft({
+            flat_area_sqft: scaledFlat,
+            pitch_rise: f.pitch_rise || 0,
+            suggested_sloped_area_sqft: f.suggested_sloped_area_sqft ?? null,
+            geometry_source: f.geometry_source ?? null,
+          })
+        )
+      }
       const mult = f.pitch_multiplier || 1
       return sum + Math.round(scaledFlat * mult)
     }, 0)
@@ -2294,10 +2355,12 @@ export default function RoofMeasurePage() {
       confidence = 'low'
     }
 
-    const facetsWithoutManualPitch = currentFacets.filter((facet) => facet.pitch_source !== 'manual')
-    if (facetsWithoutManualPitch.length > 0) {
+    const facetsWithoutConfirmedPitch = currentFacets.filter(
+      (facet) => !isConfirmedPitchSource(facet.pitch_source)
+    )
+    if (facetsWithoutConfirmedPitch.length > 0) {
       validationNotes.push(
-        `Confirm slope manually on ${facetsWithoutManualPitch.length} roof section${facetsWithoutManualPitch.length === 1 ? '' : 's'}. Solar slope is only a suggestion.`
+        `Confirm slope manually on ${facetsWithoutConfirmedPitch.length} roof section${facetsWithoutConfirmedPitch.length === 1 ? '' : 's'}. Solar slope is only a suggestion.`
       )
       confidence = 'low'
     }
@@ -2336,7 +2399,7 @@ export default function RoofMeasurePage() {
       currentFacets.length > 0 &&
       unsetPitchFacets.length === 0 &&
       facetsNeedingGeometryReview.length === 0 &&
-      facetsWithoutManualPitch.length === 0 &&
+      facetsWithoutConfirmedPitch.length === 0 &&
       unsupportedGeometryFacets.length === 0 &&
       !solarOverlapDetected
     
@@ -2404,9 +2467,9 @@ export default function RoofMeasurePage() {
       alert(`Assign pitch to all roof sections before saving. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need slope confirmation.`)
       return
     }
-    if (facets.some((facet) => facet.pitch_source !== 'manual')) {
+    if (facets.some((facet) => !isConfirmedPitchSource(facet.pitch_source))) {
       alert(
-        'Confirm roof pitch manually on every section before saving. Solar suggestions alone are not enough.'
+        'Confirm roof pitch on every section before saving. Choose a pitch or accept the Solar suggestion with “Looks good ✓”.'
       )
       return
     }

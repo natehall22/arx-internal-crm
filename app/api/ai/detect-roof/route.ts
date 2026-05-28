@@ -52,6 +52,8 @@ type SolarRoofSegment = {
   azimuth_degrees: number | null
   area_m2: number | null
   ground_area_m2: number | null
+  /** RoofSegmentSizeAndSunshineStats.planeHeightAtCenterMeters (meters above sea level at center). */
+  plane_height_at_center_meters: number | null
   center: { lat: number; lng: number } | null
   bounding_box: {
     sw: { lat: number; lng: number }
@@ -252,6 +254,8 @@ type FacetResponsePayload = {
   suggested_pitch_degrees: number | null
   suggested_azimuth_degrees: number | null
   suggested_ground_area_sqft: number | null
+  suggested_sloped_area_sqft: number | null
+  plane_height_at_center_meters: number | null
   facet_source?: string
 }
 
@@ -587,6 +591,8 @@ async function fetchGoogleSolarContext(lat: number, lng: number): Promise<SolarC
     azimuth_degrees: typeof segment.azimuthDegrees === 'number' ? segment.azimuthDegrees : null,
     area_m2: typeof segment?.stats?.areaMeters2 === 'number' ? segment.stats.areaMeters2 : null,
     ground_area_m2: typeof segment?.stats?.groundAreaMeters2 === 'number' ? segment.stats.groundAreaMeters2 : null,
+    plane_height_at_center_meters:
+      typeof segment?.planeHeightAtCenterMeters === 'number' ? segment.planeHeightAtCenterMeters : null,
     center: extractLatLng(segment.center),
     bounding_box:
       segment?.boundingBox?.sw &&
@@ -1694,6 +1700,9 @@ export async function POST(request: Request) {
           suggested_azimuth_degrees: pitchSegment?.azimuth_degrees ?? null,
           suggested_ground_area_sqft:
             typeof pitchSegment?.ground_area_m2 === 'number' ? pitchSegment.ground_area_m2 * 10.7639 : null,
+          suggested_sloped_area_sqft:
+            typeof pitchSegment?.area_m2 === 'number' ? pitchSegment.area_m2 * 10.7639 : null,
+          plane_height_at_center_meters: pitchSegment?.plane_height_at_center_meters ?? null,
           facet_source: solarHintCount > 0 ? 'vision_solar_guided' : 'vision',
         }
       })

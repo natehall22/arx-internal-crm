@@ -22,6 +22,7 @@ describe('solar bbox facet payloads', () => {
         azimuth_degrees: 90,
         area_m2: 120,
         ground_area_m2: 110,
+        plane_height_at_center_meters: null,
         center: { lat: 35.405, lng: -80.595 },
         bounding_box: {
           sw: { lat: 35.404, lng: -80.596 },
@@ -34,6 +35,7 @@ describe('solar bbox facet payloads', () => {
         azimuth_degrees: 270,
         area_m2: 80,
         ground_area_m2: 75,
+        plane_height_at_center_meters: null,
         center: { lat: 35.4055, lng: -80.595 },
         bounding_box: {
           sw: { lat: 35.4045, lng: -80.596 },
@@ -45,5 +47,25 @@ describe('solar bbox facet payloads', () => {
     expect(facets[0].facet_source).toBe('solar_bbox')
     expect(facets[0].lat_lng_vertices.length).toBe(4)
     expect(facets[0].estimated_sq_ft).toBeGreaterThan(0)
+  })
+
+  it('passes plane_height_at_center_meters from segment metadata', () => {
+    const facets = buildSolarBboxFacetPayloads([
+      {
+        segment_index: 0,
+        pitch_degrees: 18,
+        azimuth_degrees: 90,
+        area_m2: 120,
+        ground_area_m2: 110,
+        plane_height_at_center_meters: 10.7835045,
+        center: { lat: 35.405, lng: -80.595 },
+        bounding_box: {
+          sw: { lat: 35.404, lng: -80.596 },
+          ne: { lat: 35.406, lng: -80.594 },
+        },
+      },
+    ])
+    expect(facets).toHaveLength(1)
+    expect(facets[0].plane_height_at_center_meters).toBe(10.7835045)
   })
 })

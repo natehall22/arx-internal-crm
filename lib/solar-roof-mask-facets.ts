@@ -9,6 +9,7 @@ export type SolarMaskSegment = {
   azimuth_degrees: number | null
   area_m2: number | null
   ground_area_m2: number | null
+  plane_height_at_center_meters: number | null
   center: { lat: number; lng: number } | null
   /** When present, limits Voronoi labeling so distant planes do not steal edge pixels. */
   bounding_box: {
@@ -27,6 +28,8 @@ export type SolarMaskFacetPayload = {
   suggested_pitch_degrees: number | null
   suggested_azimuth_degrees: number | null
   suggested_ground_area_sqft: number | null
+  suggested_sloped_area_sqft: number | null
+  plane_height_at_center_meters: number | null
   facet_source: string
 }
 
@@ -330,13 +333,19 @@ function segmentByIndex(segments: SolarMaskSegment[], idx: number): SolarMaskSeg
 /** Pitch/azimuth/ground-area suggestions from a Solar segment (null when segment missing). */
 export function segmentFacetSuggestions(seg: SolarMaskSegment | null): Pick<
   SolarMaskFacetPayload,
-  'suggested_pitch_degrees' | 'suggested_azimuth_degrees' | 'suggested_ground_area_sqft'
+  | 'suggested_pitch_degrees'
+  | 'suggested_azimuth_degrees'
+  | 'suggested_ground_area_sqft'
+  | 'suggested_sloped_area_sqft'
+  | 'plane_height_at_center_meters'
 > {
   if (!seg) {
     return {
       suggested_pitch_degrees: null,
       suggested_azimuth_degrees: null,
       suggested_ground_area_sqft: null,
+      suggested_sloped_area_sqft: null,
+      plane_height_at_center_meters: null,
     }
   }
   return {
@@ -344,6 +353,9 @@ export function segmentFacetSuggestions(seg: SolarMaskSegment | null): Pick<
     suggested_azimuth_degrees: seg.azimuth_degrees,
     suggested_ground_area_sqft:
       typeof seg.ground_area_m2 === 'number' ? seg.ground_area_m2 * 10.7639 : null,
+    suggested_sloped_area_sqft:
+      typeof seg.area_m2 === 'number' ? seg.area_m2 * 10.7639 : null,
+    plane_height_at_center_meters: seg.plane_height_at_center_meters,
   }
 }
 

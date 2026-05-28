@@ -5,6 +5,7 @@ import {
   pitchMultiplierFromRise,
   polygonPerimeterFeet,
   roofSurfaceSqft,
+  slopedAreaSqft,
 } from '@/lib/roof-measure-geometry'
 
 describe('roof-measure-geometry', () => {
@@ -24,6 +25,25 @@ describe('roof-measure-geometry', () => {
 
   it('applies pitch multiplier to flat roof footprint area', () => {
     expect(roofSurfaceSqft(1000, 6)).toBeCloseTo(1118.034, 3)
+  })
+
+  it('prefers Google sloped area for solar_mask_plane facets', () => {
+    expect(
+      slopedAreaSqft({
+        flat_area_sqft: 1000,
+        pitch_rise: 6,
+        suggested_sloped_area_sqft: 1200,
+        geometry_source: 'solar_mask_plane',
+      })
+    ).toBe(1200)
+    expect(
+      slopedAreaSqft({
+        flat_area_sqft: 1000,
+        pitch_rise: 6,
+        suggested_sloped_area_sqft: 1200,
+        geometry_source: 'solar_bbox',
+      })
+    ).toBeCloseTo(1118, 0)
   })
 
   it('measures haversine distance at residential scale', () => {

@@ -24,7 +24,8 @@
         "geometry_source": "solar_mask_plane",
         "facing_azimuth_degrees": 180,
         "suggested_azimuth_degrees": 178,
-        "solar_segment_index": 0
+        "solar_segment_index": 0,
+        "plane_height_at_center_meters": 10.78
       },
       {
         "id": "north",
@@ -41,7 +42,8 @@
         "geometry_source": "solar_mask_plane",
         "facing_azimuth_degrees": 0,
         "suggested_azimuth_degrees": 2,
-        "solar_segment_index": 1
+        "solar_segment_index": 1,
+        "plane_height_at_center_meters": 10.67
       }
     ],
     "manual_ridges_lf": 0,
@@ -55,7 +57,8 @@
     "raw_data_facet_fields": [
       "facing_azimuth_degrees",
       "suggested_azimuth_degrees",
-      "solar_segment_index"
+      "solar_segment_index",
+      "plane_height_at_center_meters"
     ]
   }
 }
