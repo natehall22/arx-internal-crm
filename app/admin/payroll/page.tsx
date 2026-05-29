@@ -99,14 +99,17 @@ export default function AdminPayrollPage() {
 
         <div className="bg-white rounded-xl shadow-sm border p-6 sm:p-8">
           <h1 className="text-2xl font-semibold text-gray-900">Payroll &amp; commission export</h1>
-          <p className="mt-3">
-            <Link
-              href="/admin/payroll/weekly"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
-            >
-              Weekly sales payroll (eligibility worksheet) →
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm font-medium">
+            <Link href="/admin/payroll/periods" className="text-indigo-600 hover:text-indigo-800">
+              Pay periods &amp; lock →
             </Link>
-          </p>
+            <Link href="/admin/payroll/statements" className="text-indigo-600 hover:text-indigo-800">
+              Consultant statements →
+            </Link>
+            <Link href="/admin/payroll/weekly" className="text-indigo-600 hover:text-indigo-800">
+              Weekly eligibility worksheet →
+            </Link>
+          </div>
           <p className="text-gray-600 mt-2 max-w-3xl">
             Preview or download commission lines by job. Each person&apos;s <strong>comp plan</strong> and{' '}
             <strong>override %</strong> come from their user assignment. Monthly <strong>volume bonuses</strong> use

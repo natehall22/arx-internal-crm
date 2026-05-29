@@ -1,10 +1,18 @@
 import { netCommissionableFromJob } from '@/lib/financing'
+import { roundMoney } from '@/lib/money'
 
 /** Org policy: total rep commissions + incentives cannot exceed this fraction of commission comp base. */
 export const SALES_COMMISSION_POOL_RATE = 0.18
 
-function roundMoney(n: number): number {
-  return Math.round((Number(n) || 0) * 100) / 100
+/**
+ * Plan types whose dollar amounts are entered outside commission math (period hours, etc.)
+ * and must never be summed into `scaleCommissionsToPool()` — doing so would shrink every
+ * percentage-plan rep's scaled commission.
+ */
+export const POOL_CAP_EXCLUDED_PLAN_TYPES = new Set(['hourly', 'hybrid', 'unit_based'])
+
+export function isPoolCapExcludedPlanType(planType: string | null | undefined): boolean {
+  return POOL_CAP_EXCLUDED_PLAN_TYPES.has(String(planType || '').toLowerCase())
 }
 
 /**

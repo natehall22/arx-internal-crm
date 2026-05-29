@@ -20,6 +20,7 @@ type JobRow = {
   project_id: string | null
   customer_id: string | null
   allow_close_with_balance?: boolean | null
+  ntp_commission_percent?: number | null
 }
 
 function saleYmdForCompPlan(d: string | null | undefined): string {
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
     const { data: jobs, error: jobsErr } = await supabase
       .from('production_jobs')
       .select(
-        'id, job_number, status, sale_amount, sale_date, completed_at, salesperson_id, project_id, customer_id, allow_close_with_balance'
+        'id, job_number, status, sale_amount, sale_date, completed_at, salesperson_id, project_id, customer_id, allow_close_with_balance, ntp_commission_percent'
       )
       .eq('org_id', orgId)
       .order('updated_at', { ascending: false })
@@ -166,6 +167,7 @@ export async function GET(request: NextRequest) {
       const st = stateByJob.get(job.id) as
         | {
             install_completed_at?: string | null
+            ntp_completed_at?: string | null
             fully_funded_at?: string | null
             costs_ready_at?: string | null
             locked_at?: string | null
@@ -214,9 +216,15 @@ export async function GET(request: NextRequest) {
           ? false
           : compPlanResolved.get(`${job.salesperson_id}|${saleYmdForCompPlan(job.sale_date)}`) ?? false
 
+      const ntpCompletedAt = st?.ntp_completed_at
+        ? new Date(st.ntp_completed_at)
+        : null
+
       const c = classifyWeeklyPayrollJob({
         now,
         installCompletedAt,
+        ntpCompletedAt,
+        ntpCommissionPercent: Number(job.ntp_commission_percent) || 0,
         jobStatusCompleteOrCollected: job.status === 'complete' || job.status === 'collected',
         funded,
         fullyFundedAt,

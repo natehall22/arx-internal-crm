@@ -228,8 +228,8 @@ export default async function AdminPage() {
       ),
     },
     {
-      title: 'Payroll & commission export',
-      description: 'CSV by pay period: comp plans, volume bonuses, 18% pool cap per job—QuickBooks-ready',
+      title: 'Payroll & commissions',
+      description: 'Export, pay periods, hourly entry, consultant statements, and weekly eligibility',
       href: '/admin/payroll',
       requiresPayrollAccess: true,
       icon: (

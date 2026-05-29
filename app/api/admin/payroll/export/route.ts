@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
-import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
+import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
 import {
   buildMonthlyTierMetricMaps,
   buildMonthlyVolumeMaps,
@@ -255,7 +255,9 @@ export async function GET(request: NextRequest) {
         })
 
         metaByUser.set(part.userId, { plan, calc, periodVolume, role: part.role })
-        rawByUser.set(part.userId, calc.unsupported ? 0 : calc.totalAmount)
+        const excludeFromPool =
+          calc.unsupported || isPoolCapExcludedPlanType(plan.plan_type)
+        rawByUser.set(part.userId, excludeFromPool ? 0 : calc.totalAmount)
       }
 
       const { scaled, enforced } = scaleCommissionsToPool(rawByUser, poolCap)

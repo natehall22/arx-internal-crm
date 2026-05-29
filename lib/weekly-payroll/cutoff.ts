@@ -1,8 +1,10 @@
-import { addDays, set, startOfDay } from 'date-fns'
+import { addDays, endOfDay, set, startOfDay } from 'date-fns'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
 
 /** US Eastern — weekly payroll cutoff Wednesday 11:59:59.999 PM local. */
 export const WEEKLY_PAYROLL_TZ = 'America/New_York'
+
+export type PayrollScheduleCadence = 'weekly' | 'semi_monthly'
 
 /**
  * Next Wednesday 11:59:59.999 PM Eastern time **strictly after** `referenceUtc`.
@@ -38,4 +40,18 @@ export function computePayrollEligibleAt(
 ): Date | null {
   if (!install || !funded || !costs) return null
   return new Date(Math.max(install.getTime(), funded.getTime(), costs.getTime()))
+}
+
+/**
+ * Semi-monthly cutoffs: end of day on the 15th and last day of the month (local tz).
+ */
+export function getSemiMonthlyCutoffs(
+  year: number,
+  month: number,
+  tz: string = WEEKLY_PAYROLL_TZ
+): [Date, Date] {
+  const m = month - 1
+  const midLocal = endOfDay(new Date(year, m, 15))
+  const lastLocal = endOfDay(new Date(year, m + 1, 0))
+  return [fromZonedTime(midLocal, tz), fromZonedTime(lastLocal, tz)]
 }

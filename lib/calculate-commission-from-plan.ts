@@ -3,6 +3,8 @@
  * tiered tiers use commissionable amount; percentage applies to commissionable amount.
  */
 
+import { roundMoney } from '@/lib/money'
+
 export type VolumeBonusTierMetric = 'volume' | 'closing_rate' | 'sits'
 
 export type VolumeBonusRow = {
@@ -26,10 +28,6 @@ export type CompPlanForCalc = {
   tiers?: TierRow[] | null
   volume_bonuses?: VolumeBonusRow[] | null
   is_active?: boolean
-}
-
-function roundMoney(n: number): number {
-  return Math.round((Number(n) || 0) * 100) / 100
 }
 
 function normalizeTierMetric(row: VolumeBonusRow): VolumeBonusTierMetric {
@@ -109,8 +107,8 @@ export function calculateCommissionFromPlanForSale(input: {
       effectiveRate: 0,
       commissionAmount: 0,
       totalAmount: 0,
-      unsupported: true,
-      note: `Plan type "${pt}" is not included in payroll export; configure percentage/tiered/flat or extend the calculator.`,
+      unsupported: false,
+      note: 'Hourly/hybrid/unit — hourly pay entered separately in period hours entry.',
     }
   } else {
     baseRate = roundMoney(Number(plan.base_percentage) || 0)

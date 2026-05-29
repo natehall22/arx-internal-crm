@@ -44,4 +44,18 @@ describe('calculateCommissionFromPlanForSale', () => {
     expect(result.effectiveRate).toBe(12.5)
     expect(result.totalAmount).toBe(2250)
   })
+
+  it('returns zero commission but supported for hourly/hybrid (hours entered separately)', () => {
+    const result = calculateCommissionFromPlanForSale({
+      plan: { id: 'h', plan_type: 'hybrid' },
+      commissionableAmount: 10000,
+      periodVolume: 0,
+      periodSits: 0,
+      periodClosingRatePct: null,
+      overridePercentage: null,
+    })
+    expect(result.unsupported).toBe(false)
+    expect(result.totalAmount).toBe(0)
+    expect(result.note).toMatch(/hours entry/i)
+  })
 })

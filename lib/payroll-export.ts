@@ -1,4 +1,4 @@
-import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
+import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
 import { calculateCommissionFromPlanForSale, type CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import {
   getSitOutcomeNormalizedIdSet,
@@ -8,6 +8,45 @@ import {
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 
 export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' | 'owner' }
+
+export type DealCommissionRoleParticipant = {
+  userId: string
+  role: 'field_manager' | 'senior_manager' | 'custom'
+  overrideAmount: number | null
+  overridePercent: number | null
+  premierPricingAmount: number | null
+}
+
+/**
+ * Manager/custom roles from deal_commission_roles — apply AFTER scaleCommissionsToPool(),
+ * never mixed into the main participants array used for pool scaling.
+ */
+export async function loadAdditiveDealCommissionParticipants(
+  supabase: SupabaseClient,
+  orgId: string,
+  jobId: string
+): Promise<DealCommissionRoleParticipant[]> {
+  const { data, error } = await supabase
+    .from('deal_commission_roles')
+    .select('user_id, role, override_amount, override_percent, premier_pricing_amount')
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .in('role', ['field_manager', 'senior_manager', 'custom'])
+
+  if (error) {
+    console.error('loadAdditiveDealCommissionParticipants', error)
+    return []
+  }
+
+  return (data || []).map((row) => ({
+    userId: row.user_id as string,
+    role: row.role as DealCommissionRoleParticipant['role'],
+    overrideAmount: row.override_amount != null ? Number(row.override_amount) : null,
+    overridePercent: row.override_percent != null ? Number(row.override_percent) : null,
+    premierPricingAmount:
+      row.premier_pricing_amount != null ? Number(row.premier_pricing_amount) : null,
+  }))
+}
 
 export function collectParticipants(
   job: {
@@ -67,6 +106,8 @@ export type PayrollExportRow = {
   pool_cap_enforced: boolean
   unsupported_plan: boolean
   note: string | null
+  hourly_earnings?: number | null
+  total_earnings?: number | null
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -76,6 +117,7 @@ type UserCompRow = {
   effective_from: string
   effective_to: string | null
   override_percentage: number | null
+  hourly_rate_override: number | null
   comp_plans: Record<string, unknown> | null
 }
 
@@ -87,7 +129,7 @@ export async function loadActiveCompPlanForUser(
 ): Promise<UserCompRow | null> {
   const { data, error } = await supabase
     .from('user_comp_plans')
-    .select('user_id, effective_from, effective_to, override_percentage, comp_plans(*)')
+    .select('user_id, effective_from, effective_to, override_percentage, hourly_rate_override, comp_plans(*)')
     .eq('user_id', userId)
     .eq('org_id', orgId)
     .lte('effective_from', saleDate)
@@ -115,9 +157,17 @@ export async function loadActiveCompPlanForUser(
     effective_from: saleDate,
     effective_to: null,
     override_percentage: null,
+    hourly_rate_override: null,
     comp_plans: fallback as unknown as Record<string, unknown>,
   }
 }
+
+/** Roles that accumulate monthly volume for tier bonuses (not manager additive roles). */
+const VOLUME_ACCUMULATING_PARTICIPANT_ROLES = new Set<PayrollParticipant['role']>([
+  'sales_rep',
+  'setter',
+  'owner',
+])
 
 /**
  * True when commission export would resolve a plan for this user on the job sale date
@@ -170,6 +220,7 @@ export function buildMonthlyVolumeMaps(
     const participants = collectParticipants(job, opp)
 
     for (const p of participants) {
+      if (!VOLUME_ACCUMULATING_PARTICIPANT_ROLES.has(p.role)) continue
       const key = `${p.userId}|${mk}`
       vol.set(key, roundMoney((vol.get(key) || 0) + compBase))
     }

@@ -516,6 +516,7 @@ export interface PricebookItem {
   is_labor: boolean
   is_taxable: boolean
   active: boolean
+  role_commission_rates?: Record<string, number> | null
   created_at: string
   updated_at: string
 }
@@ -557,7 +558,13 @@ export interface EstimateLine {
 }
 
 // Commission Types
-export type CompPlanType = 'flat_rate' | 'percentage' | 'tiered' | 'hybrid'
+export type CompPlanType =
+  | 'flat_rate'
+  | 'percentage'
+  | 'tiered'
+  | 'hybrid'
+  | 'hourly'
+  | 'unit_based'
 export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'disputed'
 
 export interface CompPlan {
@@ -570,6 +577,7 @@ export interface CompPlan {
   is_default: boolean
   flat_amount: number | null
   base_percentage: number | null
+  hourly_rate?: number | null
   tiers: { min: number; max: number | null; rate: number }[] | null
   bonuses: { type: string; target: number; bonus: number }[] | null
   applicable_roles: string[]
@@ -585,6 +593,7 @@ export interface UserCompPlan {
   effective_from: string
   effective_to: string | null
   override_percentage: number | null
+  hourly_rate_override: number | null
   notes: string | null
   created_at: string
 }
@@ -957,6 +966,11 @@ export interface ProductionJob {
   // Financials
   labor_cost: number | null
   material_cost: number | null
+  commission_pre_tax_subtotal?: number | null
+  commission_comp_base?: number | null
+  ntp_date?: string | null
+  ntp_commission_percent?: number | null
+  commission_hold_status?: 'held_till_install' | 'released' | null
   // Insurance
   job_source: JobSource
   insurance_stage: InsuranceStage | null

@@ -32,6 +32,9 @@ export type JobPayrollWorksheetRow = {
 export type EligibilityInputs = {
   now: Date
   installCompletedAt: Date | null
+  /** When set with ntpCommissionPercent > 0, NTP tranche may pay before install. */
+  ntpCompletedAt: Date | null
+  ntpCommissionPercent: number
   jobStatusCompleteOrCollected: boolean
   /** Sum of cleared payment cents vs required contract + change orders (cents) */
   funded: boolean
@@ -69,8 +72,11 @@ export function classifyWeeklyPayrollJob(input: EligibilityInputs): Omit<
     }
   }
 
+  const ntpTrancheEligible =
+    input.ntpCompletedAt != null && (Number(input.ntpCommissionPercent) || 0) > 0
+
   const installed = !!(input.installCompletedAt || input.jobStatusCompleteOrCollected)
-  if (!installed) reasons.push('not_installed')
+  if (!installed && !ntpTrancheEligible) reasons.push('not_installed')
 
   if (!input.funded) reasons.push('not_funded')
 
@@ -84,14 +90,21 @@ export function classifyWeeklyPayrollJob(input: EligibilityInputs): Omit<
   if (input.hasBlockingExceptions) reasons.push('blocking_exceptions')
 
   let payrollEligibleAt: Date | null = null
+  if (ntpTrancheEligible && input.ntpCompletedAt) {
+    payrollEligibleAt = input.ntpCompletedAt
+  }
   if (installed && input.funded && input.costsReady && input.installCompletedAt && input.fullyFundedAt && input.costsReadyAt) {
-    payrollEligibleAt = new Date(
+    const fullEligible = new Date(
       Math.max(
         input.installCompletedAt.getTime(),
         input.fullyFundedAt.getTime(),
         input.costsReadyAt.getTime()
       )
     )
+    payrollEligibleAt =
+      payrollEligibleAt != null
+        ? new Date(Math.max(payrollEligibleAt.getTime(), fullEligible.getTime()))
+        : fullEligible
   }
 
   let beforeNextCutoff: boolean | null = null
@@ -101,7 +114,7 @@ export function classifyWeeklyPayrollJob(input: EligibilityInputs): Omit<
   }
 
   const hardBlocked =
-    !installed ||
+    (!installed && !ntpTrancheEligible) ||
     !input.funded ||
     !input.costsReady ||
     !input.hasSalesRep ||
