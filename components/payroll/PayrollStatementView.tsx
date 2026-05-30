@@ -60,6 +60,14 @@ export default function PayrollStatementView({
     })
   }
 
+  const customerByJobId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const d of statement?.deals ?? []) {
+      if (d.customerName) m.set(d.jobId, d.customerName)
+    }
+    return m
+  }, [statement?.deals])
+
   if (loading) {
     return <p className="text-sm text-gray-500 py-8 text-center">Loading statement…</p>
   }
@@ -90,14 +98,6 @@ export default function PayrollStatementView({
     statementCalculatedAt,
     projectedBreakdown,
   } = statement
-
-  const customerByJobId = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const d of deals) {
-      if (d.customerName) m.set(d.jobId, d.customerName)
-    }
-    return m
-  }, [deals])
 
   const modeBanner =
     mode === 'final'
