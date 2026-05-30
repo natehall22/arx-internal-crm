@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
 
@@ -55,11 +55,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
 
   const isAdmin = userRole === 'admin'
 
-  useEffect(() => {
-    loadOrders()
-  }, [jobId])
-
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     try {
       const response = await fetch(`/api/jobs/${jobId}/product-orders`)
       if (response.ok) {
@@ -72,7 +68,11 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
     } finally {
       setLoading(false)
     }
-  }
+  }, [jobId])
+
+  useEffect(() => {
+    loadOrders()
+  }, [loadOrders])
 
   const handleAddOrder = async () => {
     if (!newOrder.description.trim() || !newOrder.amount) return
