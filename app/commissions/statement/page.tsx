@@ -1,13 +1,24 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
-/** Desire path entry: send reps to their latest pay period statement. */
+/**
+ * Entry: latest period, or deep link ?period_id=uuid (email-safe redirect to /commissions/statement/[id]).
+ */
 export default function CommissionStatementIndexPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const periodIdParam = searchParams.get('period_id')
+  const userIdParam = searchParams.get('user_id')
 
   useEffect(() => {
+    if (periodIdParam) {
+      const q = userIdParam ? `?user_id=${encodeURIComponent(userIdParam)}` : ''
+      router.replace(`/commissions/statement/${periodIdParam}${q}`)
+      return
+    }
+
     fetch('/api/commissions/periods')
       .then(async (res) => {
         if (res.status === 401) {
@@ -20,7 +31,7 @@ export default function CommissionStatementIndexPage() {
         else router.replace('/dashboard')
       })
       .catch(() => router.replace('/dashboard'))
-  }, [router])
+  }, [router, periodIdParam, userIdParam])
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-500">

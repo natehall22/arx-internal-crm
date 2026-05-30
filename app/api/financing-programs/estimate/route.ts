@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { computeFinancedContractTotal } from '@/lib/financing'
+import { roundMoney } from '@/lib/money'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,10 +64,6 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
-}
-
-function roundMoney(value: number) {
-  return Math.round((Number(value) || 0) * 100) / 100
 }
 
 /**

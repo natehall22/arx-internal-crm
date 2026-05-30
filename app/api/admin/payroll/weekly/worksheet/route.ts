@@ -5,6 +5,7 @@ import { classifyWeeklyPayrollJob } from '@/lib/weekly-payroll/eligibility'
 import { fundingRequiredTotal } from '@/lib/weekly-payroll/commission-base'
 import { hasResolvableCompPlanForUserOnDate } from '@/lib/payroll-export'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { payrollTierKey } from '@/lib/payroll-tier-key'
 
 export const dynamic = 'force-dynamic'
 
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest) {
     for (const job of jobList) {
       if (!job.salesperson_id) continue
       const ymd = saleYmdForCompPlan(job.sale_date)
-      const k = `${job.salesperson_id}|${ymd}`
+      const k = payrollTierKey(job.salesperson_id, ymd)
       if (!compPlanKeys.has(k)) compPlanKeys.set(k, { userId: job.salesperson_id, saleYmd: ymd })
     }
 
@@ -214,7 +215,7 @@ export async function GET(request: NextRequest) {
       const hasCompPlanAssignment =
         !job.salesperson_id
           ? false
-          : compPlanResolved.get(`${job.salesperson_id}|${saleYmdForCompPlan(job.sale_date)}`) ?? false
+          : compPlanResolved.get(payrollTierKey(job.salesperson_id, saleYmdForCompPlan(job.sale_date))) ?? false
 
       const ntpCompletedAt = st?.ntp_completed_at
         ? new Date(st.ntp_completed_at)

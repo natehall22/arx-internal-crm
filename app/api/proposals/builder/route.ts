@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { computeFinancedContractTotal } from '@/lib/financing'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { roundMoney } from '@/lib/money'
 
 export const dynamic = 'force-dynamic'
-
-const roundMoney = (value: number) => Math.round((Number(value) || 0) * 100) / 100
 const SOLD_SQUARE_FIELDS = [
   'measured_squares',
   'sold_waste_percent',

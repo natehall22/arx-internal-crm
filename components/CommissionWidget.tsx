@@ -3,6 +3,14 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import type { PayrollDashboardPay } from '@/lib/payroll-dashboard-pay'
+import {
+  payrollHeroDisclaimer,
+  payrollHeroPeriodHint,
+  payrollHeroTitle,
+  payrollStatementHref,
+  showPayrollEstimateDisclaimer,
+} from '@/lib/payroll-dashboard-display'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { canUseManagerStatementView } from '@/lib/payroll-statement-access'
@@ -91,6 +99,7 @@ export default function CommissionWidget() {
   const [userRole, setUserRole] = useState<string>('')
   const [showCompPlanModal, setShowCompPlanModal] = useState(false)
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
+  const [payrollDashboard, setPayrollDashboard] = useState<PayrollDashboardPay | null>(null)
   
   // Calculator state
   const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
@@ -182,6 +191,17 @@ export default function CommissionWidget() {
 
     setCommissionSettings(settings)
 
+    const weeklyRes = await fetch('/api/commissions/weekly')
+    if (weeklyRes.ok) {
+      const weeklyData = await weeklyRes.json()
+      if (weeklyData.payrollDashboard) {
+        setPayrollDashboard(weeklyData.payrollDashboard)
+      }
+      if (typeof weeklyData.hasCompPlan === 'boolean') {
+        setHasCompPlan(weeklyData.hasCompPlan)
+      }
+    }
+
     // Check if user has a comp plan assigned and get details
     if (profile?.org_id) {
       const todayStr = new Date().toISOString().split('T')[0]
@@ -261,6 +281,7 @@ export default function CommissionWidget() {
       .from('commissions')
       .select('*, commissionable_amount, projects(address_text), opportunities(address_text)')
       .eq('user_id', user.id)
+      .eq('org_id', profile?.org_id ?? '')
       .order('created_at', { ascending: false })
       .limit(5)
 
@@ -271,6 +292,7 @@ export default function CommissionWidget() {
       .from('commissions')
       .select('total_amount, commissionable_amount, status, commission_period')
       .eq('user_id', user.id)
+      .eq('org_id', profile?.org_id ?? '')
       .gte('commission_period', yearStart)
 
     if (allCommissions) {
@@ -339,12 +361,21 @@ export default function CommissionWidget() {
         <span className="text-2xl">💰</span>
       </div>
 
-      {/* Weekly Pay Estimate - Prominent Display */}
+      {/* Payroll estimate / official hero — from GET /api/commissions/weekly (not legacy commissions alone) */}
       <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 mb-4 text-white">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-indigo-100 text-sm font-medium">This Week's Pay</p>
-            <p className="text-3xl font-bold mt-1">{formatCurrency(summary.thisWeek)}</p>
+            <p className="text-indigo-100 text-sm font-medium">
+              {payrollDashboard ? payrollHeroTitle(payrollDashboard) : "This Week's Pay"}
+            </p>
+            <p className="text-3xl font-bold mt-1">
+              {formatCurrency(
+                payrollDashboard?.primaryAmount ?? summary.thisWeek
+              )}
+            </p>
+            {payrollDashboard && payrollHeroPeriodHint(payrollDashboard) && (
+              <p className="text-indigo-200 text-xs mt-1">{payrollHeroPeriodHint(payrollDashboard)}</p>
+            )}
           </div>
           <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -352,6 +383,35 @@ export default function CommissionWidget() {
             </svg>
           </div>
         </div>
+        {payrollDashboard && showPayrollEstimateDisclaimer(payrollDashboard) && (
+          <p className="text-indigo-100 text-xs mt-2 border-t border-white/20 pt-2">
+            {payrollHeroDisclaimer(payrollDashboard)}
+          </p>
+        )}
+        {payrollDashboard && payrollDashboard.primaryLabel === 'legacy' && (
+          <p className="text-indigo-100 text-xs mt-2 border-t border-white/20 pt-2">
+            {payrollHeroDisclaimer(payrollDashboard)}
+          </p>
+        )}
+        {payrollDashboard && payrollDashboard.primaryLabel === 'official_last' && (
+          <p className="text-indigo-100 text-xs mt-2 border-t border-white/20 pt-2">
+            {payrollHeroDisclaimer(payrollDashboard)}
+          </p>
+        )}
+        {payrollDashboard &&
+          payrollDashboard.primaryLabel === 'estimated' &&
+          payrollDashboard.officialLastLocked && (
+            <p className="text-indigo-200 text-xs mt-2">
+              Last official ({payrollDashboard.officialLastLocked.periodLabel}):{' '}
+              {formatCurrency(payrollDashboard.officialLastLocked.netPayout)}
+            </p>
+          )}
+        <Link
+          href={payrollDashboard ? payrollStatementHref(payrollDashboard) : '/commissions/statement'}
+          className="inline-block text-indigo-100 text-xs mt-2 underline hover:text-white"
+        >
+          View pay statement
+        </Link>
         {!hasCompPlan && (
           <p className="text-indigo-200 text-xs mt-2">No comp plan assigned - contact your manager</p>
         )}

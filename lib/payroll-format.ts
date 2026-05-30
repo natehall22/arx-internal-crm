@@ -15,7 +15,7 @@ export function formatParticipantRoleLabel(role: string): string {
 export function holdStatusLabel(
   status: 'held_till_install' | 'released' | 'paid' | null
 ): string {
-  if (status === 'held_till_install') return 'Held till Install'
+  if (status === 'held_till_install') return 'On hold'
   if (status === 'released') return 'Released'
   if (status === 'paid') return 'Paid'
   return '—'

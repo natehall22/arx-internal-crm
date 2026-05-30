@@ -16,6 +16,14 @@ import {
   formatVolumeBonusTierRange,
   volumeBonusTierInRange,
 } from '@/lib/volume-bonus-display'
+import type { PayrollDashboardPay } from '@/lib/payroll-dashboard-pay'
+import {
+  payrollHeroDisclaimer,
+  payrollHeroPeriodHint,
+  payrollHeroTitle,
+  payrollStatementHref,
+  showPayrollEstimateDisclaimer,
+} from '@/lib/payroll-dashboard-display'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -521,6 +529,7 @@ export default function DashboardClient({
   })
   const [loadingPersonalStats, setLoadingPersonalStats] = useState(false)
   const [weeklyPay, setWeeklyPay] = useState<number>(0)
+  const [payrollDashboard, setPayrollDashboard] = useState<PayrollDashboardPay | null>(null)
   const [hasCompPlan, setHasCompPlan] = useState<boolean | null>(null)
   const [compPlanDetails, setCompPlanDetails] = useState<CompPlanDetails | null>(null)
   const [showCompPlanModal, setShowCompPlanModal] = useState(false)
@@ -713,11 +722,21 @@ export default function DashboardClient({
       const res = await fetch('/api/commissions/weekly')
       if (res.ok) {
         const data = await res.json()
-        setWeeklyPay(data.weeklyTotal || 0)
+        const dashboard = data.payrollDashboard as PayrollDashboardPay | undefined
+        if (dashboard) {
+          setPayrollDashboard(dashboard)
+          setWeeklyPay(dashboard.primaryAmount ?? 0)
+        } else {
+          setWeeklyPay(data.weeklyTotal || 0)
+        }
+        if (typeof data.hasCompPlan === 'boolean') {
+          setHasCompPlan(data.hasCompPlan)
+        }
       }
     } catch (error) {
       console.error('Failed to load weekly pay:', error)
       setWeeklyPay(0)
+      setPayrollDashboard(null)
     }
   }
 
@@ -1205,17 +1224,43 @@ export default function DashboardClient({
 
         <AttachedSalesTracker timeFrame={timeFrame} />
 
-        {/* Estimated pay - prominent display for reps */}
+        {/* Payroll estimate / official — from GET /api/commissions/weekly */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 text-white">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-indigo-100 text-xs sm:text-sm font-medium mb-1">Estimated Pay This Week</p>
+              <p className="text-indigo-100 text-xs sm:text-sm font-medium mb-1">
+                {payrollDashboard ? payrollHeroTitle(payrollDashboard) : 'Estimated Pay This Week'}
+              </p>
               <p className="text-2xl sm:text-4xl font-bold">${weeklyPay.toLocaleString()}</p>
-              {hasCompPlan === false ? (
+              {payrollDashboard && payrollHeroPeriodHint(payrollDashboard) && (
+                <p className="text-indigo-200 text-xs mt-1">{payrollHeroPeriodHint(payrollDashboard)}</p>
+              )}
+              {!hasCompPlan ? (
                 <p className="text-indigo-200 text-xs mt-1 sm:mt-2">Ask a manager to assign your comp plan.</p>
+              ) : payrollDashboard ? (
+                <p className="text-indigo-200 text-xs mt-1 sm:mt-2">{payrollHeroDisclaimer(payrollDashboard)}</p>
               ) : (
                 <p className="text-indigo-200 text-xs mt-1 sm:mt-2">Based on funded/closed work this week.</p>
               )}
+              {payrollDashboard &&
+                payrollDashboard.primaryLabel === 'estimated' &&
+                payrollDashboard.officialLastLocked && (
+                  <p className="text-indigo-200 text-xs mt-1">
+                    Last official ({payrollDashboard.officialLastLocked.periodLabel}): $
+                    {payrollDashboard.officialLastLocked.netPayout.toLocaleString()}
+                  </p>
+                )}
+              <Link
+                href={
+                  payrollDashboard ? payrollStatementHref(payrollDashboard) : '/commissions/statement'
+                }
+                className="inline-block text-indigo-100 text-xs mt-2 underline hover:text-white"
+              >
+                View pay statement
+                {payrollDashboard && showPayrollEstimateDisclaimer(payrollDashboard)
+                  ? ' (estimate — not emailed official pay)'
+                  : ''}
+              </Link>
             </div>
             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 ml-3">
               <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">

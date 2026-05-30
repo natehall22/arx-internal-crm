@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import {
+  clearPayrollPeriodLockArtifacts,
+  runPayrollPeriodLockBackfill,
+} from '@/lib/payroll-period-lock'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +57,40 @@ export async function PATCH(
         return NextResponse.json({ error: 'Only open periods can be locked' }, { status: 409 })
       }
 
+      const { data: periodRow, error: periodLoadErr } = await supabase
+        .from('payroll_periods')
+        .select('id, cutoff_at, scheduled_pay_date')
+        .eq('id', periodId)
+        .eq('org_id', orgId)
+        .single()
+
+      if (periodLoadErr || !periodRow?.cutoff_at) {
+        return NextResponse.json({ error: 'Period cutoff is required to lock' }, { status: 400 })
+      }
+
+      let backfill
+      try {
+        backfill = await runPayrollPeriodLockBackfill(supabase, {
+          orgId,
+          periodId,
+          cutoffAt: periodRow.cutoff_at as string,
+          lockedBy: profile.id,
+          lockedAt: now,
+          scheduledPayDate: periodRow.scheduled_pay_date as string | null,
+        })
+      } catch (e) {
+        console.error('period lock backfill', e)
+        try {
+          await clearPayrollPeriodLockArtifacts(supabase, orgId, periodId)
+        } catch (cleanupErr) {
+          console.error('period lock backfill cleanup', cleanupErr)
+        }
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : 'Failed to generate payout lines for lock' },
+          { status: 500 }
+        )
+      }
+
       const { error: updErr } = await supabase
         .from('payroll_periods')
         .update({ status: 'locked', locked_at: now })
@@ -64,16 +102,6 @@ export async function PATCH(
         return NextResponse.json({ error: 'Failed to lock period' }, { status: 500 })
       }
 
-      await supabase.from('payroll_period_snapshots').upsert(
-        {
-          org_id: orgId,
-          payroll_period_id: periodId,
-          locked_at: now,
-          locked_by: profile.id,
-        },
-        { onConflict: 'payroll_period_id' }
-      )
-
       const { data: period } = await supabase
         .from('payroll_periods')
         .select(
@@ -84,8 +112,10 @@ export async function PATCH(
 
       return NextResponse.json({
         period,
-        message:
-          'Period locked. Job-level snapshots and payout lines are generated on a follow-up pass; use commission export until backfill runs.',
+        backfill,
+        message: backfill.skippedExisting
+          ? 'Period locked. Payout lines already existed; backfill skipped.'
+          : 'Period locked with job snapshots and payout lines.',
       })
     }
 
@@ -107,6 +137,9 @@ export async function PATCH(
     }
 
     if (body.action === 'cancel') {
+      if (existing.status === 'paid') {
+        return NextResponse.json({ error: 'Paid periods cannot be cancelled' }, { status: 409 })
+      }
       const { data: period, error } = await supabase
         .from('payroll_periods')
         .update({ status: 'cancelled' })
@@ -121,6 +154,26 @@ export async function PATCH(
     }
 
     if (body.action === 'reopen') {
+      if (existing.status === 'paid') {
+        return NextResponse.json(
+          { error: 'Paid periods cannot be reopened. Use a documented adjustment workflow instead.' },
+          { status: 409 }
+        )
+      }
+      if (existing.status !== 'locked') {
+        return NextResponse.json({ error: 'Only locked periods can be reopened' }, { status: 409 })
+      }
+
+      try {
+        await clearPayrollPeriodLockArtifacts(supabase, orgId, periodId)
+      } catch (e) {
+        console.error('period reopen cleanup', e)
+        return NextResponse.json(
+          { error: 'Failed to clear locked payroll data before reopen' },
+          { status: 500 }
+        )
+      }
+
       const { data: period, error } = await supabase
         .from('payroll_periods')
         .update({ status: 'open', locked_at: null, paid_at: null })

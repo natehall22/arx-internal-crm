@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
+import { roundMoney } from '@/lib/money'
 
 export type InstallationContractSnapshot = {
   project_cost: number
@@ -14,10 +15,6 @@ export type ResolvedProductionJobFinancials = {
   financing_program_id: string | null
   commission_pre_tax_subtotal: number | null
   commission_comp_base: number | null
-}
-
-function roundMoney(n: number): number {
-  return Math.round((Number(n) || 0) * 100) / 100
 }
 
 /**

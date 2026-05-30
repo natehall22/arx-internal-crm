@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { roundMoney } from '@/lib/money'
 
 interface Props {
   projectId: string
@@ -18,9 +19,6 @@ function formatDefaultAmount(value: number): string {
   return String(roundMoney(value))
 }
 
-function roundMoney(n: number): number {
-  return Math.round((Number(n) || 0) * 100) / 100
-}
 
 export default function SendToOpsButton({
   projectId,

@@ -1,125 +1,50 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
+import {
+  buildWeeklyCommissionsResponse,
+  calendarWeekBounds,
+} from '@/lib/payroll-dashboard-pay'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
-  }
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
-export async function GET(request: NextRequest) {
+/**
+ * Dashboard pay summary: payroll estimate (open period) + optional last official locked net,
+ * plus legacy calendar-week commissions (labeled separately).
+ */
+export async function GET(request: Request) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
-    if (userError || !user) {
+    let profile
+    try {
+      const ctx = await requireAuthApi()
+      profile = ctx.profile
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
+    const { id: userId, org_id: orgId } = profile
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .maybeSingle()
+    const { weekStart, weekEnd } = calendarWeekBounds()
 
-    if (!profile?.org_id) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    // Calculate this week's boundaries (Sunday to Saturday)
-    const now = new Date()
-    const dayOfWeek = now.getDay()
-    const weekStart = new Date(now)
-    weekStart.setDate(now.getDate() - dayOfWeek)
-    weekStart.setHours(0, 0, 0, 0)
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekStart.getDate() + 6)
-    weekEnd.setHours(23, 59, 59, 999)
-
-    const weekStartStr = weekStart.toISOString().split('T')[0]
-    const weekEndStr = weekEnd.toISOString().split('T')[0]
-
-    // Check if user has a comp plan assigned
     const { data: userCompPlan } = await supabase
       .from('user_comp_plans')
       .select('id, comp_plans(is_active)')
-      .eq('user_id', user.id)
-      .eq('org_id', profile.org_id)
-      .lte('effective_from', weekEndStr)
-      .or(`effective_to.is.null,effective_to.gte.${weekStartStr}`)
+      .eq('user_id', userId)
+      .eq('org_id', orgId)
+      .lte('effective_from', weekEnd)
+      .or(`effective_to.is.null,effective_to.gte.${weekStart}`)
       .order('effective_from', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    let hasCompPlan = !!userCompPlan && (userCompPlan.comp_plans as any)?.is_active !== false
+    const planRecord = userCompPlan?.comp_plans as { is_active?: boolean } | null
+    let hasCompPlan = !!userCompPlan && planRecord?.is_active !== false
     if (!hasCompPlan) {
       const { data: defaultPlan } = await supabase
         .from('comp_plans')
         .select('id')
-        .eq('org_id', profile.org_id)
+        .eq('org_id', orgId)
         .eq('is_default', true)
         .eq('is_active', true)
         .limit(1)
@@ -127,25 +52,21 @@ export async function GET(request: NextRequest) {
       hasCompPlan = !!defaultPlan
     }
 
-    // Get this week's commissions
-    const { data: commissions } = await supabase
-      .from('commissions')
-      .select('total_amount')
-      .eq('user_id', user.id)
-      .gte('commission_period', weekStartStr)
-      .lte('commission_period', weekEndStr)
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ||
+      new URL(request.url).origin
 
-    const weeklyTotal = commissions?.reduce((sum, c) => sum + (c.total_amount || 0), 0) || 0
-
-    return NextResponse.json({
-      weeklyTotal,
+    const payload = await buildWeeklyCommissionsResponse({
+      supabase,
+      orgId,
+      userId,
       hasCompPlan,
-      weekStart: weekStartStr,
-      weekEnd: weekEndStr,
+      appUrl,
     })
 
-  } catch (error) {
-    console.error('Weekly commissions error:', error)
+    return NextResponse.json(payload)
+  } catch (e) {
+    console.error('GET /api/commissions/weekly', e)
     return NextResponse.json({ error: 'Failed to fetch weekly commissions' }, { status: 500 })
   }
 }

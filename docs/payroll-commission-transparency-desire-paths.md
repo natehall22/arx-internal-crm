@@ -6,7 +6,7 @@ Human workflows first; implementation must route pay data through **server APIs 
 
 1. Dashboard → **Pay statement** (Commission widget).
 2. Pick pay period → read-only statement: deals, hourly, chargebacks, net pay, deficit banner.
-3. Deal row shows **Held till Install** when NTP’d but not installed.
+3. Deal row shows hold/release status when commission is partially earned but not yet fully payable (per job `commission_hold_status` and org release settings).
 
 **Route:** `/commissions/statement/[periodId]`  
 **Data:** `GET /api/commissions/statement?period_id=&user_id=` (self only unless manager/admin).
@@ -28,8 +28,12 @@ Human workflows first; implementation must route pay data through **server APIs 
 **Route:** `/commissions/team`  
 **Access:** `canViewPayrollStatement` (hierarchy walk, level ≥ 50).
 
+## Reference layout (v2 target)
+
+A prior-company spreadsheet is **layout reference only** (wide deal grid, multi-role columns, header total + deficit + component chips). Product copy and column labels come from **this** CRM’s plans and data — not from that example. See [payroll-statement-9-10-spec.md](./payroll-statement-9-10-spec.md).
+
 ## Guardrails
 
 - Pool-scaling roles stay in `collectParticipants()`; manager roles are additive after `scaleCommissionsToPool()`.
 - Hourly earnings never enter the 18% pool cap.
-- Lock sets period status + snapshot header; full job snapshot backfill from `collectParticipants()` is a follow-up when payout lines are empty.
+- Lock must generate `payroll_job_snapshots` + `payroll_payout_lines` before statements ship at 9/10 (see v2 spec).

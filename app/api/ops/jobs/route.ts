@@ -15,10 +15,7 @@ import {
   enrichOpsJobsWithSoldSquares,
 } from '@/lib/ops-board-sold-squares'
 import { resolveProductionJobFinancials } from '@/lib/resolve-production-job-sale-from-project'
-
-function roundMoney(n: number): number {
-  return Math.round((Number(n) || 0) * 100) / 100
-}
+import { roundMoney } from '@/lib/money'
 
 // POST - Create a production job from a project
 export async function POST(request: Request) {

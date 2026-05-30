@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
 import { calculateCommissionFromPlanForSale, type CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import {
@@ -6,6 +7,8 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { roundMoney } from '@/lib/money'
+import { payrollTierKey } from '@/lib/payroll-tier-key'
 
 export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' | 'owner' }
 
@@ -110,8 +113,6 @@ export type PayrollExportRow = {
   total_earnings?: number | null
 }
 
-import type { SupabaseClient } from '@supabase/supabase-js'
-
 type UserCompRow = {
   user_id: string
   effective_from: string
@@ -187,10 +188,6 @@ export async function hasResolvableCompPlanForUserOnDate(
   return row != null
 }
 
-function roundMoney(n: number): number {
-  return Math.round((Number(n) || 0) * 100) / 100
-}
-
 /**
  * Sum(comp_base) per user per YYYY-MM for volume bonus tiers.
  */
@@ -221,7 +218,7 @@ export function buildMonthlyVolumeMaps(
 
     for (const p of participants) {
       if (!VOLUME_ACCUMULATING_PARTICIPANT_ROLES.has(p.role)) continue
-      const key = `${p.userId}|${mk}`
+      const key = payrollTierKey(p.userId, mk)
       vol.set(key, roundMoney((vol.get(key) || 0) + compBase))
     }
   }
@@ -280,11 +277,11 @@ export async function buildMonthlyTierMetricMaps(
         const su = o.setter_user_id as string | null | undefined
         const ou = o.owner_user_id as string | null | undefined
         if (su) {
-          const key = `${su}|${mk}`
+          const key = payrollTierKey(su, mk)
           sitsBySetterMonth.set(key, (sitsBySetterMonth.get(key) || 0) + 1)
         }
         if (ou) {
-          const key = `${ou}|${mk}`
+          const key = payrollTierKey(ou, mk)
           sitsByOwnerMonth.set(key, (sitsByOwnerMonth.get(key) || 0) + 1)
         }
       }
@@ -318,7 +315,7 @@ export async function buildMonthlyTierMetricMaps(
       const dedupe = `${owner}|${mk}|${c.opportunity_id as string}`
       if (seen.has(dedupe)) continue
       seen.add(dedupe)
-      const key = `${owner}|${mk}`
+      const key = payrollTierKey(owner, mk)
       salesByOwnerMonth.set(key, (salesByOwnerMonth.get(key) || 0) + 1)
     }
   }
@@ -337,7 +334,7 @@ export function periodSitsAndCloseRateForParticipant(input: {
   if (!input.monthKey) {
     return { periodSits: 0, periodClosingRatePct: null }
   }
-  const key = `${input.userId}|${input.monthKey}`
+  const key = payrollTierKey(input.userId, input.monthKey)
   if (input.participantRole === 'setter') {
     return {
       periodSits: input.sitsBySetterMonth.get(key) || 0,
