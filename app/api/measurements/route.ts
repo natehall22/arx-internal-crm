@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const quoteReady = measurements?.quote_ready === true
+    const quoteReady = measurements?.quote_ready === true && !measurements?.overlap_override
 
     // Save main measurement
     const { data: measurement, error: measurementError } = await adminClient

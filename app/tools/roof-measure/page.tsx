@@ -49,6 +49,11 @@ import {
   ROOF_MEASURE_EDIT_ZOOM_TARGET,
 } from '@/lib/roof-measure-map-zoom'
 import { RoofFineTuneEditor } from '@/components/RoofFineTuneEditor'
+import {
+  checkSolarFootprintOverlap,
+  isManuallyDrawnFacet,
+  overlapValidationNote,
+} from '@/lib/roof-measure-solar-overlap'
 
 declare const google: any
 
@@ -145,6 +150,18 @@ interface MeasurementData {
   measurement_confidence: 'high' | 'medium' | 'low'
   validation_notes: string[]
   unclassified_shared_lf?: number
+  solar_overlap_detected?: boolean
+  solar_overlap_blocks_save?: boolean
+  solar_overlap_ratio?: number | null
+  solar_ground_footprint_sqft?: number | null
+  manual_draw_facet_count?: number
+  overlap_override?: {
+    acknowledged_at: string
+    reason?: string
+    ratio?: number | null
+    drawn_flat_sqft?: number
+    solar_ground_sqft?: number | null
+  } | null
 }
 
 interface AIDraftSection {
@@ -400,6 +417,8 @@ export default function RoofMeasurePage() {
   const [measurements, setMeasurements] = useState<MeasurementData | null>(null)
   const [saving, setSaving] = useState(false)
   const [showSaveModal, setShowSaveModal] = useState(false)
+  const [showOverlapOverrideConfirm, setShowOverlapOverrideConfirm] = useState(false)
+  const [overlapOverrideReason, setOverlapOverrideReason] = useState('')
   const [opportunityId, setOpportunityId] = useState<string | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
   const [hdOverlayEnabled, setHdOverlayEnabled] = useState(false)
@@ -2556,27 +2575,23 @@ export default function RoofMeasurePage() {
 
     const flatAreaRaw = currentFacets.reduce((sum, f) => sum + facetFlatSqft(f), 0)
     const src = facetGeometrySourceRef.current
-    const fromOpenAiVision = src === 'vision' || src === 'vision_solar_guided'
-    const flatScale = 1
     const solarRef = solarGroundFootprintReferenceRef.current
-    const SOLAR_OVERLAP_THRESHOLD = 1.08
-    const solarOverlapDetected = (
-      !fromOpenAiVision &&
-      solarRef != null &&
-      solarRef >= 350 &&
-      flatAreaRaw > solarRef * SOLAR_OVERLAP_THRESHOLD
-    )
-    if (solarOverlapDetected) {
-      const overlapPct = Math.round((flatAreaRaw / solarRef! - 1) * 100)
-      validationNotes.push(
-        `Polygon overlap detected: drawn sections total ${Math.round(flatAreaRaw).toLocaleString()} sq ft ` +
-        `but Google Solar shows ~${Math.round(solarRef!).toLocaleString()} sq ft footprint (${overlapPct}% over). ` +
-        `Delete or resize overlapping sections before saving.`
-      )
+    const manualDrawFacetCount = currentFacets.filter((facet) => isManuallyDrawnFacet(facet)).length
+    const solarOverlap = checkSolarFootprintOverlap({
+      flatAreaSqft: flatAreaRaw,
+      solarGroundSqft: solarRef,
+      geometrySource: src,
+      manualDrawFacetCount,
+    })
+    const solarOverlapDetected = solarOverlap.detected
+    const solarOverlapBlocksSave = solarOverlap.blocksSave
+    const overlapNote = overlapValidationNote(solarOverlap)
+    if (overlapNote) {
+      validationNotes.push(overlapNote)
     }
 
     if (
-      !fromOpenAiVision &&
+      !solarOverlap.fromVision &&
       (src === 'solar_bbox' || src === 'solar_mask_plane' || src === 'solar_mask_whole') &&
       currentFacets.length > 0
     ) {
@@ -2584,6 +2599,8 @@ export default function RoofMeasurePage() {
         'Outlines are approximate — drag the corners to match the roof edge exactly.'
       )
     }
+
+    const flatScale = 1
 
     const flatArea = flatAreaRaw * flatScale
     const totalArea = currentFacets.reduce((sum, f) => {
@@ -2803,8 +2820,8 @@ export default function RoofMeasurePage() {
         const mixedAiManual = o1 !== o2
         validationNotes.push(
           mixedAiManual
-            ? `Sections ${i + 1} and ${j + 1} look similar (mixed auto-load vs hand-drawn). Often one replaces the other—delete the extra if both cover the same plane.`
-            : `Sections ${i + 1} and ${j + 1} look very similar (same pitch/size/level). Verify this is not a duplicate section.`
+            ? `Sections ${i + 1} and ${j + 1} look similar (one auto-loaded, one hand-drawn). If they are separate roof planes, keep both — remove one only if they cover the same face.`
+            : `Sections ${i + 1} and ${j + 1} look very similar (same pitch/size/level). Verify these are distinct planes before removing either.`
         )
         confidence = 'medium'
       }
@@ -2904,7 +2921,7 @@ export default function RoofMeasurePage() {
       facetsNeedingGeometryReview.length === 0 &&
       facetsWithoutConfirmedPitch.length === 0 &&
       unsupportedGeometryFacets.length === 0 &&
-      !solarOverlapDetected
+      !solarOverlapBlocksSave
     
     // Helper to ensure no NaN values
     const safeNum = (n: number, fallback = 0) => isNaN(n) || !isFinite(n) ? fallback : n
@@ -2945,6 +2962,11 @@ export default function RoofMeasurePage() {
       measurement_confidence: confidence,
       validation_notes: validationNotes,
       unclassified_shared_lf: geoEdges.unclassified_shared_lf,
+      solar_overlap_detected: solarOverlapDetected,
+      solar_overlap_blocks_save: solarOverlapBlocksSave,
+      solar_overlap_ratio: solarOverlap.ratio,
+      solar_ground_footprint_sqft: solarRef,
+      manual_draw_facet_count: manualDrawFacetCount,
     })
   }
 
@@ -3004,7 +3026,7 @@ export default function RoofMeasurePage() {
     return perimeter
   }
 
-  const saveMeasurement = async () => {
+  const saveMeasurement = async (options?: { overlapOverride?: boolean; reason?: string }) => {
     if (!measurements) return
     const unresolvedPitchCount = facets.filter((facet) => !facet.pitch || facet.pitch === 'Unset').length
     if (unresolvedPitchCount > 0) {
@@ -3028,15 +3050,34 @@ export default function RoofMeasurePage() {
       return
     }
 
-    // Block save when drawn sections significantly exceed Google Solar footprint —
-    // this indicates overlapping polygons that would inflate the square count.
     const solarRef = solarGroundFootprintReferenceRef.current
-    const facetGeomSrc = facetGeometrySourceRef.current
-    const fromVision = facetGeomSrc === 'vision' || facetGeomSrc === 'vision_solar_guided'
-    const flatAreaForCheck = measurements?.flat_area_sqft || 0
-    if (!fromVision && solarRef != null && solarRef >= 350 && flatAreaForCheck / solarRef > 1.08) {
+    const manualDrawFacetCount = facets.filter((facet) => isManuallyDrawnFacet(facet)).length
+    const solarOverlap = checkSolarFootprintOverlap({
+      flatAreaSqft: measurements.flat_area_sqft || 0,
+      solarGroundSqft: solarRef,
+      geometrySource: facetGeometrySourceRef.current,
+      manualDrawFacetCount,
+    })
+    if (solarOverlap.blocksSave && !options?.overlapOverride) {
       alert('Fix overlapping roof sections before saving. Check the validation notes panel for details.')
       return
+    }
+
+    const overlapOverride =
+      options?.overlapOverride && solarOverlap.detected
+        ? {
+            acknowledged_at: new Date().toISOString(),
+            reason: options.reason?.trim() || undefined,
+            ratio: solarOverlap.ratio,
+            drawn_flat_sqft: measurements.flat_area_sqft,
+            solar_ground_sqft: solarRef,
+          }
+        : measurements.overlap_override ?? null
+
+    const payload: MeasurementData = {
+      ...measurements,
+      quote_ready: options?.overlapOverride ? false : measurements.quote_ready,
+      overlap_override: overlapOverride,
     }
 
     setSaving(true)
@@ -3046,7 +3087,7 @@ export default function RoofMeasurePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          measurements,
+          measurements: payload,
           opportunityId,
         })
       })
@@ -3059,6 +3100,8 @@ export default function RoofMeasurePage() {
       const { measurement } = await response.json()
 
       setShowSaveModal(false)
+      setShowOverlapOverrideConfirm(false)
+      setOverlapOverrideReason('')
       
       // Redirect to proposal builder with measurement data
       const params = new URLSearchParams()
@@ -3066,8 +3109,8 @@ export default function RoofMeasurePage() {
         params.set('opportunity_id', opportunityId)
       }
       params.set('measurement_id', measurement.id)
-      params.set('squares', measurements.total_squares.toFixed(1))
-      params.set('customer_address', measurements.address)
+      params.set('squares', payload.total_squares.toFixed(1))
+      params.set('customer_address', payload.address)
       
       router.push(`/proposals/builder?${params.toString()}`)
     } catch (error: any) {
@@ -3077,6 +3120,12 @@ export default function RoofMeasurePage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const closeSaveModal = () => {
+    setShowSaveModal(false)
+    setShowOverlapOverrideConfirm(false)
+    setOverlapOverrideReason('')
   }
 
   const clearAll = () => {
@@ -4559,33 +4608,130 @@ export default function RoofMeasurePage() {
                   </ul>
                 </div>
               )}
+
+              {measurements.solar_overlap_detected && (
+                <div className="mb-6 p-4 bg-amber-50 rounded-lg border border-amber-300">
+                  <h4 className="text-sm font-semibold text-amber-900 mb-1">
+                    {measurements.solar_overlap_blocks_save
+                      ? 'Overlap blocks quote-ready save'
+                      : 'Above Google Solar reference'}
+                  </h4>
+                  <p className="text-sm text-amber-800">
+                    Drawn footprint is{' '}
+                    {measurements.solar_overlap_ratio != null
+                      ? `${Math.round((measurements.solar_overlap_ratio - 1) * 100)}%`
+                      : 'significantly'}{' '}
+                    over Google Solar&apos;s estimate.
+                    {measurements.manual_draw_facet_count != null && measurements.manual_draw_facet_count > 0 ? (
+                      <>
+                        {' '}
+                        You have {measurements.manual_draw_facet_count} hand-drawn section
+                        {measurements.manual_draw_facet_count === 1 ? '' : 's'} — Solar often undercounts roofs like
+                        this. Save is allowed if outlines look correct on the map.
+                      </>
+                    ) : (
+                      <> Fix duplicate sections with Super zoom, or use Save for review if you verified the totals.</>
+                    )}
+                  </p>
+                </div>
+              )}
               
             </div>
             
-            <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-between items-center">
+            <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-between items-center gap-4">
               <button
-                onClick={() => setShowSaveModal(false)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-white"
+                onClick={closeSaveModal}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-white shrink-0"
               >
                 Back to Edit
               </button>
-              <div className="text-right">
+              <div className="text-right flex-1 min-w-0">
                 {unresolvedPitchCount > 0 && (
                   <p className="mb-2 text-xs text-amber-700">
                     Set roof pitch on every section before saving this measurement.
                   </p>
                 )}
-                <button
-                  onClick={saveMeasurement}
-                  disabled={saving || unresolvedPitchCount > 0}
-                  className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
-                >
-                  {saving ? 'Saving...' : 'Save & Create Proposal →'}
-                </button>
+                {measurements.solar_overlap_blocks_save && (
+                  <p className="mb-2 text-xs text-amber-800">
+                    Quote-ready save is blocked until overlap is resolved or you acknowledge Save for review.
+                  </p>
+                )}
+                <div className="flex flex-wrap justify-end gap-2">
+                  {measurements.solar_overlap_blocks_save && (
+                    <button
+                      type="button"
+                      onClick={() => setShowOverlapOverrideConfirm(true)}
+                      disabled={saving || unresolvedPitchCount > 0}
+                      className="px-4 py-3 border border-amber-400 text-amber-900 bg-amber-50 rounded-lg hover:bg-amber-100 disabled:opacity-50 font-medium"
+                    >
+                      Save for review anyway
+                    </button>
+                  )}
+                  <button
+                    onClick={() => void saveMeasurement()}
+                    disabled={
+                      saving ||
+                      unresolvedPitchCount > 0 ||
+                      measurements.solar_overlap_blocks_save === true
+                    }
+                    className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
+                  >
+                    {saving ? 'Saving...' : 'Save & Create Proposal →'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
           </div>
+
+          {showOverlapOverrideConfirm && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50">
+              <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Save with overlap acknowledged?</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  This measurement will be saved as <strong>needs review</strong> — not quote-ready. The proposal
+                  builder will not auto-fill squares from these totals. Double-check for duplicate sections before
+                  quoting.
+                </p>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="overlap-override-reason">
+                  Reason (optional)
+                </label>
+                <textarea
+                  id="overlap-override-reason"
+                  value={overlapOverrideReason}
+                  onChange={(e) => setOverlapOverrideReason(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. Solar undercounts porch; sections verified on site"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 mb-4"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowOverlapOverrideConfirm(false)
+                      setOverlapOverrideReason('')
+                    }}
+                    className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() =>
+                      void saveMeasurement({
+                        overlapOverride: true,
+                        reason: overlapOverrideReason,
+                      })
+                    }
+                    className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {saving ? 'Saving…' : 'Save for review'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {fineTuneFacetId && (
