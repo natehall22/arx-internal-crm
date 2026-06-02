@@ -287,9 +287,9 @@ export function RoofFineTuneEditor({
     <div className="fixed inset-0 z-[100] flex flex-col bg-gray-950">
       <div className="flex items-center justify-between gap-3 border-b border-gray-800 px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold text-white">Fine-tune section edges</h2>
+          <h2 className="text-sm font-semibold text-white">Super zoom — edit section edges</h2>
           <p className="text-xs text-gray-400">
-            HD satellite (0.1 m/px) — scroll to zoom further than Google Maps allows. Drag white handles to adjust corners.
+            HD satellite (0.1 m/px) — scroll or use +/- to zoom past Google Maps. Drag numbered handles to move corners.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">

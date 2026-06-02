@@ -3646,6 +3646,18 @@ export default function RoofMeasurePage() {
                       )}
                       {renderFacetDrainSidebar(facet)}
                     </div>
+                    {selectedFacet === facet.id && facet.points.length >= 3 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openFineTuneEditor(facet)
+                        }}
+                        className="mt-2 w-full rounded-lg border border-sky-500/60 bg-sky-800/40 px-2 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-800/60"
+                      >
+                        Super zoom — edit edges
+                      </button>
+                    )}
                     {facet.geometry_reviewed !== true && (
                       <button
                         type="button"
@@ -4098,7 +4110,7 @@ export default function RoofMeasurePage() {
           )}
 
           {selectedFacetData && !isDrawing && !isDrawingLine && (
-            <div className="absolute top-4 left-4 z-[1] max-w-[min(100%-2rem,20rem)] rounded-xl border border-gray-600 bg-gray-900/95 p-3 shadow-xl backdrop-blur-sm">
+            <div className="absolute top-4 left-4 z-[1] max-w-[min(100%-2rem,20rem)] max-h-[min(70vh,32rem)] overflow-y-auto rounded-xl border border-gray-600 bg-gray-900/95 p-3 shadow-xl backdrop-blur-sm">
               <div className="flex items-center gap-2 mb-2">
                 <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: selectedFacetData.color }} />
                 <p className="text-sm font-medium text-white truncate">
@@ -4108,6 +4120,15 @@ export default function RoofMeasurePage() {
                   ) : null}
                 </p>
               </div>
+              {selectedFacetData.points.length >= 3 && (
+                <button
+                  type="button"
+                  onClick={() => openFineTuneEditor(selectedFacetData)}
+                  className="mb-3 w-full rounded-lg border border-sky-400/70 bg-sky-600/30 px-3 py-2.5 text-sm font-semibold text-sky-50 hover:bg-sky-600/45 shadow-sm"
+                >
+                  Super zoom — edit edges
+                </button>
+              )}
               <label className="text-[11px] text-gray-500">Roof pitch</label>
               <p className="text-[10px] text-gray-500 mt-0.5">e.g. 4/12, 6/12, 8/12</p>
               <select
@@ -4148,20 +4169,13 @@ export default function RoofMeasurePage() {
               <div className="mt-3 flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={() => openFineTuneEditor(selectedFacetData)}
-                  className="w-full rounded-lg border border-sky-500/50 bg-sky-900/30 px-3 py-2 text-xs font-medium text-sky-100 hover:bg-sky-900/45"
-                >
-                  Fine-tune edges (HD)
-                </button>
-                <button
-                  type="button"
                   onClick={() => zoomMapToFacet(selectedFacetData)}
                   className="w-full rounded-lg border border-gray-600 bg-gray-800/80 px-3 py-2 text-xs font-medium text-gray-200 hover:bg-gray-800"
                 >
                   Zoom map to section
                 </button>
                 <p className="text-[10px] text-gray-500 leading-snug">
-                  Use <strong className="text-gray-400">Fine-tune edges</strong> to zoom past Google Maps limits on HD satellite and drag corner handles.
+                  <strong className="text-gray-400">Super zoom</strong> opens HD satellite so you can zoom past Google Maps and drag corner handles.
                 </p>
               </div>
               {selectedFacetData.geometry_reviewed !== true && (
@@ -4185,6 +4199,16 @@ export default function RoofMeasurePage() {
 
           {/* Quick Actions */}
           <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+            {selectedFacetData && selectedFacetData.points.length >= 3 && !isDrawing && !isDrawingLine && (
+              <button
+                type="button"
+                onClick={() => openFineTuneEditor(selectedFacetData)}
+                className="px-4 py-2.5 rounded-lg shadow-lg text-sm font-semibold bg-sky-600 text-white hover:bg-sky-500"
+                title="Super zoom — HD satellite editor, zoom past Google Maps max"
+              >
+                Super zoom
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void toggleHdSatelliteOverlay()}
