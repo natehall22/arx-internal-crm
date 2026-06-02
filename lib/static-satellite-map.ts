@@ -2,6 +2,47 @@
  * Shared Static Maps (satellite) helpers for roof vision: same logical size + zoom as
  * `/api/ai/detect-roof` when aligned with the interactive map (`mapBounds` present).
  */
+import type { GeoBounds } from '@/lib/roof-measure-map-zoom'
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+/** Geographic bounds for a Static Maps snapshot (scale=2 bitmap, Web Mercator). */
+export function staticMapImageBounds(
+  centerLat: number,
+  centerLng: number,
+  zoom: number,
+  imageWidth: number,
+  imageHeight: number
+): GeoBounds {
+  const scale = 256 * Math.pow(2, zoom)
+  const sinLat = clamp(Math.sin((centerLat * Math.PI) / 180), -0.9999, 0.9999)
+  const cx = ((centerLng + 180) / 360) * scale
+  const cy = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale
+
+  const cornerLatLng = (px: number, py: number) => {
+    const wx = cx + (px - imageWidth / 2)
+    const wy = cy + (py - imageHeight / 2)
+    const lng = (wx / scale) * 360 - 180
+    const n = Math.PI - (2 * Math.PI * wy) / scale
+    const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)))
+    return { lat, lng }
+  }
+
+  const corners = [
+    cornerLatLng(0, 0),
+    cornerLatLng(imageWidth, 0),
+    cornerLatLng(imageWidth, imageHeight),
+    cornerLatLng(0, imageHeight),
+  ]
+  return {
+    north: Math.max(...corners.map((c) => c.lat)),
+    south: Math.min(...corners.map((c) => c.lat)),
+    east: Math.max(...corners.map((c) => c.lng)),
+    west: Math.min(...corners.map((c) => c.lng)),
+  }
+}
 
 export function computeStaticLogicalSize(mapWidthPx?: number, mapHeightPx?: number): { sizeW: number; sizeH: number } {
   const mw = typeof mapWidthPx === 'number' && mapWidthPx > 0 ? mapWidthPx : 640

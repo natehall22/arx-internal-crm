@@ -1,6 +1,6 @@
 /**
- * Google Solar RGB GeoTIFF (0.1 m/px) → PNG + WGS84 bounds for map GroundOverlay.
- * Display-only — polygon vertex math stays on the base map in lat/lng.
+ * Google Solar RGB GeoTIFF (0.1 m/px) → PNG + WGS84 bounds for fine-tune editor.
+ * Falls back to Static Maps satellite when Solar RGB is missing or blank.
  */
 import * as geotiff from 'geotiff'
 import geokeysToProj4 from 'geotiff-geokeys-to-proj4'
@@ -8,14 +8,22 @@ import proj4 from 'proj4'
 import sharp from 'sharp'
 import { fetchSolarDataLayerUrls } from '@/lib/solar-dsm'
 import type { GeoBounds } from '@/lib/roof-measure-map-zoom'
+import {
+  clampVisionAlignStaticZoom,
+  fetchStaticSatelliteMapBase64,
+  staticMapImageBounds,
+} from '@/lib/static-satellite-map'
 
-const MAX_RGB_PIXELS = 4_000_000
+const MAX_RGB_PIXELS = 16_000_000
+const MAX_OUTPUT_SIDE = 1280
 
 export type SolarRgbOverlayPayload = {
   bounds: GeoBounds
   imageBase64: string
   width: number
   height: number
+  /** Where the bitmap came from — client may show a hint when static fallback is used. */
+  source: 'solar_rgb' | 'static_map'
 }
 
 function appendApiKeyToGeoTiffUrl(url: string, apiKey: string): string {
@@ -47,18 +55,11 @@ function boundsFromCornerPixels(
   return { north, south, east, west }
 }
 
-async function loadRgbGeoTiffAsPng(
-  rgbUrl: string,
-  apiKey: string
-): Promise<SolarRgbOverlayPayload | null> {
-  const fetchUrl = appendApiKeyToGeoTiffUrl(rgbUrl, apiKey)
-  const response = await fetch(fetchUrl)
-  if (!response.ok) {
-    console.warn('[solar-rgb] GeoTIFF fetch failed:', response.status)
-    return null
-  }
-
-  const arrayBuffer = await response.arrayBuffer()
+async function geotiffBoundsFromBuffer(arrayBuffer: ArrayBuffer): Promise<{
+  bounds: GeoBounds
+  width: number
+  height: number
+} | null> {
   const tiff = await geotiff.fromArrayBuffer(arrayBuffer)
   const image = await tiff.getImage()
   const width = image.getWidth()
@@ -69,22 +70,15 @@ async function loadRgbGeoTiffAsPng(
   }
 
   const geoKeys = image.getGeoKeys()
-  if (!geoKeys) {
-    console.warn('[solar-rgb] missing geokeys')
-    return null
-  }
+  if (!geoKeys) return null
 
   let projObj: ReturnType<typeof geokeysToProj4.toProj4>
   try {
     projObj = geokeysToProj4.toProj4(geoKeys as Parameters<typeof geokeysToProj4.toProj4>[0])
-  } catch (e) {
-    console.warn('[solar-rgb] geokeysToProj4 failed:', e)
+  } catch {
     return null
   }
-  if (projObj.errors?.CRSNotSupported != null) {
-    console.warn('[solar-rgb] CRS not supported')
-    return null
-  }
+  if (projObj.errors?.CRSNotSupported != null) return null
 
   const toWgs84 = proj4(projObj.proj4, '+proj=longlat +datum=WGS84 +no_defs')
   const conv = projObj.coordinatesConversionParameters
@@ -99,55 +93,88 @@ async function loadRgbGeoTiffAsPng(
     return { lat: projected[1], lng: projected[0] }
   }
 
-  const bounds = boundsFromCornerPixels(width, height, pixelToLngLat)
-  const rasters = await image.readRasters()
-  const bandCount = rasters.length
+  return { bounds: boundsFromCornerPixels(width, height, pixelToLngLat), width, height }
+}
 
-  const rgba = Buffer.alloc(width * height * 4)
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      const idx = row * width + col
-      const out = idx * 4
-      if (bandCount >= 3) {
-        const r = (rasters[0] as geotiff.TypedArray)[idx]
-        const g = (rasters[1] as geotiff.TypedArray)[idx]
-        const b = (rasters[2] as geotiff.TypedArray)[idx]
-        rgba[out] = clampByte(r)
-        rgba[out + 1] = clampByte(g)
-        rgba[out + 2] = clampByte(b)
-        rgba[out + 3] = 255
-      } else {
-        const v = (rasters[0] as geotiff.TypedArray)[idx]
-        rgba[out] = clampByte(v)
-        rgba[out + 1] = clampByte(v)
-        rgba[out + 2] = clampByte(v)
-        rgba[out + 3] = 255
-      }
-    }
+async function pngFromGeoTiffBuffer(arrayBuffer: ArrayBuffer): Promise<Buffer | null> {
+  try {
+    return await sharp(Buffer.from(arrayBuffer), { limitInputPixels: MAX_RGB_PIXELS })
+      .ensureAlpha()
+      .resize(MAX_OUTPUT_SIDE, MAX_OUTPUT_SIDE, { fit: 'inside', withoutEnlargement: false })
+      .png()
+      .toBuffer()
+  } catch (e) {
+    console.warn('[solar-rgb] sharp geotiff decode failed:', e)
+    return null
+  }
+}
+
+/** Reject empty / all-black decode results so we can fall back to Static Maps. */
+async function pngHasVisibleImagery(png: Buffer): Promise<boolean> {
+  try {
+    const stats = await sharp(png).stats()
+    const channels = stats.channels.slice(0, 3)
+    if (channels.length === 0) return false
+    const maxChannelMean = Math.max(...channels.map((c) => c.mean))
+    return maxChannelMean > 4
+  } catch {
+    return false
+  }
+}
+
+async function loadRgbGeoTiffAsPng(rgbUrl: string, apiKey: string): Promise<SolarRgbOverlayPayload | null> {
+  const fetchUrl = appendApiKeyToGeoTiffUrl(rgbUrl, apiKey)
+  const response = await fetch(fetchUrl)
+  if (!response.ok) {
+    console.warn('[solar-rgb] GeoTIFF fetch failed:', response.status)
+    return null
   }
 
-  const pngBuffer = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer()
+  const arrayBuffer = await response.arrayBuffer()
+  const geo = await geotiffBoundsFromBuffer(arrayBuffer)
+  if (!geo) return null
+
+  const pngBuffer = await pngFromGeoTiffBuffer(arrayBuffer)
+  if (!pngBuffer || !(await pngHasVisibleImagery(pngBuffer))) return null
+
+  const meta = await sharp(pngBuffer).metadata()
+  const width = meta.width ?? geo.width
+  const height = meta.height ?? geo.height
 
   return {
-    bounds,
+    bounds: geo.bounds,
     imageBase64: pngBuffer.toString('base64'),
     width,
     height,
+    source: 'solar_rgb',
   }
 }
 
-function clampByte(value: number): number {
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(255, Math.round(value)))
+async function staticMapOverlayPayload(lat: number, lng: number): Promise<SolarRgbOverlayPayload> {
+  const zoom = clampVisionAlignStaticZoom(22)
+  const sizeW = 640
+  const sizeH = 640
+  const imageBase64 = await fetchStaticSatelliteMapBase64({ lat, lng, zoom, sizeW, sizeH })
+  const width = sizeW * 2
+  const height = sizeH * 2
+  const bounds = staticMapImageBounds(lat, lng, zoom, width, height)
+  return { bounds, imageBase64, width, height, source: 'static_map' }
 }
 
-/** Fetch Solar RGB overlay for roof-measure HD fine-tuning view. */
+/** Fetch HD overlay for roof-measure super zoom; always returns imagery (Solar or Static Maps). */
 export async function fetchSolarRgbOverlayPayload(
   lat: number,
   lng: number,
   apiKey: string
-): Promise<SolarRgbOverlayPayload | null> {
-  const layers = await fetchSolarDataLayerUrls(lat, lng, apiKey)
-  if (!layers.rgbUrl) return null
-  return loadRgbGeoTiffAsPng(layers.rgbUrl, apiKey)
+): Promise<SolarRgbOverlayPayload> {
+  try {
+    const layers = await fetchSolarDataLayerUrls(lat, lng, apiKey)
+    if (layers.rgbUrl) {
+      const solar = await loadRgbGeoTiffAsPng(layers.rgbUrl, apiKey)
+      if (solar) return solar
+    }
+  } catch (e) {
+    console.warn('[solar-rgb] solar path failed:', e)
+  }
+  return staticMapOverlayPayload(lat, lng)
 }

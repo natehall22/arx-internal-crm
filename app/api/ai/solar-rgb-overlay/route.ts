@@ -3,10 +3,11 @@ import { requireAuthApi } from '@/lib/auth'
 import { fetchSolarRgbOverlayPayload } from '@/lib/solar-rgb-overlay'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 /**
- * Returns Google Solar RGB GeoTIFF as PNG + WGS84 bounds for a display-only GroundOverlay.
- * Does not affect detect-roof geometry — use for closer visual reference when editing vertices.
+ * Returns satellite PNG + WGS84 bounds for super-zoom fine-tune editor.
+ * Prefers Google Solar RGB GeoTIFF; falls back to Static Maps so the editor always gets imagery.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -25,13 +26,6 @@ export async function GET(request: NextRequest) {
     }
 
     const payload = await fetchSolarRgbOverlayPayload(lat, lng, apiKey)
-    if (!payload) {
-      return NextResponse.json(
-        { error: 'HD satellite overlay unavailable for this location' },
-        { status: 404 }
-      )
-    }
-
     return NextResponse.json(payload)
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Solar RGB overlay failed'

@@ -22,6 +22,35 @@ type RgbPayload = {
   imageBase64: string
   width: number
   height: number
+  source?: 'solar_rgb' | 'static_map'
+}
+
+function base64ToBlob(base64: string, mime: string): Blob {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
+
+function frameViewOnFacet(
+  facetPoints: LatLng[],
+  payload: RgbPayload,
+  cw: number,
+  ch: number
+): { viewScale: number; pan: { x: number; y: number } } {
+  const scale = initialViewScaleForFacet(facetPoints, payload.bounds, payload.width, payload.height, cw, ch)
+  const fb = boundsFromPoints(facetPoints)
+  if (!fb) return { viewScale: scale, pan: { x: 0, y: 0 } }
+  const cx = (fb.west + fb.east) / 2
+  const cy = (fb.north + fb.south) / 2
+  const pix = latLngToImagePixel(cy, cx, payload.bounds, payload.width, payload.height)
+  const baseScale = Math.min(cw / payload.width, ch / payload.height) * 0.92
+  const s = baseScale * scale
+  const imgLeft = (cw - payload.width * s) / 2
+  const imgTop = (ch - payload.height * s) / 2
+  const sx = imgLeft + pix.x * s
+  const sy = imgTop + pix.y * s
+  return { viewScale: scale, pan: { x: cw / 2 - sx, y: ch / 2 - sy } }
 }
 
 type RoofFineTuneEditorProps = {
@@ -51,7 +80,9 @@ export function RoofFineTuneEditor({
   const rgbRef = useRef<RgbPayload | null>(null)
 
   const [loading, setLoading] = useState(true)
+  const [loadingPhase, setLoadingPhase] = useState('Fetching satellite…')
   const [error, setError] = useState<string | null>(null)
+  const [imagerySource, setImagerySource] = useState<'solar_rgb' | 'static_map' | null>(null)
   const [viewScale, setViewScale] = useState(3)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [editPoints, setEditPoints] = useState<LatLng[]>([])
@@ -61,80 +92,89 @@ export function RoofFineTuneEditor({
   >(null)
 
   const selectedFacet = facets.find((f) => f.id === selectedFacetId)
+  const facetPointsRef = useRef<LatLng[]>([])
 
   useEffect(() => {
-    if (!selectedFacet) return
-    setEditPoints(selectedFacet.points.map((p) => ({ ...p })))
-  }, [selectedFacetId, selectedFacet])
+    const facet = facets.find((f) => f.id === selectedFacetId)
+    if (!facet) return
+    const pts = facet.points.map((p) => ({ ...p }))
+    facetPointsRef.current = pts
+    setEditPoints(pts)
+  }, [selectedFacetId, facets])
 
   useEffect(() => {
     let alive = true
+    let objectUrl: string | null = null
+    const controller = new AbortController()
+    const slowTimer = window.setTimeout(() => {
+      if (alive) setLoadingPhase('Still loading — Solar HD can take up to a minute…')
+    }, 12000)
+    const abortTimer = window.setTimeout(() => controller.abort(), 90000)
+
     const load = async () => {
       setLoading(true)
+      setLoadingPhase('Fetching satellite…')
       setError(null)
+      setImagerySource(null)
       try {
         const response = await fetch(
-          `/api/ai/solar-rgb-overlay?lat=${encodeURIComponent(String(centerLat))}&lng=${encodeURIComponent(String(centerLng))}`
+          `/api/ai/solar-rgb-overlay?lat=${encodeURIComponent(String(centerLat))}&lng=${encodeURIComponent(String(centerLng))}`,
+          { signal: controller.signal }
         )
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}))
-          throw new Error(payload.error || 'HD imagery unavailable')
+          throw new Error(payload.error || `HD imagery unavailable (${response.status})`)
         }
         const payload = (await response.json()) as RgbPayload
         if (!alive) return
+        if (!payload.imageBase64 || !payload.width || !payload.height) {
+          throw new Error('Empty satellite response')
+        }
         rgbRef.current = payload
+        setImagerySource(payload.source ?? 'static_map')
+
+        const blob = base64ToBlob(payload.imageBase64, 'image/png')
+        objectUrl = URL.createObjectURL(blob)
 
         const img = new Image()
-        img.onload = () => {
-          if (!alive) return
-          imageRef.current = img
-          const cw = containerRef.current?.clientWidth ?? 800
-          const ch = containerRef.current?.clientHeight ?? 600
-          setCanvasSize({ w: cw, h: ch })
-          if (selectedFacet) {
-            const scale = initialViewScaleForFacet(
-              selectedFacet.points,
-              payload.bounds,
-              payload.width,
-              payload.height,
-              cw,
-              ch
-            )
-            setViewScale(scale)
-            const fb = boundsFromPoints(selectedFacet.points)
-            if (fb) {
-              const cx = (fb.west + fb.east) / 2
-              const cy = (fb.north + fb.south) / 2
-              const pix = latLngToImagePixel(cy, cx, payload.bounds, payload.width, payload.height)
-              const baseScale = Math.min(cw / payload.width, ch / payload.height) * 0.92
-              const s = baseScale * scale
-              const imgLeft = (cw - payload.width * s) / 2
-              const imgTop = (ch - payload.height * s) / 2
-              const sx = imgLeft + pix.x * s
-              const sy = imgTop + pix.y * s
-              setPan({ x: cw / 2 - sx, y: ch / 2 - sy })
-            }
-          }
-          setLoading(false)
-        }
-        img.onerror = () => {
-          if (alive) {
-            setError('Failed to decode HD image')
-            setLoading(false)
-          }
-        }
-        img.src = `data:image/png;base64,${payload.imageBase64}`
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve()
+          img.onerror = () => reject(new Error('Failed to decode satellite image'))
+          img.src = objectUrl!
+        })
+        if (!alive) return
+
+        imageRef.current = img
+        const cw = containerRef.current?.clientWidth ?? 800
+        const ch = containerRef.current?.clientHeight ?? 600
+        setCanvasSize({ w: cw, h: ch })
+
+        const framing = frameViewOnFacet(facetPointsRef.current, payload, cw, ch)
+        setViewScale(framing.viewScale)
+        setPan(framing.pan)
+        setLoading(false)
       } catch (e) {
         if (!alive) return
-        setError(e instanceof Error ? e.message : 'Load failed')
+        if (e instanceof Error && e.name === 'AbortError') {
+          setError('Satellite load timed out. Cancel and try again, or use the main map HD toggle.')
+        } else {
+          setError(e instanceof Error ? e.message : 'Load failed')
+        }
         setLoading(false)
+      } finally {
+        window.clearTimeout(slowTimer)
+        window.clearTimeout(abortTimer)
       }
     }
     void load()
     return () => {
       alive = false
+      controller.abort()
+      window.clearTimeout(slowTimer)
+      window.clearTimeout(abortTimer)
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [centerLat, centerLng, selectedFacet])
+  }, [centerLat, centerLng, selectedFacetId])
 
   useEffect(() => {
     const el = containerRef.current
@@ -290,6 +330,9 @@ export function RoofFineTuneEditor({
           <h2 className="text-sm font-semibold text-white">Super zoom — edit section edges</h2>
           <p className="text-xs text-gray-400">
             HD satellite (0.1 m/px) — scroll or use +/- to zoom past Google Maps. Drag numbered handles to move corners.
+            {imagerySource === 'static_map' && (
+              <span className="block mt-1 text-amber-400/90">Using standard satellite (Solar HD unavailable here).</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -317,7 +360,7 @@ export function RoofFineTuneEditor({
           <div className="absolute inset-0 flex items-center justify-center bg-gray-950/90 z-10">
             <div className="text-center">
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-300">Loading HD satellite…</p>
+              <p className="text-sm text-gray-300">{loadingPhase}</p>
             </div>
           </div>
         )}
