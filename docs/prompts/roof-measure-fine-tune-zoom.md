@@ -11,8 +11,9 @@
 | Change | File | Collateral risk |
 |--------|------|-----------------|
 | Edit zoom target **22** (was floor 21), `MaxZoomService` per property | `page.tsx`, `lib/roof-measure-map-zoom.ts` | **Low** — viewport only; saved geometry is lat/lng |
-| **Fine-tune zoom** button on selected section | `page.tsx` | **Low** — `fitBounds` + max zoom; no coordinate mutation |
-| **HD** toggle — Solar `rgbUrl` GeoTIFF as `GroundOverlay` | `lib/solar-rgb-overlay.ts`, `/api/ai/solar-rgb-overlay` | **Low** — display-only; overlay cleared on address reset |
+| **Fine-tune edges (HD)** full-screen canvas with virtual zoom up to **12×** on Solar RGB | `components/RoofFineTuneEditor.tsx`, `lib/georef-bounds.ts` | **Low** — writes lat/lng back to map polygon; blocks detect while open |
+| **Zoom map to section** (main map fitBounds) | `page.tsx` | **Low** |
+| **HD** toggle — Solar `rgbUrl` GeoTIFF as `GroundOverlay` | `lib/solar-rgb-overlay.ts`, `/api/ai/solar-rgb-overlay` | **Low** — display-only |
 | Auto-detect key uses **rounded zoom** | `page.tsx` | **Low** — prevents fractional scroll re-firing detect |
 | `fetchSolarDataLayerUrls` returns `rgbUrl` | `lib/solar-dsm.ts` | **None** — additive field |
 

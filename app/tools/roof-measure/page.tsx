@@ -48,6 +48,7 @@ import {
   roundedZoomForDetectKey,
   ROOF_MEASURE_EDIT_ZOOM_TARGET,
 } from '@/lib/roof-measure-map-zoom'
+import { RoofFineTuneEditor } from '@/components/RoofFineTuneEditor'
 
 declare const google: any
 
@@ -404,6 +405,8 @@ export default function RoofMeasurePage() {
   const [hdOverlayEnabled, setHdOverlayEnabled] = useState(false)
   const [hdOverlayLoading, setHdOverlayLoading] = useState(false)
   const [hdOverlayError, setHdOverlayError] = useState<string | null>(null)
+  /** When set, HD fine-tune canvas is open — block auto-detect to avoid viewport skew. */
+  const [fineTuneFacetId, setFineTuneFacetId] = useState<string | null>(null)
   const [mapsLoaded, setMapsLoaded] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [googleLoaded, setGoogleLoaded] = useState(false)
@@ -641,6 +644,7 @@ export default function RoofMeasurePage() {
     if (!mapsLoaded || !searchedAddress || !googleMapRef.current || isDetecting) return
     if (facets.length > 0 || linearFeatures.length > 0 || aiDraftSections.length > 0) return
     if (skipAutoDetectAfterFailureRef.current) return
+    if (fineTuneFacetId) return
 
     const map = googleMapRef.current
     // Defer so fitBounds / idle can finish (viewport framing) before we read center+zoom for the API.
@@ -661,7 +665,7 @@ export default function RoofMeasurePage() {
     }, 550)
 
     return () => window.clearTimeout(timeoutId)
-  }, [mapsLoaded, searchedAddress, facets.length, linearFeatures.length, aiDraftSections.length, isDetecting, searchParams])
+  }, [mapsLoaded, searchedAddress, facets.length, linearFeatures.length, aiDraftSections.length, isDetecting, searchParams, fineTuneFacetId])
 
   const loadOpportunityAddress = async (oppId: string, preferredAddress?: string) => {
     try {
@@ -1270,6 +1274,46 @@ export default function RoofMeasurePage() {
     if (ok) setHdOverlayEnabled(true)
   }
 
+  const applyFineTunePoints = (facetId: string, points: Point[]) => {
+    const polygon = polygonsRef.current.get(facetId)
+    const currentFacet = facetsRef.current.find((f) => f.id === facetId)
+    if (!currentFacet || points.length < 3) {
+      setFineTuneFacetId(null)
+      return
+    }
+
+    if (polygon && window.google?.maps) {
+      const path = polygon.getPath()
+      while (path.getLength() > points.length) {
+        path.removeAt(path.getLength() - 1)
+      }
+      for (let i = 0; i < points.length; i++) {
+        const ll = new google.maps.LatLng(points[i].lat, points[i].lng)
+        if (i < path.getLength()) {
+          path.setAt(i, ll)
+        } else {
+          path.push(ll)
+        }
+      }
+    }
+
+    const nextFacet = recalculateFacetFromPoints(currentFacet, points)
+    const nextFacets = facetsRef.current.map((f) =>
+      f.id === facetId
+        ? { ...nextFacet, geometry_reviewed: false, geometry_source: 'manual_corrected' as const }
+        : f
+    )
+    commitFacets(nextFacets)
+    updateLabelMarkerPosition(facetId, points)
+    updateMeasurements(nextFacets, linearFeaturesRef.current)
+    setFineTuneFacetId(null)
+  }
+
+  const openFineTuneEditor = (facet: RoofFacet) => {
+    if (facet.points.length < 3) return
+    setFineTuneFacetId(facet.id)
+  }
+
   const pointsFromPolygon = (polygon: any): Point[] => {
     const path = polygon.getPath()
     const points: Point[] = []
@@ -1417,6 +1461,7 @@ export default function RoofMeasurePage() {
    */
   const detectRoofWithAI = async (autoAcceptAllDrafts = false, detectionMode: 'solar' | 'vision' = 'solar') => {
     if (!googleMapRef.current) return
+    if (fineTuneFacetId) return
 
     if (detectionMode === 'vision' && !ROOF_MEASURE_VISION_TRACE_ENABLED) {
       alert(
@@ -4103,13 +4148,20 @@ export default function RoofMeasurePage() {
               <div className="mt-3 flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={() => zoomMapToFacet(selectedFacetData)}
+                  onClick={() => openFineTuneEditor(selectedFacetData)}
                   className="w-full rounded-lg border border-sky-500/50 bg-sky-900/30 px-3 py-2 text-xs font-medium text-sky-100 hover:bg-sky-900/45"
                 >
-                  Fine-tune zoom
+                  Fine-tune edges (HD)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => zoomMapToFacet(selectedFacetData)}
+                  className="w-full rounded-lg border border-gray-600 bg-gray-800/80 px-3 py-2 text-xs font-medium text-gray-200 hover:bg-gray-800"
+                >
+                  Zoom map to section
                 </button>
                 <p className="text-[10px] text-gray-500 leading-snug">
-                  Zooms in on this section so you can drag corner points without overlap. Use HD satellite for sharper imagery.
+                  Use <strong className="text-gray-400">Fine-tune edges</strong> to zoom past Google Maps limits on HD satellite and drag corner handles.
                 </p>
               </div>
               {selectedFacetData.geometry_reviewed !== true && (
@@ -4511,6 +4563,27 @@ export default function RoofMeasurePage() {
           </div>
           </div>
         </div>
+      )}
+      {fineTuneFacetId && (
+        <RoofFineTuneEditor
+          selectedFacetId={fineTuneFacetId}
+          facets={facets.map((f, i) => ({
+            id: f.id,
+            points: f.points,
+            color: f.color,
+            label: String(i + 1),
+          }))}
+          centerLat={
+            googleMapRef.current?.getCenter?.()?.lat?.() ??
+            mapCenter.lat
+          }
+          centerLng={
+            googleMapRef.current?.getCenter?.()?.lng?.() ??
+            mapCenter.lng
+          }
+          onSave={applyFineTunePoints}
+          onClose={() => setFineTuneFacetId(null)}
+        />
       )}
     </div>
   )
