@@ -25,11 +25,12 @@ type RgbPayload = {
   source?: 'solar_rgb' | 'static_map'
 }
 
-function base64ToBlob(base64: string, mime: string): Blob {
+function base64ToBlob(base64: string): Blob {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
+  const isPng = binary.startsWith('\x89PNG')
+  return new Blob([bytes], { type: isPng ? 'image/png' : 'image/jpeg' })
 }
 
 function frameViewOnFacet(
@@ -76,13 +77,14 @@ export function RoofFineTuneEditor({
 }: RoofFineTuneEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const imageRef = useRef<HTMLImageElement | null>(null)
   const rgbRef = useRef<RgbPayload | null>(null)
+  const imageUrlRef = useRef<string | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [loadingPhase, setLoadingPhase] = useState('Fetching satellite…')
   const [error, setError] = useState<string | null>(null)
   const [imagerySource, setImagerySource] = useState<'solar_rgb' | 'static_map' | null>(null)
+  const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [viewScale, setViewScale] = useState(3)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [editPoints, setEditPoints] = useState<LatLng[]>([])
@@ -91,7 +93,6 @@ export function RoofFineTuneEditor({
     { kind: 'pan'; startX: number; startY: number; panX: number; panY: number } | { kind: 'vertex'; index: number } | null
   >(null)
 
-  const selectedFacet = facets.find((f) => f.id === selectedFacetId)
   const facetPointsRef = useRef<LatLng[]>([])
 
   useEffect(() => {
@@ -103,8 +104,16 @@ export function RoofFineTuneEditor({
   }, [selectedFacetId, facets])
 
   useEffect(() => {
+    return () => {
+      if (imageUrlRef.current) {
+        URL.revokeObjectURL(imageUrlRef.current)
+        imageUrlRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     let alive = true
-    let objectUrl: string | null = null
     const controller = new AbortController()
     const slowTimer = window.setTimeout(() => {
       if (alive) setLoadingPhase('Still loading — Solar HD can take up to a minute…')
@@ -116,6 +125,7 @@ export function RoofFineTuneEditor({
       setLoadingPhase('Fetching satellite…')
       setError(null)
       setImagerySource(null)
+      setImageSrc(null)
       try {
         const response = await fetch(
           `/api/ai/solar-rgb-overlay?lat=${encodeURIComponent(String(centerLat))}&lng=${encodeURIComponent(String(centerLng))}`,
@@ -130,26 +140,37 @@ export function RoofFineTuneEditor({
         if (!payload.imageBase64 || !payload.width || !payload.height) {
           throw new Error('Empty satellite response')
         }
-        rgbRef.current = payload
-        setImagerySource(payload.source ?? 'static_map')
 
-        const blob = base64ToBlob(payload.imageBase64, 'image/png')
-        objectUrl = URL.createObjectURL(blob)
+        const blob = base64ToBlob(payload.imageBase64)
+        const url = URL.createObjectURL(blob)
+        if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current)
+        imageUrlRef.current = url
 
         const img = new Image()
         await new Promise<void>((resolve, reject) => {
           img.onload = () => resolve()
           img.onerror = () => reject(new Error('Failed to decode satellite image'))
-          img.src = objectUrl!
+          img.src = url
         })
         if (!alive) return
+        if (img.naturalWidth < 8 || img.naturalHeight < 8) {
+          throw new Error('Satellite image decoded with invalid dimensions')
+        }
 
-        imageRef.current = img
+        const syncedPayload: RgbPayload = {
+          ...payload,
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        }
+        rgbRef.current = syncedPayload
+        setImagerySource(payload.source ?? 'static_map')
+        setImageSrc(url)
+
         const cw = containerRef.current?.clientWidth ?? 800
         const ch = containerRef.current?.clientHeight ?? 600
         setCanvasSize({ w: cw, h: ch })
 
-        const framing = frameViewOnFacet(facetPointsRef.current, payload, cw, ch)
+        const framing = frameViewOnFacet(facetPointsRef.current, syncedPayload, cw, ch)
         setViewScale(framing.viewScale)
         setPan(framing.pan)
         setLoading(false)
@@ -172,7 +193,6 @@ export function RoofFineTuneEditor({
       controller.abort()
       window.clearTimeout(slowTimer)
       window.clearTimeout(abortTimer)
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [centerLat, centerLng, selectedFacetId])
 
@@ -193,7 +213,9 @@ export function RoofFineTuneEditor({
     const scale = baseScale * viewScale
     const imgLeft = (canvasSize.w - rgb.width * scale) / 2 + pan.x
     const imgTop = (canvasSize.h - rgb.height * scale) / 2 + pan.y
-    return { scale, imgLeft, imgTop, rgb }
+    const drawW = rgb.width * scale
+    const drawH = rgb.height * scale
+    return { scale, imgLeft, imgTop, drawW, drawH, rgb }
   }, [canvasSize, viewScale, pan])
 
   const screenToLatLng = useCallback(
@@ -220,15 +242,12 @@ export function RoofFineTuneEditor({
   const draw = useCallback(() => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
-    const img = imageRef.current
     const t = imageTransform()
-    if (!canvas || !ctx || !img || !t) return
+    if (!canvas || !ctx || !t || !imageSrc) return
 
     canvas.width = canvasSize.w
     canvas.height = canvasSize.h
-    ctx.fillStyle = '#0f172a'
-    ctx.fillRect(0, 0, canvasSize.w, canvasSize.h)
-    ctx.drawImage(img, t.imgLeft, t.imgTop, t.rgb.width * t.scale, t.rgb.height * t.scale)
+    ctx.clearRect(0, 0, canvasSize.w, canvasSize.h)
 
     for (const facet of facets) {
       const isSelected = facet.id === selectedFacetId
@@ -266,7 +285,7 @@ export function RoofFineTuneEditor({
         }
       }
     }
-  }, [canvasSize, editPoints, facets, imageTransform, latLngToScreen, selectedFacetId])
+  }, [canvasSize, editPoints, facets, imageSrc, imageTransform, latLngToScreen, selectedFacetId])
 
   useEffect(() => {
     draw()
@@ -323,6 +342,8 @@ export function RoofFineTuneEditor({
     setViewScale((s) => Math.min(MAX_VIEW_SCALE, Math.max(MIN_VIEW_SCALE, s * delta)))
   }
 
+  const t = imageTransform()
+
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-gray-950">
       <div className="flex items-center justify-between gap-3 border-b border-gray-800 px-4 py-3">
@@ -355,9 +376,9 @@ export function RoofFineTuneEditor({
         </div>
       </div>
 
-      <div ref={containerRef} className="relative flex-1 min-h-0">
+      <div ref={containerRef} className="relative flex-1 min-h-0 overflow-hidden bg-slate-950">
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-950/90 z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-950/90 z-20">
             <div className="text-center">
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-500 mx-auto mb-3" />
               <p className="text-sm text-gray-300">{loadingPhase}</p>
@@ -365,7 +386,7 @@ export function RoofFineTuneEditor({
           </div>
         )}
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-950/90 z-10 p-6">
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-950/90 z-20 p-6">
             <div className="text-center max-w-md">
               <p className="text-red-400 font-medium mb-2">{error}</p>
               <p className="text-sm text-gray-400 mb-4">
@@ -377,16 +398,33 @@ export function RoofFineTuneEditor({
             </div>
           </div>
         )}
+
+        {imageSrc && t && (
+          <img
+            src={imageSrc}
+            alt="Satellite imagery for roof edge editing"
+            draggable={false}
+            className="absolute pointer-events-none select-none max-w-none"
+            style={{
+              left: t.imgLeft,
+              top: t.imgTop,
+              width: t.drawW,
+              height: t.drawH,
+            }}
+          />
+        )}
+
         <canvas
           ref={canvasRef}
-          className="w-full h-full touch-none cursor-grab active:cursor-grabbing"
+          className="absolute inset-0 w-full h-full touch-none cursor-grab active:cursor-grabbing"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
           onWheel={onWheel}
         />
-        <div className="absolute bottom-4 left-4 flex gap-2">
+
+        <div className="absolute bottom-4 left-4 flex gap-2 z-10">
           <button
             type="button"
             onClick={() => setViewScale((s) => Math.min(MAX_VIEW_SCALE, s * 1.25))}

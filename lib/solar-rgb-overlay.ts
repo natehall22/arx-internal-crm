@@ -10,9 +10,9 @@ import { fetchSolarDataLayerUrls } from '@/lib/solar-dsm'
 import type { GeoBounds } from '@/lib/roof-measure-map-zoom'
 import {
   clampVisionAlignStaticZoom,
-  fetchStaticSatelliteMapBase64,
   staticMapImageBounds,
 } from '@/lib/static-satellite-map'
+import { fetchStaticSatelliteMapPngBase64 } from '@/lib/static-satellite-map.server'
 
 const MAX_RGB_PIXELS = 16_000_000
 const MAX_OUTPUT_SIDE = 1280
@@ -154,7 +154,7 @@ async function staticMapOverlayPayload(lat: number, lng: number): Promise<SolarR
   const zoom = clampVisionAlignStaticZoom(22)
   const sizeW = 640
   const sizeH = 640
-  const imageBase64 = await fetchStaticSatelliteMapBase64({ lat, lng, zoom, sizeW, sizeH })
+  const imageBase64 = await fetchStaticSatelliteMapPngBase64({ lat, lng, zoom, sizeW, sizeH })
   const width = sizeW * 2
   const height = sizeH * 2
   const bounds = staticMapImageBounds(lat, lng, zoom, width, height)

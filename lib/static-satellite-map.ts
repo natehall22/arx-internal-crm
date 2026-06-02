@@ -1,6 +1,7 @@
 /**
  * Shared Static Maps (satellite) helpers for roof vision: same logical size + zoom as
  * `/api/ai/detect-roof` when aligned with the interactive map (`mapBounds` present).
+ * Server-only fetch helpers live in `static-satellite-map.server.ts` (Sharp).
  */
 import type { GeoBounds } from '@/lib/roof-measure-map-zoom'
 
