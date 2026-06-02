@@ -13,6 +13,8 @@ const MAX_DSM_PIXELS = 4_000_000
 export type SolarDataLayerUrls = {
   maskUrl: string | null
   dsmUrl: string | null
+  /** 0.1 m/px RGB satellite GeoTIFF — higher detail than standard Maps tiles for fine-tuning. */
+  rgbUrl: string | null
 }
 
 export type DsmFacetSample = {
@@ -58,11 +60,12 @@ export async function fetchSolarDataLayerUrls(
       status: response.status,
       body_snippet: bodySnippet.slice(0, 200),
     })
-    return { maskUrl: null, dsmUrl: null }
+    return { maskUrl: null, dsmUrl: null, rgbUrl: null }
   }
   const data = (await response.json().catch(() => null)) as {
     maskUrl?: string
     dsmUrl?: string
+    rgbUrl?: string
     error?: { message?: string; code?: number }
   } | null
   if (data?.error?.message) {
@@ -71,15 +74,16 @@ export async function fetchSolarDataLayerUrls(
       message: data.error.message,
       code: data.error.code ?? null,
     })
-    return { maskUrl: null, dsmUrl: null }
+    return { maskUrl: null, dsmUrl: null, rgbUrl: null }
   }
   const maskUrl =
     typeof data?.maskUrl === 'string' && data.maskUrl.length > 0 ? data.maskUrl : null
   const dsmUrl = typeof data?.dsmUrl === 'string' && data.dsmUrl.length > 0 ? data.dsmUrl : null
-  if (!maskUrl && !dsmUrl) {
+  const rgbUrl = typeof data?.rgbUrl === 'string' && data.rgbUrl.length > 0 ? data.rgbUrl : null
+  if (!maskUrl && !dsmUrl && !rgbUrl) {
     console.warn('[solar-dsm] dataLayers:get empty_layers', logCtx)
   }
-  return { maskUrl, dsmUrl }
+  return { maskUrl, dsmUrl, rgbUrl }
 }
 
 async function loadDsmRaster(dsmUrl: string, apiKey: string): Promise<DsmRaster | null> {

@@ -43,6 +43,11 @@ import {
   isConfirmedPitchSource,
   shouldAutoApplySolarPitch,
 } from '@/lib/roof-measure-solar-pitch'
+import {
+  resolveEditZoom,
+  roundedZoomForDetectKey,
+  ROOF_MEASURE_EDIT_ZOOM_TARGET,
+} from '@/lib/roof-measure-map-zoom'
 
 declare const google: any
 
@@ -372,6 +377,9 @@ export default function RoofMeasurePage() {
   const aiDraftBoundaryRef = useRef<Map<string, any>>(new Map())
   const aiDraftLinesRef = useRef<Map<string, any>>(new Map())
   const autoDetectRequestKeyRef = useRef<string | null>(null)
+  /** Max satellite zoom at the current property (from MaxZoomService). */
+  const propertyMaxZoomRef = useRef<number>(ROOF_MEASURE_EDIT_ZOOM_TARGET)
+  const hdGroundOverlayRef = useRef<any>(null)
   /** After load from satellite fails, skip effect-driven retries until the user searches again or runs manual load (avoids infinite loops). */
   const skipAutoDetectAfterFailureRef = useRef(false)
   const loadedMeasurementIdRef = useRef<string | null>(null)
@@ -393,6 +401,9 @@ export default function RoofMeasurePage() {
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [opportunityId, setOpportunityId] = useState<string | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
+  const [hdOverlayEnabled, setHdOverlayEnabled] = useState(false)
+  const [hdOverlayLoading, setHdOverlayLoading] = useState(false)
+  const [hdOverlayError, setHdOverlayError] = useState<string | null>(null)
   const [mapsLoaded, setMapsLoaded] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [googleLoaded, setGoogleLoaded] = useState(false)
@@ -642,7 +653,7 @@ export default function RoofMeasurePage() {
       const zoom = googleMapRef.current.getZoom()
       if (!center || typeof zoom !== 'number') return
 
-      const requestKey = `${searchedAddress}:${center.lat().toFixed(6)}:${center.lng().toFixed(6)}:${zoom}`
+      const requestKey = `${searchedAddress}:${center.lat().toFixed(6)}:${center.lng().toFixed(6)}:${roundedZoomForDetectKey(zoom)}`
       if (autoDetectRequestKeyRef.current === requestKey) return
 
       autoDetectRequestKeyRef.current = requestKey
@@ -937,7 +948,7 @@ export default function RoofMeasurePage() {
     try {
       const map = new google.maps.Map(mapRef.current, {
         center: mapCenter,
-        zoom: 20,
+        zoom: ROOF_MEASURE_EDIT_ZOOM_TARGET,
         maxZoom: 23,           // Allow max zoom (Google will cap based on available imagery)
         minZoom: 3,
         mapTypeId: 'satellite',
@@ -1110,6 +1121,11 @@ export default function RoofMeasurePage() {
     aiDraftLinesRef.current.clear()
   }
 
+  const clearHdGroundOverlay = () => {
+    hdGroundOverlayRef.current?.setMap(null)
+    hdGroundOverlayRef.current = null
+  }
+
   const resetMeasurementSession = () => {
     polygonsRef.current.forEach((polygon) => polygon.setMap(null))
     labelsRef.current.forEach((label) => label.setMap(null))
@@ -1118,6 +1134,9 @@ export default function RoofMeasurePage() {
     labelsRef.current.clear()
     polylinesRef.current.clear()
     clearAIDraftOverlays()
+    clearHdGroundOverlay()
+    setHdOverlayEnabled(false)
+    setHdOverlayError(null)
 
     commitFacets([])
     commitLinearFeatures([])
@@ -1133,9 +1152,28 @@ export default function RoofMeasurePage() {
     setSatelliteOutlineFetchSettled(false)
   }
 
+  const queryPropertyMaxZoom = (lat: number, lng: number) => {
+    if (!window.google?.maps?.MaxZoomService) return
+    const svc = new google.maps.MaxZoomService()
+    svc.getMaxZoomAtLatLng({ lat, lng }, (result: { status: string; zoom?: number }) => {
+      if (result.status === 'OK' && typeof result.zoom === 'number') {
+        propertyMaxZoomRef.current = result.zoom
+        if (googleMapRef.current) {
+          const current = googleMapRef.current.getZoom()
+          const target = resolveEditZoom(result.zoom)
+          if (typeof current === 'number' && current < target) {
+            googleMapRef.current.setZoom(target)
+          }
+        }
+      }
+    })
+  }
+
   const focusMapOnProperty = (map: any, lat: number, lng: number) => {
+    const targetZoom = resolveEditZoom(propertyMaxZoomRef.current)
     map.setCenter({ lat, lng })
-    map.setZoom(Math.max(21, Math.round(map.getZoom?.() ?? 21)))
+    map.setZoom(targetZoom)
+    queryPropertyMaxZoom(lat, lng)
 
     google.maps.event.addListenerOnce(map, 'idle', () => {
       const center = map.getCenter()
@@ -1145,11 +1183,91 @@ export default function RoofMeasurePage() {
         setMapCenter({ lat: center.lat(), lng: center.lng() })
       }
 
-      if (typeof zoom === 'number' && zoom < 21) {
+      const refreshedTarget = resolveEditZoom(propertyMaxZoomRef.current)
+      if (typeof zoom === 'number' && zoom < refreshedTarget) {
         map.setCenter({ lat, lng })
-        map.setZoom(21)
+        map.setZoom(refreshedTarget)
       }
     })
+  }
+
+  /** Zoom tight on a facet so vertex handles are easier to grab (Aurora-style fine-tune). */
+  const zoomMapToFacet = (facet: RoofFacet) => {
+    const map = googleMapRef.current
+    if (!map || !window.google?.maps || facet.points.length < 3) return
+
+    const bounds = new google.maps.LatLngBounds()
+    facet.points.forEach((p) => bounds.extend(p))
+    map.fitBounds(bounds, { top: 28, right: 28, bottom: 28, left: 28 })
+
+    google.maps.event.addListenerOnce(map, 'idle', () => {
+      const target = resolveEditZoom(propertyMaxZoomRef.current)
+      const currentZoom = map.getZoom()
+      if (typeof currentZoom === 'number' && currentZoom < target) {
+        map.setZoom(target)
+      }
+      const centroid = facet.points.reduce(
+        (acc, p) => ({
+          lat: acc.lat + p.lat / facet.points.length,
+          lng: acc.lng + p.lng / facet.points.length,
+        }),
+        { lat: 0, lng: 0 }
+      )
+      map.panTo(centroid)
+    })
+  }
+
+  const loadHdSatelliteOverlay = async (lat: number, lng: number) => {
+    if (!googleMapRef.current || !window.google?.maps) return false
+    setHdOverlayLoading(true)
+    setHdOverlayError(null)
+    try {
+      const response = await fetch(
+        `/api/ai/solar-rgb-overlay?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
+      )
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.error || 'HD overlay unavailable')
+      }
+      const payload = (await response.json()) as {
+        bounds: { north: number; south: number; east: number; west: number }
+        imageBase64: string
+      }
+      clearHdGroundOverlay()
+      const overlay = new google.maps.GroundOverlay(
+        `data:image/png;base64,${payload.imageBase64}`,
+        {
+          north: payload.bounds.north,
+          south: payload.bounds.south,
+          east: payload.bounds.east,
+          west: payload.bounds.west,
+        },
+        { map: googleMapRef.current, opacity: 1 }
+      )
+      hdGroundOverlayRef.current = overlay
+      return true
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'HD overlay failed'
+      setHdOverlayError(message)
+      clearHdGroundOverlay()
+      return false
+    } finally {
+      setHdOverlayLoading(false)
+    }
+  }
+
+  const toggleHdSatelliteOverlay = async () => {
+    if (hdOverlayEnabled) {
+      clearHdGroundOverlay()
+      setHdOverlayEnabled(false)
+      setHdOverlayError(null)
+      return
+    }
+    const center = googleMapRef.current?.getCenter?.()
+    const lat = center?.lat?.() ?? mapCenter.lat
+    const lng = center?.lng?.() ?? mapCenter.lng
+    const ok = await loadHdSatelliteOverlay(lat, lng)
+    if (ok) setHdOverlayEnabled(true)
   }
 
   const pointsFromPolygon = (polygon: any): Point[] => {
@@ -3982,6 +4100,18 @@ export default function RoofMeasurePage() {
                 </p>
               )}
               {renderFacetDrainSidebar(selectedFacetData)}
+              <div className="mt-3 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => zoomMapToFacet(selectedFacetData)}
+                  className="w-full rounded-lg border border-sky-500/50 bg-sky-900/30 px-3 py-2 text-xs font-medium text-sky-100 hover:bg-sky-900/45"
+                >
+                  Fine-tune zoom
+                </button>
+                <p className="text-[10px] text-gray-500 leading-snug">
+                  Zooms in on this section so you can drag corner points without overlap. Use HD satellite for sharper imagery.
+                </p>
+              </div>
               {selectedFacetData.geometry_reviewed !== true && (
                 <button
                   type="button"
@@ -4003,6 +4133,24 @@ export default function RoofMeasurePage() {
 
           {/* Quick Actions */}
           <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => void toggleHdSatelliteOverlay()}
+              disabled={hdOverlayLoading}
+              className={`p-3 rounded-lg shadow-lg text-xs font-medium min-w-[3rem] ${
+                hdOverlayEnabled
+                  ? 'bg-emerald-700 text-white hover:bg-emerald-600'
+                  : 'bg-gray-800 text-white hover:bg-gray-700'
+              } disabled:opacity-50`}
+              title="Toggle Google Solar HD satellite (0.1 m/px) for fine-tuning edges"
+            >
+              {hdOverlayLoading ? '…' : 'HD'}
+            </button>
+            {hdOverlayError && !hdOverlayEnabled && (
+              <p className="max-w-[8rem] text-[10px] text-amber-200 bg-black/70 rounded px-2 py-1">
+                {hdOverlayError}
+              </p>
+            )}
             <button
               onClick={() => googleMapRef.current?.setMapTypeId('satellite')}
               className="p-3 bg-gray-800 text-white rounded-lg shadow-lg hover:bg-gray-700"
