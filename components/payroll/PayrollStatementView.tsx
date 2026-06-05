@@ -54,6 +54,8 @@ export default function PayrollStatementView({
   }
 
   const { period, rep, deals, hourly, periodUnits, totals, chargebacks } = statement
+  const hasNonCommissionEarnings =
+    (periodUnits?.total ?? 0) > 0 || (hourly?.total ?? 0) > 0
 
   return (
     <div className="space-y-6">
@@ -100,12 +102,76 @@ export default function PayrollStatementView({
         </div>
       </section>
 
+      {periodUnits && periodUnits.total > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Sit &amp; sale pay</h2>
+          <div className="rounded-lg border bg-gray-50/50 p-4 text-sm space-y-4">
+            {periodUnits.components.map((row) => (
+              <Row
+                key={row.unitType}
+                label={row.label}
+                value={`${row.count} × ${formatPayrollMoney(row.rate)} = ${formatPayrollMoney(row.amount)}`}
+              />
+            ))}
+            <Row label="Sit / sale subtotal" value={formatPayrollMoney(periodUnits.total)} bold />
+
+            {periodUnits.lines.length > 0 && (
+              <div className="overflow-x-auto border rounded-lg bg-white">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-left text-gray-600">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Customer</th>
+                      <th className="px-3 py-2 font-medium">Pay type</th>
+                      <th className="px-3 py-2 font-medium">Date</th>
+                      <th className="px-3 py-2 font-medium text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {periodUnits.lines.map((line) => (
+                      <tr key={`${line.unitType}-${line.opportunityId}-${line.contractId ?? 'sit'}`}>
+                        <td className="px-3 py-2 font-medium text-gray-900">{line.customerName}</td>
+                        <td className="px-3 py-2 text-gray-600">{line.payTypeLabel}</td>
+                        <td className="px-3 py-2 tabular-nums text-gray-600">{line.eventDate || '—'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {formatPayrollMoney(line.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {hourly && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Hourly earnings</h2>
+          <div className="rounded-lg border bg-gray-50/50 p-4 text-sm space-y-2">
+            <Row
+              label="Regular"
+              value={`${hourly.regularHours} hrs × ${formatPayrollMoney(hourly.hourlyRate)} = ${formatPayrollMoney(hourly.regularEarnings)}`}
+            />
+            <Row
+              label="Overtime"
+              value={`${hourly.overtimeHours} hrs × ${formatPayrollMoney(hourly.hourlyRate * 1.5)} = ${formatPayrollMoney(hourly.overtimeEarnings)}`}
+            />
+            <Row label="Hourly subtotal" value={formatPayrollMoney(hourly.total)} bold />
+            {hourly.notes && (
+              <p className="text-gray-600 pt-2 border-t">Notes: {hourly.notes}</p>
+            )}
+          </div>
+        </section>
+      )}
+
       <section>
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Deals</h2>
         {deals.length === 0 ? (
           <p className="text-sm text-gray-500 rounded-lg border border-dashed p-6 text-center">
-            No payout lines for this period yet. Lock the period after jobs are ready, or confirm
-            payout lines were generated.
+            {hasNonCommissionEarnings
+              ? 'No job commission payouts this period. Customer-level sit/sale and hourly earnings are shown above.'
+              : 'No payout lines for this period yet. Lock the period after jobs are ready, or confirm payout lines were generated.'}
           </p>
         ) : (
           <div className="overflow-x-auto border rounded-lg">
@@ -193,42 +259,6 @@ export default function PayrollStatementView({
           </div>
         )}
       </section>
-
-      {periodUnits && periodUnits.total > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Sit &amp; sale pay</h2>
-          <div className="rounded-lg border bg-gray-50/50 p-4 text-sm space-y-2">
-            {periodUnits.components.map((row) => (
-              <Row
-                key={row.unitType}
-                label={row.label}
-                value={`${row.count} × ${formatPayrollMoney(row.rate)} = ${formatPayrollMoney(row.amount)}`}
-              />
-            ))}
-            <Row label="Sit / sale subtotal" value={formatPayrollMoney(periodUnits.total)} bold />
-          </div>
-        </section>
-      )}
-
-      {hourly && (
-        <section>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Hourly earnings</h2>
-          <div className="rounded-lg border bg-gray-50/50 p-4 text-sm space-y-2">
-            <Row
-              label="Regular"
-              value={`${hourly.regularHours} hrs × ${formatPayrollMoney(hourly.hourlyRate)} = ${formatPayrollMoney(hourly.regularEarnings)}`}
-            />
-            <Row
-              label="Overtime"
-              value={`${hourly.overtimeHours} hrs × ${formatPayrollMoney(hourly.hourlyRate * 1.5)} = ${formatPayrollMoney(hourly.overtimeEarnings)}`}
-            />
-            <Row label="Hourly subtotal" value={formatPayrollMoney(hourly.total)} bold />
-            {hourly.notes && (
-              <p className="text-gray-600 pt-2 border-t">Notes: {hourly.notes}</p>
-            )}
-          </div>
-        </section>
-      )}
 
       {chargebacks.length > 0 && (
         <section>

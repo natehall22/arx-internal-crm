@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
 import {
   isPeriodScopedCompUnitType,
   type KnownCompPlanUnitType,
 } from '@/lib/comp-plan-unit-types'
+import { resolveCustomerDisplayName } from '@/lib/customers'
+import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
 import { getSitOutcomeNormalizedIdSet, type InspectionOutcomeConfigRow } from '@/lib/inspection-outcomes'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { roundMoney } from '@/lib/money'
@@ -30,11 +31,67 @@ export type PeriodUnitComponentBreakdown = {
   amount: number
 }
 
+export type PeriodUnitPayLine = {
+  unitType: 'sit' | 'sale'
+  payTypeLabel: string
+  amount: number
+  rate: number
+  customerName: string
+  eventDate: string | null
+  opportunityId: string | null
+  leadId: string | null
+  contractId: string | null
+}
+
 export type PeriodUnitEarningsResult = {
   components: PeriodUnitComponentBreakdown[]
+  lines: PeriodUnitPayLine[]
   total: number
   sitCount: number
   saleCount: number
+}
+
+export function resolveOpportunityCustomerName(input: {
+  leadHomeownerName?: string | null
+  customerName?: string | null
+  addressText?: string | null
+  opportunityId?: string | null
+}): string {
+  return resolveCustomerDisplayName({
+    name: input.leadHomeownerName || input.customerName,
+    address_text: input.addressText,
+    fallbackIdHint: input.opportunityId?.slice(0, 8) ?? null,
+  })
+}
+
+export function resolveSaleCustomerName(input: {
+  contractCustomerName?: string | null
+  leadHomeownerName?: string | null
+  customerName?: string | null
+  addressText?: string | null
+  opportunityId?: string | null
+}): string {
+  const contractName = (input.contractCustomerName || '').trim()
+  if (contractName) return contractName
+  return resolveOpportunityCustomerName({
+    leadHomeownerName: input.leadHomeownerName,
+    customerName: input.customerName,
+    addressText: input.addressText,
+    opportunityId: input.opportunityId,
+  })
+}
+
+function formatEventDate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  return String(iso).slice(0, 10)
+}
+
+function sortPeriodUnitPayLines(lines: PeriodUnitPayLine[]): PeriodUnitPayLine[] {
+  return [...lines].sort((a, b) => {
+    const dateCmp = (b.eventDate || '').localeCompare(a.eventDate || '')
+    if (dateCmp !== 0) return dateCmp
+    return a.customerName.localeCompare(b.customerName)
+  })
 }
 
 export function extractPeriodUnitComponents(
@@ -97,7 +154,7 @@ export async function resolvePayrollPeriodWindow(
   }
 }
 
-export async function countPeriodUnitsForUser(
+export async function fetchPeriodUnitPayLinesForUser(
   supabase: SupabaseClient,
   opts: {
     orgId: string
@@ -105,14 +162,16 @@ export async function countPeriodUnitsForUser(
     startIso: string
     endIso: string
     unitTypes: KnownCompPlanUnitType[]
+    sitRate: number
+    saleRate: number
   }
-): Promise<{ sitCount: number; saleCount: number }> {
-  const { orgId, userId, startIso, endIso, unitTypes } = opts
+): Promise<{ sitLines: PeriodUnitPayLine[]; saleLines: PeriodUnitPayLine[] }> {
+  const { orgId, userId, startIso, endIso, unitTypes, sitRate, saleRate } = opts
   const needsSit = unitTypes.includes('sit')
   const needsSale = unitTypes.includes('sale')
 
-  let sitCount = 0
-  let saleCount = 0
+  const sitLines: PeriodUnitPayLine[] = []
+  const saleLines: PeriodUnitPayLine[] = []
 
   if (needsSit) {
     const { data: orgRow } = await supabase.from('orgs').select('settings').eq('id', orgId).maybeSingle()
@@ -127,14 +186,87 @@ export async function countPeriodUnitsForUser(
         endIso,
         sitOutcomeIdSet,
       })
-      sitCount = sitOpps.filter((o) => o.setter_user_id === userId).length
+      const userSitOpps = sitOpps.filter((o) => o.setter_user_id === userId)
+      const oppIds = userSitOpps.map((o) => o.id)
+
+      const oppDetailsById = new Map<
+        string,
+        {
+          leadHomeownerName: string | null
+          customerName: string | null
+          addressText: string | null
+        }
+      >()
+
+      if (oppIds.length > 0) {
+        const { data: oppRows, error: oppErr } = await supabase
+          .from('opportunities')
+          .select(
+            'id, lead_id, address_text, leads(homeowner_name), customers(name)'
+          )
+          .eq('org_id', orgId)
+          .in('id', oppIds)
+
+        if (oppErr) throw oppErr
+
+        for (const row of oppRows || []) {
+          const rawLead = row.leads as unknown
+          const lead = (Array.isArray(rawLead) ? rawLead[0] : rawLead) as
+            | { homeowner_name?: string | null }
+            | null
+            | undefined
+          const rawCustomer = row.customers as unknown
+          const customer = (Array.isArray(rawCustomer) ? rawCustomer[0] : rawCustomer) as
+            | { name?: string | null }
+            | null
+            | undefined
+          oppDetailsById.set(row.id as string, {
+            leadHomeownerName: lead?.homeowner_name ?? null,
+            customerName: customer?.name ?? null,
+            addressText: (row.address_text as string) ?? null,
+          })
+        }
+      }
+
+      for (const opp of userSitOpps) {
+        const details = oppDetailsById.get(opp.id)
+        sitLines.push({
+          unitType: 'sit',
+          payTypeLabel: 'Sit pay',
+          amount: sitRate,
+          rate: sitRate,
+          customerName: resolveOpportunityCustomerName({
+            leadHomeownerName: details?.leadHomeownerName,
+            customerName: details?.customerName,
+            addressText: details?.addressText,
+            opportunityId: opp.id,
+          }),
+          eventDate: formatEventDate(opp.inspection_outcome_at),
+          opportunityId: opp.id,
+          leadId: opp.lead_id,
+          contractId: null,
+        })
+      }
     }
   }
 
   if (needsSale) {
     const { data: contracts, error } = await supabase
       .from('order_form_contracts')
-      .select('id, opportunity_id, customer_signed_at, opportunities!inner(setter_user_id, org_id)')
+      .select(
+        `id,
+         opportunity_id,
+         customer_name,
+         customer_signed_at,
+         opportunities!inner(
+           setter_user_id,
+           org_id,
+           lead_id,
+           address_text,
+           leads(homeowner_name),
+           customers(name)
+         )`
+      )
       .eq('org_id', orgId)
       .in('agreement_type', SALE_AGREEMENT_TYPES)
       .eq('status', 'completed')
@@ -148,7 +280,13 @@ export async function countPeriodUnitsForUser(
     for (const row of contracts || []) {
       const rawOpp = row.opportunities as unknown
       const opp = (Array.isArray(rawOpp) ? rawOpp[0] : rawOpp) as
-        | { setter_user_id: string | null }
+        | {
+            setter_user_id: string | null
+            lead_id?: string | null
+            address_text?: string | null
+            leads?: { homeowner_name?: string | null } | { homeowner_name?: string | null }[] | null
+            customers?: { name?: string | null } | { name?: string | null }[] | null
+          }
         | null
         | undefined
       const setterId = opp?.setter_user_id
@@ -156,17 +294,65 @@ export async function countPeriodUnitsForUser(
       const dedupeKey = `${row.opportunity_id as string}|${row.id as string}`
       if (seen.has(dedupeKey)) continue
       seen.add(dedupeKey)
-      saleCount += 1
+
+      const rawLead = opp?.leads as unknown
+      const lead = (Array.isArray(rawLead) ? rawLead[0] : rawLead) as
+        | { homeowner_name?: string | null }
+        | null
+        | undefined
+      const rawCustomer = opp?.customers as unknown
+      const customer = (Array.isArray(rawCustomer) ? rawCustomer[0] : rawCustomer) as
+        | { name?: string | null }
+        | null
+        | undefined
+
+      saleLines.push({
+        unitType: 'sale',
+        payTypeLabel: 'Sale pay',
+        amount: saleRate,
+        rate: saleRate,
+        customerName: resolveSaleCustomerName({
+          contractCustomerName: row.customer_name as string | null,
+          leadHomeownerName: lead?.homeowner_name ?? null,
+          customerName: customer?.name ?? null,
+          addressText: opp?.address_text ?? null,
+          opportunityId: row.opportunity_id as string,
+        }),
+        eventDate: formatEventDate(row.customer_signed_at as string),
+        opportunityId: row.opportunity_id as string,
+        leadId: opp?.lead_id ?? null,
+        contractId: row.id as string,
+      })
     }
   }
 
-  return { sitCount, saleCount }
+  return { sitLines, saleLines }
+}
+
+/** @deprecated Use fetchPeriodUnitPayLinesForUser — kept for count-only callers if any. */
+export async function countPeriodUnitsForUser(
+  supabase: SupabaseClient,
+  opts: {
+    orgId: string
+    userId: string
+    startIso: string
+    endIso: string
+    unitTypes: KnownCompPlanUnitType[]
+  }
+): Promise<{ sitCount: number; saleCount: number }> {
+  const { sitLines, saleLines } = await fetchPeriodUnitPayLinesForUser(supabase, {
+    ...opts,
+    sitRate: 0,
+    saleRate: 0,
+  })
+  return { sitCount: sitLines.length, saleCount: saleLines.length }
 }
 
 export function computePeriodUnitEarningsFromCounts(input: {
   components: Array<{ unitType: string; rate: number }>
   sitCount: number
   saleCount: number
+  lines?: PeriodUnitPayLine[]
 }): PeriodUnitEarningsResult {
   const breakdown: PeriodUnitComponentBreakdown[] = []
 
@@ -191,6 +377,7 @@ export function computePeriodUnitEarningsFromCounts(input: {
 
   return {
     components: breakdown,
+    lines: input.lines ?? [],
     total,
     sitCount: input.sitCount,
     saleCount: input.saleCount,
@@ -211,17 +398,23 @@ export async function computePeriodUnitEarningsForUser(
   if (components.length === 0) return null
 
   const unitTypes = Array.from(new Set(components.map((c) => c.unitType))) as KnownCompPlanUnitType[]
-  const counts = await countPeriodUnitsForUser(supabase, {
+  const sitRate = components.find((c) => c.unitType === 'sit')?.rate ?? 0
+  const saleRate = components.find((c) => c.unitType === 'sale')?.rate ?? 0
+  const { sitLines, saleLines } = await fetchPeriodUnitPayLinesForUser(supabase, {
     orgId: opts.orgId,
     userId: opts.userId,
     startIso: opts.startIso,
     endIso: opts.endIso,
     unitTypes,
+    sitRate,
+    saleRate,
   })
+  const lines = sortPeriodUnitPayLines([...sitLines, ...saleLines])
 
   return computePeriodUnitEarningsFromCounts({
     components,
-    sitCount: counts.sitCount,
-    saleCount: counts.saleCount,
+    sitCount: sitLines.length,
+    saleCount: saleLines.length,
+    lines,
   })
 }
