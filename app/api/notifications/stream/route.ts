@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
                     homeowner_name,
                     address_text
                   ),
-                  setter:users!scheduled_appointments_setter_user_id_fkey (
+                  setter:users!scheduled_appointments_canvasser_user_id_fkey (
                     full_name
                   )
                 )

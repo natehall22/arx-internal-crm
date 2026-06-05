@@ -1037,7 +1037,8 @@ export default function RoofMeasurePage() {
       initializeAutocomplete()
     } catch (error) {
       console.error('Error initializing map:', error)
-      setMapError('Failed to initialize the map. Please check the console for details.')
+      const msg = error instanceof Error ? error.message : String(error)
+      setMapError(`Failed to initialize the map: ${msg}`)
     }
   }
 
