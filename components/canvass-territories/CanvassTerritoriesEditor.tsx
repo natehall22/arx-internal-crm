@@ -68,7 +68,7 @@ function loadMaps(): Promise<void> {
   if (!key) return Promise.reject(new Error('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set'))
   return new Promise((resolve, reject) => {
     const s = document.createElement('script')
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=drawing,geometry`
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=drawing,geometry&v=3.64`
     s.async = true
     s.onload = () => resolve()
     s.onerror = () => reject(new Error('Failed to load Google Maps'))
