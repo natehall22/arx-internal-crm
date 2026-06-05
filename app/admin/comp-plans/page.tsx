@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { formatVolumeBonusTierRange, normalizeVolumeBonusTierMetric } from '@/lib/volume-bonus-display'
+import {
+  COMP_PLAN_UNIT_RATE_LABELS,
+  isKnownCompPlanUnitType,
+} from '@/lib/comp-plan-unit-types'
 
 interface VolumeTier {
   min_volume: number
@@ -81,15 +85,6 @@ function volumeTierFieldLabels(m: VolumeTier['tier_metric']) {
     return { min: 'Min close rate (%)', max: 'Max close rate (%)' }
   if (t === 'sits') return { min: 'Min sits', max: 'Max sits' }
   return { min: 'Min volume ($)', max: 'Max volume ($)' }
-}
-
-const unitTypeLabels: Record<string, string> = {
-  square: 'per Square',
-  kw: 'per kW',
-  linear_foot: 'per Linear Foot',
-  panel: 'per Panel',
-  window: 'per Window',
-  custom: 'Custom Unit',
 }
 
 export default function CompPlansPage() {
@@ -327,7 +322,7 @@ export default function CompPlansPage() {
 
   const openEditPlan = (plan: CompPlan) => {
     setEditingPlan(plan)
-    const isCustomUnit = plan.unit_type && !['square', 'kw', 'linear_foot', 'panel', 'window'].includes(plan.unit_type)
+    const isCustomUnit = plan.unit_type && !isKnownCompPlanUnitType(plan.unit_type)
     setPlanForm({
       name: plan.name,
       description: plan.description || '',
@@ -839,12 +834,14 @@ export default function CompPlansPage() {
                           onChange={(e) => setPlanForm(prev => ({ ...prev, unit_type: e.target.value }))}
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                         >
-                          <option value="square">Per Square (roofing)</option>
-                          <option value="kw">Per kW (solar)</option>
-                          <option value="linear_foot">Per Linear Foot</option>
-                          <option value="panel">Per Panel</option>
-                          <option value="window">Per Window</option>
-                          <option value="custom">Custom Unit</option>
+                          <option value="square">{COMP_PLAN_UNIT_RATE_LABELS.square} (roofing)</option>
+                          <option value="kw">{COMP_PLAN_UNIT_RATE_LABELS.kw} (solar)</option>
+                          <option value="linear_foot">{COMP_PLAN_UNIT_RATE_LABELS.linear_foot}</option>
+                          <option value="panel">{COMP_PLAN_UNIT_RATE_LABELS.panel}</option>
+                          <option value="window">{COMP_PLAN_UNIT_RATE_LABELS.window}</option>
+                          <option value="sit">{COMP_PLAN_UNIT_RATE_LABELS.sit}</option>
+                          <option value="sale">{COMP_PLAN_UNIT_RATE_LABELS.sale}</option>
+                          <option value="custom">{COMP_PLAN_UNIT_RATE_LABELS.custom}</option>
                         </select>
                       </div>
                       <div>
@@ -940,6 +937,8 @@ export default function CompPlansPage() {
                                   <option value="kw">kW</option>
                                   <option value="linear_foot">Linear Ft</option>
                                   <option value="panel">Panel</option>
+                                  <option value="sit">Sit</option>
+                                  <option value="sale">Sale</option>
                                 </select>
                               ) : (
                                 <input
@@ -1062,6 +1061,7 @@ export default function CompPlansPage() {
                     {[
                       { role: 'sales_rep', label: 'Sales Rep' },
                       { role: 'canvasser', label: 'Canvasser' },
+                      { role: 'call_center', label: 'Call Center' },
                       { role: 'sales_manager', label: 'Sales Manager' },
                       { role: 'setter_manager', label: 'Setter Manager' },
                       { role: 'regional_manager', label: 'Regional Manager' },

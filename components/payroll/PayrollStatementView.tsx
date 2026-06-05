@@ -53,7 +53,7 @@ export default function PayrollStatementView({
     )
   }
 
-  const { period, rep, deals, hourly, totals, chargebacks } = statement
+  const { period, rep, deals, hourly, periodUnits, totals, chargebacks } = statement
 
   return (
     <div className="space-y-6">
@@ -86,6 +86,12 @@ export default function PayrollStatementView({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <BreakdownChip label="Commission" value={formatPayrollMoney(totals.grossCommission)} />
           <BreakdownChip label="Hourly" value={formatPayrollMoney(totals.hourlyEarnings)} />
+          {totals.periodUnitEarnings > 0 && (
+            <BreakdownChip
+              label="Sit / sale pay"
+              value={formatPayrollMoney(totals.periodUnitEarnings)}
+            />
+          )}
           <BreakdownChip
             label="Chargebacks"
             value={`−${formatPayrollMoney(totals.chargebacksApplied)}`}
@@ -188,6 +194,22 @@ export default function PayrollStatementView({
         )}
       </section>
 
+      {periodUnits && periodUnits.total > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Sit &amp; sale pay</h2>
+          <div className="rounded-lg border bg-gray-50/50 p-4 text-sm space-y-2">
+            {periodUnits.components.map((row) => (
+              <Row
+                key={row.unitType}
+                label={row.label}
+                value={`${row.count} × ${formatPayrollMoney(row.rate)} = ${formatPayrollMoney(row.amount)}`}
+              />
+            ))}
+            <Row label="Sit / sale subtotal" value={formatPayrollMoney(periodUnits.total)} bold />
+          </div>
+        </section>
+      )}
+
       {hourly && (
         <section>
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Hourly earnings</h2>
@@ -224,9 +246,12 @@ export default function PayrollStatementView({
         </section>
       )}
 
-      <footer className="border-t pt-4 grid gap-2 sm:grid-cols-3 text-sm">
+      <footer className="border-t pt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
         <Row label="Gross commission" value={formatPayrollMoney(totals.grossCommission)} />
         <Row label="Hourly" value={formatPayrollMoney(totals.hourlyEarnings)} />
+        {totals.periodUnitEarnings > 0 && (
+          <Row label="Sit / sale pay" value={formatPayrollMoney(totals.periodUnitEarnings)} />
+        )}
         <Row
           label="Net payout"
           value={formatPayrollMoney(totals.netPayout)}

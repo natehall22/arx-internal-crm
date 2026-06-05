@@ -16,6 +16,11 @@ import {
   formatVolumeBonusTierRange,
   volumeBonusTierInRange,
 } from '@/lib/volume-bonus-display'
+import {
+  formatCompPlanUnitShortLabel,
+  getCompPlanUnitCalculatorLabel,
+  getCompPlanUnitHint,
+} from '@/lib/comp-plan-unit-types'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -2059,12 +2064,11 @@ export default function DashboardClient({
                         <p className="text-xl sm:text-2xl font-bold text-green-600">
                           ${compPlanDetails.unit_rate?.toLocaleString() || 0} per {compPlanDetails.unit_type || 'unit'}
                         </p>
-                        <p className="text-xs sm:text-sm text-gray-500 mt-1">
-                          {compPlanDetails.unit_type === 'square' && 'Roofing squares (100 sq ft each)'}
-                          {compPlanDetails.unit_type === 'kw' && 'Kilowatts of solar installed'}
-                          {compPlanDetails.unit_type === 'linear_foot' && 'Linear feet of material'}
-                          {compPlanDetails.unit_type === 'panel' && 'Panels installed'}
-                        </p>
+                        {getCompPlanUnitHint(compPlanDetails.unit_type) && (
+                          <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                            {getCompPlanUnitHint(compPlanDetails.unit_type)}
+                          </p>
+                        )}
                       </div>
                     ) : compPlanDetails.plan_type === 'hybrid' && compPlanDetails.hybrid_components ? (
                       <div className="space-y-2">
@@ -2074,7 +2078,7 @@ export default function DashboardClient({
                               {comp.type === 'hourly' ? 'Hourly Rate' :
                                comp.type === 'percentage' ? 'Commission' :
                                comp.type === 'flat_per_job' ? 'Per Job' :
-                               `Per ${comp.unit_type || 'Unit'}`}
+                               `Per ${formatCompPlanUnitShortLabel(comp.unit_type)}`}
                               {comp.description && <span className="text-gray-500 text-xs ml-1">({comp.description})</span>}
                             </span>
                             <span className="font-semibold text-green-600">
@@ -2275,11 +2279,7 @@ export default function DashboardClient({
                 {compPlanDetails.plan_type === 'unit_based' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {compPlanDetails.unit_type === 'square' ? 'Squares per Month' :
-                       compPlanDetails.unit_type === 'kw' ? 'kW Installed per Month' :
-                       compPlanDetails.unit_type === 'panel' ? 'Panels per Month' :
-                       compPlanDetails.unit_type === 'linear_foot' ? 'Linear Feet per Month' :
-                       `${compPlanDetails.unit_type || 'Units'} per Month`}
+                      {getCompPlanUnitCalculatorLabel(compPlanDetails.unit_type)}
                     </label>
                     <input
                       type="number"
@@ -2467,7 +2467,7 @@ export default function DashboardClient({
                   } else if (compPlanDetails.plan_type === 'unit_based') {
                     monthlyEarnings = calcUnits * (compPlanDetails.unit_rate || 0)
                     displayRows = [
-                      { label: `${compPlanDetails.unit_type || 'Units'}/Month`, value: `${calcUnits}` },
+                      { label: `${formatCompPlanUnitShortLabel(compPlanDetails.unit_type)}/Month`, value: `${calcUnits}` },
                       { label: 'Rate per Unit', value: `$${compPlanDetails.unit_rate?.toLocaleString() || 0}` },
                     ]
                   } else if (compPlanDetails.plan_type === 'flat_rate') {

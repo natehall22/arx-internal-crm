@@ -11,6 +11,10 @@ import {
   formatVolumeBonusTierRange,
   volumeBonusTierInRange,
 } from '@/lib/volume-bonus-display'
+import {
+  formatCompPlanUnitShortLabel,
+  getCompPlanUnitHint,
+} from '@/lib/comp-plan-unit-types'
 
 interface Commission {
   id: string
@@ -550,12 +554,11 @@ export default function CommissionWidget() {
                         <p className="text-2xl font-bold text-green-600">
                           ${compPlanDetails.unit_rate?.toLocaleString() || 0} per {compPlanDetails.unit_type || 'unit'}
                         </p>
-                        <p className="text-sm text-gray-500 mt-1">
-                          {compPlanDetails.unit_type === 'square' && 'Roofing squares (100 sq ft each)'}
-                          {compPlanDetails.unit_type === 'kw' && 'Kilowatts of solar installed'}
-                          {compPlanDetails.unit_type === 'linear_foot' && 'Linear feet of material'}
-                          {compPlanDetails.unit_type === 'panel' && 'Panels installed'}
-                        </p>
+                        {getCompPlanUnitHint(compPlanDetails.unit_type) && (
+                          <p className="text-sm text-gray-500 mt-1">
+                            {getCompPlanUnitHint(compPlanDetails.unit_type)}
+                          </p>
+                        )}
                       </div>
                     ) : compPlanDetails.plan_type === 'hybrid' && compPlanDetails.hybrid_components ? (
                       <div className="space-y-2">
@@ -565,7 +568,7 @@ export default function CommissionWidget() {
                               {comp.type === 'hourly' ? 'Hourly Rate' :
                                comp.type === 'percentage' ? 'Commission' :
                                comp.type === 'flat_per_job' ? 'Per Job' :
-                               `Per ${comp.unit_type || 'Unit'}`}
+                               `Per ${formatCompPlanUnitShortLabel(comp.unit_type)}`}
                               {comp.description && <span className="text-gray-500 text-sm ml-1">({comp.description})</span>}
                             </span>
                             <span className="font-semibold text-green-600">

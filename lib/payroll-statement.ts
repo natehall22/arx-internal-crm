@@ -1,5 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  computePeriodUnitEarningsForUser,
+  resolvePayrollPeriodWindow,
+  type CompPlanForPeriodUnitPay,
+  type PeriodUnitEarningsResult,
+} from '@/lib/comp-plan-period-unit-earnings'
 import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
+import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
 
 export type PayrollStatementDealRow = {
   jobId: string
@@ -43,9 +50,11 @@ export type PayrollStatementPayload = {
     total: number
     notes: string | null
   } | null
+  periodUnits: PeriodUnitEarningsResult | null
   totals: {
     grossCommission: number
     hourlyEarnings: number
+    periodUnitEarnings: number
     chargebacksApplied: number
     netPayout: number
     hasDeficit: boolean
@@ -207,10 +216,39 @@ export async function buildPayrollStatement(
     }
   }
 
+  const saleDate = period.cutoff_at
+    ? String(period.cutoff_at).slice(0, 10)
+    : new Date().toISOString().slice(0, 10)
+  const assignment = await loadActiveCompPlanForUser(supabase, userId, orgId, saleDate)
+  const compPlan = assignment?.comp_plans as Record<string, unknown> | null
+
+  let periodUnits: PeriodUnitEarningsResult | null = null
+  if (compPlan && period.cutoff_at) {
+    const { startIso, endIso } = await resolvePayrollPeriodWindow(
+      supabase,
+      orgId,
+      periodId,
+      String(period.cutoff_at)
+    )
+    periodUnits = await computePeriodUnitEarningsForUser(supabase, {
+      orgId,
+      userId,
+      plan: {
+        plan_type: String(compPlan.plan_type || ''),
+        unit_type: (compPlan.unit_type as string | null) ?? null,
+        unit_rate: compPlan.unit_rate != null ? Number(compPlan.unit_rate) : null,
+        hybrid_components: (compPlan.hybrid_components as CompPlanForPeriodUnitPay['hybrid_components']) ?? null,
+      },
+      startIso,
+      endIso,
+    })
+  }
+
   const grossCommission = deals.reduce((s, d) => s + d.dealTotal, 0)
   const hourlyEarnings = hourly?.total ?? 0
+  const periodUnitEarnings = periodUnits?.total ?? 0
   const chargebacksApplied = chargebacks.reduce((s, c) => s + c.appliedAmount, 0)
-  const netPayout = grossCommission + hourlyEarnings - chargebacksApplied
+  const netPayout = grossCommission + hourlyEarnings + periodUnitEarnings - chargebacksApplied
 
   return {
     period: {
@@ -223,9 +261,11 @@ export async function buildPayrollStatement(
     rep: { id: userId, name: (rep?.full_name as string) || userId },
     deals,
     hourly,
+    periodUnits,
     totals: {
       grossCommission,
       hourlyEarnings,
+      periodUnitEarnings,
       chargebacksApplied,
       netPayout,
       hasDeficit: netPayout < 0,
