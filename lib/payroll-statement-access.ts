@@ -53,3 +53,21 @@ export async function canViewPayrollStatement(
   if (!canUseManagerStatementView(viewer.role)) return false
   return isUserInManagerHierarchy(supabase, viewer.org_id, viewer.id, targetUserId)
 }
+
+/**
+ * Resolve which user's statement may be loaded. Reps may only ever request themselves,
+ * even if they tamper with ?user_id= on the statement URL from email links.
+ */
+export function resolvePayrollStatementTargetUserId(
+  viewer: Pick<User, 'id' | 'role'>,
+  requestedUserId: string | null | undefined
+): { userId: string; viewingOtherUser: boolean } | { error: 'forbidden' } {
+  const trimmed = requestedUserId?.trim()
+  if (!trimmed || trimmed === viewer.id) {
+    return { userId: viewer.id, viewingOtherUser: false }
+  }
+  if (!isPayrollAdminRole(viewer.role) && !canUseManagerStatementView(viewer.role)) {
+    return { error: 'forbidden' }
+  }
+  return { userId: trimmed, viewingOtherUser: true }
+}
