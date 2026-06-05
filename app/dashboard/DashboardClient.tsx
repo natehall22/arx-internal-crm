@@ -21,6 +21,7 @@ import {
   getCompPlanUnitCalculatorLabel,
   getCompPlanUnitHint,
 } from '@/lib/comp-plan-unit-types'
+import { previewNumber } from '@/lib/numeric-input-draft'
 
 interface HybridComponent {
   type: 'hourly' | 'percentage' | 'flat_per_job' | 'per_unit'
@@ -534,19 +535,27 @@ export default function DashboardClient({
   /** First timeframe-driven fetch: avoid skeleton/spinner when SSR already matched default "week". */
   const initialTimeframeFetchRef = useRef(true)
   // Calculator inputs - dynamic based on plan type
-  const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
-  const [calcJobsClosed, setCalcJobsClosed] = useState(4)
-  const [calcHoursWorked, setCalcHoursWorked] = useState(40)
-  const [calcUnits, setCalcUnits] = useState(25)
-  const [calcTeamSales, setCalcTeamSales] = useState(20)
-  const [calcTeamAvgPrice, setCalcTeamAvgPrice] = useState(13500)
+  const [calcAvgSalePrice, setCalcAvgSalePrice] = useState('13500')
+  const [calcJobsClosed, setCalcJobsClosed] = useState('4')
+  const [calcHoursWorked, setCalcHoursWorked] = useState('40')
+  const [calcUnits, setCalcUnits] = useState('25')
+  const [calcTeamSales, setCalcTeamSales] = useState('20')
+  const [calcTeamAvgPrice, setCalcTeamAvgPrice] = useState('13500')
   /** Avg dealer fee % of financed total — 0 for cash / no fee; drives net commissionable volume in calculator. */
-  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState(0)
+  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState('0')
 
-  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePrice, avgDealerFeePercent)
-  const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosed
-  const teamCommissionablePerJob = netCommissionableFromFinancedTotal(calcTeamAvgPrice, avgDealerFeePercent)
-  const teamMonthlyCommissionableVolume = teamCommissionablePerJob * calcTeamSales
+  const calcAvgSalePriceNum = previewNumber(calcAvgSalePrice)
+  const calcJobsClosedNum = previewNumber(calcJobsClosed)
+  const calcHoursWorkedNum = previewNumber(calcHoursWorked)
+  const calcUnitsNum = previewNumber(calcUnits)
+  const calcTeamSalesNum = previewNumber(calcTeamSales)
+  const calcTeamAvgPriceNum = previewNumber(calcTeamAvgPrice)
+  const avgDealerFeePercentNum = previewNumber(avgDealerFeePercent)
+
+  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePriceNum, avgDealerFeePercentNum)
+  const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosedNum
+  const teamCommissionablePerJob = netCommissionableFromFinancedTotal(calcTeamAvgPriceNum, avgDealerFeePercentNum)
+  const teamMonthlyCommissionableVolume = teamCommissionablePerJob * calcTeamSalesNum
 
   const compCalculatorTierValues = useMemo(() => {
     const cr =
@@ -2258,15 +2267,15 @@ export default function DashboardClient({
                     <input
                       type="number"
                       value={calcHoursWorked}
-                      onChange={(e) => setCalcHoursWorked(Number(e.target.value))}
+                      onChange={(e) => setCalcHoursWorked(e.target.value)}
                       className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                     />
                     <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                       {[20, 30, 40, 50, 60].map(hrs => (
                         <button
                           key={hrs}
-                          onClick={() => setCalcHoursWorked(hrs)}
-                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcHoursWorked === hrs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                          onClick={() => setCalcHoursWorked(String(hrs))}
+                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcHoursWorkedNum === hrs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                         >
                           {hrs}hrs
                         </button>
@@ -2284,15 +2293,15 @@ export default function DashboardClient({
                     <input
                       type="number"
                       value={calcUnits}
-                      onChange={(e) => setCalcUnits(Number(e.target.value))}
+                      onChange={(e) => setCalcUnits(e.target.value)}
                       className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                     />
                     <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                       {[10, 20, 30, 50, 75, 100].map(u => (
                         <button
                           key={u}
-                          onClick={() => setCalcUnits(u)}
-                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcUnits === u ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                          onClick={() => setCalcUnits(String(u))}
+                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcUnitsNum === u ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                         >
                           {u}
                         </button>
@@ -2308,15 +2317,15 @@ export default function DashboardClient({
                     <input
                       type="number"
                       value={calcJobsClosed}
-                      onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
+                      onChange={(e) => setCalcJobsClosed(e.target.value)}
                       className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                     />
                     <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                       {[2, 4, 6, 8, 10, 12, 15, 20].map(jobs => (
                         <button
                           key={jobs}
-                          onClick={() => setCalcJobsClosed(jobs)}
-                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                          onClick={() => setCalcJobsClosed(String(jobs))}
+                          className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosedNum === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                         >
                           {jobs}
                         </button>
@@ -2341,15 +2350,15 @@ export default function DashboardClient({
                           <input
                             type="number"
                             value={calcAvgSalePrice}
-                            onChange={(e) => setCalcAvgSalePrice(Number(e.target.value))}
+                            onChange={(e) => setCalcAvgSalePrice(e.target.value)}
                             className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                           />
                           <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                             {[8000, 10000, 13500, 18000, 25000].map(price => (
                               <button
                                 key={price}
-                                onClick={() => setCalcAvgSalePrice(price)}
-                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcAvgSalePrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                onClick={() => setCalcAvgSalePrice(String(price))}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcAvgSalePriceNum === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                               >
                                 ${(price/1000).toFixed(0)}k
                               </button>
@@ -2365,8 +2374,8 @@ export default function DashboardClient({
                             min={0}
                             max={50}
                             step={0.25}
-                            value={avgDealerFeePercent || ''}
-                            onChange={(e) => setAvgDealerFeePercent(Number(e.target.value) || 0)}
+                            value={avgDealerFeePercent}
+                            onChange={(e) => setAvgDealerFeePercent(e.target.value)}
                             className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                           />
                           <p className="text-xs text-gray-500 mt-1">
@@ -2379,15 +2388,15 @@ export default function DashboardClient({
                           <input
                             type="number"
                             value={calcJobsClosed}
-                            onChange={(e) => setCalcJobsClosed(Number(e.target.value))}
+                            onChange={(e) => setCalcJobsClosed(e.target.value)}
                             className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                           />
                           <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                             {[2, 4, 6, 8, 10, 12, 15, 20].map(jobs => (
                               <button
                                 key={jobs}
-                                onClick={() => setCalcJobsClosed(jobs)}
-                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosed === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                onClick={() => setCalcJobsClosed(String(jobs))}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcJobsClosedNum === jobs ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                               >
                                 {jobs}
                               </button>
@@ -2406,15 +2415,15 @@ export default function DashboardClient({
                           <input
                             type="number"
                             value={calcTeamAvgPrice}
-                            onChange={(e) => setCalcTeamAvgPrice(Number(e.target.value))}
+                            onChange={(e) => setCalcTeamAvgPrice(e.target.value)}
                             className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                           />
                           <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                             {[8000, 10000, 13500, 18000, 25000].map(price => (
                               <button
                                 key={price}
-                                onClick={() => setCalcTeamAvgPrice(price)}
-                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamAvgPrice === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                onClick={() => setCalcTeamAvgPrice(String(price))}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamAvgPriceNum === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                               >
                                 ${(price/1000).toFixed(0)}k
                               </button>
@@ -2427,15 +2436,15 @@ export default function DashboardClient({
                           <input
                             type="number"
                             value={calcTeamSales}
-                            onChange={(e) => setCalcTeamSales(Number(e.target.value))}
+                            onChange={(e) => setCalcTeamSales(e.target.value)}
                             className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                           />
                           <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
                             {[10, 20, 30, 40, 50, 75, 100].map(sales => (
                               <button
                                 key={sales}
-                                onClick={() => setCalcTeamSales(sales)}
-                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamSales === sales ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                onClick={() => setCalcTeamSales(String(sales))}
+                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamSalesNum === sales ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                               >
                                 {sales}
                               </button>
@@ -2457,7 +2466,7 @@ export default function DashboardClient({
                   let displayRows: { label: string; value: string }[] = []
                   
                   if (compPlanDetails.plan_type === 'hourly') {
-                    const weeklyPay = calcHoursWorked * (compPlanDetails.hourly_rate || 0)
+                    const weeklyPay = calcHoursWorkedNum * (compPlanDetails.hourly_rate || 0)
                     monthlyEarnings = weeklyPay * 4.33 // Average weeks per month
                     displayRows = [
                       { label: 'Hours/Week', value: `${calcHoursWorked}` },
@@ -2465,13 +2474,13 @@ export default function DashboardClient({
                       { label: 'Weekly Pay', value: `$${weeklyPay.toLocaleString()}` },
                     ]
                   } else if (compPlanDetails.plan_type === 'unit_based') {
-                    monthlyEarnings = calcUnits * (compPlanDetails.unit_rate || 0)
+                    monthlyEarnings = calcUnitsNum * (compPlanDetails.unit_rate || 0)
                     displayRows = [
                       { label: `${formatCompPlanUnitShortLabel(compPlanDetails.unit_type)}/Month`, value: `${calcUnits}` },
                       { label: 'Rate per Unit', value: `$${compPlanDetails.unit_rate?.toLocaleString() || 0}` },
                     ]
                   } else if (compPlanDetails.plan_type === 'flat_rate') {
-                    monthlyEarnings = calcJobsClosed * (compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0)
+                    monthlyEarnings = calcJobsClosedNum * (compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0)
                     displayRows = [
                       { label: 'Jobs/Month', value: `${calcJobsClosed}` },
                       { label: 'Rate per Job', value: `$${(compPlanDetails.flat_rate || compPlanDetails.flat_amount || 0).toLocaleString()}` },
@@ -2496,13 +2505,13 @@ export default function DashboardClient({
                       if (flatPerSale > 0) appliedBonuses.push(`+$${flatPerSale}/sale`)
 
                       personalEarnings =
-                        monthlyVolume * (baseRate / 100) + flatPerSale * calcJobsClosed
+                        monthlyVolume * (baseRate / 100) + flatPerSale * calcJobsClosedNum
                       
                       if (compPlanDetails.is_manager_plan) {
                         displayRows.push({ label: '— Your Sales —', value: '' })
                       }
                       displayRows.push({ label: 'Your Sales/Month', value: `${calcJobsClosed}` })
-                      displayRows.push({ label: 'Avg financed / job', value: `$${calcAvgSalePrice.toLocaleString()}` })
+                      displayRows.push({ label: 'Avg financed / job', value: `$${calcAvgSalePriceNum.toLocaleString()}` })
                       displayRows.push({ label: 'Net commissionable volume', value: `$${monthlyVolume.toLocaleString()}` })
                       displayRows.push({ label: 'Commission Rate', value: `${baseRate}%${appliedBonuses.length > 0 ? ` (${appliedBonuses.join(' ')})` : ''}` })
                       displayRows.push({ label: 'Personal Earnings', value: `$${Math.round(personalEarnings).toLocaleString()}` })
@@ -2529,12 +2538,12 @@ export default function DashboardClient({
                         teamOverrideEarnings = teamVolume * (overrideRate / 100)
                       } else {
                         // Flat amount per sale
-                        teamOverrideEarnings = calcTeamSales * overrideRate
+                        teamOverrideEarnings = calcTeamSalesNum * overrideRate
                       }
                       
                       displayRows.push({ label: '— Team Override —', value: '' })
                       displayRows.push({ label: 'Team Sales/Month', value: `${calcTeamSales}` })
-                      displayRows.push({ label: 'Team avg financed / job', value: `$${calcTeamAvgPrice.toLocaleString()}` })
+                      displayRows.push({ label: 'Team avg financed / job', value: `$${calcTeamAvgPriceNum.toLocaleString()}` })
                       displayRows.push({ label: 'Team net volume', value: `$${teamVolume.toLocaleString()}` })
                       displayRows.push({ label: 'Override Rate', value: overrideType === 'percentage' ? `${overrideRate}%` : `$${overrideRate}/sale` })
                       displayRows.push({ label: 'Override Earnings', value: `$${Math.round(teamOverrideEarnings).toLocaleString()}` })
@@ -2556,7 +2565,7 @@ export default function DashboardClient({
                       
                       displayRows = [
                         { label: 'Sales/Month', value: `${calcJobsClosed}` },
-                        { label: 'Avg financed / job', value: `$${calcAvgSalePrice.toLocaleString()}` },
+                        { label: 'Avg financed / job', value: `$${calcAvgSalePriceNum.toLocaleString()}` },
                         { label: 'Net commissionable volume', value: `$${monthlyVolume.toLocaleString()}` },
                         { label: 'Base Rate', value: `${compPlanDetails.base_percentage || 0}%` },
                       ]
@@ -2584,10 +2593,10 @@ export default function DashboardClient({
                           <span className="text-gray-600 text-sm">Annual (x12)</span>
                           <span className="font-semibold text-green-700 text-sm">${Math.round(monthlyEarnings * 12).toLocaleString()}</span>
                         </div>
-                        {compPlanDetails.plan_type !== 'hourly' && calcJobsClosed > 0 && (
+                        {compPlanDetails.plan_type !== 'hourly' && calcJobsClosedNum > 0 && (
                           <div className="flex justify-between items-center mt-1">
                             <span className="text-gray-600 text-sm">Per Job</span>
-                            <span className="font-semibold text-green-700 text-sm">${Math.round(monthlyEarnings / calcJobsClosed).toLocaleString()}</span>
+                            <span className="font-semibold text-green-700 text-sm">${Math.round(monthlyEarnings / calcJobsClosedNum).toLocaleString()}</span>
                           </div>
                         )}
                       </div>

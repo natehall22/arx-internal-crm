@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import SignaturePad from './SignaturePad'
+import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 
 interface ContractModalProps {
   isOpen: boolean
@@ -25,7 +26,7 @@ interface ContractFormData {
   customerEmail: string
   customerPhone: string
   projectAddress: string
-  projectCost: number
+  projectCost: string
   totalSquares: number | null
   roofingMaterial: string
   scopeRoofReplacement: boolean
@@ -35,7 +36,7 @@ interface ContractFormData {
   scopeOther: string
   paymentMethod: 'finance' | 'cash' | 'insurance' | 'other'
   financeCompany: string
-  depositAmount: number
+  depositAmount: string
   estCompletionDate: string
   exclusions: string
   additionalProducts: string
@@ -70,7 +71,7 @@ export default function ContractModal({
     customerEmail: customerEmail || '',
     customerPhone: customerPhone || '',
     projectAddress: projectAddress || '',
-    projectCost: projectCost || 0,
+    projectCost: projectCost ? String(projectCost) : '',
     totalSquares: totalSquares || null,
     roofingMaterial: '',
     scopeRoofReplacement: true,
@@ -80,7 +81,7 @@ export default function ContractModal({
     scopeOther: '',
     paymentMethod: 'cash',
     financeCompany: '',
-    depositAmount: 0,
+    depositAmount: '',
     estCompletionDate: '',
     exclusions: '',
     additionalProducts: '',
@@ -98,7 +99,7 @@ export default function ContractModal({
         customerEmail: customerEmail || prev.customerEmail,
         customerPhone: customerPhone || prev.customerPhone,
         projectAddress: projectAddress || prev.projectAddress,
-        projectCost: projectCost || prev.projectCost,
+        projectCost: projectCost ? String(projectCost) : prev.projectCost,
         totalSquares: totalSquares || prev.totalSquares,
         financeCompany: defaultFinanceCompany?.trim() || prev.financeCompany || '',
         paymentMethod: defaultFinanceCompany?.trim() ? 'finance' : prev.paymentMethod,
@@ -121,7 +122,7 @@ export default function ContractModal({
           return false
         }
         if (formData.agreementType === 'installation' || formData.agreementType === 'repair') {
-          if (!formData.projectCost) {
+          if ((parseDraftFloat(formData.projectCost, { required: true }) ?? 0) <= 0) {
             setError('Please enter the project cost')
             return false
           }
@@ -174,6 +175,8 @@ export default function ContractModal({
           opportunityId,
           proposalId,
           ...formData,
+          projectCost: parseDraftFloat(formData.projectCost, { required: true }) ?? 0,
+          depositAmount: parseDraftFloat(formData.depositAmount) ?? 0,
         }),
       })
 
@@ -438,7 +441,7 @@ export default function ContractModal({
                             type="number"
                             step="0.01"
                             value={formData.projectCost}
-                            onChange={e => handleInputChange('projectCost', parseFloat(e.target.value) || 0)}
+                            onChange={e => handleInputChange('projectCost', e.target.value)}
                             className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                             required
                           />
@@ -503,7 +506,7 @@ export default function ContractModal({
                             type="number"
                             step="0.01"
                             value={formData.projectCost}
-                            onChange={e => handleInputChange('projectCost', parseFloat(e.target.value) || 0)}
+                            onChange={e => handleInputChange('projectCost', e.target.value)}
                             className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                             required
                           />
@@ -623,7 +626,7 @@ export default function ContractModal({
                         type="number"
                         step="0.01"
                         value={formData.depositAmount}
-                        onChange={e => handleInputChange('depositAmount', parseFloat(e.target.value) || 0)}
+                        onChange={e => handleInputChange('depositAmount', e.target.value)}
                         className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       />
                     </div>
@@ -738,8 +741,8 @@ export default function ContractModal({
                     <div className="p-4">
                       <h4 className="font-medium text-gray-900 mb-2">Payment</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-gray-500">Project Cost:</span> ${formData.projectCost.toLocaleString()}</div>
-                        <div><span className="text-gray-500">Deposit:</span> ${formData.depositAmount.toLocaleString()}</div>
+                        <div><span className="text-gray-500">Project Cost:</span> ${previewNumber(formData.projectCost).toLocaleString()}</div>
+                        <div><span className="text-gray-500">Deposit:</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
                         <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.financeCompany && ` (${formData.financeCompany})`}</div>
                         {formData.estCompletionDate && (
                           <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>

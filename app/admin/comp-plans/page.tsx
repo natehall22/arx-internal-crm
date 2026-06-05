@@ -9,6 +9,7 @@ import {
   COMP_PLAN_UNIT_RATE_LABELS,
   isKnownCompPlanUnitType,
 } from '@/lib/comp-plan-unit-types'
+import { formatNumericDraft, parseDraftFloat } from '@/lib/numeric-input-draft'
 
 interface VolumeTier {
   min_volume: number
@@ -57,6 +58,19 @@ interface HybridComponent {
   rate: number
   unit_type?: string  // For per_unit: 'square', 'kw', 'linear_foot', etc.
   description?: string
+}
+
+type TierFormRow = { min: string; max: string; rate: string }
+type HybridComponentForm = Omit<HybridComponent, 'rate'> & { rate: string }
+type VolumeTierForm = Omit<VolumeTier, 'min_volume' | 'max_volume' | 'bonus_value'> & {
+  min_volume: string
+  max_volume: string
+  bonus_value: string
+}
+type OverrideTierForm = Omit<OverrideTier, 'min_team_volume' | 'max_team_volume' | 'override_value'> & {
+  min_team_volume: string
+  max_team_volume: string
+  override_value: string
 }
 
 interface UserCompPlan {
@@ -111,15 +125,15 @@ export default function CompPlansPage() {
     unit_rate: '',
     unit_type: 'square',
     custom_unit_label: '',
-    tiers: [{ min: 0, max: 10000 as number | null, rate: 5 }],
-    volume_bonuses: [] as VolumeTier[],
+    tiers: [{ min: '0', max: '10000', rate: '5' }] as TierFormRow[],
+    volume_bonuses: [] as VolumeTierForm[],
     // Hybrid components
-    hybrid_components: [] as HybridComponent[],
+    hybrid_components: [] as HybridComponentForm[],
     // Manager-specific fields
     is_manager_plan: false,
     personal_sales_enabled: true,
     team_override_enabled: false,
-    team_overrides: [] as OverrideTier[],
+    team_overrides: [] as OverrideTierForm[],
     applicable_roles: ['sales_rep'],
     is_active: true,
     is_default: false,
@@ -168,6 +182,65 @@ export default function CompPlansPage() {
   }
   
   const savePlan = async () => {
+    const requiredDraft = (value: string, label: string) => {
+      if (parseDraftFloat(value) !== null) return true
+      alert(`${label} is required`)
+      return false
+    }
+    const optionalDraft = (value: string, label: string) => {
+      if (value.trim() === '' || parseDraftFloat(value) !== null) return true
+      alert(`${label} must be a valid number`)
+      return false
+    }
+
+    if (planForm.plan_type === 'tiered') {
+      for (let index = 0; index < planForm.tiers.length; index += 1) {
+        const tier = planForm.tiers[index]
+        const row = `Tier ${index + 1}`
+        if (
+          !requiredDraft(tier.min, `${row} min`) ||
+          !optionalDraft(tier.max, `${row} max`) ||
+          !requiredDraft(tier.rate, `${row} rate`)
+        ) {
+          return
+        }
+      }
+    }
+
+    for (let index = 0; index < planForm.volume_bonuses.length; index += 1) {
+      const bonus = planForm.volume_bonuses[index]
+      const row = `Volume bonus ${index + 1}`
+      if (
+        !requiredDraft(bonus.min_volume, `${row} min`) ||
+        !optionalDraft(bonus.max_volume, `${row} max`) ||
+        !requiredDraft(bonus.bonus_value, `${row} value`)
+      ) {
+        return
+      }
+    }
+
+    if (planForm.plan_type === 'hybrid') {
+      for (let index = 0; index < planForm.hybrid_components.length; index += 1) {
+        if (!requiredDraft(planForm.hybrid_components[index].rate, `Hybrid component ${index + 1} rate`)) {
+          return
+        }
+      }
+    }
+
+    if (planForm.is_manager_plan && planForm.team_override_enabled) {
+      for (let index = 0; index < planForm.team_overrides.length; index += 1) {
+        const teamOverride = planForm.team_overrides[index]
+        const row = `Team override ${index + 1}`
+        if (
+          !requiredDraft(teamOverride.min_team_volume, `${row} min`) ||
+          !optionalDraft(teamOverride.max_team_volume, `${row} max`) ||
+          !requiredDraft(teamOverride.override_value, `${row} value`)
+        ) {
+          return
+        }
+      }
+    }
+
     const planData = {
       resource: editingPlan ? 'comp_plan' : 'comp_plan',
       id: editingPlan?.id,
@@ -187,17 +260,45 @@ export default function CompPlansPage() {
       unit_type: planForm.plan_type === 'unit_based' 
         ? (planForm.unit_type === 'custom' ? planForm.custom_unit_label : planForm.unit_type)
         : null,
-      tiers: planForm.plan_type === 'tiered' ? planForm.tiers : null,
-      volume_bonuses: planForm.volume_bonuses.length > 0 ? planForm.volume_bonuses : null,
-      hybrid_components: planForm.plan_type === 'hybrid' && planForm.hybrid_components.length > 0 
-        ? planForm.hybrid_components 
-        : null,
+      tiers:
+        planForm.plan_type === 'tiered'
+          ? planForm.tiers.map((t) => ({
+              min: parseDraftFloat(t.min, { required: true }) ?? 0,
+              max: t.max.trim() === '' ? null : parseDraftFloat(t.max, { required: true }) ?? 0,
+              rate: parseDraftFloat(t.rate, { required: true }) ?? 0,
+            }))
+          : null,
+      volume_bonuses:
+        planForm.volume_bonuses.length > 0
+          ? planForm.volume_bonuses.map((b) => ({
+              ...b,
+              min_volume: parseDraftFloat(b.min_volume, { required: true }) ?? 0,
+              max_volume: b.max_volume.trim() === '' ? null : parseDraftFloat(b.max_volume, { required: true }) ?? 0,
+              bonus_value: parseDraftFloat(b.bonus_value, { required: true }) ?? 0,
+            }))
+          : null,
+      hybrid_components:
+        planForm.plan_type === 'hybrid' && planForm.hybrid_components.length > 0
+          ? planForm.hybrid_components.map((c) => ({
+              ...c,
+              rate: parseDraftFloat(c.rate, { required: true }) ?? 0,
+            }))
+          : null,
       is_manager_plan: planForm.is_manager_plan,
       personal_sales_enabled: planForm.is_manager_plan ? planForm.personal_sales_enabled : null,
       team_override_enabled: planForm.is_manager_plan ? planForm.team_override_enabled : null,
-      team_overrides: planForm.is_manager_plan && planForm.team_override_enabled && planForm.team_overrides.length > 0 
-        ? planForm.team_overrides 
-        : null,
+      team_overrides:
+        planForm.is_manager_plan && planForm.team_override_enabled && planForm.team_overrides.length > 0
+          ? planForm.team_overrides.map((o) => ({
+              ...o,
+              min_team_volume: parseDraftFloat(o.min_team_volume, { required: true }) ?? 0,
+              max_team_volume:
+                o.max_team_volume.trim() === ''
+                  ? null
+                  : parseDraftFloat(o.max_team_volume, { required: true }) ?? 0,
+              override_value: parseDraftFloat(o.override_value, { required: true }) ?? 0,
+            }))
+          : null,
       applicable_roles: planForm.applicable_roles,
       is_active: planForm.is_active,
       is_default: planForm.is_default,
@@ -306,7 +407,7 @@ export default function CompPlansPage() {
       unit_rate: '',
       unit_type: 'square',
       custom_unit_label: '',
-      tiers: [{ min: 0, max: 10000 as number | null, rate: 5 }],
+      tiers: [{ min: '0', max: '10000', rate: '5' }],
       volume_bonuses: [],
       hybrid_components: [],
       is_manager_plan: false,
@@ -333,16 +434,31 @@ export default function CompPlansPage() {
       unit_rate: plan.unit_rate?.toString() || '',
       unit_type: isCustomUnit ? 'custom' : (plan.unit_type || 'square'),
       custom_unit_label: isCustomUnit ? (plan.unit_type || '') : '',
-      tiers: plan.tiers || [{ min: 0, max: 10000, rate: 5 }],
+      tiers: (plan.tiers || [{ min: 0, max: 10000, rate: 5 }]).map((t) => ({
+        min: formatNumericDraft(t.min),
+        max: t.max == null ? '' : formatNumericDraft(t.max),
+        rate: formatNumericDraft(t.rate),
+      })),
       volume_bonuses: (plan.volume_bonuses || []).map((b) => ({
         ...b,
         tier_metric: normalizeVolumeBonusTierMetric(b.tier_metric) as VolumeTier['tier_metric'],
+        min_volume: formatNumericDraft(b.min_volume),
+        max_volume: b.max_volume == null ? '' : formatNumericDraft(b.max_volume),
+        bonus_value: formatNumericDraft(b.bonus_value),
       })),
-      hybrid_components: plan.hybrid_components || [],
+      hybrid_components: (plan.hybrid_components || []).map((c) => ({
+        ...c,
+        rate: formatNumericDraft(c.rate),
+      })),
       is_manager_plan: plan.is_manager_plan || false,
       personal_sales_enabled: plan.personal_sales_enabled ?? true,
       team_override_enabled: plan.team_override_enabled || false,
-      team_overrides: plan.team_overrides || [],
+      team_overrides: (plan.team_overrides || []).map((o) => ({
+        ...o,
+        min_team_volume: formatNumericDraft(o.min_team_volume),
+        max_team_volume: o.max_team_volume == null ? '' : formatNumericDraft(o.max_team_volume),
+        override_value: formatNumericDraft(o.override_value),
+      })),
       applicable_roles: plan.applicable_roles || ['sales_rep'],
       is_active: plan.is_active,
       is_default: plan.is_default,
@@ -353,9 +469,18 @@ export default function CompPlansPage() {
 
   const addTier = () => {
     const lastTier = planForm.tiers[planForm.tiers.length - 1]
+    const lastMax = lastTier.max.trim() === '' ? 0 : parseDraftFloat(lastTier.max, { required: true }) ?? 0
+    const lastRate = parseDraftFloat(lastTier.rate, { required: true }) ?? 0
     setPlanForm(prev => ({
       ...prev,
-      tiers: [...prev.tiers, { min: (lastTier.max || 0) + 1, max: (lastTier.max || 0) + 10000, rate: lastTier.rate + 1 }]
+      tiers: [
+        ...prev.tiers,
+        {
+          min: String(lastMax + 1),
+          max: String(lastMax + 10000),
+          rate: String(lastRate + 1),
+        },
+      ],
     }))
   }
 
@@ -370,25 +495,30 @@ export default function CompPlansPage() {
   const updateTier = (index: number, field: string, value: string) => {
     setPlanForm(prev => ({
       ...prev,
-      tiers: prev.tiers.map((tier, i) => 
-        i === index ? { ...tier, [field]: field === 'max' && value === '' ? null : parseFloat(value) || 0 } : tier
-      )
+      tiers: prev.tiers.map((tier, i) =>
+        i === index ? { ...tier, [field]: value } : tier
+      ),
     }))
   }
 
   // Volume bonus functions
   const addVolumeBonus = () => {
     const lastBonus = planForm.volume_bonuses[planForm.volume_bonuses.length - 1]
-    const newMin = lastBonus ? (lastBonus.max_volume || 0) + 1 : 0
+    const lastMax = lastBonus
+      ? lastBonus.max_volume.trim() === ''
+        ? parseDraftFloat(lastBonus.min_volume, { required: true }) ?? 0
+        : parseDraftFloat(lastBonus.max_volume, { required: true }) ?? 0
+      : 0
+    const newMin = lastBonus ? lastMax + 1 : 0
     setPlanForm(prev => ({
       ...prev,
-      volume_bonuses: [...prev.volume_bonuses, { 
-        min_volume: newMin, 
-        max_volume: newMin + 50000, 
+      volume_bonuses: [...prev.volume_bonuses, {
+        min_volume: String(newMin),
+        max_volume: String(newMin + 50000),
         bonus_type: 'percentage',
-        bonus_value: 1,
+        bonus_value: '1',
         tier_metric: 'volume',
-      }]
+      }],
     }))
   }
 
@@ -404,32 +534,34 @@ export default function CompPlansPage() {
       ...prev,
       volume_bonuses: prev.volume_bonuses.map((bonus, i) => {
         if (i !== index) return bonus
-        if (field === 'max_volume' && value === '') {
-          return { ...bonus, [field]: null }
-        }
         if (field === 'bonus_type') {
           return { ...bonus, [field]: value as 'percentage' | 'flat' }
         }
         if (field === 'tier_metric') {
           return { ...bonus, tier_metric: value as VolumeTier['tier_metric'] }
         }
-        return { ...bonus, [field]: parseFloat(value as string) || 0 }
-      })
+        return { ...bonus, [field]: String(value) }
+      }),
     }))
   }
 
   // Team override functions (for manager plans)
   const addTeamOverride = () => {
     const lastOverride = planForm.team_overrides[planForm.team_overrides.length - 1]
-    const newMin = lastOverride ? (lastOverride.max_team_volume || 0) + 1 : 0
+    const lastMax = lastOverride
+      ? lastOverride.max_team_volume.trim() === ''
+        ? parseDraftFloat(lastOverride.min_team_volume, { required: true }) ?? 0
+        : parseDraftFloat(lastOverride.max_team_volume, { required: true }) ?? 0
+      : 0
+    const newMin = lastOverride ? lastMax + 1 : 0
     setPlanForm(prev => ({
       ...prev,
-      team_overrides: [...prev.team_overrides, { 
-        min_team_volume: newMin, 
-        max_team_volume: newMin + 100000, 
+      team_overrides: [...prev.team_overrides, {
+        min_team_volume: String(newMin),
+        max_team_volume: String(newMin + 100000),
         override_type: 'percentage',
-        override_value: 1 
-      }]
+        override_value: '1',
+      }],
     }))
   }
 
@@ -445,14 +577,11 @@ export default function CompPlansPage() {
       ...prev,
       team_overrides: prev.team_overrides.map((override, i) => {
         if (i !== index) return override
-        if (field === 'max_team_volume' && value === '') {
-          return { ...override, [field]: null }
-        }
         if (field === 'override_type') {
           return { ...override, [field]: value as 'percentage' | 'flat' }
         }
-        return { ...override, [field]: parseFloat(value as string) || 0 }
-      })
+        return { ...override, [field]: String(value) }
+      }),
     }))
   }
 
@@ -460,10 +589,10 @@ export default function CompPlansPage() {
   const addHybridComponent = () => {
     setPlanForm(prev => ({
       ...prev,
-      hybrid_components: [...prev.hybrid_components, { 
+      hybrid_components: [...prev.hybrid_components, {
         type: 'hourly',
-        rate: 0,
-        description: ''
+        rate: '',
+        description: '',
       }]
     }))
   }
@@ -484,7 +613,7 @@ export default function CompPlansPage() {
           return { ...comp, [field]: value as HybridComponent['type'] }
         }
         if (field === 'rate') {
-          return { ...comp, [field]: parseFloat(value as string) || 0 }
+          return { ...comp, rate: String(value) }
         }
         return { ...comp, [field]: value }
       })
@@ -1020,7 +1149,7 @@ export default function CompPlansPage() {
                             <label className="text-xs text-gray-500">Max ($)</label>
                             <input
                               type="number"
-                              value={tier.max || ''}
+                              value={tier.max}
                               onChange={(e) => updateTier(index, 'max', e.target.value)}
                               className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                               placeholder="∞"
@@ -1219,7 +1348,7 @@ export default function CompPlansPage() {
                           <div className="mt-3 p-3 bg-white rounded-lg border border-purple-200">
                             <p className="text-xs font-medium text-gray-700 mb-1">Example:</p>
                             <p className="text-xs text-gray-600">
-                              If team sells ${planForm.team_overrides[0]?.min_team_volume?.toLocaleString() || '0'}+ in a period,
+                              If team sells ${(parseDraftFloat(planForm.team_overrides[0]?.min_team_volume || '0', { required: true }) ?? 0).toLocaleString()}+ in a period,
                               manager earns{' '}
                               <span className="font-medium text-purple-600">
                                 {planForm.team_overrides[0]?.override_type === 'percentage' 
@@ -1345,13 +1474,19 @@ export default function CompPlansPage() {
                       <p className="text-xs text-gray-600">
                         {planForm.plan_type === 'percentage' && planForm.base_percentage ? (
                           <>
-                            Base rate plus tier bonus ({formatVolumeBonusTierRange(planForm.volume_bonuses[0])}).
+                            Base rate plus tier bonus ({formatVolumeBonusTierRange({
+                              min_volume: parseDraftFloat(planForm.volume_bonuses[0].min_volume, { required: true }) ?? 0,
+                              max_volume: planForm.volume_bonuses[0].max_volume.trim() === ''
+                                ? null
+                                : parseDraftFloat(planForm.volume_bonuses[0].max_volume, { required: true }) ?? 0,
+                              tier_metric: planForm.volume_bonuses[0].tier_metric,
+                            })}).
                             <br />
                             {planForm.volume_bonuses[0]?.bonus_type === 'percentage' ? (
                               <>
                                 Example: {planForm.base_percentage}% + {planForm.volume_bonuses[0]?.bonus_value}% ={' '}
                                 <span className="font-medium text-green-600">
-                                  {(parseFloat(planForm.base_percentage) + (planForm.volume_bonuses[0]?.bonus_value || 0)).toFixed(1)}%
+                                  {(parseFloat(planForm.base_percentage) + (parseDraftFloat(planForm.volume_bonuses[0]?.bonus_value || '0', { required: true }) ?? 0)).toFixed(1)}%
                                 </span>{' '}
                                 on commissionable amount; flat $ tiers add that amount per qualifying sale.
                               </>

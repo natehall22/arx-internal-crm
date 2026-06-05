@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
+import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 
 interface ChangeOrderModalProps {
   isOpen: boolean
@@ -39,8 +40,10 @@ export default function ChangeOrderModal({
   onSuccess,
 }: ChangeOrderModalProps) {
   const [description, setDescription] = useState('')
-  const [updatedTotal, setUpdatedTotal] = useState(originalContractAmount)
-  const [updatedRemaining, setUpdatedRemaining] = useState(0)
+  const [updatedTotal, setUpdatedTotal] = useState(String(originalContractAmount))
+  const [updatedRemaining, setUpdatedRemaining] = useState('0')
+  const updatedTotalNum = previewNumber(updatedTotal)
+  const updatedRemainingNum = previewNumber(updatedRemaining)
   
   const [customerPrintName, setCustomerPrintName] = useState('')
   const [customerSignature, setCustomerSignature] = useState<string | null>(null)
@@ -63,15 +66,15 @@ export default function ChangeOrderModal({
 
   useEffect(() => {
     if (!isInsurance) {
-      setUpdatedRemaining(updatedTotal - amountCollected)
+      setUpdatedRemaining(String(Math.max(0, updatedTotalNum - amountCollected)))
     }
-  }, [updatedTotal, amountCollected, isInsurance])
+  }, [updatedTotalNum, amountCollected, isInsurance])
 
   useEffect(() => {
     if (isOpen) {
       setDescription('')
-      setUpdatedTotal(originalContractAmount)
-      setUpdatedRemaining(isInsurance ? 0 : originalContractAmount - amountCollected)
+      setUpdatedTotal(String(originalContractAmount))
+      setUpdatedRemaining(isInsurance ? '0' : String(Math.max(0, originalContractAmount - amountCollected)))
       setCustomerPrintName('')
       setCustomerSignature(null)
       setRepPrintName(repName)
@@ -90,8 +93,14 @@ export default function ChangeOrderModal({
       setError('Description of change is required')
       return
     }
-    if (!updatedTotal || updatedTotal <= 0) {
+    const updatedTotalValue = parseDraftFloat(updatedTotal, { required: true }) ?? 0
+    if (updatedTotalValue <= 0) {
       setError('Updated total project cost is required')
+      return
+    }
+    const updatedRemainingValue = isInsurance ? parseDraftFloat(updatedRemaining) : updatedTotalValue - amountCollected
+    if (isInsurance && updatedRemainingValue === null) {
+      setError('Updated remaining balance is required for insurance jobs')
       return
     }
     if (!customerPrintName.trim()) {
@@ -127,8 +136,8 @@ export default function ChangeOrderModal({
           coNumber: nextCoNumber,
           description: description.trim(),
           originalAmount: originalContractAmount,
-          updatedTotal,
-          updatedRemaining: isInsurance ? updatedRemaining : updatedTotal - amountCollected,
+          updatedTotal: updatedTotalValue,
+          updatedRemaining: updatedRemainingValue,
           customerPrintName: customerPrintName.trim(),
           customerSignature,
           repName: repPrintName.trim(),
@@ -308,7 +317,7 @@ export default function ChangeOrderModal({
                     <input
                       type="number"
                       value={updatedTotal}
-                      onChange={(e) => setUpdatedTotal(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => setUpdatedTotal(e.target.value)}
                       className="w-full pl-8 pr-3 py-3 border border-gray-300 rounded-lg text-base text-black bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       style={{ color: '#000000', backgroundColor: '#ffffff' }}
                       step="0.01"
@@ -329,7 +338,7 @@ export default function ChangeOrderModal({
                       <input
                         type="number"
                         value={updatedRemaining}
-                        onChange={(e) => setUpdatedRemaining(parseFloat(e.target.value) || 0)}
+                        onChange={(e) => setUpdatedRemaining(e.target.value)}
                         className="w-full pl-8 pr-3 py-3 border border-gray-300 rounded-lg text-base text-black bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         style={{ color: '#000000', backgroundColor: '#ffffff' }}
                         step="0.01"
@@ -339,10 +348,10 @@ export default function ChangeOrderModal({
                   ) : (
                     <div className="px-3 py-3 bg-gray-100 rounded-lg">
                       <span className="text-base font-medium text-gray-900">
-                        ${(updatedTotal - amountCollected).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${(updatedTotalNum - amountCollected).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                       <span className="text-sm text-gray-600 ml-2">
-                        (${updatedTotal.toLocaleString()} - ${amountCollected.toLocaleString()} collected)
+                        (${updatedTotalNum.toLocaleString()} - ${amountCollected.toLocaleString()} collected)
                       </span>
                     </div>
                   )}

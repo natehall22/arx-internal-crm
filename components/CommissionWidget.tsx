@@ -15,6 +15,7 @@ import {
   formatCompPlanUnitShortLabel,
   getCompPlanUnitHint,
 } from '@/lib/comp-plan-unit-types'
+import { previewNumber } from '@/lib/numeric-input-draft'
 
 interface Commission {
   id: string
@@ -97,18 +98,23 @@ export default function CommissionWidget() {
   const [showCalculatorModal, setShowCalculatorModal] = useState(false)
   
   // Calculator state
-  const [calcAvgSalePrice, setCalcAvgSalePrice] = useState(13500)
-  const [calcJobsClosed, setCalcJobsClosed] = useState(4)
-  const [calcPeriodSits, setCalcPeriodSits] = useState(12)
-  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState(0)
+  const [calcAvgSalePrice, setCalcAvgSalePrice] = useState('13500')
+  const [calcJobsClosed, setCalcJobsClosed] = useState('4')
+  const [calcPeriodSits, setCalcPeriodSits] = useState('12')
+  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState('0')
 
-  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePrice, avgDealerFeePercent)
-  const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosed
+  const calcAvgSalePriceNum = previewNumber(calcAvgSalePrice)
+  const calcJobsClosedNum = previewNumber(calcJobsClosed)
+  const calcPeriodSitsNum = previewNumber(calcPeriodSits)
+  const avgDealerFeePercentNum = previewNumber(avgDealerFeePercent)
+
+  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePriceNum, avgDealerFeePercentNum)
+  const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosedNum
   const widgetTierValues = {
     periodVolume: monthlyCommissionableVolume,
-    periodSits: calcPeriodSits,
+    periodSits: calcPeriodSitsNum,
     periodClosingRatePct:
-      calcPeriodSits > 0 ? Math.round((calcJobsClosed / calcPeriodSits) * 1000) / 10 : null,
+      calcPeriodSitsNum > 0 ? Math.round((calcJobsClosedNum / calcPeriodSitsNum) * 1000) / 10 : null,
   }
 
   useEffect(() => {
@@ -759,7 +765,7 @@ export default function CommissionWidget() {
                     <input
                       type="number"
                       value={calcAvgSalePrice}
-                      onChange={(e) => setCalcAvgSalePrice(Number(e.target.value) || 0)}
+                      onChange={(e) => setCalcAvgSalePrice(e.target.value)}
                       className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-lg"
                     />
                   </div>
@@ -767,9 +773,9 @@ export default function CommissionWidget() {
                     {[10000, 13500, 16500, 25000, 30000].map(price => (
                       <button
                         key={price}
-                        onClick={() => setCalcAvgSalePrice(price)}
+                        onClick={() => setCalcAvgSalePrice(String(price))}
                         className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                          calcAvgSalePrice === price 
+                          calcAvgSalePriceNum === price 
                             ? 'bg-indigo-600 text-white border-indigo-600' 
                             : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
                         }`}
@@ -788,8 +794,8 @@ export default function CommissionWidget() {
                     min={0}
                     max={50}
                     step={0.25}
-                    value={avgDealerFeePercent || ''}
-                    onChange={(e) => setAvgDealerFeePercent(Number(e.target.value) || 0)}
+                    value={avgDealerFeePercent}
+                    onChange={(e) => setAvgDealerFeePercent(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg"
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -804,7 +810,7 @@ export default function CommissionWidget() {
                   <input
                     type="number"
                     value={calcJobsClosed}
-                    onChange={(e) => setCalcJobsClosed(Number(e.target.value) || 0)}
+                    onChange={(e) => setCalcJobsClosed(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-lg"
                     min="0"
                   />
@@ -812,9 +818,9 @@ export default function CommissionWidget() {
                     {[2, 4, 8, 12, 16, 20].map(jobs => (
                       <button
                         key={jobs}
-                        onClick={() => setCalcJobsClosed(jobs)}
+                        onClick={() => setCalcJobsClosed(String(jobs))}
                         className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                          calcJobsClosed === jobs 
+                          calcJobsClosedNum === jobs 
                             ? 'bg-indigo-600 text-white border-indigo-600' 
                             : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
                         }`}
@@ -832,7 +838,7 @@ export default function CommissionWidget() {
                   <input
                     type="number"
                     value={calcPeriodSits}
-                    onChange={(e) => setCalcPeriodSits(Math.max(0, Number(e.target.value) || 0))}
+                    onChange={(e) => setCalcPeriodSits(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-lg"
                     min="0"
                   />
@@ -894,7 +900,7 @@ export default function CommissionWidget() {
                   ${(() => {
                     if (!compPlanDetails) return 0
                     if (compPlanDetails.plan_type === 'flat_rate') {
-                      return ((compPlanDetails.flat_rate || 0) * calcJobsClosed).toLocaleString()
+                      return ((compPlanDetails.flat_rate || 0) * calcJobsClosedNum).toLocaleString()
                     }
                     const monthlyVolume = monthlyCommissionableVolume
                     const { extraRatePct, flatPerSale } = applyFirstMatchingVolumeBonus(
@@ -904,7 +910,7 @@ export default function CommissionWidget() {
                     const rate = (compPlanDetails.base_percentage || 0) + extraRatePct
                     return (
                       monthlyVolume * (rate / 100) +
-                      flatPerSale * calcJobsClosed
+                      flatPerSale * calcJobsClosedNum
                     ).toLocaleString(undefined, { maximumFractionDigits: 0 })
                   })()}
                 </p>
@@ -930,7 +936,7 @@ export default function CommissionWidget() {
                     <p className="text-green-100 text-xs">Commission per Job</p>
                     <p className="text-xl font-bold">
                       ${(() => {
-                        if (!compPlanDetails || calcJobsClosed === 0) return 0
+                        if (!compPlanDetails || calcJobsClosedNum === 0) return 0
                         if (compPlanDetails.plan_type === 'flat_rate') {
                           return (compPlanDetails.flat_rate || 0).toLocaleString()
                         }
@@ -951,7 +957,7 @@ export default function CommissionWidget() {
                       ${(() => {
                         if (!compPlanDetails) return 0
                         if (compPlanDetails.plan_type === 'flat_rate') {
-                          return ((compPlanDetails.flat_rate || 0) * calcJobsClosed * 12).toLocaleString()
+                          return ((compPlanDetails.flat_rate || 0) * calcJobsClosedNum * 12).toLocaleString()
                         }
                         const monthlyVolume = monthlyCommissionableVolume
                         const { extraRatePct, flatPerSale } = applyFirstMatchingVolumeBonus(
@@ -960,7 +966,7 @@ export default function CommissionWidget() {
                         )
                         const rate = (compPlanDetails.base_percentage || 0) + extraRatePct
                         return (
-                          (monthlyVolume * (rate / 100) + flatPerSale * calcJobsClosed) *
+                          (monthlyVolume * (rate / 100) + flatPerSale * calcJobsClosedNum) *
                           12
                         ).toLocaleString(undefined, { maximumFractionDigits: 0 })
                       })()}
