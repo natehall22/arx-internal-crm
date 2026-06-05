@@ -11,9 +11,9 @@ import OpsDashboard from '@/components/dashboard/OpsDashboard'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import {
   getSitOutcomeNormalizedIdSet,
-  normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import {
   getAttributedInstallationSales,
@@ -182,27 +182,15 @@ export default async function DashboardPage() {
     orgForSits?.settings?.canvass_dispositions as any[] | undefined
   )
 
-  let sitOpportunities: {
-    owner_user_id: string | null
-    setter_user_id: string | null
-    inspection_outcome: string | null
-  }[] = []
-
-  if (sitOutcomeIdSet.size > 0) {
-    const { data: sitRows } = await supabase
-      .from('opportunities')
-      .select('owner_user_id, setter_user_id, inspection_outcome, inspection_outcome_at')
-      .eq('org_id', profile.org_id)
-      .not('inspection_outcome', 'is', null)
-      .not('inspection_outcome_at', 'is', null)
-      .gte('inspection_outcome_at', weekStart.toISOString())
-      .lt('inspection_outcome_at', weekEnd.toISOString())
-
-    sitOpportunities =
-      (sitRows || []).filter((o) =>
-        sitOutcomeIdSet.has(normalizeInspectionOutcomeId(o.inspection_outcome))
-      ) || []
-  }
+  const sitOpportunities =
+    sitOutcomeIdSet.size === 0
+      ? []
+      : await fetchEffectiveSitOpportunitiesInPeriod(supabase, {
+          orgId: profile.org_id,
+          startIso: weekStart.toISOString(),
+          endIso: weekEnd.toISOString(),
+          sitOutcomeIdSet,
+        })
 
   // Appointments on closer's calendar in this period (by scheduled_for) — efficiency denominator
   const { data: apptsForEfficiency } = await supabase

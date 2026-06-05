@@ -6,6 +6,10 @@ import {
   getSitOutcomeNormalizedIdSet,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import {
+  countSitsScoped,
+  fetchEffectiveSitOpportunitiesInPeriod,
+} from '@/lib/dashboard-sit-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
 import {
@@ -44,7 +48,6 @@ export async function GET(request: NextRequest) {
     const contactDispositionIdSet = getContactDispositionIdSet(
       orgRow?.settings?.canvass_dispositions as any[] | undefined
     )
-    const normOutcomes = Array.from(sitOutcomeIdSet)
     const dispositionIds = Array.from(contactDispositionIdSet)
 
     const pStart = start.toISOString()
@@ -72,7 +75,7 @@ export async function GET(request: NextRequest) {
       doorRes,
       contactRes,
       salesContractsRes,
-      sitsRes,
+      effectiveSitOpportunities,
       inspRes,
       effRes,
     ] = await Promise.all([
@@ -100,15 +103,13 @@ export async function GET(request: NextRequest) {
         .not('customer_signed_at', 'is', null)
         .gte('customer_signed_at', pStart)
         .lt('customer_signed_at', pEnd),
-      normOutcomes.length === 0
-        ? Promise.resolve({ data: 0, error: null })
-        : supabase.rpc('dashboard_count_sits_scoped', {
-            p_org_id: pOrg,
-            p_start: pStart,
-            p_end: pEnd,
-            p_scope_user_ids: scopeForRpc,
-            p_attribute_by_setter: isSetter,
-            p_normalized_outcomes: normOutcomes,
+      sitOutcomeIdSet.size === 0
+        ? Promise.resolve([])
+        : fetchEffectiveSitOpportunitiesInPeriod(supabase, {
+            orgId: pOrg,
+            startIso: pStart,
+            endIso: pEnd,
+            sitOutcomeIdSet,
           }),
       inspectionsCountQuery,
       efficiencyCountQuery,
@@ -117,7 +118,6 @@ export async function GET(request: NextRequest) {
     if (doorRes.error) throw doorRes.error
     if (contactRes.error) throw contactRes.error
     if (salesContractsRes.error) throw salesContractsRes.error
-    if (sitsRes.error) throw sitsRes.error
     if (inspRes.error) throw inspRes.error
     if (effRes.error) throw effRes.error
 
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
             .filter((sale) => sale.setter_user_id === profile.id || sale.owner_user_id === profile.id)
             .map((sale) => sale.opportunity_id || sale.id)
         ).size
-    const sits = Number(sitsRes.data ?? 0)
+    const sits = countSitsScoped(effectiveSitOpportunities, scopeForRpc, isSetter)
     const inspectionsSet = inspRes.count ?? 0
     const apptCount = effRes.count ?? 0
 

@@ -3,9 +3,13 @@ import { createClient } from '@supabase/supabase-js'
 import { getDateRangeForTimeFrame, getDateRangeWithDebug } from '@/lib/date-ranges'
 import {
   getSitOutcomeNormalizedIdSet,
-  normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import {
+  countSitsByOwner,
+  countSitsBySetter,
+  fetchEffectiveSitOpportunitiesInPeriod,
+} from '@/lib/dashboard-sit-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 import {
@@ -224,7 +228,6 @@ export async function GET(request: NextRequest) {
       orgForSits?.settings?.canvass_dispositions as any[] | undefined
     )
 
-    const normOutcomes = Array.from(sitOutcomeIdSet)
     const dispositionIds = Array.from(contactDispositionIdSet)
     const memberIds = members.map((m) => m.id)
     const pOrg = profile.org_id
@@ -264,9 +267,7 @@ export async function GET(request: NextRequest) {
       inspRows,
       inspRecvRows,
       effRows,
-      sitSetterRows,
-      sitOwnerRows,
-      sitDistinctRes,
+      effectiveSitOpportunities,
       saleContractsRes,
     ] = await Promise.all([
       supabase.rpc('dashboard_door_leads_by_owner', {
@@ -302,32 +303,13 @@ export async function GET(request: NextRequest) {
         p_end: pEnd,
         p_member_ids: memberIds,
       }),
-      normOutcomes.length === 0
-        ? Promise.resolve({ data: [], error: null })
-        : supabase.rpc('dashboard_sit_counts_by_setter', {
-            p_org_id: pOrg,
-            p_start: pStart,
-            p_end: pEnd,
-            p_member_ids: memberIds,
-            p_normalized_outcomes: normOutcomes,
-          }),
-      normOutcomes.length === 0
-        ? Promise.resolve({ data: [], error: null })
-        : supabase.rpc('dashboard_sit_counts_by_owner', {
-            p_org_id: pOrg,
-            p_start: pStart,
-            p_end: pEnd,
-            p_member_ids: memberIds,
-            p_normalized_outcomes: normOutcomes,
-          }),
-      normOutcomes.length === 0
-        ? Promise.resolve({ data: 0, error: null })
-        : supabase.rpc('dashboard_distinct_sit_opp_count', {
-            p_org_id: pOrg,
-            p_start: pStart,
-            p_end: pEnd,
-            p_member_ids: memberIds,
-            p_normalized_outcomes: normOutcomes,
+      sitOutcomeIdSet.size === 0
+        ? Promise.resolve([])
+        : fetchEffectiveSitOpportunitiesInPeriod(supabase, {
+            orgId: pOrg,
+            startIso: pStart,
+            endIso: pEnd,
+            sitOutcomeIdSet,
           }),
       supabase
         .from('order_form_contracts')
@@ -346,9 +328,6 @@ export async function GET(request: NextRequest) {
       inspRows.error ||
       inspRecvRows.error ||
       effRows.error ||
-      sitSetterRows.error ||
-      sitOwnerRows.error ||
-      sitDistinctRes.error ||
       saleContractsRes.error
     if (rpcErr) throw rpcErr
 
@@ -375,14 +354,8 @@ export async function GET(request: NextRequest) {
     for (const r of (effRows.data || []) as RpcRow[]) {
       if (r.closer_id) effByCloser.set(r.closer_id, num(r.cnt))
     }
-    const sitBySetter = new Map<string, number>()
-    for (const r of (sitSetterRows.data || []) as RpcRow[]) {
-      if (r.setter_id) sitBySetter.set(r.setter_id, num(r.cnt))
-    }
-    const sitByOwner = new Map<string, number>()
-    for (const r of (sitOwnerRows.data || []) as RpcRow[]) {
-      if (r.owner_id) sitByOwner.set(r.owner_id, num(r.cnt))
-    }
+    const sitBySetter = countSitsBySetter(effectiveSitOpportunities, memberIds)
+    const sitByOwner = countSitsByOwner(effectiveSitOpportunities, memberIds)
     const memberIdSet = new Set(memberIds)
     const saleAgreements = getAttributedSaleAgreements(
       saleContractsRes.data as SaleAgreementContractRow[] | null
@@ -474,7 +447,7 @@ export async function GET(request: NextRequest) {
       })
 
     const distinctDealCounts = {
-      sitOpportunitiesInPeriod: Number(sitDistinctRes.data ?? 0),
+      sitOpportunitiesInPeriod: effectiveSitOpportunities.length,
       saleOpportunitiesInPeriod: new Set(saleAgreements.map((sale) => sale.opportunity_id || sale.id)).size,
     }
 

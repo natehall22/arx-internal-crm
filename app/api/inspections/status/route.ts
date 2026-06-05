@@ -418,6 +418,7 @@ export async function POST(request: NextRequest) {
     }
 
     const assignedCloserId = appointment?.closer_user_id || user.id
+    const outcomeAt = new Date().toISOString()
     let opportunityId = appointment?.opportunity_id || opportunity?.id || null
     let createdOpportunity = null
     
@@ -473,7 +474,7 @@ export async function POST(request: NextRequest) {
           source: lead?.source || 'inspection',
           project_type: 'roofing',
           inspection_outcome: outcome,
-          inspection_outcome_at: new Date().toISOString(),
+          inspection_outcome_at: outcomeAt,
           inspection_notes: notes || null,
           job_source: isInsuranceOutcome ? 'insurance' : 'retail',
           insurance_stage: isInsuranceOutcome ? 'contingency_signed' : null,
@@ -493,17 +494,83 @@ export async function POST(request: NextRequest) {
 
       if (oppError) {
         console.error('Failed to create opportunity:', oppError)
-      } else {
-        opportunityId = newOpportunity.id
-        createdOpportunity = newOpportunity
-        console.log('Created opportunity:', newOpportunity.id)
-        
-        // Update the lead to link to the new opportunity
-        await supabase
-          .from('leads')
-          .update({ status: 'won' })
-          .eq('id', leadId)
+        return NextResponse.json(
+          { error: `Failed to create opportunity: ${oppError.message}` },
+          { status: 500 }
+        )
       }
+
+      opportunityId = newOpportunity.id
+      createdOpportunity = newOpportunity
+      console.log('Created opportunity:', newOpportunity.id)
+
+      // Update the lead to link to the new opportunity
+      await supabase
+        .from('leads')
+        .update({ status: 'won' })
+        .eq('id', leadId)
+    }
+
+    // Persist outcome on the opportunity before writing inspection_status_updates so
+    // dashboard sit metrics and opportunity rows stay in sync if the insert fails.
+    if (opportunityId && !createdOpportunity) {
+      const opportunityUpdate: Record<string, any> = {
+        inspection_outcome: outcome,
+        inspection_outcome_at: outcomeAt,
+        inspection_notes: notes || null,
+      }
+
+      if (outcome === 'sale') {
+        opportunityUpdate.status = 'won'
+      } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
+        opportunityUpdate.status = 'lost'
+      } else if (outcome === 'moving_to_close' || delayedInsideSalesHandoffEnabled) {
+        opportunityUpdate.status = 'in_progress'
+      }
+      if (delayedInsideSalesHandoffEnabled) {
+        const delayDays = insideSalesHandoffConfig.delayDays || 0
+        opportunityUpdate.pipeline_stage =
+          delayDays > 0 ? REP_WORKING_HANDOFF_PIPELINE_PREFIX : HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
+        opportunityUpdate.follow_up_at = followUpAtFromDelayDays(delayDays)
+        if (isInsuranceOutcome) {
+          opportunityUpdate.job_source = 'insurance'
+          opportunityUpdate.insurance_stage = 'contingency_signed'
+        }
+      } else if (routesToDidntSitQueue) {
+        opportunityUpdate.pipeline_stage = DIDNT_SIT_PIPELINE_PREFIX
+        opportunityUpdate.follow_up_at = null
+      } else {
+        opportunityUpdate.pipeline_stage = null
+        opportunityUpdate.follow_up_at = null
+      }
+
+      if (appointment?.closer_user_id) {
+        opportunityUpdate.owner_user_id = appointment.closer_user_id
+      }
+      const setterFromAppt =
+        appointment?.canvasser_user_id || lead?.owner_user_id || null
+      if (setterFromAppt) {
+        opportunityUpdate.setter_user_id = setterFromAppt
+      }
+
+      console.log('=== UPDATING EXISTING OPPORTUNITY ===')
+      console.log('opportunityId:', opportunityId)
+      console.log('Update data:', opportunityUpdate)
+
+      const { error: oppUpdateError } = await supabase
+        .from('opportunities')
+        .update(opportunityUpdate)
+        .eq('id', opportunityId)
+
+      if (oppUpdateError) {
+        console.error('Failed to update opportunity:', oppUpdateError)
+        return NextResponse.json(
+          { error: `Failed to update opportunity: ${oppUpdateError.message}` },
+          { status: 500 }
+        )
+      }
+
+      console.log('Successfully updated opportunity')
     }
 
     // Create status update record (closer = assigned rep on the appointment, not necessarily submitter)
@@ -519,7 +586,9 @@ export async function POST(request: NextRequest) {
         outcome,
         notes: notes || null,
         setter_feedback: setter_feedback || null,
-        prompted_at: new Date().toISOString(),
+        prompted_at: outcomeAt,
+        completed_at: outcomeAt,
+        created_at: outcomeAt,
       })
       .select()
       .single()
@@ -561,71 +630,6 @@ export async function POST(request: NextRequest) {
         appointmentUpdate.opportunity_id = opportunityId
       }
       await supabase.from('scheduled_appointments').update(appointmentUpdate).eq('id', appointment_id)
-    }
-
-    // Update existing opportunity with outcome (if it existed before or wasn't just created)
-    if (opportunityId && !createdOpportunity) {
-      const opportunityUpdate: Record<string, any> = {
-        inspection_outcome: outcome,
-        inspection_outcome_at: new Date().toISOString(),
-        inspection_notes: notes || null,
-      }
-
-      // Update status based on outcome
-      // Valid opportunity statuses: 'open', 'in_progress', 'won', 'lost'
-      if (outcome === 'sale') {
-        opportunityUpdate.status = 'won'
-      } else if (outcome === 'said_no' || outcome === 'no_problems_found') {
-        opportunityUpdate.status = 'lost'
-      } else if (outcome === 'moving_to_close' || delayedInsideSalesHandoffEnabled) {
-        opportunityUpdate.status = 'in_progress' // Active opportunities being worked
-      }
-      if (delayedInsideSalesHandoffEnabled) {
-        const delayDays = insideSalesHandoffConfig.delayDays || 0
-        opportunityUpdate.pipeline_stage =
-          delayDays > 0 ? REP_WORKING_HANDOFF_PIPELINE_PREFIX : HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
-        opportunityUpdate.follow_up_at = followUpAtFromDelayDays(delayDays)
-        if (isInsuranceOutcome) {
-          opportunityUpdate.job_source = 'insurance'
-          opportunityUpdate.insurance_stage = 'contingency_signed'
-        }
-      } else if (routesToDidntSitQueue) {
-        opportunityUpdate.pipeline_stage = DIDNT_SIT_PIPELINE_PREFIX
-        opportunityUpdate.follow_up_at = null
-      } else {
-        opportunityUpdate.pipeline_stage = null
-        opportunityUpdate.follow_up_at = null
-      }
-      // 'not_home' and 'rescheduled' keep status as 'open'
-
-      // Align attribution with the scheduled appointment (manager submitter ≠ assigned closer)
-      if (appointment?.closer_user_id) {
-        opportunityUpdate.owner_user_id = appointment.closer_user_id
-      }
-      const setterFromAppt =
-        appointment?.canvasser_user_id || lead?.owner_user_id || null
-      if (setterFromAppt) {
-        opportunityUpdate.setter_user_id = setterFromAppt
-      }
-
-      console.log('=== UPDATING EXISTING OPPORTUNITY ===')
-      console.log('opportunityId:', opportunityId)
-      console.log('Update data:', opportunityUpdate)
-      
-      const { error: oppUpdateError } = await supabase
-        .from('opportunities')
-        .update(opportunityUpdate)
-        .eq('id', opportunityId)
-      
-      if (oppUpdateError) {
-        console.error('Failed to update opportunity:', oppUpdateError)
-      } else {
-        console.log('Successfully updated opportunity')
-      }
-    } else {
-      console.log('=== SKIPPING OPPORTUNITY UPDATE ===')
-      console.log('opportunityId:', opportunityId)
-      console.log('createdOpportunity:', !!createdOpportunity)
     }
 
     /** Won sale → customer + project(opportunity_id) + production_jobs (idempotent). */

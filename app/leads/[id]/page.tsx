@@ -22,6 +22,15 @@ import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { pickValidEmail, sendSetterEmail } from '@/lib/setter-email'
 import { userHasSchedulingCreate } from '@/lib/scheduling-create-permission'
 import LeadWorkflowInspectionScheduler from '@/components/leads/LeadWorkflowInspectionScheduler'
+import {
+  mapLatestInspectionByLeadId,
+  mapLatestInspectionByOpportunityId,
+  mergeEffectiveInspectionFields,
+} from '@/lib/effective-inspection-state'
+import {
+  getInspectionOutcomeConfig,
+  type InspectionOutcomeConfigRow,
+} from '@/lib/inspection-outcomes'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -95,7 +104,7 @@ export default async function LeadDetailPage({
 
   const { data: opportunity } = await supabase
     .from('opportunities')
-    .select('id, status, inspection_outcome, inspection_notes, inspection_outcome_at')
+    .select('id, lead_id, status, inspection_outcome, inspection_notes, inspection_outcome_at')
     .eq('lead_id', params.id)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -107,6 +116,33 @@ export default async function LeadDetailPage({
     .select('*, closer:users!inspection_status_updates_closer_user_id_fkey(full_name)')
     .eq('lead_id', params.id)
     .order('created_at', { ascending: false })
+
+  const { data: orgRow } = await supabase
+    .from('orgs')
+    .select('settings')
+    .eq('id', profile.org_id)
+    .single()
+
+  const inspectionOutcomeRows = orgRow?.settings?.inspection_outcomes as
+    | InspectionOutcomeConfigRow[]
+    | undefined
+
+  const effectiveInspection = (() => {
+    if (!opportunity && !(inspectionUpdates && inspectionUpdates.length > 0)) {
+      return null
+    }
+    const byOpp = mapLatestInspectionByOpportunityId(inspectionUpdates || [])
+    const byLead = mapLatestInspectionByLeadId(inspectionUpdates || [])
+    return mergeEffectiveInspectionFields(
+      opportunity || { id: '', lead_id: params.id },
+      byOpp,
+      byLead
+    )
+  })()
+
+  const effectiveInspectionOutcomeConfig = effectiveInspection?.inspection_outcome
+    ? getInspectionOutcomeConfig(inspectionOutcomeRows, effectiveInspection.inspection_outcome)
+    : null
 
   // Fetch scheduled appointments for this lead to check if inspection was scheduled
   const { data: appointments } = await supabase
@@ -750,11 +786,20 @@ export default async function LeadDetailPage({
                 <span className="ml-2 text-gray-900">{closerName || 'Unassigned'}</span>
               </div>
               <div>
-                <span className="text-gray-500">Disposition:</span>
+                <span className="text-gray-500">Canvass disposition:</span>
                 <span className="ml-2 text-gray-900 capitalize">
                   {lead.canvass_disposition?.replace('_', ' ') || 'Not set'}
                 </span>
               </div>
+              {effectiveInspection?.inspection_outcome && (
+                <div>
+                  <span className="text-gray-500">Inspection outcome:</span>
+                  <span className="ml-2 text-gray-900">
+                    {effectiveInspectionOutcomeConfig?.label ||
+                      effectiveInspection.inspection_outcome.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              )}
               {lead.inspection_scheduled_for && (
                 <div className="col-span-2">
                   <span className="text-gray-500">Inspection:</span>
