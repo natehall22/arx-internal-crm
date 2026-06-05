@@ -276,16 +276,16 @@ export default function PayrollStatementView({
         </section>
       )}
 
-      <footer className="border-t pt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-        <Row label="Gross commission" value={formatPayrollMoney(totals.grossCommission)} />
-        <Row label="Hourly" value={formatPayrollMoney(totals.hourlyEarnings)} />
+      <footer className="border-t pt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryCard label="Gross commission" value={formatPayrollMoney(totals.grossCommission)} />
+        <SummaryCard label="Hourly" value={formatPayrollMoney(totals.hourlyEarnings)} />
         {totals.periodUnitEarnings > 0 && (
-          <Row label="Sit / sale pay" value={formatPayrollMoney(totals.periodUnitEarnings)} />
+          <SummaryCard label="Sit / sale pay" value={formatPayrollMoney(totals.periodUnitEarnings)} />
         )}
-        <Row
+        <SummaryCard
           label="Net payout"
           value={formatPayrollMoney(totals.netPayout)}
-          bold
+          highlight
         />
       </footer>
     </div>
