@@ -4,9 +4,17 @@ jest.mock('jspdf', () => ({
     setFont: jest.fn(),
     setFontSize: jest.fn(),
     setTextColor: jest.fn(),
+    setFillColor: jest.fn(),
+    setDrawColor: jest.fn(),
+    setLineWidth: jest.fn(),
+    setLineDashPattern: jest.fn(),
     text: jest.fn(),
     splitTextToSize: (t: string) => [t],
+    line: jest.fn(),
+    rect: jest.fn(),
+    addImage: jest.fn(),
     addPage: jest.fn(),
+    getNumberOfPages: jest.fn(() => 1),
     output: () => new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52, 0]).buffer,
   })),
 }))
@@ -15,7 +23,11 @@ import {
   buildPayrollStatementEmailSubject,
   buildPayrollStatementEmailUrl,
 } from '@/lib/payroll-statement-email'
-import { buildPayrollStatementPdfBuffer, payrollStatementPdfFilename } from '@/lib/pdf/payroll-statement'
+import {
+  buildPayrollStatementPdfBuffer,
+  formatNegativePayrollMoney,
+  payrollStatementPdfFilename,
+} from '@/lib/pdf/payroll-statement'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 
 const sampleStatement: PayrollStatementPayload = {
@@ -81,6 +93,10 @@ describe('payroll-statement-email', () => {
 })
 
 describe('payroll-statement PDF', () => {
+  it('formats negative amounts with ASCII minus', () => {
+    expect(formatNegativePayrollMoney(25)).toBe('-$25.00')
+  })
+
   it('generates a non-empty PDF buffer', () => {
     const buf = buildPayrollStatementPdfBuffer(sampleStatement)
     expect(buf.length).toBeGreaterThan(0)

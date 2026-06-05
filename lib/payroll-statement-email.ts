@@ -2,6 +2,7 @@ import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import { formatPayrollMoney } from '@/lib/payroll-format'
 import {
   buildPayrollStatementPdfBuffer,
+  formatNegativePayrollMoney,
   payrollStatementPdfFilename,
 } from '@/lib/pdf/payroll-statement'
 import { getMailTransport } from '@/lib/setter-email'
@@ -42,7 +43,7 @@ export function buildPayrollStatementEmailHtml(input: {
   if (totals.periodUnitEarnings > 0) {
     rows.push({ label: 'Sit / sale pay', value: formatPayrollMoney(totals.periodUnitEarnings) })
   }
-  rows.push({ label: 'Chargebacks', value: `−${formatPayrollMoney(totals.chargebacksApplied)}` })
+  rows.push({ label: 'Chargebacks', value: formatNegativePayrollMoney(totals.chargebacksApplied) })
   rows.push({ label: 'Period status', value: period.status })
 
   const rowsHtml = rows
@@ -57,7 +58,7 @@ export function buildPayrollStatementEmailHtml(input: {
     : ''
 
   const attachmentNote = pdfAttached
-    ? 'A PDF copy is attached.'
+    ? 'A one-page PDF summary is attached. Use the button below for customer-level detail in the CRM.'
     : 'Use the link below to view the full breakdown in the CRM.'
 
   return `
@@ -101,7 +102,7 @@ export async function sendPayrollStatementEmail(input: {
 
   if (input.attachPdf !== false) {
     try {
-      const pdfBuffer = buildPayrollStatementPdfBuffer(input.statement)
+      const pdfBuffer = buildPayrollStatementPdfBuffer(input.statement, { statementUrl })
       attachments.push({
         filename: payrollStatementPdfFilename(input.statement.period.label, input.recipientUserId),
         content: pdfBuffer,
