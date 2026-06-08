@@ -574,24 +574,46 @@ export async function POST(request: NextRequest) {
     }
 
     // Create status update record (closer = assigned rep on the appointment, not necessarily submitter)
-    const { data: statusUpdate, error: statusError } = await supabase
+    const statusInsertBase = {
+      org_id: profile.org_id,
+      appointment_id: appointment_id || null,
+      opportunity_id: opportunityId || null,
+      lead_id: leadId,
+      closer_user_id: assignedCloserId,
+      setter_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
+      outcome,
+      notes: notes || null,
+      setter_feedback: setter_feedback || null,
+    }
+
+    let statusUpdate: { id: string; outcome: string; notes: string | null } | null = null
+    let statusError: { message: string } | null = null
+
+    const withTimestamps = {
+      ...statusInsertBase,
+      prompted_at: outcomeAt,
+      completed_at: outcomeAt,
+      created_at: outcomeAt,
+    }
+    const firstInsert = await supabase
       .from('inspection_status_updates')
-      .insert({
-        org_id: profile.org_id,
-        appointment_id: appointment_id || null,
-        opportunity_id: opportunityId || null,
-        lead_id: leadId,
-        closer_user_id: assignedCloserId,
-        setter_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
-        outcome,
-        notes: notes || null,
-        setter_feedback: setter_feedback || null,
-        prompted_at: outcomeAt,
-        completed_at: outcomeAt,
-        created_at: outcomeAt,
-      })
+      .insert(withTimestamps)
       .select()
       .single()
+
+    statusUpdate = firstInsert.data
+    statusError = firstInsert.error
+
+    // Environments bootstrapped from RUN_THIS_MISSING_TABLES may lack completed_at until migration 138 runs.
+    if (statusError?.message?.includes('completed_at')) {
+      const fallbackInsert = await supabase
+        .from('inspection_status_updates')
+        .insert({ ...statusInsertBase, prompted_at: outcomeAt })
+        .select()
+        .single()
+      statusUpdate = fallbackInsert.data
+      statusError = fallbackInsert.error
+    }
 
     if (statusError) {
       console.error('=== STATUS UPDATE INSERT FAILED ===')
