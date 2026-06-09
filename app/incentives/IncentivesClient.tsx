@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import type { User } from '@/lib/types/database'
 import type {
   LiveMetrics,
@@ -182,9 +183,36 @@ function ThisWeekHero({ isSetterLike, metrics, goal }: HeroProps) {
   )
 }
 
+type SisuSyncProgress = {
+  spiff_program_id: string
+  current_value: number
+  qualified: boolean
+  qualified_at: string | null
+}
+
+function isSisuSyncProgress(value: unknown): value is SisuSyncProgress {
+  if (!value || typeof value !== 'object') return false
+
+  const row = value as Record<string, unknown>
+  return (
+    typeof row.spiff_program_id === 'string' &&
+    typeof row.current_value === 'number' &&
+    typeof row.qualified === 'boolean' &&
+    (typeof row.qualified_at === 'string' || row.qualified_at === null)
+  )
+}
+
 // ─── SPIFF card ───────────────────────────────────────────────────────────────
 
-function SpiffCard({ spiff }: { spiff: SpiffWithProgress }) {
+function SpiffCard({
+  spiff,
+  isSyncing,
+  isQualificationFlashing,
+}: {
+  spiff: SpiffWithProgress
+  isSyncing: boolean
+  isQualificationFlashing: boolean
+}) {
   const pct =
     spiff.threshold > 0 ? (spiff.currentValue / Number(spiff.threshold)) * 100 : 0
   const barColor = progressBarColor(pct)
@@ -197,7 +225,7 @@ function SpiffCard({ spiff }: { spiff: SpiffWithProgress }) {
         spiff.qualified
           ? 'border-emerald-500/60 bg-gradient-to-br from-emerald-950/60 to-gray-900 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
           : 'border-gray-700/60 bg-gray-900'
-      }`}
+      } ${isQualificationFlashing ? 'ring-2 ring-emerald-400' : 'ring-0 ring-transparent'}`}
     >
       {/* Qualified badge */}
       {spiff.qualified && (
@@ -232,7 +260,12 @@ function SpiffCard({ spiff }: { spiff: SpiffWithProgress }) {
           </span>
           <span className={pct >= 100 ? 'text-emerald-400 font-semibold' : ''}>{Math.round(pct)}%</span>
         </div>
-        <ProgressBar pct={pct} colorClass={barColor} />
+        <div className="relative">
+          <ProgressBar pct={pct} colorClass={barColor} />
+          {isSyncing && (
+            <span className="absolute right-1 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-emerald-300 animate-pulse shadow-[0_0_8px_rgba(110,231,183,0.9)]" />
+          )}
+        </div>
       </div>
 
       {/* Footer row */}
@@ -252,7 +285,15 @@ function SpiffCard({ spiff }: { spiff: SpiffWithProgress }) {
   )
 }
 
-function SpiffsSection({ spiffs }: { spiffs: SpiffWithProgress[] }) {
+function SpiffsSection({
+  spiffs,
+  syncing,
+  flashingSpiffIds,
+}: {
+  spiffs: SpiffWithProgress[]
+  syncing: boolean
+  flashingSpiffIds: Set<string>
+}) {
   return (
     <section>
       <div className="flex items-center gap-2 mb-4">
@@ -276,7 +317,11 @@ function SpiffsSection({ spiffs }: { spiffs: SpiffWithProgress[] }) {
         <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory">
           {spiffs.map((s) => (
             <div key={s.id} className="snap-start">
-              <SpiffCard spiff={s} />
+              <SpiffCard
+                spiff={s}
+                isSyncing={syncing}
+                isQualificationFlashing={flashingSpiffIds.has(s.id)}
+              />
             </div>
           ))}
         </div>
@@ -373,10 +418,79 @@ export default function IncentivesClient({
   profile,
   liveMetrics,
   goal,
-  activeSpiffs,
+  activeSpiffs: initialActiveSpiffs,
   earnedBadges,
   isSetterLike,
 }: IncentivesClientProps) {
+  const [activeSpiffs, setActiveSpiffs] = useState(initialActiveSpiffs)
+  const [syncingHeats, setSyncingHeats] = useState(false)
+  const [flashingSpiffIds, setFlashingSpiffIds] = useState<Set<string>>(() => new Set())
+  const initialActiveSpiffsRef = useRef(initialActiveSpiffs)
+  const profileIdRef = useRef(profile.id)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function syncSisuProgress() {
+      setSyncingHeats(true)
+
+      try {
+        const response = await fetch('/api/sisu/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: profileIdRef.current }),
+        })
+
+        if (!response.ok) return
+
+        const json: unknown = await response.json()
+        if (!Array.isArray(json)) return
+
+        const progressRows = json.filter(isSisuSyncProgress)
+        if (progressRows.length === 0) return
+
+        const progressBySpiffId = new Map(
+          progressRows.map((row) => [row.spiff_program_id, row]),
+        )
+        const newlyQualifiedIds = new Set(
+          initialActiveSpiffsRef.current
+            .filter((spiff) => !spiff.qualified && progressBySpiffId.get(spiff.id)?.qualified)
+            .map((spiff) => spiff.id),
+        )
+
+        setActiveSpiffs((currentSpiffs) =>
+          currentSpiffs.map((spiff) => {
+            const progress = progressBySpiffId.get(spiff.id)
+            if (!progress) return spiff
+
+            return {
+              ...spiff,
+              currentValue: progress.current_value,
+              qualified: progress.qualified,
+            }
+          }),
+        )
+
+        if (newlyQualifiedIds.size > 0 && !cancelled) {
+          setFlashingSpiffIds(newlyQualifiedIds)
+          window.setTimeout(() => {
+            if (!cancelled) setFlashingSpiffIds(new Set())
+          }, 2000)
+        }
+      } catch {
+        // Keep the server-rendered progress if the live sync fails.
+      } finally {
+        if (!cancelled) setSyncingHeats(false)
+      }
+    }
+
+    syncSisuProgress()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <main className="max-w-2xl mx-auto px-4 pb-16 pt-6 space-y-8">
       {/* Page header */}
@@ -393,7 +507,11 @@ export default function IncentivesClient({
       <ThisWeekHero isSetterLike={isSetterLike} metrics={liveMetrics} goal={goal} />
 
       {/* Section 2 — SPIFFs */}
-      <SpiffsSection spiffs={activeSpiffs} />
+      <SpiffsSection
+        spiffs={activeSpiffs}
+        syncing={syncingHeats}
+        flashingSpiffIds={flashingSpiffIds}
+      />
 
       {/* Section 3 — Badges */}
       <BadgesSection badges={earnedBadges} />
