@@ -271,7 +271,10 @@ export default function PayrollStatementView({
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Bonuses</h2>
           <ul className="text-sm space-y-2 border rounded-lg divide-y">
             {bonuses.map((b) => (
-              <li key={b.id} className="px-4 py-2 flex justify-between gap-4">
+              <li
+                key={b.id}
+                className="px-4 py-2 flex justify-between gap-4 border-l-4 border-l-green-500"
+              >
                 <span className="text-gray-700">{b.description || b.bonusType}</span>
                 <span className="tabular-nums font-medium text-green-700">
                   {formatPayrollMoney(b.amount)}

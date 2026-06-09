@@ -20,6 +20,7 @@ jest.mock('jspdf', () => ({
 }))
 
 import {
+  buildPayrollStatementEmailHtml,
   buildPayrollStatementEmailSubject,
   buildPayrollStatementEmailUrl,
 } from '@/lib/payroll-statement-email'
@@ -81,6 +82,29 @@ const sampleStatement: PayrollStatementPayload = {
   bonuses: [],
 }
 
+const sampleStatementWithBonuses: PayrollStatementPayload = {
+  ...sampleStatement,
+  totals: {
+    ...sampleStatement.totals,
+    bonusEarnings: 800,
+    netPayout: 1030,
+  },
+  bonuses: [
+    {
+      id: 'bonus-444-week1',
+      bonusType: '444_week1',
+      description: 'ARX 444 Week 1 qualified',
+      amount: 400,
+    },
+    {
+      id: 'bonus-444-week2',
+      bonusType: '444_week2',
+      description: 'ARX 444 Week 2 qualified',
+      amount: 400,
+    },
+  ],
+}
+
 describe('payroll-statement-email', () => {
   it('builds statement URL from app base', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://example.com/'
@@ -91,6 +115,18 @@ describe('payroll-statement-email', () => {
 
   it('builds subject with period and net payout', () => {
     expect(buildPayrollStatementEmailSubject(sampleStatement)).toBe('Pay statement — 2026-w22 — $230.00')
+  })
+
+  it('includes bonus summary when bonuses are present', () => {
+    const html = buildPayrollStatementEmailHtml({
+      recipientName: sampleStatementWithBonuses.rep.name,
+      statement: sampleStatementWithBonuses,
+      statementUrl: 'https://example.com/commissions/statement/period-123',
+      pdfAttached: false,
+    })
+
+    expect(html).toContain('Bonuses')
+    expect(html).toContain('$800.00')
   })
 })
 
