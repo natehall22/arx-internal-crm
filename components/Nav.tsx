@@ -236,6 +236,7 @@ export default function Nav() {
   const allNavItems: NavItem[] = [
     // Sales dashboard - shown to everyone except ops-only users
     ...(hasSalesDashboardInNav ? [{ href: '/dashboard', label: 'Dashboard' }] : []),
+    { href: '/sisu', label: 'Incentives', requiresAnyPermission: ['leads:view'] },
     ...(canSeeOpsDashboard
       ? [
           {
@@ -259,7 +260,6 @@ export default function Nav() {
       label: 'Canvass',
       requiresAnyPermission: 'canvass:view',
     },
-    { href: '/sisu', label: 'Incentives', requiresAnyPermission: ['leads:view'] },
     { href: '/pricebook', label: 'Pricebook', requiresAnyPermission: ['pricebook:view', 'pricebook:edit'] },
     { href: '/customers', label: 'Customers', requiresAnyPermission: ['customers:view', 'customers:edit'] },
     { href: '/reports', label: 'Reports', requiresAnyPermission: ['reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all'] },
