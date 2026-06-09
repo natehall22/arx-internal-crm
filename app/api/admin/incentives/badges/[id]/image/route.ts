@@ -64,7 +64,11 @@ export async function POST(
     return NextResponse.json({ error: 'File must be under 10 MB' }, { status: 400 })
   }
 
-  const ext = file.type.split('/')[1].replace('jpeg', 'jpg')
+  const mimeSubtype = file.type.split('/')[1]
+  if (!mimeSubtype) {
+    return NextResponse.json({ error: 'Invalid MIME type' }, { status: 400 })
+  }
+  const ext = mimeSubtype.replace('jpeg', 'jpg')
   const storagePath = `${profile.org_id}/${badgeId}.${ext}`
   const buffer = Buffer.from(await file.arrayBuffer())
 

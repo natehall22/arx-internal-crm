@@ -1,5 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// ── Config ────────────────────────────────────────────────────────────────────
+// Configurable via PROGRAM_444_BONUS_AMOUNT env var. Defaults to $400.
+// Update the env var to change the bonus without a redeploy.
+const WEEK_BONUS_AMOUNT = (() => {
+  const raw = process.env.PROGRAM_444_BONUS_AMOUNT
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 400
+})()
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Enrollment = {
@@ -201,10 +210,25 @@ export async function syncOrgEnrollments(
     const week2Done = enrollment.week2_qualified || week2NewlyQualified
     if (week1Done && week2Done) enrollmentUpdate.status = 'completed'
 
-    const { error: updateError } = await admin
+    // ── Optimistic lock (Fix #5 — race condition) ─────────────────────────────
+    // Add WHERE conditions for any flags we're about to flip. If a concurrent
+    // sync already flipped them, 0 rows are updated and we skip bonus/notification
+    // entirely — preventing duplicate payouts and duplicate notifications.
+    const baseQuery = admin
       .from('program_444_enrollments')
       .update(enrollmentUpdate)
       .eq('id', enrollment.id)
+
+    const lockedQuery =
+      week1NewlyQualified && week2NewlyQualified
+        ? baseQuery.eq('week1_qualified', false).eq('week2_qualified', false)
+        : week1NewlyQualified
+        ? baseQuery.eq('week1_qualified', false)
+        : week2NewlyQualified
+        ? baseQuery.eq('week2_qualified', false)
+        : baseQuery
+
+    const { data: updatedRows, error: updateError } = await lockedQuery.select('id')
 
     if (updateError) {
       console.error(`[sync-444] Failed to update enrollment ${enrollment.id}:`, updateError.message)
@@ -213,62 +237,95 @@ export async function syncOrgEnrollments(
 
     synced += 1
 
-    if (week1NewlyQualified) {
+    // If 0 rows came back a concurrent sync beat us — skip bonus + notification
+    // to prevent duplicates (Fix #2 — duplicate notifications)
+    const didUpdate = (updatedRows?.length ?? 0) > 0
+
+    if (week1NewlyQualified && didUpdate) {
       qualified.push({ user_id: enrollment.user_id, week: 1 })
 
+      // ── Bonus line ──────────────────────────────────────────────────────────
+      let bonusRegistered = false
       if (openPayrollPeriodId) {
         const { error: bonusError } = await admin.from('payroll_bonus_lines').insert({
           org_id: orgId,
           payroll_period_id: openPayrollPeriodId,
           user_id: enrollment.user_id,
           bonus_type: '444_week1',
-          amount: 400,
-          description: 'ARX 444 Program Week 1 Bonus',
+          amount: WEEK_BONUS_AMOUNT,
+          description: `ARX 444 Program Week 1 Bonus`,
           source_id: enrollment.id,
           created_by: callerUserId,
         })
-        if (bonusError && bonusError.code !== '23505') {
+        if (!bonusError || bonusError.code === '23505') {
+          bonusRegistered = true
+        } else {
           console.error('[sync-444] Failed to insert week1 bonus line:', bonusError.message)
         }
       }
 
-      await admin.from('notifications').insert({
+      // ── Notification (Fix #1 — only fire when bonus is confirmed or payroll
+      //    period missing; body is honest about registration status) ───────────
+      const bonusBody = bonusRegistered
+        ? `You qualified for the $${WEEK_BONUS_AMOUNT} Week 1 bonus. It has been registered for payroll.`
+        : openPayrollPeriodId
+        ? `You qualified for Week 1! Bonus registration encountered an issue — contact your manager.`
+        : `You qualified for Week 1! Your $${WEEK_BONUS_AMOUNT} bonus will be registered once the payroll period opens.`
+
+      const { error: notifError } = await admin.from('notifications').insert({
         org_id: orgId,
         recipient_user_id: enrollment.user_id,
         actor_user_id: callerUserId,
         type: 'sisu_444_qualified',
         title: 'You hit the 444!',
-        body: 'You qualified for the $400 Week 1 bonus. Keep it up.',
+        body: bonusBody,
       })
+      if (notifError) {
+        console.error('[sync-444] Failed to insert week1 notification:', notifError.message)
+      }
     }
 
-    if (week2NewlyQualified) {
+    if (week2NewlyQualified && didUpdate) {
       qualified.push({ user_id: enrollment.user_id, week: 2 })
 
+      // ── Bonus line ──────────────────────────────────────────────────────────
+      let bonusRegistered = false
       if (openPayrollPeriodId) {
         const { error: bonusError } = await admin.from('payroll_bonus_lines').insert({
           org_id: orgId,
           payroll_period_id: openPayrollPeriodId,
           user_id: enrollment.user_id,
           bonus_type: '444_week2',
-          amount: 400,
-          description: 'ARX 444 Program Week 2 Bonus',
+          amount: WEEK_BONUS_AMOUNT,
+          description: `ARX 444 Program Week 2 Bonus`,
           source_id: enrollment.id,
           created_by: callerUserId,
         })
-        if (bonusError && bonusError.code !== '23505') {
+        if (!bonusError || bonusError.code === '23505') {
+          bonusRegistered = true
+        } else {
           console.error('[sync-444] Failed to insert week2 bonus line:', bonusError.message)
         }
       }
 
-      await admin.from('notifications').insert({
+      // ── Notification ────────────────────────────────────────────────────────
+      const bonusBody = bonusRegistered
+        ? `You qualified for the $${WEEK_BONUS_AMOUNT} Week 2 bonus. Incredible work — it has been registered for payroll.`
+        : openPayrollPeriodId
+        ? `You qualified for Week 2! Bonus registration encountered an issue — contact your manager.`
+        : `You qualified for Week 2! Your $${WEEK_BONUS_AMOUNT} bonus will be registered once the payroll period opens.`
+
+      const { error: notifError } = await admin.from('notifications').insert({
         org_id: orgId,
         recipient_user_id: enrollment.user_id,
         actor_user_id: callerUserId,
         type: 'sisu_444_qualified',
         title: 'You hit the 444!',
-        body: 'You qualified for the $400 Week 2 bonus. Incredible work.',
+        body: bonusBody,
       })
+      if (notifError) {
+        console.error('[sync-444] Failed to insert week2 notification:', notifError.message)
+      }
     }
   }
 
