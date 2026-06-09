@@ -13,9 +13,30 @@ type AccountabilityRow = {
   week_in_444: 1 | 2 | null
   week1_qualified: boolean
   week2_qualified: boolean
+  // goal fields — present when goals have been set for this rep
+  doors_goal: number | null
+  inspections_goal: number | null
+  sales_goal: number | null
+  doors_pct: number | null
+  inspections_pct: number | null
+  program_444_pct: number | null
+  on_pace_doors: boolean | null
+  on_pace_inspections: boolean | null
 }
 
-type SortKey = 'full_name' | 'role' | 'doors_knocked' | 'inspections_set' | 'is_enrolled_444'
+type TeamSummary = {
+  total_reps: number
+  on_pace_doors: number
+  on_pace_inspections: number
+  reps_with_door_goal: number
+  reps_with_insp_goal: number
+  enrolled_444: number
+  completed_444: number
+  needs_attention: number
+  close_to_goal: number
+}
+
+type SortKey = 'full_name' | 'role' | 'doors_knocked' | 'inspections_set' | 'is_enrolled_444' | 'doors_pct' | 'inspections_pct'
 type SortDirection = 'asc' | 'desc'
 
 type GateTone = {
@@ -40,6 +61,16 @@ function isAccountabilityRow(value: unknown): value is AccountabilityRow {
     (value.week_in_444 === 1 || value.week_in_444 === 2 || value.week_in_444 === null) &&
     typeof value.week1_qualified === 'boolean' &&
     typeof value.week2_qualified === 'boolean'
+    // goal fields are optional — don't require them in the validator
+  )
+}
+
+function isTeamSummary(value: unknown): value is TeamSummary {
+  return (
+    isRecord(value) &&
+    typeof value.total_reps === 'number' &&
+    typeof value.needs_attention === 'number' &&
+    typeof value.close_to_goal === 'number'
   )
 }
 
@@ -105,17 +136,78 @@ function getProgramStatus(row: AccountabilityRow): string {
 }
 
 function compareRows(a: AccountabilityRow, b: AccountabilityRow, key: SortKey): number {
-  if (key === 'doors_knocked' || key === 'inspections_set') {
-    return a[key] - b[key]
-  }
-
-  if (key === 'is_enrolled_444') {
-    return Number(a.is_enrolled_444) - Number(b.is_enrolled_444)
-  }
-
+  if (key === 'doors_knocked' || key === 'inspections_set') return a[key] - b[key]
+  if (key === 'doors_pct') return (a.doors_pct ?? -1) - (b.doors_pct ?? -1)
+  if (key === 'inspections_pct') return (a.inspections_pct ?? -1) - (b.inspections_pct ?? -1)
+  if (key === 'is_enrolled_444') return Number(a.is_enrolled_444) - Number(b.is_enrolled_444)
   const left = key === 'role' ? displayRole(a.role) : a.full_name ?? ''
   const right = key === 'role' ? displayRole(b.role) : b.full_name ?? ''
   return left.localeCompare(right)
+}
+
+function GoalCell({
+  userId,
+  field,
+  value,
+  onSaved,
+}: {
+  userId: string
+  field: 'doors' | 'inspections'
+  value: number | null
+  onSaved: (userId: string, field: 'doors' | 'inspections', newValue: number | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value != null ? String(value) : '')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const parsed = draft.trim() === '' ? null : parseInt(draft, 10)
+    if (parsed !== null && isNaN(parsed)) { setEditing(false); return }
+    setSaving(true)
+    await fetch('/api/admin/sisu/goals', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        [`weekly_${field}_target`]: parsed,
+      }),
+    })
+    setSaving(false)
+    setEditing(false)
+    onSaved(userId, field, parsed)
+  }
+
+  if (editing) {
+    return (
+      <input
+        type="number"
+        min={0}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void save()}
+        onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') setEditing(false) }}
+        disabled={saving}
+        className="w-20 rounded border border-indigo-500 bg-slate-900 px-2 py-1 text-xs text-white focus:outline-none"
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => { setDraft(value != null ? String(value) : ''); setEditing(true) }}
+      className="group flex items-center gap-1 text-xs text-slate-300 hover:text-white"
+      title="Click to set goal"
+    >
+      <span className={value != null ? 'font-semibold' : 'text-slate-500 italic'}>
+        {value != null ? value : 'Set goal'}
+      </span>
+      <svg className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    </button>
+  )
 }
 
 function GateBar({
@@ -174,6 +266,7 @@ function SortHeader({
 
 export default function AccountabilityClient() {
   const [rows, setRows] = useState<AccountabilityRow[]>([])
+  const [summary, setSummary] = useState<TeamSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('inspections_set')
@@ -201,6 +294,7 @@ export default function AccountabilityClient() {
       }
 
       setRows(payload.accountability.filter(isAccountabilityRow))
+      if (isTeamSummary(payload.summary)) setSummary(payload.summary)
     } catch {
       setError('Accountability data unavailable')
     } finally {
@@ -240,6 +334,16 @@ export default function AccountabilityClient() {
       return sortDirection === 'asc' ? result : -result
     })
   }, [rows, sortDirection, sortKey])
+
+  function handleGoalSaved(userId: string, field: 'doors' | 'inspections', newValue: number | null) {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.user_id === userId
+          ? { ...r, [`${field}_goal`]: newValue }
+          : r
+      )
+    )
+  }
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -304,6 +408,31 @@ export default function AccountabilityClient() {
         </div>
       )}
 
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className={`rounded-xl border px-4 py-3 ${summary.needs_attention > 0 ? 'border-red-500/40 bg-red-500/10' : 'border-slate-800 bg-slate-900/70'}`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Needs Attention</p>
+            <p className={`mt-1 text-2xl font-black ${summary.needs_attention > 0 ? 'text-red-300' : 'text-slate-300'}`}>{summary.needs_attention}</p>
+            <p className="text-xs text-slate-500">behind pace</p>
+          </div>
+          <div className={`rounded-xl border px-4 py-3 ${summary.close_to_goal > 0 ? 'border-amber-500/40 bg-amber-500/10' : 'border-slate-800 bg-slate-900/70'}`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Close to Goal</p>
+            <p className={`mt-1 text-2xl font-black ${summary.close_to_goal > 0 ? 'text-amber-300' : 'text-slate-300'}`}>{summary.close_to_goal}</p>
+            <p className="text-xs text-slate-500">80–99% there — push them</p>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">On Pace (Doors)</p>
+            <p className="mt-1 text-2xl font-black text-emerald-300">{summary.on_pace_doors}<span className="text-sm font-normal text-slate-500">/{summary.reps_with_door_goal}</span></p>
+            <p className="text-xs text-slate-500">reps with goal set</p>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">444 Enrolled</p>
+            <p className="mt-1 text-2xl font-black text-indigo-300">{summary.enrolled_444}<span className="text-sm font-normal text-slate-500">/{summary.total_reps}</span></p>
+            <p className="text-xs text-slate-500">{summary.completed_444} completed</p>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-2xl shadow-black/20">
         <div className="overflow-x-auto">
           <table className="min-w-[980px] w-full divide-y divide-slate-800">
@@ -321,8 +450,14 @@ export default function AccountabilityClient() {
                 <th className="px-4 py-3 text-left">
                   <SortHeader label="Inspections Set" sortKey="inspections_set" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Door Gate</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Insp Gate</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Door Goal</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <SortHeader label="Door %" sortKey="doors_pct" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Insp Goal</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <SortHeader label="Insp %" sortKey="inspections_pct" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
+                </th>
                 <th className="px-4 py-3 text-left">
                   <SortHeader label="444 Status" sortKey="is_enrolled_444" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                 </th>
@@ -359,10 +494,16 @@ export default function AccountabilityClient() {
                       <td className="px-4 py-4 text-sm font-semibold text-white">{row.doors_knocked}</td>
                       <td className="px-4 py-4 text-sm font-semibold text-white">{row.inspections_set}</td>
                       <td className="px-4 py-4">
-                        <GateBar value={row.doors_knocked} target={400} tone={doorTone} />
+                        <GoalCell userId={row.user_id} field="doors" value={row.doors_goal} onSaved={handleGoalSaved} />
                       </td>
                       <td className="px-4 py-4">
-                        <GateBar value={row.inspections_set} target={4} tone={inspectionTone} />
+                        <GateBar value={row.doors_knocked} target={row.doors_goal ?? 400} tone={doorTone} />
+                      </td>
+                      <td className="px-4 py-4">
+                        <GoalCell userId={row.user_id} field="inspections" value={row.inspections_goal} onSaved={handleGoalSaved} />
+                      </td>
+                      <td className="px-4 py-4">
+                        <GateBar value={row.inspections_set} target={row.inspections_goal ?? 4} tone={inspectionTone} />
                       </td>
                       <td className="px-4 py-4">
                         <span className="inline-flex rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs font-semibold text-slate-200">
