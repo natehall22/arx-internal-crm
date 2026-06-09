@@ -1045,6 +1045,93 @@ function LeaderboardSection({
   )
 }
 
+// ─── Status bar ───────────────────────────────────────────────────────────────
+
+function StatusBar({
+  activeSpiffs,
+  leaderboard,
+  currentUserId,
+  isSetterLike,
+  enrollment444,
+  onOpenLeaderboard,
+}: {
+  activeSpiffs: SpiffWithProgress[]
+  leaderboard: LeaderboardResponse | null
+  currentUserId: string
+  isSetterLike: boolean
+  enrollment444: Enrollment444 | null
+  onOpenLeaderboard: () => void
+}) {
+  const earnedFromHeats = activeSpiffs
+    .filter((s) => s.qualified && s.reward_amount != null)
+    .reduce((sum, s) => sum + (s.reward_amount ?? 0), 0)
+
+  const roleTab: LeaderboardRoleTab = isSetterLike ? 'setters' : 'closers'
+  const roleRows = leaderboard?.[roleTab] ?? []
+  const myRankEntry = roleRows.find((e) => e.user_id === currentUserId)
+
+  // 444 gap to next $400
+  let bonus444Label: string | null = null
+  if (enrollment444 && !enrollment444.week1_qualified && !enrollment444.week2_qualified) {
+    const now = new Date()
+    const inWeek2 = now >= new Date(enrollment444.week2_starts_at)
+    const doors = inWeek2 ? enrollment444.week2_doors : enrollment444.week1_doors
+    const inspections = inWeek2 ? enrollment444.week2_inspections : enrollment444.week1_inspections
+    const doorsLeft = Math.max(0, 400 - doors)
+    const inspsLeft = Math.max(0, 4 - inspections)
+    if (doorsLeft > 0 || inspsLeft > 0) {
+      const parts: string[] = []
+      if (doorsLeft > 0) parts.push(`${doorsLeft} doors`)
+      if (inspsLeft > 0) parts.push(`${inspsLeft} insp`)
+      bonus444Label = `${parts.join(' + ')} → $400`
+    }
+  }
+
+  const chips: { label: string; value: string; amber?: boolean; onClick?: () => void }[] = []
+
+  if (earnedFromHeats > 0) {
+    chips.push({ label: 'Earned', value: `$${earnedFromHeats.toLocaleString()}`, amber: true })
+  }
+
+  if (myRankEntry) {
+    chips.push({
+      label: roleTab === 'setters' ? 'Setters rank' : 'Closers rank',
+      value: `#${myRankEntry.rank}`,
+      onClick: onOpenLeaderboard,
+    })
+  }
+
+  if (bonus444Label) {
+    chips.push({ label: '444 bonus', value: bonus444Label, amber: true })
+  }
+
+  if (chips.length === 0) return null
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {chips.map((chip) => (
+        <button
+          key={chip.label}
+          type="button"
+          disabled={!chip.onClick}
+          onClick={chip.onClick}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+            chip.amber
+              ? 'border-amber-500/40 bg-amber-950/50 text-amber-300'
+              : chip.onClick
+              ? 'border-indigo-500/40 bg-indigo-950/50 text-indigo-300 hover:border-indigo-400/60 cursor-pointer'
+              : 'border-gray-700 bg-gray-900 text-gray-300 cursor-default'
+          }`}
+        >
+          <span className="text-gray-400 font-normal">{chip.label}</span>
+          <span>{chip.value}</span>
+          {chip.onClick && <span className="text-indigo-400 ml-0.5">→</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ─── 444 Program card ─────────────────────────────────────────────────────────
 
 function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
@@ -1222,8 +1309,12 @@ export default function IncentivesClient({
   const [flashingSpiffIds, setFlashingSpiffIds] = useState<Set<string>>(() => new Set())
   const [toastHeat, setToastHeat] = useState<SpiffWithProgress | null>(null)
   const [mainView, setMainView] = useState<MainView>('stats')
+  const isManager = [
+    'manager', 'sales_manager', 'setter_manager', 'regional_manager',
+    'regional_setter_manager', 'admin', 'owner', 'operations',
+  ].includes(profile.role ?? '')
   const [leaderboardRoleTab, setLeaderboardRoleTab] = useState<LeaderboardRoleTab>(
-    isSetterLike ? 'setters' : 'closers',
+    isSetterLike ? 'setters' : isManager ? 'setters' : 'closers',
   )
   const [leaderboard, setLeaderboard] = useState<LeaderboardResponse | null>(null)
   const [leaderboardLoading, setLeaderboardLoading] = useState(true)
@@ -1381,6 +1472,16 @@ export default function IncentivesClient({
           </button>
         ))}
       </div>
+
+      {/* Status bar — always visible regardless of tab */}
+      <StatusBar
+        activeSpiffs={activeSpiffs}
+        leaderboard={leaderboard}
+        currentUserId={profile.id}
+        isSetterLike={isSetterLike}
+        enrollment444={enrollment444}
+        onOpenLeaderboard={() => setMainView('leaderboard')}
+      />
 
       {mainView === 'stats' ? (
         <>
