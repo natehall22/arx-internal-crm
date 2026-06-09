@@ -72,11 +72,13 @@ const sampleStatement: PayrollStatementPayload = {
     grossCommission: 0,
     hourlyEarnings: 200,
     periodUnitEarnings: 30,
+    bonusEarnings: 0,
     chargebacksApplied: 0,
     netPayout: 230,
     hasDeficit: false,
   },
   chargebacks: [],
+  bonuses: [],
 }
 
 describe('payroll-statement-email', () => {

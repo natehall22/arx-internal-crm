@@ -31,6 +31,13 @@ export type PayrollStatementChargebackRow = {
   jobId: string | null
 }
 
+export type PayrollStatementBonusLine = {
+  id: string
+  bonusType: string
+  description: string | null
+  amount: number
+}
+
 export type PayrollStatementPayload = {
   period: {
     id: string
@@ -55,11 +62,13 @@ export type PayrollStatementPayload = {
     grossCommission: number
     hourlyEarnings: number
     periodUnitEarnings: number
+    bonusEarnings: number
     chargebacksApplied: number
     netPayout: number
     hasDeficit: boolean
   }
   chargebacks: PayrollStatementChargebackRow[]
+  bonuses: PayrollStatementBonusLine[]
 }
 
 export async function buildPayrollStatement(
@@ -143,6 +152,20 @@ export async function buildPayrollStatement(
     list.push(r)
     rolesByJob.set(jid, list)
   }
+
+  const { data: bonusRows } = await supabase
+    .from('payroll_bonus_lines')
+    .select('id, bonus_type, description, amount')
+    .eq('payroll_period_id', periodId)
+    .eq('user_id', userId)
+    .eq('org_id', orgId)
+
+  const bonuses: PayrollStatementBonusLine[] = (bonusRows ?? []).map((b) => ({
+    id: b.id as string,
+    bonusType: b.bonus_type as string,
+    description: (b.description as string | null) ?? null,
+    amount: Number(b.amount) || 0,
+  }))
 
   const payoutLineIds = (payoutLines || []).map((l) => l.id as string)
   const { data: cbApps } =
@@ -247,8 +270,9 @@ export async function buildPayrollStatement(
   const grossCommission = deals.reduce((s, d) => s + d.dealTotal, 0)
   const hourlyEarnings = hourly?.total ?? 0
   const periodUnitEarnings = periodUnits?.total ?? 0
+  const bonusEarnings = bonuses.reduce((s, b) => s + b.amount, 0)
   const chargebacksApplied = chargebacks.reduce((s, c) => s + c.appliedAmount, 0)
-  const netPayout = grossCommission + hourlyEarnings + periodUnitEarnings - chargebacksApplied
+  const netPayout = grossCommission + hourlyEarnings + periodUnitEarnings + bonusEarnings - chargebacksApplied
 
   return {
     period: {
@@ -266,10 +290,12 @@ export async function buildPayrollStatement(
       grossCommission,
       hourlyEarnings,
       periodUnitEarnings,
+      bonusEarnings,
       chargebacksApplied,
       netPayout,
       hasDeficit: netPayout < 0,
     },
     chargebacks,
+    bonuses,
   }
 }

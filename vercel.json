@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/cleanup-inspection-photos",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/sync-444",
+      "schedule": "0 * * * *"
     }
   ]
 }

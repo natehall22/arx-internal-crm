@@ -312,6 +312,13 @@ export function buildPayrollStatementPdfBuffer(
     })
   }
 
+  if (statement.totals.bonusEarnings > 0) {
+    summaryRows.push({
+      label: 'Bonuses',
+      amount: formatPayrollMoney(statement.totals.bonusEarnings),
+    })
+  }
+
   summaryRows.push({
     label: 'Chargebacks',
     amount: formatNegativePayrollMoney(statement.totals.chargebacksApplied),

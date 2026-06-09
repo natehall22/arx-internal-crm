@@ -53,7 +53,7 @@ export default function PayrollStatementView({
     )
   }
 
-  const { period, rep, deals, hourly, periodUnits, totals, chargebacks } = statement
+  const { period, rep, deals, hourly, periodUnits, totals, chargebacks, bonuses } = statement
   const hasNonCommissionEarnings =
     (periodUnits?.total ?? 0) > 0 || (hourly?.total ?? 0) > 0
 
@@ -92,6 +92,12 @@ export default function PayrollStatementView({
             <BreakdownChip
               label="Sit / sale pay"
               value={formatPayrollMoney(totals.periodUnitEarnings)}
+            />
+          )}
+          {totals.bonusEarnings > 0 && (
+            <BreakdownChip
+              label="Bonuses"
+              value={formatPayrollMoney(totals.bonusEarnings)}
             />
           )}
           <BreakdownChip
@@ -260,6 +266,22 @@ export default function PayrollStatementView({
         )}
       </section>
 
+      {bonuses.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Bonuses</h2>
+          <ul className="text-sm space-y-2 border rounded-lg divide-y">
+            {bonuses.map((b) => (
+              <li key={b.id} className="px-4 py-2 flex justify-between gap-4">
+                <span className="text-gray-700">{b.description || b.bonusType}</span>
+                <span className="tabular-nums font-medium text-green-700">
+                  {formatPayrollMoney(b.amount)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {chargebacks.length > 0 && (
         <section>
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Chargebacks applied</h2>
@@ -281,6 +303,9 @@ export default function PayrollStatementView({
         <SummaryCard label="Hourly" value={formatPayrollMoney(totals.hourlyEarnings)} />
         {totals.periodUnitEarnings > 0 && (
           <SummaryCard label="Sit / sale pay" value={formatPayrollMoney(totals.periodUnitEarnings)} />
+        )}
+        {totals.bonusEarnings > 0 && (
+          <SummaryCard label="Bonuses" value={formatPayrollMoney(totals.bonusEarnings)} />
         )}
         <SummaryCard
           label="Net payout"

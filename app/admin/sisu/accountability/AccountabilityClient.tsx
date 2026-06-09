@@ -178,6 +178,14 @@ export default function AccountabilityClient() {
   const [error, setError] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('inspections_set')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
+
+  const sync444 = useCallback(async () => {
+    await fetch('/api/admin/sisu/sync-444', { method: 'POST' })
+      .then(() => { setLastSyncedAt(new Date()) })
+      .catch(() => { /* non-fatal */ })
+  }, [])
 
   const loadRows = useCallback(async (showLoading: boolean) => {
     if (showLoading) setLoading(true)
@@ -201,13 +209,30 @@ export default function AccountabilityClient() {
   }, [])
 
   useEffect(() => {
-    void loadRows(true)
+    // Render immediately (loading skeleton), then sync + load in background
+    void sync444().then(() => loadRows(true))
+
     const intervalId = window.setInterval(() => {
-      void loadRows(false)
+      void sync444().then(() => loadRows(false))
     }, 5 * 60 * 1000)
 
     return () => window.clearInterval(intervalId)
-  }, [loadRows])
+  }, [sync444, loadRows])
+
+  async function handleSyncNow() {
+    setSyncing(true)
+    await sync444()
+    await loadRows(false)
+    setSyncing(false)
+  }
+
+  function formatLastSynced(date: Date): string {
+    const diffMs = Date.now() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60_000)
+    if (diffMins < 1) return 'just now'
+    if (diffMins === 1) return '1 minute ago'
+    return `${diffMins} minutes ago`
+  }
 
   const sortedRows = useMemo(() => {
     return [...rows].sort((a, b) => {
@@ -235,13 +260,38 @@ export default function AccountabilityClient() {
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
             Current-week setter activity, door gates, inspection gates, and 444 enrollment status.
           </p>
+          {lastSyncedAt && (
+            <p className="mt-1 text-xs text-slate-500">
+              Last synced: {formatLastSynced(lastSyncedAt)}
+            </p>
+          )}
         </div>
-        <Link
-          href="/admin/sisu/444"
-          className="inline-flex items-center justify-center rounded-lg border border-indigo-400/40 px-4 py-2 text-sm font-semibold text-indigo-100 transition hover:border-indigo-300 hover:bg-indigo-500/10"
-        >
-          Manage 444
-        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => { void handleSyncNow() }}
+            disabled={syncing}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:border-slate-500 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {syncing ? (
+              <>
+                <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Syncing…
+              </>
+            ) : (
+              'Sync Now'
+            )}
+          </button>
+          <Link
+            href="/admin/sisu/444"
+            className="inline-flex items-center justify-center rounded-lg border border-indigo-400/40 px-4 py-2 text-sm font-semibold text-indigo-100 transition hover:border-indigo-300 hover:bg-indigo-500/10"
+          >
+            Manage 444
+          </Link>
+        </div>
       </div>
 
       {error && (
