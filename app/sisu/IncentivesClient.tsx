@@ -603,12 +603,16 @@ function BadgeIcon({
 
   if (badge.image_url) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={badge.image_url}
-        alt={badge.name}
-        className={`${dim} rounded-full object-cover ${dimmed ? 'grayscale opacity-80' : ''}`}
-      />
+      <div
+        className={`${dim} rounded-full overflow-hidden flex-shrink-0 ${dimmed ? 'grayscale opacity-80' : ''}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={badge.image_url}
+          alt={badge.name}
+          className="h-full w-full object-cover object-center"
+        />
+      </div>
     )
   }
 

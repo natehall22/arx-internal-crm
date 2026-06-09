@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 const BADGE_IMAGES_BUCKET = 'badge-images'
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
-const MAX_BYTES = 2 * 1024 * 1024 // 2 MB
+const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
 const ADMIN_ROLES = new Set([
   'admin', 'owner', 'regional_manager', 'regional_setter_manager',
@@ -61,7 +61,7 @@ export async function POST(
   }
 
   if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: 'File must be under 2 MB' }, { status: 400 })
+    return NextResponse.json({ error: 'File must be under 10 MB' }, { status: 400 })
   }
 
   const ext = file.type.split('/')[1].replace('jpeg', 'jpg')

@@ -1152,12 +1152,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                 <div className="flex items-start gap-3 mb-3">
                   {/* icon / image preview */}
                   {b.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={b.image_url}
-                      alt={b.name}
-                      className="w-12 h-12 rounded-full object-cover flex-shrink-0"
-                    />
+                    <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={b.image_url}
+                        alt={b.name}
+                        className="h-full w-full object-cover object-center"
+                      />
+                    </div>
                   ) : (
                     <div
                       className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
@@ -1469,12 +1471,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               {/* preview */}
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 {badgeImagePreview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={badgeImagePreview}
-                    alt="Badge preview"
-                    className="w-12 h-12 rounded-full object-cover flex-shrink-0"
-                  />
+                  <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={badgeImagePreview}
+                      alt="Badge preview"
+                      className="h-full w-full object-cover object-center"
+                    />
+                  </div>
                 ) : (
                   <div
                     className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
@@ -1525,7 +1529,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                     )}
                   </div>
                   {!badgeImagePreview && (
-                    <p className="mt-1 text-xs text-gray-400">JPEG, PNG, WebP or GIF · max 2 MB</p>
+                    <p className="mt-1 text-xs text-gray-400">JPEG, PNG, WebP or GIF · max 10 MB</p>
                   )}
                 </div>
               )}

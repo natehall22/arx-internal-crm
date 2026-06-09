@@ -145,6 +145,132 @@ function compareRows(a: AccountabilityRow, b: AccountabilityRow, key: SortKey): 
   return left.localeCompare(right)
 }
 
+function isCloseToGoalRow(row: AccountabilityRow): boolean {
+  return (
+    (row.doors_pct !== null && row.doors_pct >= 80 && row.doors_pct < 100) ||
+    (row.inspections_pct !== null && row.inspections_pct >= 80 && row.inspections_pct < 100)
+  )
+}
+
+function isNeedsAttentionRow(row: AccountabilityRow): boolean {
+  return row.on_pace_doors === false || row.on_pace_inspections === false
+}
+
+function closeToGoalLines(row: AccountabilityRow): string[] {
+  const lines: string[] = []
+  if (
+    row.doors_pct !== null &&
+    row.doors_pct >= 80 &&
+    row.doors_pct < 100 &&
+    row.doors_goal != null
+  ) {
+    const remaining = Math.max(0, row.doors_goal - row.doors_knocked)
+    lines.push(`${remaining} more door${remaining === 1 ? '' : 's'}`)
+  }
+  if (
+    row.inspections_pct !== null &&
+    row.inspections_pct >= 80 &&
+    row.inspections_pct < 100 &&
+    row.inspections_goal != null
+  ) {
+    const remaining = Math.max(0, row.inspections_goal - row.inspections_set)
+    lines.push(`${remaining} more inspection${remaining === 1 ? '' : 's'}`)
+  }
+  return lines
+}
+
+function behindPaceLines(row: AccountabilityRow): string[] {
+  const lines: string[] = []
+  if (row.on_pace_doors === false) {
+    if (row.doors_goal != null && row.doors_pct != null) {
+      lines.push(`Doors ${row.doors_knocked}/${row.doors_goal} (${row.doors_pct}%)`)
+    } else {
+      lines.push(`Doors ${row.doors_knocked}`)
+    }
+  }
+  if (row.on_pace_inspections === false) {
+    if (row.inspections_goal != null && row.inspections_pct != null) {
+      lines.push(`Insp ${row.inspections_set}/${row.inspections_goal} (${row.inspections_pct}%)`)
+    } else {
+      lines.push(`Insp ${row.inspections_set}`)
+    }
+  }
+  return lines
+}
+
+function CoachingCalloutCard({
+  name,
+  lines,
+  accent,
+}: {
+  name: string
+  lines: string[]
+  accent: 'amber' | 'red'
+}) {
+  const borderClass = accent === 'amber' ? 'border-amber-500/40' : 'border-red-500/40'
+  const metricClass = accent === 'amber' ? 'text-amber-300' : 'text-red-300'
+
+  return (
+    <div
+      className={`inline-flex shrink-0 flex-col rounded-xl border bg-slate-900 px-3 py-2 ${borderClass}`}
+    >
+      <p className="whitespace-nowrap text-sm font-semibold text-white">{name}</p>
+      {lines.map((line) => (
+        <p key={line} className={`whitespace-nowrap text-xs font-medium ${metricClass}`}>
+          {line}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function AtRiskCallouts({ rows }: { rows: AccountabilityRow[] }) {
+  const pushThemRows = rows.filter(isCloseToGoalRow)
+  const needsAttentionRows = rows.filter(isNeedsAttentionRow)
+
+  if (pushThemRows.length === 0 && needsAttentionRows.length === 0) return null
+
+  return (
+    <div className="space-y-4">
+      {pushThemRows.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-400">
+            Push them over — one message closes this
+          </p>
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            {pushThemRows.map((row) => (
+              <CoachingCalloutCard
+                key={row.user_id}
+                name={row.full_name ?? 'Unnamed rep'}
+                lines={closeToGoalLines(row)}
+                accent="amber"
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {needsAttentionRows.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-red-400">
+            Behind pace mid-week
+          </p>
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            {needsAttentionRows.map((row) => (
+              <CoachingCalloutCard
+                key={row.user_id}
+                name={row.full_name ?? 'Unnamed rep'}
+                lines={behindPaceLines(row)}
+                accent="red"
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function GoalCell({
   userId,
   field,
@@ -432,6 +558,8 @@ export default function AccountabilityClient() {
           </div>
         </div>
       )}
+
+      {!loading && !error && <AtRiskCallouts rows={sortedRows} />}
 
       <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-2xl shadow-black/20">
         <div className="overflow-x-auto">
