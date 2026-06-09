@@ -328,6 +328,7 @@ interface DashboardClientProps {
   setterTeamStats?: TeamMemberStat[]
   closerTeamStats?: TeamMemberStat[]
   canViewTeamLeaderboard?: boolean
+  badgeCount?: number
 }
 
 // ─── My Goals Widget ──────────────────────────────────────────────────────────
@@ -494,6 +495,7 @@ export default function DashboardClient({
   setterTeamStats = [],
   closerTeamStats = [],
   canViewTeamLeaderboard = false,
+  badgeCount = 0,
 }: DashboardClientProps) {
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
@@ -1002,6 +1004,16 @@ export default function DashboardClient({
                 ? `Organization-wide performance overview for ${timeFrameLabel[timeFrame]}`
                 : `Here's your performance overview for ${timeFrameLabel[timeFrame]}`}
             </p>
+            {badgeCount > 0 && !isDashboardPersonalKpiOrgWide(profile.role) && (
+              <a
+                href="/incentives"
+                className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+              >
+                <span>🏅</span>
+                <span>{badgeCount} {badgeCount === 1 ? 'badge' : 'badges'} earned</span>
+                <span className="text-indigo-400">→</span>
+              </a>
+            )}
           </div>
           <div className="flex items-center gap-3 self-start sm:self-auto">
             <select

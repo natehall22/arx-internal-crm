@@ -169,11 +169,17 @@ export default async function DashboardPage() {
     salesContracts as InstallationSaleContractRow[] | null
   )
 
-  const { data: orgForSits } = await supabase
-    .from('orgs')
-    .select('settings')
-    .eq('id', profile.org_id)
-    .single()
+  const [{ data: orgForSits }, { count: badgeCount }] = await Promise.all([
+    supabase
+      .from('orgs')
+      .select('settings')
+      .eq('id', profile.org_id)
+      .single(),
+    supabase
+      .from('user_badges')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', profile.id),
+  ])
 
   const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
     orgForSits?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
@@ -549,6 +555,7 @@ export default async function DashboardPage() {
         setterTeamStats={setterTeamStats}
         closerTeamStats={closerTeamStats}
         canViewTeamLeaderboard={canViewTeamLeaderboard}
+        badgeCount={badgeCount ?? 0}
       />
     </div>
   )
