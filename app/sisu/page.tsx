@@ -151,7 +151,7 @@ export default async function IncentivesPage() {
   const { data: allBadgeRows } = await supabase
     .from('incentive_badges')
     .select(
-      'id, org_id, name, description, icon_key, color_hex, criteria_type, criteria_value, is_active, sort_order'
+      'id, org_id, name, description, icon_key, color_hex, criteria_type, criteria_value, is_active, sort_order, image_url'
     )
     .eq('org_id', profile.org_id)
     .eq('is_active', true)

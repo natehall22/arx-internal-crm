@@ -92,7 +92,7 @@ function StatChip({
       }`}
     >
       <div className="text-xl font-bold text-white truncate">{value}</div>
-      <div className="text-xs text-gray-400 mt-0.5 truncate">{label}</div>
+      <div className="text-xs text-gray-300 mt-0.5 truncate">{label}</div>
     </div>
   )
 }
@@ -140,9 +140,34 @@ function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) 
       <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-600" />
 
       <div className="p-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-2">
+        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-3">
           This Week
         </p>
+
+        {/* Secondary chips */}
+        <div className="flex gap-2 mb-5">
+          {isSetterLike ? (
+            <>
+              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} />
+              <StatChip label="Closed Sales" value={metrics.closedSales} />
+              {goal?.weekly_doors_target != null && (
+                <StatChip
+                  label="Door Goal"
+                  value={`${metrics.doorsKnocked}/${goal.weekly_doors_target}`}
+                  accent
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <StatChip label="Inspections Set" value={metrics.inspectionsSet} />
+              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} />
+              {goal?.weekly_revenue_target != null && (
+                <StatChip label="Rev Goal" value={`$${goal.weekly_revenue_target.toLocaleString()}`} accent />
+              )}
+            </>
+          )}
+        </div>
 
         <div className="flex items-end gap-3 mb-1">
           <span className="text-6xl font-black text-white leading-none">{primaryValue}</span>
@@ -173,7 +198,7 @@ function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) 
             </p>
           </>
         ) : (
-          <p className="text-xs text-gray-500 mt-1">No goal set — contact your manager to set a target.</p>
+          <p className="text-xs text-gray-400 mt-1">No goal set — contact your manager to set a target.</p>
         )}
 
         {/* Earned from Heats */}
@@ -186,30 +211,6 @@ function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) 
           </div>
         )}
 
-        {/* Secondary chips */}
-        <div className="flex gap-2 mt-5">
-          {isSetterLike ? (
-            <>
-              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} />
-              <StatChip label="Closed Sales" value={metrics.closedSales} />
-              {goal?.weekly_doors_target != null && (
-                <StatChip
-                  label="Door Goal"
-                  value={`${metrics.doorsKnocked}/${goal.weekly_doors_target}`}
-                  accent
-                />
-              )}
-            </>
-          ) : (
-            <>
-              <StatChip label="Inspections Set" value={metrics.inspectionsSet} />
-              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} />
-              {goal?.weekly_revenue_target != null && (
-                <StatChip label="Rev Goal" value={`$${goal.weekly_revenue_target.toLocaleString()}`} accent />
-              )}
-            </>
-          )}
-        </div>
       </div>
     </section>
   )
@@ -424,8 +425,40 @@ function SpiffsSection({
 
 // ─── Badge grid ───────────────────────────────────────────────────────────────
 
-function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
+function BadgeIcon({
+  badge,
+  size,
+  dimmed,
+}: {
+  badge: BadgeWithEarned
+  size: 'sm' | 'lg'
+  dimmed?: boolean
+}) {
   const emoji = badgeEmoji(badge.icon_key)
+  const dim = size === 'lg' ? 'w-14 h-14 text-3xl' : 'w-12 h-12 text-2xl'
+
+  if (badge.image_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={badge.image_url}
+        alt={badge.name}
+        className={`${dim} rounded-full object-cover ${dimmed ? 'grayscale opacity-80' : ''}`}
+      />
+    )
+  }
+
+  return (
+    <div
+      className={`${dim} rounded-full flex items-center justify-center shadow-inner ${dimmed ? 'grayscale opacity-80 bg-gray-700/60' : ''}`}
+      style={dimmed ? undefined : { backgroundColor: `${badge.color_hex}33`, outline: `2px solid ${badge.color_hex}55` }}
+    >
+      {emoji}
+    </div>
+  )
+}
+
+function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
   const earnedDate = badge.awarded_at
     ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
         new Date(badge.awarded_at)
@@ -435,12 +468,7 @@ function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
   if (badge.earned) {
     return (
       <div className="rounded-2xl border border-gray-700/50 bg-gray-900 p-3 flex flex-col items-center gap-2 text-center">
-        <div
-          className="w-14 h-14 rounded-full flex items-center justify-center text-3xl shadow-inner"
-          style={{ backgroundColor: `${badge.color_hex}33`, outline: `2px solid ${badge.color_hex}55` }}
-        >
-          {emoji}
-        </div>
+        <BadgeIcon badge={badge} size="lg" />
         <p className="text-xs font-semibold text-white leading-tight line-clamp-2">{badge.name}</p>
         {earnedDate && (
           <p className="text-xs text-gray-300">Earned {earnedDate}</p>
@@ -449,13 +477,10 @@ function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
     )
   }
 
-  // Locked badge — silhouette version
   return (
-    <div className="rounded-2xl border border-gray-800 bg-gray-900/40 p-3 flex flex-col items-center gap-2 text-center opacity-50">
-      <div className="w-12 h-12 rounded-full flex items-center justify-center text-2xl grayscale bg-gray-800">
-        {emoji}
-      </div>
-      <p className="text-xs font-medium text-gray-500 leading-tight line-clamp-2">{badge.name}</p>
+    <div className="rounded-2xl border border-dashed border-gray-600 bg-gray-900/80 p-3 flex flex-col items-center gap-2 text-center">
+      <BadgeIcon badge={badge} size="sm" dimmed />
+      <p className="text-xs font-medium text-gray-300 leading-tight line-clamp-2">{badge.name}</p>
     </div>
   )
 }
@@ -478,7 +503,7 @@ function BadgesSection({ badges }: { badges: BadgeWithEarned[] }) {
       </div>
 
       {earned.length === 0 && (
-        <p className="text-sm text-gray-500 mb-4">
+        <p className="text-sm text-gray-400 mb-4">
           Earn your first badge by hitting a milestone. You've got this.
         </p>
       )}
@@ -491,10 +516,10 @@ function BadgesSection({ badges }: { badges: BadgeWithEarned[] }) {
 
       {locked.length > 0 && (
         <details className="mt-4">
-          <summary className="text-xs text-gray-500 cursor-pointer select-none">
+          <summary className="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-300">
             {locked.length} locked {locked.length === 1 ? 'badge' : 'badges'}
           </summary>
-          <div className="grid grid-cols-3 gap-3 mt-3 opacity-40">
+          <div className="grid grid-cols-3 gap-3 mt-3">
             {locked.map((b) => <BadgeItem key={b.id} badge={b} />)}
           </div>
         </details>

@@ -8,6 +8,7 @@ type DefaultBadgeDefinition = {
   criteria_type: BadgeCriteriaType
   criteria_value: number | null
   sort_order: number
+  image_url: null
 }
 
 export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
@@ -19,6 +20,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'first_inspection_set',
     criteria_value: null,
     sort_order: 0,
+    image_url: null,
   },
   {
     name: 'Closer',
@@ -28,6 +30,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'first_closed_sale',
     criteria_value: null,
     sort_order: 1,
+    image_url: null,
   },
   {
     name: 'On Fire',
@@ -37,6 +40,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'inspections_set_milestone',
     criteria_value: 10,
     sort_order: 2,
+    image_url: null,
   },
   {
     name: 'Heat Winner',
@@ -46,6 +50,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'spiff_winner',
     criteria_value: null,
     sort_order: 3,
+    image_url: null,
   },
   {
     name: 'Elite',
@@ -55,6 +60,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'top_leaderboard',
     criteria_value: null,
     sort_order: 4,
+    image_url: null,
   },
   {
     name: 'Machine',
@@ -64,6 +70,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'inspections_set_milestone',
     criteria_value: 25,
     sort_order: 5,
+    image_url: null,
   },
   {
     name: '10 Closes',
@@ -73,6 +80,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'closed_sales_milestone',
     criteria_value: 10,
     sort_order: 6,
+    image_url: null,
   },
   {
     name: 'Streak',
@@ -82,5 +90,6 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
     criteria_type: 'streak_weekly_inspections',
     criteria_value: 4,
     sort_order: 7,
+    image_url: null,
   },
 ]

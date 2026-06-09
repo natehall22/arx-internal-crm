@@ -498,6 +498,8 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
   const [badgeForm, setBadgeForm] = useState<BadgeFormState>(defaultBadgeForm())
   const [badgeSaving, setBadgeSaving] = useState(false)
   const [seedBadgesSaving, setSeedBadgesSaving] = useState(false)
+  const [badgeImageUploading, setBadgeImageUploading] = useState(false)
+  const [badgeImagePreview, setBadgeImagePreview] = useState<string | null>(null)
 
   // award badge modal
   const [showAwardModal, setShowAwardModal] = useState(false)
@@ -749,6 +751,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
   const openNewBadge = () => {
     setEditingBadge(null)
     setBadgeForm(defaultBadgeForm())
+    setBadgeImagePreview(null)
     setShowBadgeModal(true)
   }
 
@@ -763,6 +766,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       criteria_value: b.criteria_value != null ? String(b.criteria_value) : '',
       is_active: b.is_active,
     })
+    setBadgeImagePreview(b.image_url ?? null)
     setShowBadgeModal(true)
   }
 
@@ -806,6 +810,44 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       alert('Failed to save badge')
     }
     setBadgeSaving(false)
+  }
+
+  const uploadBadgeImage = async (badgeId: string, file: File) => {
+    setBadgeImageUploading(true)
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      const res = await fetch(`/api/admin/incentives/badges/${badgeId}/image`, {
+        method: 'POST',
+        body: form,
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        alert(d.error || 'Image upload failed')
+        return
+      }
+      const d = await res.json()
+      setBadgeImagePreview(d.image_url as string)
+      loadAll()
+    } catch {
+      alert('Image upload failed')
+    } finally {
+      setBadgeImageUploading(false)
+    }
+  }
+
+  const removeBadgeImage = async (badgeId: string) => {
+    if (!confirm('Remove this badge image?')) return
+    setBadgeImageUploading(true)
+    try {
+      await fetch(`/api/admin/incentives/badges/${badgeId}/image`, { method: 'DELETE' })
+      setBadgeImagePreview(null)
+      loadAll()
+    } catch {
+      alert('Failed to remove image')
+    } finally {
+      setBadgeImageUploading(false)
+    }
   }
 
   const toggleBadgeActive = async (badge: IncentiveBadge) => {
@@ -1107,13 +1149,22 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
             {badges.map((b) => (
               <div key={b.id} className={`bg-white rounded-xl shadow-sm border p-5 ${!b.is_active ? 'opacity-60' : ''}`}>
                 <div className="flex items-start gap-3 mb-3">
-                  {/* icon preview */}
-                  <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                    style={{ backgroundColor: b.color_hex }}
-                  >
-                    {b.icon_key.slice(0, 2).toUpperCase()}
-                  </div>
+                  {/* icon / image preview */}
+                  {b.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={b.image_url}
+                      alt={b.name}
+                      className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                      style={{ backgroundColor: b.color_hex }}
+                    >
+                      {b.icon_key.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
                   <div className="flex-1">
                     <p className="font-semibold text-gray-900">{b.name}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
@@ -1416,17 +1467,72 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
             <div className="p-6 space-y-4">
               {/* preview */}
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                <div
-                  className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                  style={{ backgroundColor: badgeForm.color_hex || '#F59E0B' }}
-                >
-                  {badgeForm.icon_key.slice(0, 2).toUpperCase()}
-                </div>
+                {badgeImagePreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={badgeImagePreview}
+                    alt="Badge preview"
+                    className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                  />
+                ) : (
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                    style={{ backgroundColor: badgeForm.color_hex || '#F59E0B' }}
+                  >
+                    {badgeForm.icon_key.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
                 <div>
                   <p className="font-semibold text-gray-900">{badgeForm.name || 'Badge name'}</p>
                   <p className="text-xs text-gray-500">Preview</p>
                 </div>
               </div>
+
+              {/* image upload — only available when editing an existing badge */}
+              {editingBadge && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Badge image <span className="font-normal text-gray-400">(optional, replaces color circle)</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className={`cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition ${badgeImageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      </svg>
+                      {badgeImageUploading ? 'Uploading…' : 'Upload image'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="sr-only"
+                        disabled={badgeImageUploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) void uploadBadgeImage(editingBadge.id, file)
+                          e.target.value = ''
+                        }}
+                      />
+                    </label>
+                    {badgeImagePreview && (
+                      <button
+                        type="button"
+                        onClick={() => void removeBadgeImage(editingBadge.id)}
+                        disabled={badgeImageUploading}
+                        className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {!badgeImagePreview && (
+                    <p className="mt-1 text-xs text-gray-400">JPEG, PNG, WebP or GIF · max 2 MB</p>
+                  )}
+                </div>
+              )}
+              {!editingBadge && (
+                <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                  Save the badge first, then you can upload a custom image.
+                </p>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                 <input

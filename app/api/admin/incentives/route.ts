@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (resource === 'incentive_badge') {
-    const allowed = ['name','description','icon_key','color_hex','criteria_type','criteria_value','is_active','sort_order']
+    const allowed = ['name','description','icon_key','color_hex','criteria_type','criteria_value','is_active','sort_order','image_url']
     const insertData = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
     const { data, error } = await admin
       .from('incentive_badges')
@@ -269,7 +269,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (resource === 'incentive_badge') {
-    const allowed = ['name','description','icon_key','color_hex','criteria_type','criteria_value','is_active','sort_order']
+    const allowed = ['name','description','icon_key','color_hex','criteria_type','criteria_value','is_active','sort_order','image_url']
     const updateData = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
     const { data, error } = await admin
       .from('incentive_badges')
