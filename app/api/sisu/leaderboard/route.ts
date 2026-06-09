@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', userProfile.org_id)
+      .eq('is_active', true)
       .order('full_name', { ascending: true })
 
     if (usersError) {

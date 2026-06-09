@@ -474,7 +474,7 @@ export default function Program444Client() {
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="rounded-lg px-2 py-1 text-sm text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                className="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-slate-800 hover:text-white"
               >
                 Close
               </button>
@@ -486,11 +486,15 @@ export default function Program444Client() {
                 <select
                   value={selectedUserId}
                   onChange={(event) => setSelectedUserId(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-indigo-400"
+                  className={`mt-2 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 [color-scheme:dark] ${
+                    selectedUserId ? 'text-white' : 'text-slate-300'
+                  }`}
                 >
-                  <option value="">Select a rep</option>
+                  <option value="" disabled className="bg-slate-950 text-slate-300">
+                    Select a rep
+                  </option>
                   {eligibleUsers.map((user) => (
-                    <option key={user.id} value={user.id}>
+                    <option key={user.id} value={user.id} className="bg-slate-950 text-white">
                       {user.full_name ?? 'Unnamed rep'} - {displayRole(user.role)}
                     </option>
                   ))}
@@ -503,7 +507,11 @@ export default function Program444Client() {
                   type="date"
                   value={startDate}
                   onChange={(event) => setStartDate(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-indigo-400"
+                  className={`mt-2 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 [color-scheme:dark] ${
+                    startDate
+                      ? 'text-white'
+                      : 'text-slate-300 [&::-webkit-datetime-edit]:text-slate-300 [&::-webkit-datetime-edit-fields-wrapper]:text-slate-300'
+                  }`}
                 />
               </label>
             </div>

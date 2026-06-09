@@ -104,9 +104,20 @@ interface HeroProps {
   metrics: LiveMetrics
   goal: UserIncentiveGoal | null
   activeSpiffs: SpiffWithProgress[]
+  leaderboard: LeaderboardResponse | null
+  currentUserId: string
+  onOpenLeaderboard: () => void
 }
 
-function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) {
+function ThisWeekHero({
+  isSetterLike,
+  metrics,
+  goal,
+  activeSpiffs,
+  leaderboard,
+  currentUserId,
+  onOpenLeaderboard,
+}: HeroProps) {
   // Choose primary metric based on role
   let primaryValue: number
   let primaryLabel: string
@@ -129,6 +140,16 @@ function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) 
     .filter(s => s.qualified && s.reward_amount != null)
     .reduce((sum, s) => sum + (s.reward_amount ?? 0), 0)
 
+  const roleTab: LeaderboardRoleTab = isSetterLike ? 'setters' : 'closers'
+  const roleRows = leaderboard?.[roleTab] ?? []
+  const myRankEntry = roleRows.find((entry) => entry.user_id === currentUserId)
+  const personAbove =
+    myRankEntry != null ? roleRows.find((entry) => entry.rank === myRankEntry.rank - 1) : null
+  const gapBehind =
+    myRankEntry != null && personAbove != null
+      ? personAbove.primary_metric - myRankEntry.primary_metric
+      : 0
+
   return (
     <section
       className="rounded-2xl overflow-hidden border border-gray-800"
@@ -140,12 +161,88 @@ function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) 
       <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-600" />
 
       <div className="p-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-3">
+        {/* Dominant earnings display */}
+        <div className="text-center mb-5">
+          <p
+            className="text-5xl sm:text-6xl font-black text-amber-400 leading-none tracking-tight"
+            style={{ filter: 'drop-shadow(0 0 40px rgba(251,146,60,0.4))' }}
+          >
+            ${earnedFromHeats.toLocaleString()}
+          </p>
+          <p className="text-sm font-semibold text-amber-200/80 mt-2 uppercase tracking-widest">
+            earned this period
+          </p>
+        </div>
+
+        {/* Rank mini-widget — tap to open leaderboard */}
+        {myRankEntry != null && (
+          <button
+            type="button"
+            onClick={onOpenLeaderboard}
+            className="w-full mb-6 rounded-xl border border-indigo-500/40 bg-indigo-950/50 px-4 py-3 text-left transition hover:border-indigo-400/60 hover:bg-indigo-950/70 active:scale-[0.99]"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-white">
+                #{myRankEntry.rank} {roleTab === 'setters' ? 'Setters' : 'Closers'}
+                {myRankEntry.rank > 1 && gapBehind > 0 && personAbove != null && (
+                  <span className="text-indigo-300 font-medium">
+                    {' '}
+                    · {gapBehind} behind {firstNameOnly(personAbove.full_name)}
+                  </span>
+                )}
+                {myRankEntry.rank === 1 && (
+                  <span className="text-amber-300 font-medium"> · Leading the pack</span>
+                )}
+              </p>
+              <span className="text-xs font-semibold text-indigo-300 shrink-0">View →</span>
+            </div>
+          </button>
+        )}
+
+        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-4">
           This Week
         </p>
 
+        {/* Primary metric with electric indigo glow */}
+        <div className="flex items-end gap-3 mb-1">
+          <span
+            className="text-6xl font-black text-white leading-none"
+            style={{ filter: 'drop-shadow(0 0 28px rgba(99,102,241,0.55))' }}
+          >
+            {primaryValue}
+          </span>
+          {primaryGoal != null && (
+            <span className="text-2xl font-bold text-gray-400 mb-1">/ {primaryGoal}</span>
+          )}
+        </div>
+
+        <p className="text-sm font-semibold text-gray-200 mb-4">{primaryLabel}</p>
+
+        {/* Progress bar */}
+        {pct != null ? (
+          <>
+            <ProgressBar pct={pct} colorClass={barColor} height="h-3" />
+            <p className="text-xs text-gray-300 mt-2">
+              {primaryValue} of {primaryGoal} —{' '}
+              <span
+                className={
+                  pct >= 80
+                    ? 'text-emerald-400 font-semibold'
+                    : pct >= 50
+                    ? 'text-amber-400 font-semibold'
+                    : 'text-blue-400 font-semibold'
+                }
+              >
+                {Math.round(pct)}% to goal
+              </span>
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-gray-300 mt-1">No goal set — contact your manager to set a target.</p>
+        )}
+
         {/* Secondary chips */}
-        <div className="flex gap-2 mb-5">
+        <div className="flex gap-2 mt-5">
           {isSetterLike ? (
             <>
               <StatChip label="Doors Knocked" value={metrics.doorsKnocked} />
@@ -168,49 +265,6 @@ function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) 
             </>
           )}
         </div>
-
-        <div className="flex items-end gap-3 mb-1">
-          <span className="text-6xl font-black text-white leading-none">{primaryValue}</span>
-          {primaryGoal != null && (
-            <span className="text-2xl font-bold text-gray-500 mb-1">/ {primaryGoal}</span>
-          )}
-        </div>
-
-        <p className="text-sm font-medium text-gray-300 mb-4">{primaryLabel}</p>
-
-        {/* Progress bar */}
-        {pct != null ? (
-          <>
-            <ProgressBar pct={pct} colorClass={barColor} height="h-3" />
-            <p className="text-xs text-gray-400 mt-2">
-              {primaryValue} of {primaryGoal} —{' '}
-              <span
-                className={
-                  pct >= 80
-                    ? 'text-emerald-400 font-semibold'
-                    : pct >= 50
-                    ? 'text-amber-400 font-semibold'
-                    : 'text-blue-400 font-semibold'
-                }
-              >
-                {Math.round(pct)}% to goal
-              </span>
-            </p>
-          </>
-        ) : (
-          <p className="text-xs text-gray-400 mt-1">No goal set — contact your manager to set a target.</p>
-        )}
-
-        {/* Earned from Heats */}
-        {earnedFromHeats > 0 && (
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-amber-400">
-              ${earnedFromHeats.toLocaleString()}
-            </span>
-            <span className="text-sm text-gray-400">earned from active Heats</span>
-          </div>
-        )}
-
       </div>
     </section>
   )
@@ -288,6 +342,92 @@ function privateDisplayName(fullName: string) {
   return lastInitial ? `${firstName} ${lastInitial}.` : firstName
 }
 
+function firstNameOnly(fullName: string) {
+  return fullName.trim().split(/\s+/).filter(Boolean)[0] ?? 'Unknown'
+}
+
+const LEADERBOARD_RANK_STORAGE_PREFIX = 'sisu_lb_ranks_'
+
+function loadAndSaveRankDeltas(
+  roleTab: LeaderboardRoleTab,
+  rows: LeaderboardEntry[],
+): Map<string, number> {
+  const deltas = new Map<string, number>()
+  if (typeof window === 'undefined' || rows.length === 0) return deltas
+
+  const today = new Date().toISOString().slice(0, 10)
+  const key = `${LEADERBOARD_RANK_STORAGE_PREFIX}${roleTab}`
+
+  try {
+    const raw = localStorage.getItem(key)
+    const stored = raw
+      ? (JSON.parse(raw) as { date: string; ranks: Record<string, number> })
+      : null
+
+    if (stored?.date === today && stored.ranks) {
+      for (const entry of rows) {
+        const previousRank = stored.ranks[entry.user_id]
+        if (previousRank != null) {
+          deltas.set(entry.user_id, previousRank - entry.rank)
+        }
+      }
+    }
+
+    const ranks = Object.fromEntries(rows.map((entry) => [entry.user_id, entry.rank]))
+    localStorage.setItem(key, JSON.stringify({ date: today, ranks }))
+  } catch {
+    // Ignore storage errors — rankings still render without deltas.
+  }
+
+  return deltas
+}
+
+function badgeProgressValue(
+  badge: BadgeWithEarned,
+  metrics: LiveMetrics,
+): { current: number; target: number } | null {
+  if (badge.earned) return null
+
+  const target = badge.criteria_value
+  if (target == null || target <= 0) {
+    if (badge.criteria_type === 'first_inspection_set') {
+      return { current: metrics.inspectionsSet, target: 1 }
+    }
+    if (badge.criteria_type === 'first_closed_sale') {
+      return { current: metrics.closedSales, target: 1 }
+    }
+    return null
+  }
+
+  switch (badge.criteria_type) {
+    case 'inspections_set_milestone':
+    case 'streak_weekly_inspections':
+      return { current: metrics.inspectionsSet, target }
+    case 'closed_sales_milestone':
+    case 'streak_weekly_sales':
+      return { current: metrics.closedSales, target }
+    default:
+      return null
+  }
+}
+
+function findNextUnlockBadge(badges: BadgeWithEarned[], metrics: LiveMetrics) {
+  let closest: { badge: BadgeWithEarned; current: number; target: number; pct: number } | null =
+    null
+
+  for (const badge of badges) {
+    const progress = badgeProgressValue(badge, metrics)
+    if (!progress || progress.current >= progress.target) continue
+
+    const pct = progress.current / progress.target
+    if (!closest || pct > closest.pct) {
+      closest = { badge, ...progress, pct }
+    }
+  }
+
+  return closest
+}
+
 // ─── SPIFF card ───────────────────────────────────────────────────────────────
 
 function SpiffCard({
@@ -305,7 +445,11 @@ function SpiffCard({
   const reward = formatReward(spiff)
 
   const [countdownLabel, setCountdownLabel] = useState(() => timeRemainingLabel(spiff.ends_at))
-  const isUrgent = new Date(spiff.ends_at).getTime() - Date.now() < 24 * 60 * 60 * 1000
+
+  const msRemaining = new Date(spiff.ends_at).getTime() - Date.now()
+  const isLastChance = !spiff.qualified && msRemaining > 0 && msRemaining < 4 * 60 * 60 * 1000
+  const isHurry = !spiff.qualified && msRemaining >= 4 * 60 * 60 * 1000 && msRemaining < 24 * 60 * 60 * 1000
+  const isUrgent = isLastChance || isHurry
 
   useEffect(() => {
     const update = () => setCountdownLabel(timeRemainingLabel(spiff.ends_at))
@@ -313,14 +457,34 @@ function SpiffCard({
     return () => clearInterval(interval)
   }, [spiff.ends_at])
 
+  const urgencyBorderClass = spiff.qualified
+    ? ''
+    : isLastChance
+    ? 'border-red-500 animate-pulse shadow-[0_0_24px_rgba(239,68,68,0.35)]'
+    : isHurry
+    ? 'border-amber-500 shadow-[0_0_16px_rgba(245,158,11,0.2)]'
+    : 'border-gray-700/60'
+
   return (
     <div
       className={`relative flex-shrink-0 w-72 rounded-2xl border p-5 flex flex-col gap-3 transition-all ${
         spiff.qualified
           ? 'border-emerald-500/60 bg-gradient-to-br from-emerald-950/60 to-gray-900 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
-          : 'border-gray-700/60 bg-gray-900'
+          : `${urgencyBorderClass} bg-gray-900`
       } ${isQualificationFlashing ? 'ring-2 ring-emerald-400' : 'ring-0 ring-transparent'}`}
     >
+      {/* Urgency badge */}
+      {isLastChance && (
+        <div className="absolute top-3 left-3 rounded-full bg-red-500 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white shadow-lg">
+          LAST CHANCE
+        </div>
+      )}
+      {isHurry && (
+        <div className="absolute top-3 left-3 rounded-full bg-amber-500 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-gray-900 shadow-lg">
+          HURRY
+        </div>
+      )}
+
       {/* Qualified badge */}
       {spiff.qualified && (
         <div className="absolute top-4 right-4 flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 shadow-lg">
@@ -331,7 +495,7 @@ function SpiffCard({
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-2 pr-0">
+      <div className={`flex items-start justify-between gap-2 pr-0 ${isUrgent ? 'pt-5' : ''}`}>
         <h3 className="font-bold text-white text-base leading-tight">{spiff.name}</h3>
         <span className="text-xl font-black text-amber-400 shrink-0">{reward}</span>
       </div>
@@ -402,7 +566,7 @@ function SpiffsSection({
         <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-8 text-center">
           <div className="text-4xl mb-3">🎯</div>
           <p className="font-semibold text-gray-300">No active Heats right now</p>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-gray-400 mt-1">
             Something good is coming. Check back soon.
           </p>
         </div>
@@ -485,9 +649,16 @@ function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
   )
 }
 
-function BadgesSection({ badges }: { badges: BadgeWithEarned[] }) {
+function BadgesSection({
+  badges,
+  metrics,
+}: {
+  badges: BadgeWithEarned[]
+  metrics: LiveMetrics
+}) {
   const earned = badges.filter((b) => b.earned)
   const locked = badges.filter((b) => !b.earned)
+  const nextUnlock = findNextUnlockBadge(badges, metrics)
 
   if (badges.length === 0) return null
 
@@ -501,6 +672,33 @@ function BadgesSection({ badges }: { badges: BadgeWithEarned[] }) {
           </span>
         )}
       </div>
+
+      {nextUnlock != null && (
+        <div className="mb-5 rounded-2xl border border-indigo-500/40 bg-gradient-to-br from-indigo-950/60 to-gray-900 p-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-indigo-300 mb-3">
+            Next Unlock
+          </p>
+          <div className="flex items-center gap-3">
+            <BadgeIcon badge={nextUnlock.badge} size="lg" dimmed />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-white truncate">{nextUnlock.badge.name}</p>
+              <p className="text-xs text-gray-300 mt-0.5">
+                {nextUnlock.current.toLocaleString()} / {nextUnlock.target.toLocaleString()}
+              </p>
+              <div className="mt-2">
+                <ProgressBar
+                  pct={(nextUnlock.current / nextUnlock.target) * 100}
+                  colorClass="bg-indigo-500"
+                  height="h-2"
+                />
+              </div>
+              <p className="text-xs text-indigo-300 font-semibold mt-1.5">
+                {Math.round(nextUnlock.pct * 100)}% there — keep pushing
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {earned.length === 0 && (
         <p className="text-sm text-gray-400 mb-4">
@@ -626,6 +824,57 @@ function LeaderboardRow({
   )
 }
 
+type LeaderboardViewTab = 'rankings' | 'movers'
+
+function LeaderboardMoverRow({
+  entry,
+  delta,
+  primaryLabel,
+  isCurrentUser,
+}: {
+  entry: LeaderboardEntry
+  delta: number
+  primaryLabel: string
+  isCurrentUser: boolean
+}) {
+  const deltaLabel =
+    delta > 0 ? `↑${delta} today` : delta < 0 ? `↓${Math.abs(delta)} today` : '— steady'
+
+  const deltaClass =
+    delta > 0
+      ? 'text-emerald-400'
+      : delta < 0
+      ? 'text-red-400'
+      : 'text-gray-500'
+
+  return (
+    <div
+      className={`rounded-2xl border p-4 ${
+        isCurrentUser
+          ? 'border-indigo-500/70 bg-indigo-950/30'
+          : 'border-gray-800 bg-gray-900'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-white">
+            {privateDisplayName(entry.full_name)}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {entry.primary_metric} {primaryLabel}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className={`text-lg font-black ${deltaClass}`}>{deltaLabel}</p>
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 mt-0.5">
+            now #{entry.rank}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LeaderboardSection({
   leaderboard,
   loading,
@@ -641,12 +890,33 @@ function LeaderboardSection({
   setActiveRoleTab: (tab: LeaderboardRoleTab) => void
   currentUserId: string
 }) {
+  const [viewTab, setViewTab] = useState<LeaderboardViewTab>('rankings')
+  const [showFullList, setShowFullList] = useState(false)
+  const [rankDeltas, setRankDeltas] = useState<Map<string, number>>(() => new Map())
+
   const rows = leaderboard?.[activeRoleTab] ?? []
+  const currentUserEntry = rows.find((entry) => entry.user_id === currentUserId)
+  const neighborhoodRows =
+    currentUserEntry != null && !showFullList
+      ? rows.filter(
+          (entry) =>
+            entry.rank >= currentUserEntry.rank - 3 && entry.rank <= currentUserEntry.rank + 3,
+        )
+      : rows
+
   const maxPrimaryMetric = Math.max(0, ...rows.map((entry) => entry.primary_metric))
   const hasActivity = rows.some(
     (entry) => entry.primary_metric > 0 || entry.doors_knocked > 0,
   )
   const primaryLabel = activeRoleTab === 'setters' ? 'set' : 'sales'
+
+  useEffect(() => {
+    setRankDeltas(loadAndSaveRankDeltas(activeRoleTab, rows))
+  }, [activeRoleTab, rows])
+
+  useEffect(() => {
+    setShowFullList(false)
+  }, [activeRoleTab, viewTab])
 
   // Hustle award: rep with most doors knocked who isn't already #1
   const hustleUserId: string | null = (() => {
@@ -657,12 +927,21 @@ function LeaderboardSection({
     return top.user_id
   })()
 
+  const moverRows = [...rows]
+    .map((entry) => ({
+      entry,
+      delta: rankDeltas.get(entry.user_id) ?? 0,
+    }))
+    .sort((a, b) => b.delta - a.delta || a.entry.rank - b.entry.rank)
+
+  const hasMoverData = moverRows.some((row) => row.delta !== 0)
+
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white">Leaderboard</h2>
-          <p className="text-xs text-gray-500">This week</p>
+          <p className="text-xs text-gray-400">This week</p>
         </div>
         <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-xs font-bold">
           {(['setters', 'closers'] as const).map((tab) => (
@@ -682,6 +961,26 @@ function LeaderboardSection({
         </div>
       </div>
 
+      <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-xs font-bold">
+        {([
+          ['rankings', 'Rankings'],
+          ['movers', 'Top Movers'],
+        ] as const).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setViewTab(tab)}
+            className={`rounded-full px-3 py-1.5 transition ${
+              viewTab === tab
+                ? 'bg-violet-600 text-white'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <LeaderboardSkeleton />
       ) : error ? (
@@ -692,24 +991,55 @@ function LeaderboardSection({
         <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-6 text-center text-sm font-semibold text-gray-400">
           No activity this week yet. Be the first.
         </div>
-      ) : (
+      ) : viewTab === 'movers' ? (
         <div className="space-y-2">
-          {rows.map((entry) => {
-            const aboveEntry = rows.find(r => r.rank === entry.rank - 1)
-            const gapToNext = aboveEntry ? aboveEntry.primary_metric - entry.primary_metric : 0
-            return (
-              <LeaderboardRow
-                key={entry.user_id}
-                entry={entry}
-                maxPrimaryMetric={maxPrimaryMetric}
-                isCurrentUser={entry.user_id === currentUserId}
-                primaryLabel={primaryLabel}
-                gapToNext={gapToNext}
-                isHustleAward={entry.user_id === hustleUserId}
-              />
-            )
-          })}
+          {!hasMoverData && (
+            <p className="text-xs text-gray-400 text-center pb-1">
+              Movement tracking updates each time you check in today.
+            </p>
+          )}
+          {moverRows.map(({ entry, delta }) => (
+            <LeaderboardMoverRow
+              key={entry.user_id}
+              entry={entry}
+              delta={delta}
+              primaryLabel={primaryLabel}
+              isCurrentUser={entry.user_id === currentUserId}
+            />
+          ))}
         </div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {neighborhoodRows.map((entry) => {
+              const aboveEntry = rows.find((r) => r.rank === entry.rank - 1)
+              const gapToNext = aboveEntry ? aboveEntry.primary_metric - entry.primary_metric : 0
+              return (
+                <LeaderboardRow
+                  key={entry.user_id}
+                  entry={entry}
+                  maxPrimaryMetric={maxPrimaryMetric}
+                  isCurrentUser={entry.user_id === currentUserId}
+                  primaryLabel={primaryLabel}
+                  gapToNext={gapToNext}
+                  isHustleAward={entry.user_id === hustleUserId}
+                />
+              )
+            })}
+          </div>
+
+          {currentUserEntry != null && rows.length > neighborhoodRows.length && (
+            <button
+              type="button"
+              onClick={() => setShowFullList((current) => !current)}
+              className="w-full rounded-xl border border-gray-700 bg-gray-900/80 py-3 text-sm font-semibold text-indigo-300 transition hover:border-indigo-500/50 hover:text-white"
+            >
+              {showFullList
+                ? 'Show my neighborhood'
+                : `View full leaderboard (${rows.length} reps)`}
+            </button>
+          )}
+        </>
       )}
     </section>
   )
@@ -764,27 +1094,50 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
         ) : (
           <>
             {inWeek2 && enrollment.week1_qualified && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-800/60 text-emerald-300 text-xs font-medium px-2.5 py-0.5 mb-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-800/60 text-emerald-300 text-xs font-medium px-2.5 py-0.5">
                 ✓ Week 1 complete
               </span>
             )}
 
-            {/* Week indicator */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-widest text-amber-400">
-                {inWeek1 ? 'Week 1' : inWeek2 ? 'Week 2' : `Week ${weekNum}`}
-              </span>
-              {weekQualified && (
-                <span className="rounded-full bg-emerald-600 text-white text-xs font-bold px-2 py-0.5">
-                  Qualified ✓
-                </span>
-              )}
-            </div>
+            {/* Dominant call-to-action headline */}
+            {doorsHit && inspectionsHit ? (
+              <div className="text-center py-2">
+                <p
+                  className="text-2xl sm:text-3xl font-black text-emerald-300 leading-tight"
+                  style={{ filter: 'drop-shadow(0 0 24px rgba(52,211,153,0.35))' }}
+                >
+                  Week qualified — $400 earned
+                </p>
+              </div>
+            ) : (
+              <div className="text-center py-2">
+                <p
+                  className="text-2xl sm:text-3xl font-black text-amber-300 leading-tight"
+                  style={{ filter: 'drop-shadow(0 0 28px rgba(251,191,36,0.35))' }}
+                >
+                  {!doorsHit && !inspectionsHit
+                    ? `${400 - doors} doors + ${4 - inspections} inspections = $400 bonus`
+                    : doorsHit
+                    ? `${4 - inspections} more inspection${4 - inspections === 1 ? '' : 's'} = $400 bonus`
+                    : `${400 - doors} more doors + ${inspectionsHit ? 'inspections done' : `${4 - inspections} inspections`} = $400 bonus`}
+                </p>
+                <div className="flex items-center justify-center gap-2 mt-2">
+                  <span className="text-xs font-semibold uppercase tracking-widest text-amber-400/80">
+                    {inWeek1 ? 'Week 1' : inWeek2 ? 'Week 2' : `Week ${weekNum}`}
+                  </span>
+                  {weekQualified && (
+                    <span className="rounded-full bg-emerald-600 text-white text-xs font-bold px-2 py-0.5">
+                      Qualified ✓
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Doors progress */}
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-baseline text-xs">
-                <span className="text-gray-300 font-medium">Doors</span>
+                <span className="text-gray-400 font-medium">Doors</span>
                 <span className={doorsHit ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
                   {doors.toLocaleString()} / 400
                 </span>
@@ -792,13 +1145,14 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
               <ProgressBar
                 pct={doorsPct}
                 colorClass={doorsHit ? 'bg-emerald-500' : 'bg-amber-500'}
+                height="h-2"
               />
             </div>
 
             {/* Inspections progress */}
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-baseline text-xs">
-                <span className="text-gray-300 font-medium">Inspections Set</span>
+                <span className="text-gray-400 font-medium">Inspections Set</span>
                 <span className={inspectionsHit ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
                   {inspections} / 4
                 </span>
@@ -806,26 +1160,9 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
               <ProgressBar
                 pct={inspectionsPct}
                 colorClass={inspectionsHit ? 'bg-emerald-500' : 'bg-amber-500'}
+                height="h-2"
               />
             </div>
-
-            {/* Status banner */}
-            {doorsHit && inspectionsHit ? (
-              <div className="rounded-xl bg-emerald-900/40 border border-emerald-500/50 px-4 py-2.5 text-center">
-                <p className="text-emerald-300 font-bold text-sm">You hit it! $400 earned</p>
-              </div>
-            ) : doorsHit || inspectionsHit ? (
-              <div className="rounded-xl bg-amber-900/30 border border-amber-600/40 px-4 py-2.5 text-center">
-                <p className="text-amber-300 font-semibold text-sm">
-                  Almost there — {doorsHit ? 'doors done' : `${400 - doors} more doors`}{' · '}
-                  {inspectionsHit ? 'inspections done' : `${4 - inspections} more inspections`}
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-xl bg-gray-800/60 border border-gray-700/40 px-4 py-2.5 text-center">
-                <p className="text-gray-300 font-medium text-sm">Keep knocking. $400 is yours.</p>
-              </div>
-            )}
           </>
         )}
       </div>
@@ -1047,23 +1384,31 @@ export default function IncentivesClient({
 
       {mainView === 'stats' ? (
         <>
-          {/* Section 1 — Hero */}
-          <ThisWeekHero isSetterLike={isSetterLike} metrics={liveMetrics} goal={goal} activeSpiffs={activeSpiffs} />
+          {/* Section 1 — Badges */}
+          <BadgesSection badges={earnedBadges} metrics={liveMetrics} />
 
-          {/* Section 2 — 444 Program */}
+          {/* Section 2 — Hero */}
+          <ThisWeekHero
+            isSetterLike={isSetterLike}
+            metrics={liveMetrics}
+            goal={goal}
+            activeSpiffs={activeSpiffs}
+            leaderboard={leaderboard}
+            currentUserId={profile.id}
+            onOpenLeaderboard={() => setMainView('leaderboard')}
+          />
+
+          {/* Section 3 — 444 Program */}
           {enrollment444 !== null && (
             <Program444Card enrollment={enrollment444} />
           )}
 
-          {/* Section 3 — SPIFFs */}
+          {/* Section 4 — SPIFFs */}
           <SpiffsSection
             spiffs={activeSpiffs}
             syncing={syncingHeats}
             flashingSpiffIds={flashingSpiffIds}
           />
-
-          {/* Section 4 — Badges */}
-          <BadgesSection badges={earnedBadges} />
         </>
       ) : (
         <LeaderboardSection

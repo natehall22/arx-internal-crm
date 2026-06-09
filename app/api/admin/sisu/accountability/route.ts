@@ -277,7 +277,7 @@ export async function GET(req: NextRequest) {
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', authResult.orgId)
-      .eq('active', true)
+      .eq('is_active', true)
       .in('role', ACCOUNTABILITY_ROLES)
       .order('full_name'),
     admin

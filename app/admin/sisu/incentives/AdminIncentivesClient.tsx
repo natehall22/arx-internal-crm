@@ -458,10 +458,11 @@ function SpiffStep4({
 
 interface Props {
   currentUserId: string
+  initialTab?: 'spiffs' | 'cycles' | 'badges'
 }
 
-export default function AdminIncentivesClient({ currentUserId }: Props) {
-  const [activeTab, setActiveTab] = useState<'spiffs' | 'cycles' | 'badges'>('spiffs')
+export default function AdminIncentivesClient({ currentUserId, initialTab = 'spiffs' }: Props) {
+  const [activeTab, setActiveTab] = useState<'spiffs' | 'cycles' | 'badges'>(initialTab)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
