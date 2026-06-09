@@ -8,10 +8,11 @@ export type UserRole =
   | 'sales_manager' 
   | 'setter_manager'
   // Rep level
-  | 'sales_rep' 
+  | 'sales_rep'
+  | 'closer'
   | 'setter'
-  | 'rep' 
-  | 'canvasser' 
+  | 'rep'
+  | 'canvasser'
   | 'inside_sales'
   // Operations
   | 'operations'

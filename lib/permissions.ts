@@ -115,6 +115,7 @@ const roleHierarchy: UserRole[] = [
   'call_center',
   'rep',
   'sales_rep',
+  'closer',
   'inside_sales',
   'operations',
   'setter_manager',
@@ -132,8 +133,9 @@ export const legacyRoleHierarchyLevels: Record<UserRole, number> = {
   setter: 20,
   call_center: 20, // Same level as setter — appointment-setting scope
   rep: 30,
-  inside_sales: 35,
   sales_rep: 30,
+  closer: 30,
+  inside_sales: 35,
   operations: 40,
   setter_manager: 50,
   sales_manager: 60,
@@ -220,6 +222,19 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   ],
   
   sales_rep: [
+    'canvass:view',
+    'leads:view',
+    'opportunities:view', 'opportunities:edit',
+    'proposals:view', 'proposals:edit',
+    'contracts:view', 'contracts:send',
+    'projects:view',
+    'teams:view',
+    'users:view',
+    'pricebook:view',
+    'scheduling:view',
+  ],
+
+  closer: [
     'canvass:view',
     'leads:view',
     'opportunities:view', 'opportunities:edit',
@@ -649,6 +664,7 @@ export const roleDisplayNames: Record<UserRole, string> = {
   sales_manager: 'Sales Manager',
   setter_manager: 'Setter Manager',
   sales_rep: 'Sales Rep',
+  closer: 'Closer',
   inside_sales: 'Inside Sales',
   setter: 'Setter',
   rep: 'Rep',
