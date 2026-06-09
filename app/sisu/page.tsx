@@ -136,6 +136,16 @@ export default async function IncentivesPage() {
     }
   })
 
+  // ── 444 Program enrollment ────────────────────────────────────────────────────
+  const { data: enrollment444 } = await supabase
+    .from('program_444_enrollments')
+    .select('id, week1_starts_at, week1_ends_at, week2_starts_at, week2_ends_at, week1_doors, week1_inspections, week1_qualified, week2_doors, week2_inspections, week2_qualified, status')
+    .eq('user_id', profile.id)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   // ── Badges ────────────────────────────────────────────────────────────────────
   // Fetch all org badges + which ones this user has earned
   const { data: allBadgeRows } = await supabase
@@ -175,6 +185,7 @@ export default async function IncentivesPage() {
         activeSpiffs={activeSpiffs}
         earnedBadges={earnedBadges}
         isSetterLike={isSetterLikeRole(profile.role)}
+        enrollment444={enrollment444 ?? null}
       />
     </div>
   )

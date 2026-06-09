@@ -16,6 +16,23 @@ import {
   clamp100,
 } from '@/lib/incentive-metrics'
 
+// ─── 444 Program types ────────────────────────────────────────────────────────
+
+type Enrollment444 = {
+  id: string
+  week1_starts_at: string
+  week1_ends_at: string
+  week2_starts_at: string
+  week2_ends_at: string
+  week1_doors: number
+  week1_inspections: number
+  week1_qualified: boolean
+  week2_doors: number
+  week2_inspections: number
+  week2_qualified: boolean
+  status: string
+}
+
 // ─── Icon helpers ──────────────────────────────────────────────────────────────
 
 const BADGE_ICONS: Record<string, string> = {
@@ -603,6 +620,118 @@ function LeaderboardSection({
   )
 }
 
+// ─── 444 Program card ─────────────────────────────────────────────────────────
+
+function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
+  const now = new Date()
+  const week1Start = new Date(enrollment.week1_starts_at)
+  const week1End = new Date(enrollment.week1_ends_at)
+  const week2Start = new Date(enrollment.week2_starts_at)
+  const week2End = new Date(enrollment.week2_ends_at)
+
+  const bothWeeksDone = enrollment.week1_qualified && enrollment.week2_qualified
+  const programEnded = now > week2End
+
+  // Determine which week's data to show
+  const inWeek1 = now >= week1Start && now <= week1End
+  const inWeek2 = now >= week2Start && now <= week2End
+  const weekNum = inWeek2 ? 2 : 1
+  const doors = weekNum === 2 ? enrollment.week2_doors : enrollment.week1_doors
+  const inspections = weekNum === 2 ? enrollment.week2_inspections : enrollment.week1_inspections
+  const weekQualified = weekNum === 2 ? enrollment.week2_qualified : enrollment.week1_qualified
+  const doorsHit = doors >= 400
+  const inspectionsHit = inspections >= 4
+  const doorsPct = Math.min((doors / 400) * 100, 100)
+  const inspectionsPct = Math.min((inspections / 4) * 100, 100)
+
+  return (
+    <section className="rounded-2xl border border-amber-500/50 bg-gray-900 overflow-hidden">
+      {/* Top accent strip */}
+      <div className="h-1 w-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600" />
+
+      <div className="p-5 flex flex-col gap-4">
+        {/* Header */}
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🏆</span>
+          <h2 className="text-base font-bold text-white">ARX 444 Program</h2>
+        </div>
+
+        {/* Complete state */}
+        {bothWeeksDone ? (
+          <div className="rounded-xl bg-emerald-900/40 border border-emerald-500/50 px-4 py-3 text-center">
+            <p className="text-emerald-300 font-bold text-sm">444 Complete — $800 earned 🎉</p>
+            <p className="text-emerald-500 text-xs mt-0.5">Both weeks qualified. Bonus processes with next payroll.</p>
+          </div>
+        ) : programEnded ? (
+          <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 px-4 py-3 text-center">
+            <p className="text-gray-400 font-semibold text-sm">Program ended</p>
+          </div>
+        ) : (
+          <>
+            {/* Week indicator */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-widest text-amber-400">
+                {inWeek1 ? 'Week 1' : inWeek2 ? 'Week 2' : `Week ${weekNum}`}
+              </span>
+              {weekQualified && (
+                <span className="rounded-full bg-emerald-600 text-white text-xs font-bold px-2 py-0.5">
+                  Qualified ✓
+                </span>
+              )}
+            </div>
+
+            {/* Doors progress */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-baseline text-xs">
+                <span className="text-gray-300 font-medium">Doors</span>
+                <span className={doorsHit ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
+                  {doors.toLocaleString()} / 400
+                </span>
+              </div>
+              <ProgressBar
+                pct={doorsPct}
+                colorClass={doorsHit ? 'bg-emerald-500' : 'bg-amber-500'}
+              />
+            </div>
+
+            {/* Inspections progress */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-baseline text-xs">
+                <span className="text-gray-300 font-medium">Inspections Set</span>
+                <span className={inspectionsHit ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
+                  {inspections} / 4
+                </span>
+              </div>
+              <ProgressBar
+                pct={inspectionsPct}
+                colorClass={inspectionsHit ? 'bg-emerald-500' : 'bg-amber-500'}
+              />
+            </div>
+
+            {/* Status banner */}
+            {doorsHit && inspectionsHit ? (
+              <div className="rounded-xl bg-emerald-900/40 border border-emerald-500/50 px-4 py-2.5 text-center">
+                <p className="text-emerald-300 font-bold text-sm">You hit it! $400 earned</p>
+              </div>
+            ) : doorsHit || inspectionsHit ? (
+              <div className="rounded-xl bg-amber-900/30 border border-amber-600/40 px-4 py-2.5 text-center">
+                <p className="text-amber-300 font-semibold text-sm">
+                  Almost there — {doorsHit ? 'doors done' : `${400 - doors} more doors`}{' · '}
+                  {inspectionsHit ? 'inspections done' : `${4 - inspections} more inspections`}
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-gray-800/60 border border-gray-700/40 px-4 py-2.5 text-center">
+                <p className="text-gray-300 font-medium text-sm">Keep knocking. $400 is yours.</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
 // ─── Page root ────────────────────────────────────────────────────────────────
 
 interface IncentivesClientProps {
@@ -612,6 +741,7 @@ interface IncentivesClientProps {
   activeSpiffs: SpiffWithProgress[]
   earnedBadges: BadgeWithEarned[]
   isSetterLike: boolean
+  enrollment444: Enrollment444 | null
 }
 
 export default function IncentivesClient({
@@ -621,6 +751,7 @@ export default function IncentivesClient({
   activeSpiffs: initialActiveSpiffs,
   earnedBadges,
   isSetterLike,
+  enrollment444,
 }: IncentivesClientProps) {
   const [activeSpiffs, setActiveSpiffs] = useState(initialActiveSpiffs)
   const [syncingHeats, setSyncingHeats] = useState(false)
@@ -771,14 +902,19 @@ export default function IncentivesClient({
           {/* Section 1 — Hero */}
           <ThisWeekHero isSetterLike={isSetterLike} metrics={liveMetrics} goal={goal} />
 
-          {/* Section 2 — SPIFFs */}
+          {/* Section 2 — 444 Program */}
+          {enrollment444 !== null && (
+            <Program444Card enrollment={enrollment444} />
+          )}
+
+          {/* Section 3 — SPIFFs */}
           <SpiffsSection
             spiffs={activeSpiffs}
             syncing={syncingHeats}
             flashingSpiffIds={flashingSpiffIds}
           />
 
-          {/* Section 3 — Badges */}
+          {/* Section 4 — Badges */}
           <BadgesSection badges={earnedBadges} />
         </>
       ) : (
