@@ -44,7 +44,7 @@ const BADGE_CRITERIA_LABELS: Record<BadgeCriteriaType, string> = {
   streak_weekly_inspections: 'Streak: Weekly Inspections',
   streak_weekly_sales: 'Streak: Weekly Sales',
   close_rate_threshold: 'Close Rate Threshold',
-  spiff_winner: 'SPIFF Winner',
+  spiff_winner: 'Heat Winner',
   top_leaderboard: 'Top Leaderboard',
 }
 
@@ -358,7 +358,7 @@ function SpiffStep3({
           />
           <div>
             <span className="text-sm font-medium text-gray-700">Visible on leaderboard</span>
-            <p className="text-xs text-gray-500">Team members can see this SPIFF and their progress</p>
+            <p className="text-xs text-gray-500">Team members can see this Heat and their progress</p>
           </div>
         </label>
       </div>
@@ -514,7 +514,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       const res = await fetch('/api/admin/incentives')
       if (!res.ok) {
         const d = await res.json()
-        setError(d.error || 'Failed to load incentives')
+        setError(d.error || 'Failed to load Sisu')
         setLoading(false)
         return
       }
@@ -524,7 +524,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       setBadges(data.badges || [])
       setUsers(data.users || [])
     } catch {
-      setError('Failed to load incentives')
+      setError('Failed to load Sisu')
     }
     setLoading(false)
   }, [])
@@ -608,7 +608,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to save SPIFF')
+        alert(d.error || 'Failed to save Heat')
         setSpiffSaving(false)
         return
       }
@@ -617,13 +617,13 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       setSpiffForm(defaultSpiffForm())
       loadAll()
     } catch {
-      alert('Failed to save SPIFF')
+      alert('Failed to save Heat')
     }
     setSpiffSaving(false)
   }
 
   const cancelSpiff = async (id: string) => {
-    if (!confirm('Cancel this SPIFF? This cannot be undone.')) return
+    if (!confirm('Cancel this Heat? This cannot be undone.')) return
     try {
       const res = await fetch('/api/admin/incentives', {
         method: 'PATCH',
@@ -632,12 +632,12 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to cancel SPIFF')
+        alert(d.error || 'Failed to cancel Heat')
         return
       }
       loadAll()
     } catch {
-      alert('Failed to cancel SPIFF')
+      alert('Failed to cancel Heat')
     }
   }
 
@@ -723,7 +723,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       alert('No qualified winners to export')
       return
     }
-    const header = 'User Name,Role,Spiff Name,Payout Amount\n'
+    const header = 'User Name,Role,Heat Name,Payout Amount\n'
     const lines = rows.map((a) => {
       const user = users.find((u) => u.id === a.user_id)
       return [
@@ -889,7 +889,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       {/* ── Tabs ── */}
       <div className="flex gap-1 border-b mb-6">
         {([
-          ['spiffs', `SPIFFs (${spiffs.length})`],
+          ['spiffs', `Heats (${spiffs.length})`],
           ['cycles', `Cycles (${cycles.length})`],
           ['badges', `Badges (${badges.length})`],
         ] as const).map(([tab, label]) => (
@@ -931,7 +931,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
               onClick={openNewSpiff}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm"
             >
-              + New SPIFF
+              + New Heat
             </button>
           </div>
 
@@ -994,7 +994,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
             </table>
             {filteredSpiffs.length === 0 && (
               <div className="text-center py-12 text-gray-500">
-                No SPIFFs found{spiffFilter !== 'all' ? ` with status "${spiffFilter}"` : ''}
+                No Heats found{spiffFilter !== 'all' ? ` with status "${spiffFilter}"` : ''}
               </div>
             )}
           </div>
@@ -1152,7 +1152,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">
-                {editingSpiff ? 'Edit SPIFF' : 'New SPIFF'}
+                {editingSpiff ? 'Edit Heat' : 'New Heat'}
               </h2>
               {/* step indicator */}
               <div className="flex gap-1.5">
@@ -1223,7 +1223,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b">
-              <h2 className="text-xl font-bold text-gray-900">New Incentive Cycle</h2>
+              <h2 className="text-xl font-bold text-gray-900">New Sisu Cycle</h2>
             </div>
             <div className="p-6 space-y-4">
               <div>
@@ -1335,7 +1335,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SPIFF</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Heat</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Payout</th>
                     </tr>

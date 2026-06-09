@@ -256,7 +256,7 @@ function SpiffsSection({ spiffs }: { spiffs: SpiffWithProgress[] }) {
   return (
     <section>
       <div className="flex items-center gap-2 mb-4">
-        <h2 className="text-base font-bold text-white">Active SPIFFs</h2>
+        <h2 className="text-base font-bold text-white">Active Heats</h2>
         {spiffs.length > 0 && (
           <span className="rounded-full bg-indigo-600 text-white text-xs font-bold px-2 py-0.5">
             {spiffs.length}
@@ -267,7 +267,7 @@ function SpiffsSection({ spiffs }: { spiffs: SpiffWithProgress[] }) {
       {spiffs.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-8 text-center">
           <div className="text-4xl mb-3">🎯</div>
-          <p className="font-semibold text-gray-300">No active SPIFFs right now</p>
+          <p className="font-semibold text-gray-300">No active Heats right now</p>
           <p className="text-sm text-gray-500 mt-1">
             Something good is coming. Check back soon.
           </p>
@@ -382,10 +382,10 @@ export default function IncentivesClient({
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-black text-white tracking-tight">
-          My Incentives
+          My Sisu
         </h1>
         <p className="text-sm text-gray-400 mt-0.5">
-          {profile.full_name ?? 'Rep'} · Week in review
+          {profile.full_name ?? 'Rep'} · Your performance. Your proof.
         </p>
       </div>
 

@@ -51,9 +51,9 @@ export default async function AdminIncentivesPage() {
           </Link>
         </div>
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Incentive Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Sisu</h1>
           <p className="text-gray-500 mt-1">
-            Manage SPIFFs, incentive cycles, and achievement badges
+            Manage Heats, Sisu cycles, and achievement badges
           </p>
         </div>
         <AdminIncentivesClient currentUserId={user.id} />
