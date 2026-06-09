@@ -497,6 +497,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
   const [editingBadge, setEditingBadge] = useState<IncentiveBadge | null>(null)
   const [badgeForm, setBadgeForm] = useState<BadgeFormState>(defaultBadgeForm())
   const [badgeSaving, setBadgeSaving] = useState(false)
+  const [seedBadgesSaving, setSeedBadgesSaving] = useState(false)
 
   // award badge modal
   const [showAwardModal, setShowAwardModal] = useState(false)
@@ -824,6 +825,23 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
     }
   }
 
+  const seedDefaultBadges = async () => {
+    setSeedBadgesSaving(true)
+    try {
+      const res = await fetch('/api/admin/sisu/seed-badges', { method: 'POST' })
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: unknown }
+        alert(typeof d.error === 'string' ? d.error : 'Failed to seed default badges')
+        setSeedBadgesSaving(false)
+        return
+      }
+      loadAll()
+    } catch {
+      alert('Failed to seed default badges')
+    }
+    setSeedBadgesSaving(false)
+  }
+
   const openAward = (badge: IncentiveBadge) => {
     setAwardBadge(badge)
     setAwardUserId('')
@@ -1139,7 +1157,15 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
             ))}
             {badges.length === 0 && (
               <div className="col-span-full text-center py-12 bg-white rounded-xl border text-gray-500">
-                No badges created yet
+                <p>No badges created yet</p>
+                <button
+                  type="button"
+                  disabled={seedBadgesSaving}
+                  onClick={seedDefaultBadges}
+                  className="mt-4 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm disabled:opacity-50"
+                >
+                  {seedBadgesSaving ? 'Seeding...' : 'Seed Default Badges'}
+                </button>
               </div>
             )}
           </div>
