@@ -3,6 +3,7 @@ import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 type HybridHourlyComponent = {
   type: string
   rate?: number | null
+  unit_type?: string | null
 }
 
 type CompPlanRow = CompPlanForCalc & {

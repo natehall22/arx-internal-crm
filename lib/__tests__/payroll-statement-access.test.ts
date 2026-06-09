@@ -4,9 +4,9 @@ import {
 } from '@/lib/payroll-statement-access'
 
 describe('resolvePayrollStatementTargetUserId', () => {
-  const rep = { id: 'rep-1', role: 'canvasser' }
-  const manager = { id: 'mgr-1', role: 'sales_manager' }
-  const admin = { id: 'admin-1', role: 'admin' }
+  const rep = { id: 'rep-1', role: 'canvasser' as const }
+  const manager = { id: 'mgr-1', role: 'sales_manager' as const }
+  const admin = { id: 'admin-1', role: 'admin' as const }
 
   it('defaults to viewer when user_id is omitted (email link case)', () => {
     expect(resolvePayrollStatementTargetUserId(rep, null)).toEqual({
@@ -17,7 +17,7 @@ describe('resolvePayrollStatementTargetUserId', () => {
 
   it('blocks reps from requesting another user via user_id', () => {
     expect(resolvePayrollStatementTargetUserId(rep, 'other-user')).toEqual({ error: 'forbidden' })
-    expect(resolvePayrollStatementTargetUserId({ id: 'rep-1', role: 'sales_rep' }, 'other-user')).toEqual({
+    expect(resolvePayrollStatementTargetUserId({ id: 'rep-1', role: 'sales_rep' as const }, 'other-user')).toEqual({
       error: 'forbidden',
     })
   })
