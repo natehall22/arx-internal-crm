@@ -32,6 +32,17 @@ type SyncResult = {
   qualified_at: string | null
 }
 
+type EarnedBadgeRow = {
+  badge_id: string
+}
+
+type OrgBadgeRow = {
+  id: string
+  name: string
+  criteria_type: string
+  is_active: boolean
+}
+
 type OpportunityRelation = {
   owner_user_id: string | null
   setter_user_id: string | null
@@ -274,88 +285,202 @@ export async function POST(request: NextRequest) {
       isEligibleHeat(spiff, userProfile),
     )
 
-    if (activeSpiffs.length === 0) {
-      return NextResponse.json([] satisfies SyncResult[])
-    }
-
     const spiffIds = activeSpiffs.map((spiff) => spiff.id)
-    const { data: existingRows, error: existingError } = await admin
-      .from('spiff_achievements')
-      .select('id, spiff_program_id, current_value, qualified, qualified_at')
-      .eq('user_id', userId)
-      .in('spiff_program_id', spiffIds)
-
-    if (existingError) {
-      return NextResponse.json({ error: existingError.message }, { status: 500 })
-    }
-
-    const existingBySpiff = new Map(
-      ((existingRows ?? []) as ExistingAchievement[]).map((row) => [row.spiff_program_id, row]),
-    )
 
     const updated: SyncResult[] = []
 
-    for (const spiff of activeSpiffs) {
-      const currentValue = await computeCurrentValue(
-        admin,
-        spiff.trigger_metric,
-        userId,
-        userProfile.org_id,
-        spiff.starts_at,
-        spiff.ends_at,
-      )
-      const existing = existingBySpiff.get(spiff.id)
-      const previouslyQualified = existing?.qualified === true
-      const newlyQualified = currentValue >= toNumber(spiff.threshold) && !previouslyQualified
-      const qualified = previouslyQualified || newlyQualified
-      const qualifiedAt = newlyQualified ? nowIso : existing?.qualified_at ?? null
-
-      const { data: achievement, error: upsertError } = await admin
+    if (spiffIds.length > 0) {
+      const { data: existingRows, error: existingError } = await admin
         .from('spiff_achievements')
-        .upsert(
-          {
-            org_id: userProfile.org_id,
-            spiff_program_id: spiff.id,
-            user_id: userId,
-            current_value: currentValue,
-            qualified,
-            qualified_at: qualifiedAt,
-            payout_amount: newlyQualified ? spiff.reward_amount : undefined,
-          },
-          { onConflict: 'spiff_program_id,user_id' },
-        )
-        .select('spiff_program_id, current_value, qualified, qualified_at')
-        .single()
+        .select('id, spiff_program_id, current_value, qualified, qualified_at')
+        .eq('user_id', userId)
+        .in('spiff_program_id', spiffIds)
 
-      if (upsertError || !achievement) {
-        return NextResponse.json(
-          { error: upsertError?.message ?? 'Failed to update Heat progress' },
-          { status: 500 },
-        )
+      if (existingError) {
+        return NextResponse.json({ error: existingError.message }, { status: 500 })
       }
 
-      if (newlyQualified) {
-        const reward = formatReward(spiff)
-        const { error: notificationError } = await admin.from('notifications').insert({
-          org_id: userProfile.org_id,
-          recipient_user_id: userId,
-          actor_user_id: userId,
-          type: 'sisu_heat_qualified',
-          title: 'You hit it.',
-          body: `You qualified for ${spiff.name}. ${reward}`,
-        })
+      const existingBySpiff = new Map(
+        ((existingRows ?? []) as ExistingAchievement[]).map((row) => [row.spiff_program_id, row]),
+      )
 
-        if (notificationError) {
-          return NextResponse.json({ error: notificationError.message }, { status: 500 })
+      for (const spiff of activeSpiffs) {
+        const currentValue = await computeCurrentValue(
+          admin,
+          spiff.trigger_metric,
+          userId,
+          userProfile.org_id,
+          spiff.starts_at,
+          spiff.ends_at,
+        )
+        const existing = existingBySpiff.get(spiff.id)
+        const previouslyQualified = existing?.qualified === true
+        const newlyQualified = currentValue >= toNumber(spiff.threshold) && !previouslyQualified
+        const qualified = previouslyQualified || newlyQualified
+        const qualifiedAt = newlyQualified ? nowIso : existing?.qualified_at ?? null
+
+        const { data: achievement, error: upsertError } = await admin
+          .from('spiff_achievements')
+          .upsert(
+            {
+              org_id: userProfile.org_id,
+              spiff_program_id: spiff.id,
+              user_id: userId,
+              current_value: currentValue,
+              qualified,
+              qualified_at: qualifiedAt,
+              payout_amount: newlyQualified ? spiff.reward_amount : undefined,
+            },
+            { onConflict: 'spiff_program_id,user_id' },
+          )
+          .select('spiff_program_id, current_value, qualified, qualified_at')
+          .single()
+
+        if (upsertError || !achievement) {
+          return NextResponse.json(
+            { error: upsertError?.message ?? 'Failed to update Heat progress' },
+            { status: 500 },
+          )
+        }
+
+        if (newlyQualified) {
+          const reward = formatReward(spiff)
+          const { error: notificationError } = await admin.from('notifications').insert({
+            org_id: userProfile.org_id,
+            recipient_user_id: userId,
+            actor_user_id: userId,
+            type: 'sisu_heat_qualified',
+            title: 'You hit it.',
+            body: `You qualified for ${spiff.name}. ${reward}`,
+          })
+
+          if (notificationError) {
+            return NextResponse.json({ error: notificationError.message }, { status: 500 })
+          }
+        }
+
+        updated.push({
+          spiff_program_id: String(achievement.spiff_program_id),
+          current_value: toNumber(achievement.current_value),
+          qualified: Boolean(achievement.qualified),
+          qualified_at: achievement.qualified_at ? String(achievement.qualified_at) : null,
+        })
+      }
+    }
+
+    // ── Auto-award first-event badges ─────────────────────────────────────────
+    // Fetch all active org badges for criteria types handled here
+    const { data: orgBadgeRows, error: orgBadgeError } = await admin
+      .from('incentive_badges')
+      .select('id, name, criteria_type, is_active')
+      .eq('org_id', userProfile.org_id)
+      .eq('is_active', true)
+      .in('criteria_type', ['first_inspection_set', 'first_closed_sale'])
+
+    if (orgBadgeError) {
+      // Non-fatal: log and continue so spiff results are still returned
+      console.error('[sisu/sync] badge fetch error:', orgBadgeError.message)
+      return NextResponse.json(updated)
+    }
+
+    const eligibleBadges = (orgBadgeRows ?? []) as OrgBadgeRow[]
+
+    if (eligibleBadges.length > 0) {
+      // Fetch already-earned badges for this user
+      const { data: earnedRows, error: earnedError } = await admin
+        .from('user_badges')
+        .select('badge_id')
+        .eq('user_id', userId)
+        .in(
+          'badge_id',
+          eligibleBadges.map((b) => b.id),
+        )
+
+      if (earnedError) {
+        console.error('[sisu/sync] earned badge fetch error:', earnedError.message)
+        return NextResponse.json(updated)
+      }
+
+      const earnedBadgeIds = new Set(
+        ((earnedRows ?? []) as EarnedBadgeRow[]).map((r) => r.badge_id),
+      )
+
+      const unearnedBadges = eligibleBadges.filter((b) => !earnedBadgeIds.has(b.id))
+
+      if (unearnedBadges.length > 0) {
+        // Check first_inspection_set condition once (all-time, no date filter)
+        let hasEverSetInspection: boolean | null = null
+        const needsInspectionCheck = unearnedBadges.some(
+          (b) => b.criteria_type === 'first_inspection_set',
+        )
+        if (needsInspectionCheck) {
+          const { count, error: inspErr } = await admin
+            .from('scheduled_appointments')
+            .select('id', { count: 'exact', head: true })
+            .eq('org_id', userProfile.org_id)
+            .eq('canvasser_user_id', userId)
+          hasEverSetInspection = inspErr ? null : (count ?? 0) > 0
+        }
+
+        // Check first_closed_sale condition once (all-time, no date filter)
+        let hasEverClosedSale: boolean | null = null
+        const needsSaleCheck = unearnedBadges.some(
+          (b) => b.criteria_type === 'first_closed_sale',
+        )
+        if (needsSaleCheck) {
+          const { data: saleData, error: saleErr } = await admin
+            .from('order_form_contracts')
+            .select('id, opportunities!inner(owner_user_id, setter_user_id)')
+            .eq('org_id', userProfile.org_id)
+            .eq('status', 'completed')
+            .in('agreement_type', ['installation', 'repair'])
+            .not('customer_signed_at', 'is', null)
+            .or(`owner_user_id.eq.${userId},setter_user_id.eq.${userId}`, {
+              foreignTable: 'opportunities',
+            })
+            .limit(1)
+          hasEverClosedSale = saleErr ? null : (saleData ?? []).length > 0
+        }
+
+        for (const badge of unearnedBadges) {
+          let conditionMet = false
+
+          if (badge.criteria_type === 'first_inspection_set') {
+            conditionMet = hasEverSetInspection === true
+          } else if (badge.criteria_type === 'first_closed_sale') {
+            conditionMet = hasEverClosedSale === true
+          }
+
+          if (!conditionMet) continue
+
+          const { error: insertBadgeError } = await admin.from('user_badges').insert({
+            org_id: userProfile.org_id,
+            user_id: userId,
+            badge_id: badge.id,
+            awarded_by: null,
+          })
+
+          if (insertBadgeError) {
+            // Duplicate key = already exists (race), skip silently
+            if (!insertBadgeError.message.includes('duplicate')) {
+              console.error('[sisu/sync] badge insert error:', insertBadgeError.message)
+            }
+            continue
+          }
+
+          const { error: badgeNotifError } = await admin.from('notifications').insert({
+            org_id: userProfile.org_id,
+            recipient_user_id: userId,
+            actor_user_id: userId,
+            type: 'sisu_badge_earned',
+            title: 'Badge earned.',
+            body: `You earned the ${badge.name} badge.`,
+          })
+          if (badgeNotifError) {
+            console.error('[sisu/sync] badge notification error:', badgeNotifError.message)
+          }
         }
       }
-
-      updated.push({
-        spiff_program_id: String(achievement.spiff_program_id),
-        current_value: toNumber(achievement.current_value),
-        qualified: Boolean(achievement.qualified),
-        qualified_at: achievement.qualified_at ? String(achievement.qualified_at) : null,
-      })
     }
 
     return NextResponse.json(updated)

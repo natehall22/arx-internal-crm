@@ -875,6 +875,7 @@ export default function AdminIncentivesClient({ currentUserId }: Props) {
       }
       setShowAwardModal(false)
       setAwardBadge(null)
+      loadAll()
     } catch {
       alert('Failed to award badge')
     }
