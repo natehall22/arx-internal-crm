@@ -1006,7 +1006,7 @@ export default function DashboardClient({
             </p>
             {badgeCount > 0 && !isDashboardPersonalKpiOrgWide(profile.role) && (
               <a
-                href="/incentives"
+                href="/sisu"
                 className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
               >
                 <span>🏅</span>

@@ -259,7 +259,7 @@ export default function Nav() {
       label: 'Canvass',
       requiresAnyPermission: 'canvass:view',
     },
-    { href: '/incentives', label: 'Sisu', requiresAnyPermission: ['leads:view'] },
+    { href: '/sisu', label: 'Sisu', requiresAnyPermission: ['leads:view'] },
     { href: '/pricebook', label: 'Pricebook', requiresAnyPermission: ['pricebook:view', 'pricebook:edit'] },
     { href: '/customers', label: 'Customers', requiresAnyPermission: ['customers:view', 'customers:edit'] },
     { href: '/reports', label: 'Reports', requiresAnyPermission: ['reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all'] },
