@@ -124,8 +124,14 @@ export function timeRemainingLabel(endsAt: string): string {
   const end = new Date(endsAt).getTime()
   const diffMs = end - now
   if (diffMs <= 0) return 'Ended'
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-  if (diffHours < 24) return `${diffHours}h left`
+  const diffHours = diffMs / (1000 * 60 * 60)
+  if (diffHours < 2) {
+    const diffMins = Math.floor(diffMs / (1000 * 60))
+    const hrs = Math.floor(diffMins / 60)
+    const mins = diffMins % 60
+    return `${hrs}h ${String(mins).padStart(2, '0')}m left`
+  }
+  if (diffHours < 24) return `${Math.floor(diffHours)}h left`
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays}d left`
 }

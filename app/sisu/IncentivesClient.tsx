@@ -103,9 +103,10 @@ interface HeroProps {
   isSetterLike: boolean
   metrics: LiveMetrics
   goal: UserIncentiveGoal | null
+  activeSpiffs: SpiffWithProgress[]
 }
 
-function ThisWeekHero({ isSetterLike, metrics, goal }: HeroProps) {
+function ThisWeekHero({ isSetterLike, metrics, goal, activeSpiffs }: HeroProps) {
   // Choose primary metric based on role
   let primaryValue: number
   let primaryLabel: string
@@ -123,6 +124,10 @@ function ThisWeekHero({ isSetterLike, metrics, goal }: HeroProps) {
 
   const pct = primaryGoal != null && primaryGoal > 0 ? (primaryValue / primaryGoal) * 100 : null
   const barColor = pct != null ? progressBarColor(pct) : 'bg-blue-500'
+
+  const earnedFromHeats = activeSpiffs
+    .filter(s => s.qualified && s.reward_amount != null)
+    .reduce((sum, s) => sum + (s.reward_amount ?? 0), 0)
 
   return (
     <section
@@ -169,6 +174,16 @@ function ThisWeekHero({ isSetterLike, metrics, goal }: HeroProps) {
           </>
         ) : (
           <p className="text-xs text-gray-500 mt-1">No goal set — contact your manager to set a target.</p>
+        )}
+
+        {/* Earned from Heats */}
+        {earnedFromHeats > 0 && (
+          <div className="mt-4 flex items-baseline gap-2">
+            <span className="text-3xl font-black text-amber-400">
+              ${earnedFromHeats.toLocaleString()}
+            </span>
+            <span className="text-sm text-gray-400">earned from active Heats</span>
+          </div>
         )}
 
         {/* Secondary chips */}
@@ -286,8 +301,16 @@ function SpiffCard({
   const pct =
     spiff.threshold > 0 ? (spiff.currentValue / Number(spiff.threshold)) * 100 : 0
   const barColor = progressBarColor(pct)
-  const remaining = timeRemainingLabel(spiff.ends_at)
   const reward = formatReward(spiff)
+
+  const [countdownLabel, setCountdownLabel] = useState(() => timeRemainingLabel(spiff.ends_at))
+  const isUrgent = new Date(spiff.ends_at).getTime() - Date.now() < 24 * 60 * 60 * 1000
+
+  useEffect(() => {
+    const update = () => setCountdownLabel(timeRemainingLabel(spiff.ends_at))
+    const interval = setInterval(update, 60_000)
+    return () => clearInterval(interval)
+  }, [spiff.ends_at])
 
   return (
     <div
@@ -343,12 +366,11 @@ function SpiffCard({
 
       {/* Footer row */}
       <div className="flex items-center justify-end mt-auto pt-1">
-        <span
-          className={`text-xs font-medium ${
-            remaining === 'Ended' ? 'text-gray-500' : 'text-amber-400'
-          }`}
-        >
-          {remaining}
+        <span className={`text-xs font-medium flex items-center gap-1 ${
+          isUrgent ? 'text-red-400' : countdownLabel === 'Ended' ? 'text-gray-500' : 'text-amber-400'
+        }`}>
+          {isUrgent && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" />}
+          {countdownLabel}
         </span>
       </div>
     </div>
@@ -505,13 +527,28 @@ function LeaderboardRow({
   maxPrimaryMetric,
   isCurrentUser,
   primaryLabel,
+  gapToNext,
+  isHustleAward,
 }: {
   entry: LeaderboardEntry
   maxPrimaryMetric: number
   isCurrentUser: boolean
   primaryLabel: string
+  gapToNext: number
+  isHustleAward: boolean
 }) {
   const barPct = maxPrimaryMetric > 0 ? (entry.primary_metric / maxPrimaryMetric) * 100 : 0
+
+  const rankBubbleClass =
+    entry.rank === 1
+      ? 'bg-amber-500 text-white'
+      : entry.rank === 2
+      ? 'bg-gray-400 text-gray-900'
+      : entry.rank === 3
+      ? 'bg-amber-700 text-white'
+      : isCurrentUser
+      ? 'bg-indigo-500 text-white'
+      : 'bg-gray-800 text-gray-300'
 
   return (
     <div
@@ -523,20 +560,30 @@ function LeaderboardRow({
     >
       <div className="flex items-center gap-3">
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black ${
-            isCurrentUser ? 'bg-indigo-500 text-white' : 'bg-gray-800 text-gray-300'
-          }`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black ${rankBubbleClass}`}
         >
           #{entry.rank}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-bold text-white">
-              {privateDisplayName(entry.full_name)}
-            </p>
+            <div className="flex items-center gap-1 min-w-0">
+              <p className="truncate text-sm font-bold text-white">
+                {privateDisplayName(entry.full_name)}
+              </p>
+              {isHustleAward && (
+                <span className="ml-2 text-[10px] rounded-full bg-orange-900/60 text-orange-300 px-2 py-0.5 font-medium shrink-0">
+                  🔥 Hustle
+                </span>
+              )}
+            </div>
             <div className="shrink-0 text-right">
               <p className="text-base font-black text-white">{entry.primary_metric}</p>
               <p className="text-[10px] uppercase tracking-wide text-gray-500">{primaryLabel}</p>
+              {entry.rank > 1 && gapToNext > 0 && (
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  {gapToNext} behind #{entry.rank - 1}
+                </p>
+              )}
             </div>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
@@ -576,6 +623,15 @@ function LeaderboardSection({
   )
   const primaryLabel = activeRoleTab === 'setters' ? 'set' : 'sales'
 
+  // Hustle award: rep with most doors knocked who isn't already #1
+  const hustleUserId: string | null = (() => {
+    if (rows.length === 0) return null
+    const sorted = [...rows].sort((a, b) => b.doors_knocked - a.doors_knocked)
+    const top = sorted[0]
+    if (!top || top.rank === 1) return null
+    return top.user_id
+  })()
+
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -613,15 +669,21 @@ function LeaderboardSection({
         </div>
       ) : (
         <div className="space-y-2">
-          {rows.map((entry) => (
-            <LeaderboardRow
-              key={entry.user_id}
-              entry={entry}
-              maxPrimaryMetric={maxPrimaryMetric}
-              isCurrentUser={entry.user_id === currentUserId}
-              primaryLabel={primaryLabel}
-            />
-          ))}
+          {rows.map((entry) => {
+            const aboveEntry = rows.find(r => r.rank === entry.rank - 1)
+            const gapToNext = aboveEntry ? aboveEntry.primary_metric - entry.primary_metric : 0
+            return (
+              <LeaderboardRow
+                key={entry.user_id}
+                entry={entry}
+                maxPrimaryMetric={maxPrimaryMetric}
+                isCurrentUser={entry.user_id === currentUserId}
+                primaryLabel={primaryLabel}
+                gapToNext={gapToNext}
+                isHustleAward={entry.user_id === hustleUserId}
+              />
+            )
+          })}
         </div>
       )}
     </section>
@@ -746,6 +808,32 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
   )
 }
 
+// ─── Qualification toast ──────────────────────────────────────────────────────
+
+function QualificationToast({ heat, onDismiss }: { heat: SpiffWithProgress; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 5000)
+    return () => clearTimeout(t)
+  }, [onDismiss])
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-50 p-4 translate-y-0 transition-transform">
+      <div className="max-w-lg mx-auto rounded-2xl bg-emerald-900 border border-emerald-500/50 p-5 shadow-2xl shadow-emerald-900/50">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-2xl mb-1">🎉</p>
+            <p className="font-black text-white text-lg">You hit it.</p>
+            <p className="text-emerald-300 text-sm mt-1">
+              You qualified for <strong>{heat.name}</strong>. {formatReward(heat)} earned.
+            </p>
+          </div>
+          <button onClick={onDismiss} className="text-emerald-500 hover:text-white text-xl leading-none mt-0.5">×</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Page root ────────────────────────────────────────────────────────────────
 
 interface IncentivesClientProps {
@@ -770,6 +858,7 @@ export default function IncentivesClient({
   const [activeSpiffs, setActiveSpiffs] = useState(initialActiveSpiffs)
   const [syncingHeats, setSyncingHeats] = useState(false)
   const [flashingSpiffIds, setFlashingSpiffIds] = useState<Set<string>>(() => new Set())
+  const [toastHeat, setToastHeat] = useState<SpiffWithProgress | null>(null)
   const [mainView, setMainView] = useState<MainView>('stats')
   const [leaderboardRoleTab, setLeaderboardRoleTab] = useState<LeaderboardRoleTab>(
     isSetterLike ? 'setters' : 'closers',
@@ -820,18 +909,26 @@ export default function IncentivesClient({
             .map((spiff) => spiff.id),
         )
 
-        setActiveSpiffs((currentSpiffs) =>
-          currentSpiffs.map((spiff) => {
+        setActiveSpiffs((currentSpiffs) => {
+          const merged = currentSpiffs.map((spiff) => {
             const progress = progressBySpiffId.get(spiff.id)
             if (!progress) return spiff
-
             return {
               ...spiff,
               currentValue: progress.current_value,
               qualified: progress.qualified,
             }
-          }),
-        )
+          })
+
+          if (newlyQualifiedIds.size > 0 && !cancelled) {
+            const updated = progressRows.filter(r => newlyQualifiedIds.has(r.spiff_program_id))
+            const firstNewlyQualified = updated.find(r => newlyQualifiedIds.has(r.spiff_program_id))
+            const matchingHeat = merged.find(s => s.id === firstNewlyQualified?.spiff_program_id)
+            if (matchingHeat) setToastHeat(matchingHeat)
+          }
+
+          return merged
+        })
 
         if (newlyQualifiedIds.size > 0 && !cancelled) {
           setFlashingSpiffIds(newlyQualifiedIds)
@@ -926,7 +1023,7 @@ export default function IncentivesClient({
       {mainView === 'stats' ? (
         <>
           {/* Section 1 — Hero */}
-          <ThisWeekHero isSetterLike={isSetterLike} metrics={liveMetrics} goal={goal} />
+          <ThisWeekHero isSetterLike={isSetterLike} metrics={liveMetrics} goal={goal} activeSpiffs={activeSpiffs} />
 
           {/* Section 2 — 444 Program */}
           {enrollment444 !== null && (
@@ -953,6 +1050,8 @@ export default function IncentivesClient({
           currentUserId={profile.id}
         />
       )}
+
+      {toastHeat && <QualificationToast heat={toastHeat} onDismiss={() => setToastHeat(null)} />}
     </main>
   )
 }
