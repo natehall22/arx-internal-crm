@@ -307,8 +307,11 @@ function SpiffCard({
       )}
 
       {/* Header */}
-      <div className="pr-8">
+      <div className="flex items-start justify-between gap-2 pr-0">
         <h3 className="font-bold text-white text-base leading-tight">{spiff.name}</h3>
+        <span className="text-xl font-black text-amber-400 shrink-0">{reward}</span>
+      </div>
+      <div>
         {spiff.description && (
           <p className="text-xs text-gray-400 mt-1 line-clamp-2">{spiff.description}</p>
         )}
@@ -339,10 +342,7 @@ function SpiffCard({
       </div>
 
       {/* Footer row */}
-      <div className="flex items-center justify-between mt-auto pt-1">
-        <span className="inline-flex items-center gap-1 rounded-full bg-indigo-900/60 border border-indigo-700/50 px-2.5 py-1 text-xs font-semibold text-indigo-300">
-          {reward}
-        </span>
+      <div className="flex items-center justify-end mt-auto pt-1">
         <span
           className={`text-xs font-medium ${
             remaining === 'Ended' ? 'text-gray-500' : 'text-amber-400'
@@ -414,14 +414,14 @@ function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
     return (
       <div className="rounded-2xl border border-gray-700/50 bg-gray-900 p-3 flex flex-col items-center gap-2 text-center">
         <div
-          className="w-12 h-12 rounded-full flex items-center justify-center text-2xl shadow-inner"
-          style={{ backgroundColor: `${badge.color_hex}22`, border: `2px solid ${badge.color_hex}55` }}
+          className="w-14 h-14 rounded-full flex items-center justify-center text-3xl shadow-inner"
+          style={{ backgroundColor: `${badge.color_hex}33`, outline: `2px solid ${badge.color_hex}55` }}
         >
           {emoji}
         </div>
         <p className="text-xs font-semibold text-white leading-tight line-clamp-2">{badge.name}</p>
         {earnedDate && (
-          <p className="text-[10px] text-gray-500">{earnedDate}</p>
+          <p className="text-xs text-gray-300">Earned {earnedDate}</p>
         )}
       </div>
     )
@@ -465,10 +465,18 @@ function BadgesSection({ badges }: { badges: BadgeWithEarned[] }) {
         {earned.map((b) => (
           <BadgeItem key={b.id} badge={b} />
         ))}
-        {locked.map((b) => (
-          <BadgeItem key={b.id} badge={b} />
-        ))}
       </div>
+
+      {locked.length > 0 && (
+        <details className="mt-4">
+          <summary className="text-xs text-gray-500 cursor-pointer select-none">
+            {locked.length} locked {locked.length === 1 ? 'badge' : 'badges'}
+          </summary>
+          <div className="grid grid-cols-3 gap-3 mt-3 opacity-40">
+            {locked.map((b) => <BadgeItem key={b.id} badge={b} />)}
+          </div>
+        </details>
+      )}
     </section>
   )
 }
@@ -668,6 +676,12 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
           </div>
         ) : (
           <>
+            {inWeek2 && enrollment.week1_qualified && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-800/60 text-emerald-300 text-xs font-medium px-2.5 py-0.5 mb-2">
+                ✓ Week 1 complete
+              </span>
+            )}
+
             {/* Week indicator */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-widest text-amber-400">
@@ -767,6 +781,14 @@ export default function IncentivesClient({
   const profileIdRef = useRef(profile.id)
   const profileOrgIdRef = useRef(profile.org_id)
   const profileRoleRef = useRef(profile.role)
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const initials = (profile.full_name ?? '')
+    .split(' ')
+    .map((n: string) => n[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?'
 
   useEffect(() => {
     let cancelled = false
@@ -869,12 +891,16 @@ export default function IncentivesClient({
     <main className="max-w-2xl mx-auto px-4 pb-16 pt-6 space-y-8">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-black text-white tracking-tight">
-          My Sisu
-        </h1>
-        <p className="text-sm text-gray-400 mt-0.5">
-          {profile.full_name ?? 'Rep'} · Your performance. Your proof.
-        </p>
+        <p className="text-sm text-gray-400">{greeting}</p>
+        <div className="flex items-center gap-3 mt-0.5">
+          <div className="w-10 h-10 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+            {initials}
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-white tracking-tight">My Sisu</h1>
+            <p className="text-sm text-gray-400 mt-0.5">Your performance. Your proof.</p>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-sm font-bold">
