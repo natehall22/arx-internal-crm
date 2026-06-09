@@ -190,6 +190,23 @@ type SisuSyncProgress = {
   qualified_at: string | null
 }
 
+type MainView = 'stats' | 'leaderboard'
+type LeaderboardRoleTab = 'setters' | 'closers'
+
+type LeaderboardEntry = {
+  user_id: string
+  full_name: string
+  role: string
+  primary_metric: number
+  doors_knocked: number
+  rank: number
+}
+
+type LeaderboardResponse = {
+  setters: LeaderboardEntry[]
+  closers: LeaderboardEntry[]
+}
+
 function isSisuSyncProgress(value: unknown): value is SisuSyncProgress {
   if (!value || typeof value !== 'object') return false
 
@@ -200,6 +217,42 @@ function isSisuSyncProgress(value: unknown): value is SisuSyncProgress {
     typeof row.qualified === 'boolean' &&
     (typeof row.qualified_at === 'string' || row.qualified_at === null)
   )
+}
+
+function isLeaderboardEntry(value: unknown): value is LeaderboardEntry {
+  if (!value || typeof value !== 'object') return false
+
+  const row = value as Record<string, unknown>
+  return (
+    typeof row.user_id === 'string' &&
+    typeof row.full_name === 'string' &&
+    typeof row.role === 'string' &&
+    typeof row.primary_metric === 'number' &&
+    typeof row.doors_knocked === 'number' &&
+    typeof row.rank === 'number'
+  )
+}
+
+function isLeaderboardResponse(value: unknown): value is LeaderboardResponse {
+  if (!value || typeof value !== 'object') return false
+
+  const row = value as Record<string, unknown>
+  return (
+    Array.isArray(row.setters) &&
+    Array.isArray(row.closers) &&
+    row.setters.every(isLeaderboardEntry) &&
+    row.closers.every(isLeaderboardEntry)
+  )
+}
+
+function privateDisplayName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return 'Unknown'
+  if (parts.length === 1) return parts[0]
+
+  const firstName = parts[0]
+  const lastInitial = parts[parts.length - 1]?.charAt(0).toUpperCase()
+  return lastInitial ? `${firstName} ${lastInitial}.` : firstName
 }
 
 // ─── SPIFF card ───────────────────────────────────────────────────────────────
@@ -403,6 +456,153 @@ function BadgesSection({ badges }: { badges: BadgeWithEarned[] }) {
   )
 }
 
+function LeaderboardSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="rounded-2xl border border-gray-800 bg-gray-900 p-4 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-gray-800" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-3 w-28 rounded bg-gray-800" />
+              <div className="h-2 w-full rounded bg-gray-800" />
+            </div>
+            <div className="h-7 w-12 rounded bg-gray-800" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function LeaderboardRow({
+  entry,
+  maxPrimaryMetric,
+  isCurrentUser,
+  primaryLabel,
+}: {
+  entry: LeaderboardEntry
+  maxPrimaryMetric: number
+  isCurrentUser: boolean
+  primaryLabel: string
+}) {
+  const barPct = maxPrimaryMetric > 0 ? (entry.primary_metric / maxPrimaryMetric) * 100 : 0
+
+  return (
+    <div
+      className={`rounded-2xl border p-4 ${
+        isCurrentUser
+          ? 'border-indigo-500/70 bg-indigo-950/30'
+          : 'border-gray-800 bg-gray-900'
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black ${
+            isCurrentUser ? 'bg-indigo-500 text-white' : 'bg-gray-800 text-gray-300'
+          }`}
+        >
+          #{entry.rank}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-sm font-bold text-white">
+              {privateDisplayName(entry.full_name)}
+            </p>
+            <div className="shrink-0 text-right">
+              <p className="text-base font-black text-white">{entry.primary_metric}</p>
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">{primaryLabel}</p>
+            </div>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
+            <div
+              className="h-full rounded-full bg-indigo-500 transition-all duration-700"
+              style={{ width: `${clamp100(barPct)}%` }}
+            />
+          </div>
+          <p className="mt-1.5 text-xs text-gray-500">
+            {entry.doors_knocked.toLocaleString()} doors knocked
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LeaderboardSection({
+  leaderboard,
+  loading,
+  error,
+  activeRoleTab,
+  setActiveRoleTab,
+  currentUserId,
+}: {
+  leaderboard: LeaderboardResponse | null
+  loading: boolean
+  error: boolean
+  activeRoleTab: LeaderboardRoleTab
+  setActiveRoleTab: (tab: LeaderboardRoleTab) => void
+  currentUserId: string
+}) {
+  const rows = leaderboard?.[activeRoleTab] ?? []
+  const maxPrimaryMetric = Math.max(0, ...rows.map((entry) => entry.primary_metric))
+  const hasActivity = rows.some(
+    (entry) => entry.primary_metric > 0 || entry.doors_knocked > 0,
+  )
+  const primaryLabel = activeRoleTab === 'setters' ? 'set' : 'sales'
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-bold text-white">Leaderboard</h2>
+          <p className="text-xs text-gray-500">This week</p>
+        </div>
+        <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-xs font-bold">
+          {(['setters', 'closers'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveRoleTab(tab)}
+              className={`rounded-full px-3 py-1.5 transition ${
+                activeRoleTab === tab
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {tab === 'setters' ? 'Setters' : 'Closers'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <LeaderboardSkeleton />
+      ) : error ? (
+        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm font-semibold text-gray-400">
+          Leaderboard unavailable
+        </div>
+      ) : rows.length === 0 || !hasActivity ? (
+        <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-6 text-center text-sm font-semibold text-gray-400">
+          No activity this week yet. Be the first.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((entry) => (
+            <LeaderboardRow
+              key={entry.user_id}
+              entry={entry}
+              maxPrimaryMetric={maxPrimaryMetric}
+              isCurrentUser={entry.user_id === currentUserId}
+              primaryLabel={primaryLabel}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ─── Page root ────────────────────────────────────────────────────────────────
 
 interface IncentivesClientProps {
@@ -425,8 +625,17 @@ export default function IncentivesClient({
   const [activeSpiffs, setActiveSpiffs] = useState(initialActiveSpiffs)
   const [syncingHeats, setSyncingHeats] = useState(false)
   const [flashingSpiffIds, setFlashingSpiffIds] = useState<Set<string>>(() => new Set())
+  const [mainView, setMainView] = useState<MainView>('stats')
+  const [leaderboardRoleTab, setLeaderboardRoleTab] = useState<LeaderboardRoleTab>(
+    isSetterLike ? 'setters' : 'closers',
+  )
+  const [leaderboard, setLeaderboard] = useState<LeaderboardResponse | null>(null)
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true)
+  const [leaderboardError, setLeaderboardError] = useState(false)
   const initialActiveSpiffsRef = useRef(initialActiveSpiffs)
   const profileIdRef = useRef(profile.id)
+  const profileOrgIdRef = useRef(profile.org_id)
+  const profileRoleRef = useRef(profile.role)
 
   useEffect(() => {
     let cancelled = false
@@ -484,7 +693,41 @@ export default function IncentivesClient({
       }
     }
 
+    async function loadLeaderboard() {
+      setLeaderboardLoading(true)
+      setLeaderboardError(false)
+
+      try {
+        const response = await fetch('/api/sisu/leaderboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orgId: profileOrgIdRef.current,
+            role: profileRoleRef.current,
+          }),
+        })
+
+        if (!response.ok) {
+          if (!cancelled) setLeaderboardError(true)
+          return
+        }
+
+        const json: unknown = await response.json()
+        if (!isLeaderboardResponse(json)) {
+          if (!cancelled) setLeaderboardError(true)
+          return
+        }
+
+        if (!cancelled) setLeaderboard(json)
+      } catch {
+        if (!cancelled) setLeaderboardError(true)
+      } finally {
+        if (!cancelled) setLeaderboardLoading(false)
+      }
+    }
+
     syncSisuProgress()
+    loadLeaderboard()
 
     return () => {
       cancelled = true
@@ -503,18 +746,51 @@ export default function IncentivesClient({
         </p>
       </div>
 
-      {/* Section 1 — Hero */}
-      <ThisWeekHero isSetterLike={isSetterLike} metrics={liveMetrics} goal={goal} />
+      <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-sm font-bold">
+        {([
+          ['stats', 'My Sisu'],
+          ['leaderboard', 'Leaderboard'],
+        ] as const).map(([view, label]) => (
+          <button
+            key={view}
+            type="button"
+            onClick={() => setMainView(view)}
+            className={`rounded-full px-4 py-2 transition ${
+              mainView === view
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/40'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {/* Section 2 — SPIFFs */}
-      <SpiffsSection
-        spiffs={activeSpiffs}
-        syncing={syncingHeats}
-        flashingSpiffIds={flashingSpiffIds}
-      />
+      {mainView === 'stats' ? (
+        <>
+          {/* Section 1 — Hero */}
+          <ThisWeekHero isSetterLike={isSetterLike} metrics={liveMetrics} goal={goal} />
 
-      {/* Section 3 — Badges */}
-      <BadgesSection badges={earnedBadges} />
+          {/* Section 2 — SPIFFs */}
+          <SpiffsSection
+            spiffs={activeSpiffs}
+            syncing={syncingHeats}
+            flashingSpiffIds={flashingSpiffIds}
+          />
+
+          {/* Section 3 — Badges */}
+          <BadgesSection badges={earnedBadges} />
+        </>
+      ) : (
+        <LeaderboardSection
+          leaderboard={leaderboard}
+          loading={leaderboardLoading}
+          error={leaderboardError}
+          activeRoleTab={leaderboardRoleTab}
+          setActiveRoleTab={setLeaderboardRoleTab}
+          currentUserId={profile.id}
+        />
+      )}
     </main>
   )
 }
