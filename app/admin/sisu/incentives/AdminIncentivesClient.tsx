@@ -67,10 +67,10 @@ const CRITERIA_VALUE_REQUIRED: BadgeCriteriaType[] = [
 
 function statusBadge(status: SpiffStatus) {
   const classes: Record<SpiffStatus, string> = {
-    draft: 'bg-gray-100 text-gray-600',
-    active: 'bg-green-100 text-green-700',
-    completed: 'bg-blue-100 text-blue-700',
-    cancelled: 'bg-red-100 text-red-700',
+    draft: 'bg-slate-800 text-slate-400',
+    active: 'bg-emerald-500/15 text-emerald-300',
+    completed: 'bg-blue-500/15 text-blue-300',
+    cancelled: 'bg-red-500/100/15 text-red-300',
   }
   return (
     <span className={`px-2 py-1 text-xs rounded-full font-medium ${classes[status]}`}>
@@ -174,37 +174,37 @@ function SpiffStep1({
 }) {
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-gray-900">Step 1 — What are we rewarding?</h3>
+      <h3 className="font-semibold text-white">Step 1 — What are we rewarding?</h3>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+        <label className="block text-sm font-medium text-slate-300 mb-1">Name</label>
         <input
           type="text"
           value={form.name}
           onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+          className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
           placeholder="e.g., June Inspection Blitz"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Description <span className="font-normal text-gray-400">(optional)</span>
+        <label className="block text-sm font-medium text-slate-300 mb-1">
+          Description <span className="font-normal text-slate-500">(optional)</span>
         </label>
         <textarea
           value={form.description}
           onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+          className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
           rows={2}
           placeholder="Short description shown to the team"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Trigger metric</label>
+        <label className="block text-sm font-medium text-slate-300 mb-1">Trigger metric</label>
         <select
           value={form.trigger_metric}
           onChange={(e) =>
             setForm((p) => ({ ...p, trigger_metric: e.target.value as SpiffTriggerMetric }))
           }
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+          className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
         >
           {(Object.entries(TRIGGER_METRIC_LABELS) as [SpiffTriggerMetric, string][]).map(
             ([value, label]) => (
@@ -216,14 +216,14 @@ function SpiffStep1({
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-slate-300 mb-1">
           {THRESHOLD_LABELS[form.trigger_metric]}
         </label>
         <input
           type="number"
           value={form.threshold}
           onChange={(e) => setForm((p) => ({ ...p, threshold: e.target.value }))}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+          className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
           placeholder="e.g., 10"
           min="0"
           step={form.trigger_metric === 'close_rate' ? '0.1' : '1'}
@@ -242,9 +242,9 @@ function SpiffStep2({
 }) {
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-gray-900">Step 2 — What is the reward?</h3>
+      <h3 className="font-semibold text-white">Step 2 — What is the reward?</h3>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Reward type</label>
+        <label className="block text-sm font-medium text-slate-300 mb-2">Reward type</label>
         <div className="flex gap-3">
           {(['cash', 'gift_card', 'recognition'] as SpiffRewardType[]).map((rt) => (
             <button
@@ -253,8 +253,8 @@ function SpiffStep2({
               onClick={() => setForm((p) => ({ ...p, reward_type: rt }))}
               className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium ${
                 form.reward_type === rt
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300'
+                  : 'border-slate-800 text-slate-400 hover:border-slate-600'
               }`}
             >
               {rt === 'cash' ? 'Cash' : rt === 'gift_card' ? 'Gift Card' : 'Recognition Only'}
@@ -264,14 +264,14 @@ function SpiffStep2({
       </div>
       {form.reward_type !== 'recognition' && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-slate-300 mb-1">
             Reward amount ($)
           </label>
           <input
             type="number"
             value={form.reward_amount}
             onChange={(e) => setForm((p) => ({ ...p, reward_amount: e.target.value }))}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
             placeholder="e.g., 100"
             min="0"
             step="1"
@@ -279,14 +279,14 @@ function SpiffStep2({
         </div>
       )}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Reward note <span className="font-normal text-gray-400">(optional)</span>
+        <label className="block text-sm font-medium text-slate-300 mb-1">
+          Reward note <span className="font-normal text-slate-500">(optional)</span>
         </label>
         <input
           type="text"
           value={form.reward_note}
           onChange={(e) => setForm((p) => ({ ...p, reward_note: e.target.value }))}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+          className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
           placeholder='e.g., "Amazon gift card via manager"'
         />
       </div>
@@ -322,11 +322,11 @@ function SpiffStep3({
 
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-gray-900">Step 3 — Who and when?</h3>
+      <h3 className="font-semibold text-white">Step 3 — Who and when?</h3>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-slate-300 mb-2">
           Eligible roles{' '}
-          <span className="font-normal text-gray-400">(empty = all roles eligible)</span>
+          <span className="font-normal text-slate-500">(empty = all roles eligible)</span>
         </label>
         <div className="space-y-2">
           <label className="flex items-center gap-2 cursor-pointer">
@@ -334,9 +334,9 @@ function SpiffStep3({
               type="checkbox"
               checked={form.eligible_roles.length === ELIGIBLE_ROLE_OPTIONS.length}
               onChange={setAllRoles}
-              className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+              className="w-4 h-4 rounded border-slate-700 text-indigo-400 bg-slate-950 [color-scheme:dark]"
             />
-            <span className="text-sm font-medium text-gray-700">All Roles</span>
+            <span className="text-sm font-medium text-slate-300">All Roles</span>
           </label>
           {ELIGIBLE_ROLE_OPTIONS.map((opt) => (
             <label key={opt.value} className="flex items-center gap-2 cursor-pointer ml-4">
@@ -344,9 +344,9 @@ function SpiffStep3({
                 type="checkbox"
                 checked={form.eligible_roles.includes(opt.value)}
                 onChange={() => toggleRole(opt.value)}
-                className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                className="w-4 h-4 rounded border-slate-700 text-indigo-400 bg-slate-950 [color-scheme:dark]"
               />
-              <span className="text-sm text-gray-700">{opt.label}</span>
+              <span className="text-sm text-slate-300">{opt.label}</span>
             </label>
           ))}
         </div>
@@ -357,31 +357,31 @@ function SpiffStep3({
             type="checkbox"
             checked={form.is_public}
             onChange={(e) => setForm((p) => ({ ...p, is_public: e.target.checked }))}
-            className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+            className="w-4 h-4 rounded border-slate-700 text-indigo-400 bg-slate-950 [color-scheme:dark]"
           />
           <div>
-            <span className="text-sm font-medium text-gray-700">Visible on leaderboard</span>
-            <p className="text-xs text-gray-500">Team members can see this Heat and their progress</p>
+            <span className="text-sm font-medium text-slate-300">Visible on leaderboard</span>
+            <p className="text-xs text-slate-400">Team members can see this Heat and their progress</p>
           </div>
         </label>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Start date</label>
+          <label className="block text-sm font-medium text-slate-300 mb-1">Start date</label>
           <input
             type="date"
             value={form.starts_at}
             onChange={(e) => setForm((p) => ({ ...p, starts_at: e.target.value }))}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">End date</label>
+          <label className="block text-sm font-medium text-slate-300 mb-1">End date</label>
           <input
             type="date"
             value={form.ends_at}
             onChange={(e) => setForm((p) => ({ ...p, ends_at: e.target.value }))}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
           />
         </div>
       </div>
@@ -396,31 +396,31 @@ function SpiffStep4({
 }) {
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-gray-900">Step 4 — Review + Publish</h3>
-      <div className="bg-gray-50 rounded-lg p-4 space-y-3 text-sm">
+      <h3 className="font-semibold text-white">Step 4 — Review + Publish</h3>
+      <div className="bg-slate-950/60 rounded-lg p-4 space-y-3 text-sm">
         <div className="flex justify-between">
-          <span className="text-gray-500">Name</span>
-          <span className="font-medium text-gray-900">{form.name || '—'}</span>
+          <span className="text-slate-400">Name</span>
+          <span className="font-medium text-white">{form.name || '—'}</span>
         </div>
         {form.description && (
           <div className="flex justify-between">
-            <span className="text-gray-500">Description</span>
-            <span className="font-medium text-gray-900 max-w-xs text-right">{form.description}</span>
+            <span className="text-slate-400">Description</span>
+            <span className="font-medium text-white max-w-xs text-right">{form.description}</span>
           </div>
         )}
         <div className="flex justify-between">
-          <span className="text-gray-500">Metric</span>
-          <span className="font-medium text-gray-900">
+          <span className="text-slate-400">Metric</span>
+          <span className="font-medium text-white">
             {TRIGGER_METRIC_LABELS[form.trigger_metric]}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">Threshold</span>
-          <span className="font-medium text-gray-900">{form.threshold || '—'}</span>
+          <span className="text-slate-400">Threshold</span>
+          <span className="font-medium text-white">{form.threshold || '—'}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">Reward</span>
-          <span className="font-medium text-gray-900">
+          <span className="text-slate-400">Reward</span>
+          <span className="font-medium text-white">
             {form.reward_type === 'recognition'
               ? 'Recognition Only'
               : `${form.reward_type === 'cash' ? 'Cash' : 'Gift Card'} — $${form.reward_amount || '0'}`}
@@ -428,13 +428,13 @@ function SpiffStep4({
         </div>
         {form.reward_note && (
           <div className="flex justify-between">
-            <span className="text-gray-500">Note</span>
-            <span className="font-medium text-gray-900">{form.reward_note}</span>
+            <span className="text-slate-400">Note</span>
+            <span className="font-medium text-white">{form.reward_note}</span>
           </div>
         )}
         <div className="flex justify-between">
-          <span className="text-gray-500">Eligible roles</span>
-          <span className="font-medium text-gray-900">
+          <span className="text-slate-400">Eligible roles</span>
+          <span className="font-medium text-white">
             {form.eligible_roles.length === 0
               ? 'All roles'
               : form.eligible_roles
@@ -443,12 +443,12 @@ function SpiffStep4({
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">Leaderboard</span>
-          <span className="font-medium text-gray-900">{form.is_public ? 'Visible' : 'Hidden'}</span>
+          <span className="text-slate-400">Leaderboard</span>
+          <span className="font-medium text-white">{form.is_public ? 'Visible' : 'Hidden'}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">Dates</span>
-          <span className="font-medium text-gray-900">
+          <span className="text-slate-400">Dates</span>
+          <span className="font-medium text-white">
             {form.starts_at} → {form.ends_at}
           </span>
         </div>
@@ -943,14 +943,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-lg">
+      <div className="p-4 bg-red-500/10 text-red-300 border border-red-500/30 rounded-lg">
         {error}
       </div>
     )
@@ -959,7 +959,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
   return (
     <>
       {/* ── Tabs ── */}
-      <div className="flex gap-1 border-b mb-6">
+      <div className="flex gap-1 border-b border-slate-800 mb-6">
         {([
           ['spiffs', `Heats (${spiffs.length})`],
           ['cycles', `Cycles (${cycles.length})`],
@@ -970,8 +970,8 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === tab
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             {label}
@@ -992,7 +992,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                   className={`px-3 py-1.5 rounded-full text-sm font-medium ${
                     spiffFilter === f
                       ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                   }`}
                 >
                   {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -1007,38 +1007,38 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
             </button>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div className="bg-slate-900 rounded-xl shadow-sm border border-slate-800 overflow-hidden">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b">
+              <thead className="bg-slate-950/60 border-b border-slate-800">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Metric</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Threshold</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reward</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Metric</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Threshold</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Reward</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Dates</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Status</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-slate-800">
                 {filteredSpiffs.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50">
+                  <tr key={s.id} className="hover:bg-slate-800/50">
                     <td className="px-6 py-4">
-                      <p className="font-medium text-gray-900">{s.name}</p>
+                      <p className="font-medium text-white">{s.name}</p>
                       {s.description && (
-                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{s.description}</p>
+                        <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{s.description}</p>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
+                    <td className="px-6 py-4 text-sm text-slate-300">
                       {TRIGGER_METRIC_LABELS[s.trigger_metric]}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{s.threshold}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
+                    <td className="px-6 py-4 text-sm text-slate-300">{s.threshold}</td>
+                    <td className="px-6 py-4 text-sm text-slate-300">
                       {s.reward_type === 'recognition'
                         ? 'Recognition'
                         : `$${s.reward_amount ?? 0} ${s.reward_type === 'gift_card' ? '(gift card)' : ''}`}
                     </td>
-                    <td className="px-6 py-4 text-xs text-gray-500">
+                    <td className="px-6 py-4 text-xs text-slate-400">
                       {s.starts_at.split('T')[0]} → {s.ends_at.split('T')[0]}
                     </td>
                     <td className="px-6 py-4">{statusBadge(s.status)}</td>
@@ -1046,14 +1046,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => openEditSpiff(s)}
-                          className="text-sm text-indigo-600 hover:text-indigo-800"
+                          className="text-sm text-indigo-400 hover:text-indigo-200"
                         >
                           Edit
                         </button>
                         {s.status !== 'cancelled' && s.status !== 'completed' && (
                           <button
                             onClick={() => cancelSpiff(s.id)}
-                            className="text-sm text-red-500 hover:text-red-700"
+                            className="text-sm text-red-500 hover:text-red-300"
                           >
                             Cancel
                           </button>
@@ -1065,7 +1065,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               </tbody>
             </table>
             {filteredSpiffs.length === 0 && (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-slate-400">
                 No Heats found{spiffFilter !== 'all' ? ` with status "${spiffFilter}"` : ''}
               </div>
             )}
@@ -1085,32 +1085,32 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
             </button>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div className="bg-slate-900 rounded-xl shadow-sm border border-slate-800 overflow-hidden">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b">
+              <thead className="bg-slate-950/60 border-b border-slate-800">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Label</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cadence</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Start</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">End</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Label</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Cadence</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Start</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">End</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Status</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-slate-800">
                 {cycles.map((c) => (
-                  <tr key={c.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium text-gray-900">{c.label}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 capitalize">{c.cadence}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{c.starts_at.split('T')[0]}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{c.ends_at.split('T')[0]}</td>
+                  <tr key={c.id} className="hover:bg-slate-800/50">
+                    <td className="px-6 py-4 font-medium text-white">{c.label}</td>
+                    <td className="px-6 py-4 text-sm text-slate-400 capitalize">{c.cadence}</td>
+                    <td className="px-6 py-4 text-sm text-slate-400">{c.starts_at.split('T')[0]}</td>
+                    <td className="px-6 py-4 text-sm text-slate-400">{c.ends_at.split('T')[0]}</td>
                     <td className="px-6 py-4">
                       {c.locked_at ? (
-                        <span className="px-2 py-1 text-xs rounded-full font-medium bg-gray-200 text-gray-700">
+                        <span className="px-2 py-1 text-xs rounded-full font-medium bg-slate-800 text-slate-300">
                           Locked
                         </span>
                       ) : (
-                        <span className="px-2 py-1 text-xs rounded-full font-medium bg-green-100 text-green-700">
+                        <span className="px-2 py-1 text-xs rounded-full font-medium bg-emerald-500/15 text-emerald-300">
                           Open
                         </span>
                       )}
@@ -1120,14 +1120,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                         {!c.locked_at && (
                           <button
                             onClick={() => lockCycle(c)}
-                            className="text-sm text-amber-600 hover:text-amber-800"
+                            className="text-sm text-amber-400 hover:text-amber-300"
                           >
                             Lock Cycle
                           </button>
                         )}
                         <button
                           onClick={() => openPayout(c)}
-                          className="text-sm text-indigo-600 hover:text-indigo-800"
+                          className="text-sm text-indigo-400 hover:text-indigo-200"
                         >
                           {c.locked_at ? 'View Payout' : 'Payout Queue'}
                         </button>
@@ -1138,7 +1138,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               </tbody>
             </table>
             {cycles.length === 0 && (
-              <div className="text-center py-12 text-gray-500">No cycles created yet</div>
+              <div className="text-center py-12 text-slate-400">No cycles created yet</div>
             )}
           </div>
         </div>
@@ -1158,7 +1158,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {badges.map((b) => (
-              <div key={b.id} className={`bg-white rounded-xl shadow-sm border p-5 ${!b.is_active ? 'opacity-60' : ''}`}>
+              <div key={b.id} className={`bg-slate-900 rounded-xl shadow-sm border border-slate-800 p-5 ${!b.is_active ? 'opacity-60' : ''}`}>
                 <div className="flex items-start gap-3 mb-3">
                   {/* icon / image preview */}
                   {b.image_url ? (
@@ -1179,8 +1179,8 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                     </div>
                   )}
                   <div className="flex-1">
-                    <p className="font-semibold text-gray-900">{b.name}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="font-semibold text-white">{b.name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
                       {BADGE_CRITERIA_LABELS[b.criteria_type]}
                       {b.criteria_value != null ? ` (${b.criteria_value})` : ''}
                     </p>
@@ -1190,30 +1190,30 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                     type="button"
                     onClick={() => toggleBadgeActive(b)}
                     className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                      b.is_active ? 'bg-indigo-600' : 'bg-gray-200'
+                      b.is_active ? 'bg-indigo-600' : 'bg-slate-800'
                     }`}
                     title={b.is_active ? 'Deactivate' : 'Activate'}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      className={`inline-block h-4 w-4 transform rounded-full bg-slate-900 shadow transition-transform ${
                         b.is_active ? 'translate-x-4' : 'translate-x-0'
                       }`}
                     />
                   </button>
                 </div>
                 {b.description && (
-                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">{b.description}</p>
+                  <p className="text-sm text-slate-400 mb-3 line-clamp-2">{b.description}</p>
                 )}
-                <div className="flex gap-2 pt-3 border-t">
+                <div className="flex gap-2 pt-3 border-t border-slate-800">
                   <button
                     onClick={() => openEditBadge(b)}
-                    className="flex-1 py-1.5 text-sm text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50"
+                    className="flex-1 py-1.5 text-sm text-indigo-400 border border-indigo-500/30 rounded-lg hover:bg-indigo-500/100/10"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => openAward(b)}
-                    className="flex-1 py-1.5 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50"
+                    className="flex-1 py-1.5 text-sm text-slate-300 border border-slate-800 rounded-lg hover:bg-slate-800/50"
                   >
                     Award Manually
                   </button>
@@ -1221,13 +1221,13 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               </div>
             ))}
             {badges.length === 0 && (
-              <div className="col-span-full text-center py-12 bg-white rounded-xl border text-gray-500">
+              <div className="col-span-full text-center py-12 bg-slate-900 rounded-xl border border-slate-800 text-slate-400">
                 <p>No badges created yet</p>
                 <button
                   type="button"
                   disabled={seedBadgesSaving}
                   onClick={seedDefaultBadges}
-                  className="mt-4 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm disabled:opacity-50"
+                  className="mt-4 px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800/50 font-medium text-sm disabled:opacity-50"
                 >
                   {seedBadgesSaving ? 'Seeding...' : 'Seed Default Badges'}
                 </button>
@@ -1239,10 +1239,10 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
 
       {/* ══════════════════════ MODAL: SPIFF wizard ══════════════════════════ */}
       {showSpiffModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">
                 {editingSpiff ? 'Edit Heat' : 'New Heat'}
               </h2>
               {/* step indicator */}
@@ -1251,7 +1251,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                   <div
                     key={n}
                     className={`w-2 h-2 rounded-full ${
-                      n === spiffStep ? 'bg-indigo-600' : n < spiffStep ? 'bg-indigo-300' : 'bg-gray-200'
+                      n === spiffStep ? 'bg-indigo-600' : n < spiffStep ? 'bg-indigo-500/40' : 'bg-slate-800'
                     }`}
                   />
                 ))}
@@ -1263,7 +1263,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               {spiffStep === 3 && <SpiffStep3 form={spiffForm} setForm={setSpiffForm} />}
               {spiffStep === 4 && <SpiffStep4 form={spiffForm} />}
             </div>
-            <div className="p-6 border-t flex items-center justify-between gap-3">
+            <div className="p-6 border-t border-slate-800 flex items-center justify-between gap-3">
               <button
                 onClick={() => {
                   if (spiffStep === 1) {
@@ -1272,7 +1272,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                     setSpiffStep((n) => n - 1)
                   }
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+                className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300"
               >
                 {spiffStep === 1 ? 'Cancel' : '← Back'}
               </button>
@@ -1290,14 +1290,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                     <button
                       disabled={spiffSaving}
                       onClick={() => saveSpiff(false)}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+                      className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300 disabled:opacity-50"
                     >
                       {spiffSaving ? 'Saving...' : 'Save as Draft'}
                     </button>
                     <button
                       disabled={spiffSaving}
                       onClick={() => saveSpiff(true)}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 disabled:opacity-50"
                     >
                       {spiffSaving ? 'Publishing...' : 'Publish Now'}
                     </button>
@@ -1311,60 +1311,60 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
 
       {/* ══════════════════════ MODAL: New Cycle ═════════════════════════════ */}
       {showCycleModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-bold text-gray-900">New Sisu Cycle</h2>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-md w-full">
+            <div className="p-6 border-b border-slate-800">
+              <h2 className="text-xl font-bold text-white">New Sisu Cycle</h2>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cadence</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Cadence</label>
                 <select
                   value={cycleForm.cadence}
                   onChange={(e) =>
                     setCycleForm((p) => ({ ...p, cadence: e.target.value as IncentiveCycleCadence }))
                   }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                 >
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Label</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Label</label>
                 <input
                   type="text"
                   value={cycleForm.label}
                   onChange={(e) => setCycleForm((p) => ({ ...p, label: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                   placeholder='e.g., "Week of 2026-06-08" or "June 2026"'
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Start date</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Start date</label>
                   <input
                     type="date"
                     value={cycleForm.starts_at}
                     onChange={(e) => setCycleForm((p) => ({ ...p, starts_at: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">End date</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">End date</label>
                   <input
                     type="date"
                     value={cycleForm.ends_at}
                     onChange={(e) => setCycleForm((p) => ({ ...p, ends_at: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                   />
                 </div>
               </div>
             </div>
-            <div className="p-6 border-t flex justify-end gap-3">
+            <div className="p-6 border-t border-slate-800 flex justify-end gap-3">
               <button
                 onClick={() => setShowCycleModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+                className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300"
               >
                 Cancel
               </button>
@@ -1382,14 +1382,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
 
       {/* ══════════════════════ MODAL: Payout Queue ══════════════════════════ */}
       {showPayoutModal && payoutCycle && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">
+                <h2 className="text-xl font-bold text-white">
                   Payout Queue — {payoutCycle.label}
                 </h2>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-slate-400 mt-1">
                   {payoutCycle.locked_at
                     ? `Locked ${new Date(payoutCycle.locked_at).toLocaleDateString()}`
                     : 'Not yet locked'}
@@ -1399,7 +1399,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                 {payoutCycle.locked_at && (
                   <button
                     onClick={() => exportCycleCSV(payoutCycle)}
-                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                    className="px-3 py-2 text-sm border border-slate-700 rounded-lg hover:bg-slate-800/50"
                   >
                     Export CSV
                   </button>
@@ -1417,21 +1417,21 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
             <div className="p-6">
               {payoutLoading ? (
                 <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
                 </div>
               ) : payoutAchievements.filter((a) => a.qualified).length === 0 ? (
-                <p className="text-center text-gray-500 py-8">No qualified winners for this cycle yet</p>
+                <p className="text-center text-slate-400 py-8">No qualified winners for this cycle yet</p>
               ) : (
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-slate-950/60">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Heat</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Payout</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">User</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Heat</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Value</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase">Payout</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-slate-800">
                     {payoutAchievements
                       .filter((a) => a.qualified)
                       .map((a) => {
@@ -1439,14 +1439,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                         const spiff = spiffs.find((s) => s.id === a.spiff_program_id)
                         return (
                           <tr key={a.id}>
-                            <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                            <td className="px-4 py-3 text-sm font-medium text-white">
                               {user?.full_name ?? a.user_id}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-700">
+                            <td className="px-4 py-3 text-sm text-slate-300">
                               {spiff?.name ?? a.spiff_program_id}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{a.current_value}</td>
-                            <td className="px-4 py-3 text-sm text-right font-semibold text-green-600">
+                            <td className="px-4 py-3 text-sm text-slate-400">{a.current_value}</td>
+                            <td className="px-4 py-3 text-sm text-right font-semibold text-emerald-400">
                               {a.payout_amount != null ? `$${a.payout_amount}` : '—'}
                             </td>
                           </tr>
@@ -1456,10 +1456,10 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                 </table>
               )}
             </div>
-            <div className="p-6 border-t flex justify-end">
+            <div className="p-6 border-t border-slate-800 flex justify-end">
               <button
                 onClick={() => setShowPayoutModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+                className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300"
               >
                 Close
               </button>
@@ -1470,16 +1470,16 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
 
       {/* ══════════════════════ MODAL: Badge create/edit ═════════════════════ */}
       {showBadgeModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-bold text-gray-900">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-800">
+              <h2 className="text-xl font-bold text-white">
                 {editingBadge ? 'Edit Badge' : 'New Badge'}
               </h2>
             </div>
             <div className="p-6 space-y-4">
               {/* preview */}
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3 p-3 bg-slate-950/60 rounded-lg">
                 {badgeImagePreview ? (
                   <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1498,19 +1498,19 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                   </div>
                 )}
                 <div>
-                  <p className="font-semibold text-gray-900">{badgeForm.name || 'Badge name'}</p>
-                  <p className="text-xs text-gray-500">Preview</p>
+                  <p className="font-semibold text-white">{badgeForm.name || 'Badge name'}</p>
+                  <p className="text-xs text-slate-400">Preview</p>
                 </div>
               </div>
 
               {/* image upload — only available when editing an existing badge */}
               {editingBadge && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Badge image <span className="font-normal text-gray-400">(optional, replaces color circle)</span>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    Badge image <span className="font-normal text-slate-500">(optional, replaces color circle)</span>
                   </label>
                   <div className="flex items-center gap-2">
-                    <label className={`cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition ${badgeImageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <label className={`cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-sm text-slate-300 hover:bg-slate-800/50 transition ${badgeImageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                       </svg>
@@ -1532,81 +1532,81 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                         type="button"
                         onClick={() => void removeBadgeImage(editingBadge.id)}
                         disabled={badgeImageUploading}
-                        className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
+                        className="text-sm text-red-500 hover:text-red-300 disabled:opacity-50"
                       >
                         Remove
                       </button>
                     )}
                   </div>
                   {!badgeImagePreview && (
-                    <p className="mt-1 text-xs text-gray-400">JPEG, PNG, WebP or GIF · max 10 MB</p>
+                    <p className="mt-1 text-xs text-slate-500">JPEG, PNG, WebP or GIF · max 10 MB</p>
                   )}
                 </div>
               )}
               {!editingBadge && (
-                <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                <p className="text-xs text-slate-500 bg-slate-950/60 rounded-lg px-3 py-2">
                   Save the badge first, then you can upload a custom image.
                 </p>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Name</label>
                 <input
                   type="text"
                   value={badgeForm.name}
                   onChange={(e) => setBadgeForm((p) => ({ ...p, name: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                   placeholder="e.g., Inspection All-Star"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description <span className="font-normal text-gray-400">(optional)</span>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Description <span className="font-normal text-slate-500">(optional)</span>
                 </label>
                 <textarea
                   value={badgeForm.description}
                   onChange={(e) => setBadgeForm((p) => ({ ...p, description: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                   rows={2}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Icon key</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Icon key</label>
                   <input
                     type="text"
                     value={badgeForm.icon_key}
                     onChange={(e) => setBadgeForm((p) => ({ ...p, icon_key: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                     placeholder="star"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Color</label>
                   <div className="flex gap-2">
                     <input
                       type="color"
                       value={badgeForm.color_hex}
                       onChange={(e) => setBadgeForm((p) => ({ ...p, color_hex: e.target.value }))}
-                      className="h-10 w-12 border border-gray-300 rounded-lg cursor-pointer"
+                      className="h-10 w-12 border border-slate-700 rounded-lg cursor-pointer bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                     />
                     <input
                       type="text"
                       value={badgeForm.color_hex}
                       onChange={(e) => setBadgeForm((p) => ({ ...p, color_hex: e.target.value }))}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                      className="flex-1 px-3 py-2 border border-slate-700 rounded-lg text-sm font-mono bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                       placeholder="#F59E0B"
                     />
                   </div>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Criteria type</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Criteria type</label>
                 <select
                   value={badgeForm.criteria_type}
                   onChange={(e) =>
                     setBadgeForm((p) => ({ ...p, criteria_type: e.target.value as BadgeCriteriaType }))
                   }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                 >
                   {(Object.entries(BADGE_CRITERIA_LABELS) as [BadgeCriteriaType, string][]).map(
                     ([value, label]) => (
@@ -1619,7 +1619,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               </div>
               {CRITERIA_VALUE_REQUIRED.includes(badgeForm.criteria_type) && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
                     Criteria value
                   </label>
                   <input
@@ -1628,7 +1628,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                     onChange={(e) =>
                       setBadgeForm((p) => ({ ...p, criteria_value: e.target.value }))
                     }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                     placeholder="e.g., 50"
                     min="0"
                   />
@@ -1639,15 +1639,15 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                   type="checkbox"
                   checked={badgeForm.is_active}
                   onChange={(e) => setBadgeForm((p) => ({ ...p, is_active: e.target.checked }))}
-                  className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                  className="w-4 h-4 rounded border-slate-700 text-indigo-400 bg-slate-950 [color-scheme:dark]"
                 />
-                <span className="text-sm text-gray-700">Active</span>
+                <span className="text-sm text-slate-300">Active</span>
               </label>
             </div>
-            <div className="p-6 border-t flex justify-end gap-3">
+            <div className="p-6 border-t border-slate-800 flex justify-end gap-3">
               <button
                 onClick={() => setShowBadgeModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+                className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300"
               >
                 Cancel
               </button>
@@ -1665,19 +1665,19 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
 
       {/* ══════════════════════ MODAL: Award badge ═══════════════════════════ */}
       {showAwardModal && awardBadge && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-bold text-gray-900">Award Badge Manually</h2>
-              <p className="text-sm text-gray-500 mt-1">{awardBadge.name}</p>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-sm w-full">
+            <div className="p-6 border-b border-slate-800">
+              <h2 className="text-xl font-bold text-white">Award Badge Manually</h2>
+              <p className="text-sm text-slate-400 mt-1">{awardBadge.name}</p>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Select user</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Select user</label>
                 <select
                   value={awardUserId}
                   onChange={(e) => setAwardUserId(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                 >
                   <option value="">Select a team member...</option>
                   {users.map((u) => (
@@ -1688,22 +1688,22 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Note <span className="font-normal text-gray-400">(optional)</span>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Note <span className="font-normal text-slate-500">(optional)</span>
                 </label>
                 <input
                   type="text"
                   value={awardNote}
                   onChange={(e) => setAwardNote(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
                   placeholder="Why are you awarding this?"
                 />
               </div>
             </div>
-            <div className="p-6 border-t flex justify-end gap-3">
+            <div className="p-6 border-t border-slate-800 flex justify-end gap-3">
               <button
                 onClick={() => setShowAwardModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+                className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300"
               >
                 Cancel
               </button>
