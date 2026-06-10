@@ -18,12 +18,12 @@ function collectDescendants(
   const queue = [rootId]
   while (queue.length > 0) {
     const current = queue.shift()!
-    for (const [userId, managerId] of userMap) {
+    Array.from(userMap.entries()).forEach(([userId, managerId]) => {
       if (managerId === current && !result.has(userId)) {
         result.add(userId)
         queue.push(userId)
       }
-    }
+    })
   }
   return result
 }
@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
     }
     // Push hierarchy filter to DB — never over-fetch then JS-filter
     if (allowedUserIds !== null) {
-      query = query.in('user_id', [...allowedUserIds])
+      query = query.in('user_id', Array.from(allowedUserIds))
     }
 
     const { data: bonusLines, error: bonusError } = await query
