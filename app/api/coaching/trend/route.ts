@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { toZonedTime, fromZonedTime } from 'date-fns-tz'
 import {
   getSitOutcomeNormalizedIdSet,
   normalizeInspectionOutcomeId,
@@ -27,58 +28,75 @@ function isSetterLike(role: string) {
 
 type Lookback = '4w' | '2mo' | '3mo' | '6mo' | '12mo' | 'ytd' | 'prev_quarter'
 
+/** ET midnight (start of day) → UTC Date */
+function etDayStart(year: number, month: number, day: number): Date {
+  return fromZonedTime(new Date(year, month, day, 0, 0, 0, 0), TIMEZONE)
+}
+
+/** ET end-of-day (23:59:59.999) → UTC Date */
+function etDayEnd(year: number, month: number, day: number): Date {
+  return fromZonedTime(new Date(year, month, day, 23, 59, 59, 999), TIMEZONE)
+}
+
 function getBuckets(lookback: Lookback): { label: string; start: Date; end: Date }[] {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }))
+  // Use toZonedTime so year/month/date accessors reflect ET, not server local time
+  const nowEt = toZonedTime(new Date(), TIMEZONE)
+  const y = nowEt.getFullYear()
+  const mo = nowEt.getMonth()
+  const d = nowEt.getDate()
   const buckets: { label: string; start: Date; end: Date }[] = []
 
   if (lookback === '4w' || lookback === '2mo') {
     const weeks = lookback === '4w' ? 4 : 8
     for (let i = weeks - 1; i >= 0; i--) {
-      const end = new Date(now)
-      end.setDate(end.getDate() - i * 7)
-      end.setHours(23, 59, 59, 999)
-      const start = new Date(end)
-      start.setDate(start.getDate() - 6)
-      start.setHours(0, 0, 0, 0)
-      const label = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-      buckets.push({ label, start: new Date(start.toISOString()), end: new Date(end.toISOString()) })
+      const endDay  = new Date(y, mo, d - i * 7)
+      const startDay = new Date(y, mo, d - i * 7 - 6)
+      const start = etDayStart(startDay.getFullYear(), startDay.getMonth(), startDay.getDate())
+      const end   = etDayEnd(endDay.getFullYear(), endDay.getMonth(), endDay.getDate())
+      const label = startDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      buckets.push({ label, start, end })
     }
     return buckets
   }
 
   if (lookback === 'ytd') {
-    const startYear = new Date(now.getFullYear(), 0, 1)
-    const monthCount = now.getMonth() + 1
+    const monthCount = mo + 1
     for (let i = 0; i < monthCount; i++) {
-      const start = new Date(startYear.getFullYear(), i, 1)
-      const end = new Date(startYear.getFullYear(), i + 1, 0, 23, 59, 59, 999)
-      const label = start.toLocaleDateString('en-US', { month: 'short' })
+      const startDay = new Date(y, i, 1)
+      const endDay   = new Date(y, i + 1, 0) // last day of month
+      const start = etDayStart(startDay.getFullYear(), startDay.getMonth(), startDay.getDate())
+      const end   = etDayEnd(endDay.getFullYear(), endDay.getMonth(), endDay.getDate())
+      const label = startDay.toLocaleDateString('en-US', { month: 'short' })
       buckets.push({ label, start, end })
     }
     return buckets
   }
 
   if (lookback === 'prev_quarter') {
-    const currentQ = Math.floor(now.getMonth() / 3)
+    const currentQ = Math.floor(mo / 3)
     const prevQ = currentQ === 0 ? 3 : currentQ - 1
-    const year = currentQ === 0 ? now.getFullYear() - 1 : now.getFullYear()
+    const year = currentQ === 0 ? y - 1 : y
     for (let m = 0; m < 3; m++) {
       const month = prevQ * 3 + m
-      const start = new Date(year, month, 1)
-      const end = new Date(year, month + 1, 0, 23, 59, 59, 999)
-      const label = start.toLocaleDateString('en-US', { month: 'short' })
+      const startDay = new Date(year, month, 1)
+      const endDay   = new Date(year, month + 1, 0)
+      const start = etDayStart(startDay.getFullYear(), startDay.getMonth(), startDay.getDate())
+      const end   = etDayEnd(endDay.getFullYear(), endDay.getMonth(), endDay.getDate())
+      const label = startDay.toLocaleDateString('en-US', { month: 'short' })
       buckets.push({ label, start, end })
     }
     return buckets
   }
 
+  // 3mo, 6mo, 12mo
   const monthMap: Record<string, number> = { '3mo': 3, '6mo': 6, '12mo': 12 }
   const months = monthMap[lookback] ?? 4
   for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const start = new Date(d.getFullYear(), d.getMonth(), 1)
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999)
-    const label = start.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+    const startDay = new Date(y, mo - i, 1)
+    const endDay   = new Date(y, mo - i + 1, 0)
+    const start = etDayStart(startDay.getFullYear(), startDay.getMonth(), startDay.getDate())
+    const end   = etDayEnd(endDay.getFullYear(), endDay.getMonth(), endDay.getDate())
+    const label = startDay.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
     buckets.push({ label, start, end })
   }
   return buckets

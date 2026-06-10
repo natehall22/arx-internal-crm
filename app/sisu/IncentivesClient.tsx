@@ -1005,39 +1005,13 @@ function BadgesSection({
           <div>
             <h2 className="text-lg font-black text-white tracking-tight">Trophy Case</h2>
             <p className="text-xs text-amber-400/80 font-semibold uppercase tracking-widest">
-              {earned.length} earned · {locked.length} to unlock
+              {earned.length} earned
             </p>
           </div>
         </div>
         <DataRecencyLabel asOf={metricsAsOf} />
       </div>
 
-      {nextUnlock != null && (
-        <div className="mb-5 rounded-2xl border border-indigo-500/40 bg-gradient-to-br from-indigo-950/50 to-gray-950 p-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-indigo-300 mb-3">
-            Next Unlock
-          </p>
-          <div className="flex items-center gap-3">
-            <BadgeIcon badge={nextUnlock.badge} size="lg" dimmed />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-white truncate">{nextUnlock.badge.name}</p>
-              <p className="text-xs text-gray-300 mt-0.5">
-                {nextUnlock.current.toLocaleString()} / {nextUnlock.target.toLocaleString()}
-              </p>
-              <div className={`mt-2 ${nextUnlockPct >= 0.7 ? 'animate-pulse' : ''}`}>
-                <ProgressBar
-                  pct={nextUnlockPct * 100}
-                  colorClass="bg-indigo-500"
-                  height="h-2"
-                />
-              </div>
-              <p className="text-indigo-300 font-bold text-xs mt-1.5">
-                {100 - Math.round(nextUnlockPct * 100)}% to go
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {earned.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-8 text-center mb-4">
@@ -1060,18 +1034,6 @@ function BadgesSection({
         </div>
       )}
 
-      {locked.length > 0 && (
-        <div className="mt-6">
-          <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">
-            Locked — Keep Climbing
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            {locked.map((b) => (
-              <BadgeItem key={b.id} badge={b} />
-            ))}
-          </div>
-        </div>
-      )}
     </section>
   )
 }
