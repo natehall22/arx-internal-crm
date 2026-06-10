@@ -193,7 +193,9 @@ function formatDateTime(dateString: string): string {
 }
 
 function formatWindow(start: string, end: string): string {
-  return `${formatDateTime(start)} - ${formatDateTime(end)} ET`
+  // Stored ends_at is exclusive (midnight at week boundary). Show the last inclusive moment.
+  const inclusiveEnd = new Date(new Date(end).getTime() - 1)
+  return `${formatDateTime(start)} – ${formatDateTime(inclusiveEnd.toISOString())} ET`
 }
 
 function getWeekState(qualified: boolean, startsAt: string, endsAt: string): WeekState {
@@ -290,9 +292,20 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
   const [saving, setSaving] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
 
+  const activeEnrollmentUserIds = useMemo(
+    () => new Set(enrollments.filter((e) => e.status === 'active').map((e) => e.user_id)),
+    [enrollments],
+  )
+
   const eligibleUsers = useMemo(
-    () => users.filter((user) => user.role !== null && ELIGIBLE_ROLES.has(user.role)),
-    [users]
+    () =>
+      users.filter(
+        (user) =>
+          user.role !== null &&
+          ELIGIBLE_ROLES.has(user.role) &&
+          !activeEnrollmentUserIds.has(user.id),
+      ),
+    [users, activeEnrollmentUserIds],
   )
 
   const loadEnrollments = useCallback(async () => {
@@ -341,10 +354,19 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
     void loadUsers()
   }, [loadEnrollments, loadUsers])
 
+  async function readApiError(response: Response, fallback: string) {
+    const payload: unknown = await response.json().catch(() => null)
+    if (isRecord(payload) && typeof payload.error === 'string' && payload.error.trim()) {
+      return payload.error
+    }
+    return fallback
+  }
+
   async function handleEnroll() {
     if (!selectedUserId || !startDate) return
 
     setSaving(true)
+    setError(null)
     try {
       const response = await fetch('/api/admin/sisu/444', {
         method: 'POST',
@@ -352,12 +374,22 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
         body: JSON.stringify({ user_id: selectedUserId, start_date: startDate }),
       })
 
-      if (!response.ok) throw new Error('Unable to enroll rep')
+      if (!response.ok) {
+        throw new Error(await readApiError(response, 'Unable to enroll rep'))
+      }
       const payload: unknown = await response.json()
 
       const createdEnrollment = isRecord(payload) ? payload.enrollment : null
       if (isProgram444Enrollment(createdEnrollment)) {
-        setEnrollments((current) => [createdEnrollment, ...current])
+        setEnrollments((current) => {
+          const existing = current.some((e) => e.id === createdEnrollment.id)
+          if (existing) {
+            return current.map((e) =>
+              e.id === createdEnrollment.id ? createdEnrollment : e,
+            )
+          }
+          return [createdEnrollment, ...current]
+        })
       } else {
         await loadEnrollments()
       }
@@ -365,8 +397,8 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
       setModalOpen(false)
       setSelectedUserId('')
       setStartDate('')
-    } catch {
-      setError('Unable to enroll rep')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to enroll rep')
     } finally {
       setSaving(false)
     }
@@ -374,6 +406,7 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
 
   async function handleCancel(id: string) {
     setActionId(id)
+    setError(null)
     try {
       const response = await fetch('/api/admin/sisu/444', {
         method: 'PATCH',
@@ -381,7 +414,9 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
         body: JSON.stringify({ id, status: 'cancelled' }),
       })
 
-      if (!response.ok) throw new Error('Unable to cancel enrollment')
+      if (!response.ok) {
+        throw new Error(await readApiError(response, 'Unable to cancel enrollment'))
+      }
       const payload: unknown = await response.json()
 
       const updatedEnrollment = isRecord(payload) ? payload.enrollment : null
@@ -394,8 +429,8 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
       } else {
         await loadEnrollments()
       }
-    } catch {
-      setError('Unable to cancel enrollment')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to cancel enrollment')
     } finally {
       setActionId(null)
     }
@@ -413,7 +448,10 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
         </div>
         <button
           type="button"
-          onClick={() => setModalOpen(true)}
+          onClick={() => {
+            setError(null)
+            setModalOpen(true)
+          }}
           className="inline-flex items-center justify-center rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={usersLoading}
         >
@@ -427,9 +465,11 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-2xl shadow-black/20">
-        <div className="overflow-x-auto">
-          <table className="min-w-[1380px] w-full divide-y divide-slate-800">
+      <p className="text-xs text-slate-500">Scroll horizontally to see all columns on smaller screens.</p>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 shadow-2xl shadow-black/20">
+        <div className="overflow-x-auto rounded-xl">
+          <table className="min-w-[1180px] w-full divide-y divide-slate-800">
             <thead className="bg-slate-950/70">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Rep name</th>
@@ -438,22 +478,27 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 1 window</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 1 status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 1 payroll</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 2 window</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 2 status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 2 payroll</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Actions</th>
+                <th className="sticky right-[8rem] z-10 bg-slate-950 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400 whitespace-nowrap shadow-[-8px_0_12px_rgba(2,6,23,0.8)]">
+                  Status
+                </th>
+                <th className="sticky right-0 z-10 w-32 min-w-32 bg-slate-950 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400 whitespace-nowrap shadow-[-8px_0_12px_rgba(2,6,23,0.8)]">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={11} className="px-4 py-10 text-center text-sm text-slate-400">
                     Loading enrollments...
                   </td>
                 </tr>
               ) : enrollments.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={11} className="px-4 py-10 text-center text-sm text-slate-400">
                     No 444 enrollments yet.
                   </td>
                 </tr>
@@ -461,61 +506,82 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
                 enrollments.map((enrollment) => {
                   const user = getEnrollmentUser(enrollment)
 
+                  const isCancelled = enrollment.status === 'cancelled'
+
                   return (
-                    <tr key={enrollment.id} className="align-top transition hover:bg-slate-800/35">
+                    <tr
+                      key={enrollment.id}
+                      className={`align-top transition hover:bg-slate-800/35 ${isCancelled ? 'opacity-60' : ''}`}
+                    >
                       <td className="px-4 py-4 text-sm font-semibold text-white">
                         {user?.full_name ?? 'Unknown rep'}
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-300">{displayRole(user?.role ?? null)}</td>
                       <td className="px-4 py-4 text-sm text-slate-300">{formatDate(enrollment.start_date)}</td>
-                      <td className="px-4 py-4 text-sm text-slate-300">
-                        <div>{formatWindow(enrollment.week1_starts_at, enrollment.week1_ends_at)}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          Week 2: {formatWindow(enrollment.week2_starts_at, enrollment.week2_ends_at)}
-                        </div>
+                      <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
+                        {formatWindow(enrollment.week1_starts_at, enrollment.week1_ends_at)}
                       </td>
                       <td className="px-4 py-4">
-                        <WeekStatus
-                          doors={enrollment.week1_doors}
-                          inspections={enrollment.week1_inspections}
-                          qualified={enrollment.week1_qualified}
-                          startsAt={enrollment.week1_starts_at}
-                          endsAt={enrollment.week1_ends_at}
-                        />
+                        {isCancelled ? (
+                          <span className="text-xs text-slate-500">Cancelled</span>
+                        ) : (
+                          <WeekStatus
+                            doors={enrollment.week1_doors}
+                            inspections={enrollment.week1_inspections}
+                            qualified={enrollment.week1_qualified}
+                            startsAt={enrollment.week1_starts_at}
+                            endsAt={enrollment.week1_ends_at}
+                          />
+                        )}
                       </td>
                       <td className="px-4 py-4">
-                        <PayrollReconciliation
-                          qualified={enrollment.week1_qualified}
-                          qualifiedAt={enrollment.week1_qualified_at}
-                          payrollPeriodId={enrollment.week1_payroll_period_id}
-                          payrollPeriod={enrollment.week1_payroll_period}
-                          weekBonusLabel={weekBonusLabel}
-                        />
+                        {isCancelled ? (
+                          <span className="text-xs text-slate-500">—</span>
+                        ) : (
+                          <PayrollReconciliation
+                            qualified={enrollment.week1_qualified}
+                            qualifiedAt={enrollment.week1_qualified_at}
+                            payrollPeriodId={enrollment.week1_payroll_period_id}
+                            payrollPeriod={enrollment.week1_payroll_period}
+                            weekBonusLabel={weekBonusLabel}
+                          />
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
+                        {formatWindow(enrollment.week2_starts_at, enrollment.week2_ends_at)}
                       </td>
                       <td className="px-4 py-4">
-                        <WeekStatus
-                          doors={enrollment.week2_doors}
-                          inspections={enrollment.week2_inspections}
-                          qualified={enrollment.week2_qualified}
-                          startsAt={enrollment.week2_starts_at}
-                          endsAt={enrollment.week2_ends_at}
-                        />
+                        {isCancelled ? (
+                          <span className="text-xs text-slate-500">—</span>
+                        ) : (
+                          <WeekStatus
+                            doors={enrollment.week2_doors}
+                            inspections={enrollment.week2_inspections}
+                            qualified={enrollment.week2_qualified}
+                            startsAt={enrollment.week2_starts_at}
+                            endsAt={enrollment.week2_ends_at}
+                          />
+                        )}
                       </td>
                       <td className="px-4 py-4">
-                        <PayrollReconciliation
-                          qualified={enrollment.week2_qualified}
-                          qualifiedAt={enrollment.week2_qualified_at}
-                          payrollPeriodId={enrollment.week2_payroll_period_id}
-                          payrollPeriod={enrollment.week2_payroll_period}
-                          weekBonusLabel={weekBonusLabel}
-                        />
+                        {isCancelled ? (
+                          <span className="text-xs text-slate-500">—</span>
+                        ) : (
+                          <PayrollReconciliation
+                            qualified={enrollment.week2_qualified}
+                            qualifiedAt={enrollment.week2_qualified_at}
+                            payrollPeriodId={enrollment.week2_payroll_period_id}
+                            payrollPeriod={enrollment.week2_payroll_period}
+                            weekBonusLabel={weekBonusLabel}
+                          />
+                        )}
                       </td>
-                      <td className="px-4 py-4">
+                      <td className="sticky right-[8rem] z-10 bg-slate-900/95 px-4 py-4 shadow-[-8px_0_12px_rgba(2,6,23,0.8)]">
                         <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusChipClass(enrollment.status)}`}>
                           {enrollment.status}
                         </span>
                       </td>
-                      <td className="px-4 py-4">
+                      <td className="sticky right-0 z-10 w-32 min-w-32 bg-slate-900/95 px-4 py-4 shadow-[-8px_0_12px_rgba(2,6,23,0.8)]">
                         {enrollment.status === 'active' ? (
                           <button
                             type="button"

@@ -197,6 +197,77 @@ export async function POST(req: NextRequest) {
 
   const windows = compute444WeekWindows(new Date(`${body.start_date}T12:00:00Z`))
 
+  const enrollmentSelect =
+    '*, users:users!program_444_enrollments_user_id_fkey(full_name, role), week1_payroll_period:payroll_periods!program_444_enrollments_week1_payroll_period_id_fkey(scheduled_pay_date, period_label, status), week2_payroll_period:payroll_periods!program_444_enrollments_week2_payroll_period_id_fkey(scheduled_pay_date, period_label, status)'
+
+  const { data: activeEnrollment, error: activeCheckError } = await admin
+    .from('program_444_enrollments')
+    .select('id')
+    .eq('org_id', authResult.orgId)
+    .eq('user_id', body.user_id)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+
+  if (activeCheckError) {
+    return NextResponse.json({ error: activeCheckError.message }, { status: 500 })
+  }
+  if (activeEnrollment) {
+    return NextResponse.json(
+      { error: 'This rep already has an active 444 enrollment. Cancel it before enrolling again.' },
+      { status: 409 },
+    )
+  }
+
+  const { data: sameStartEnrollment, error: sameStartCheckError } = await admin
+    .from('program_444_enrollments')
+    .select('id, status')
+    .eq('org_id', authResult.orgId)
+    .eq('user_id', body.user_id)
+    .eq('start_date', body.start_date)
+    .maybeSingle()
+
+  if (sameStartCheckError) {
+    return NextResponse.json({ error: sameStartCheckError.message }, { status: 500 })
+  }
+
+  if (sameStartEnrollment) {
+    if (sameStartEnrollment.status === 'cancelled') {
+      // Reactivate. IMPORTANT: do NOT reset week1/week2 qualified flags,
+      // qualified_at, payroll_period_id, or door/inspection counts. Bonus lines
+      // are not voided on cancellation, and the sync only re-registers bonuses
+      // for enrollments transitioning qualified=false → true — resetting the
+      // flags here would let the sync register a second bonus in a later
+      // payroll period (the unique index only blocks same-period duplicates).
+      // Doors/inspections are recomputed from source data by the sync anyway.
+      const { data: reactivated, error: reactivateError } = await admin
+        .from('program_444_enrollments')
+        .update({
+          status: 'active',
+          enrolled_by: authResult.userId,
+          notes: null,
+        })
+        .eq('id', sameStartEnrollment.id)
+        .eq('org_id', authResult.orgId)
+        .eq('status', 'cancelled')
+        .select(enrollmentSelect)
+        .single()
+
+      if (reactivateError) {
+        return NextResponse.json({ error: reactivateError.message }, { status: 500 })
+      }
+      return NextResponse.json({ enrollment: reactivated })
+    }
+
+    return NextResponse.json(
+      {
+        error:
+          'An enrollment already exists for this rep on that start date. Choose a different start date.',
+      },
+      { status: 409 },
+    )
+  }
+
   const { data, error } = await admin
     .from('program_444_enrollments')
     .insert({
@@ -209,10 +280,23 @@ export async function POST(req: NextRequest) {
       week2_starts_at: windows.week2StartsAt,
       week2_ends_at: windows.week2EndsAt,
     })
-    .select('*, users:users!program_444_enrollments_user_id_fkey(full_name, role)')
+    .select(enrollmentSelect)
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    const isDuplicate =
+      error.code === '23505' ||
+      error.message.toLowerCase().includes('duplicate') ||
+      error.message.toLowerCase().includes('unique')
+    return NextResponse.json(
+      {
+        error: isDuplicate
+          ? 'An enrollment already exists for this rep on that start date.'
+          : error.message,
+      },
+      { status: isDuplicate ? 409 : 500 },
+    )
+  }
   return NextResponse.json({ enrollment: data })
 }
 
@@ -251,12 +335,52 @@ export async function PATCH(req: NextRequest) {
   }
 
   const admin = getAdminClient()
+
+  // Setting status back to 'active' must respect the one-active-enrollment-per-rep
+  // rule enforced on POST — otherwise PATCH is a bypass route.
+  if (updates.status === 'active') {
+    const { data: target, error: targetError } = await admin
+      .from('program_444_enrollments')
+      .select('user_id')
+      .eq('id', body.id)
+      .eq('org_id', authResult.orgId)
+      .maybeSingle()
+
+    if (targetError) {
+      return NextResponse.json({ error: targetError.message }, { status: 500 })
+    }
+    if (!target) {
+      return NextResponse.json({ error: 'Enrollment not found' }, { status: 404 })
+    }
+
+    const { data: otherActive, error: otherActiveError } = await admin
+      .from('program_444_enrollments')
+      .select('id')
+      .eq('org_id', authResult.orgId)
+      .eq('user_id', target.user_id)
+      .eq('status', 'active')
+      .neq('id', body.id)
+      .limit(1)
+      .maybeSingle()
+
+    if (otherActiveError) {
+      return NextResponse.json({ error: otherActiveError.message }, { status: 500 })
+    }
+    if (otherActive) {
+      return NextResponse.json(
+        { error: 'This rep already has another active 444 enrollment.' },
+        { status: 409 },
+      )
+    }
+  }
   const { data, error } = await admin
     .from('program_444_enrollments')
     .update(updates)
     .eq('id', body.id)
     .eq('org_id', authResult.orgId)
-    .select('*, users:users!program_444_enrollments_user_id_fkey(full_name, role)')
+    .select(
+      '*, users:users!program_444_enrollments_user_id_fkey(full_name, role), week1_payroll_period:payroll_periods!program_444_enrollments_week1_payroll_period_id_fkey(scheduled_pay_date, period_label, status), week2_payroll_period:payroll_periods!program_444_enrollments_week2_payroll_period_id_fkey(scheduled_pay_date, period_label, status)'
+    )
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

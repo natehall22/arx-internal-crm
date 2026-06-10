@@ -1548,7 +1548,7 @@ export default function DashboardClient({
                             </div>
                             <div>
                               <p className={`text-base font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
-                                {member.closeRate}%
+                                {member.closeRate === '—' ? '—' : `${member.closeRate}%`}
                               </p>
                               <p className="text-xs text-gray-500">
                                 Close %{' '}
@@ -1557,7 +1557,7 @@ export default function DashboardClient({
                             </div>
                             <div>
                               <p className={`text-base font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                                {member.efficiency ?? '0'}%
+                                {member.efficiency === '—' ? '—' : `${member.efficiency}%`}
                               </p>
                               <p className="text-xs text-gray-500">
                                 Effic. %{' '}
@@ -1599,7 +1599,10 @@ export default function DashboardClient({
                                 ({timeFrameLabel[timeFrame]})
                               </span>
                             </th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th
+                              className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"
+                              title="Sales ÷ appointments on this closer's calendar in the period (not the same as sits ÷ insp. received)."
+                            >
                               Effic. %
                               <span className="block font-normal normal-case text-gray-400">
                                 ({timeFrameLabel[timeFrame]})
@@ -1671,12 +1674,12 @@ export default function DashboardClient({
                               </td>
                               <td className="px-4 py-3 text-center">
                                 <span className={`text-lg font-bold ${member.closeRate !== '—' && parseInt(member.closeRate) > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
-                                  {member.closeRate}%
+                                  {member.closeRate === '—' ? '—' : `${member.closeRate}%`}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-center">
                                 <span className={`text-lg font-bold ${member.efficiency !== '—' && parseInt(member.efficiency ?? '0') > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                                  {member.efficiency ?? '0'}%
+                                  {member.efficiency === '—' ? '—' : `${member.efficiency}%`}
                                 </span>
                               </td>
                             </tr>
