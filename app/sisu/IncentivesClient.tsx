@@ -14,7 +14,11 @@ import {
   timeRemainingLabel,
   progressBarColor,
   clamp100,
+  formatDataRecency,
+  computeOnPaceStatus,
+  formatPayoutOnPayroll,
 } from '@/lib/incentive-metrics'
+import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 // ─── 444 Program types ────────────────────────────────────────────────────────
 
@@ -27,10 +31,45 @@ type Enrollment444 = {
   week1_doors: number
   week1_inspections: number
   week1_qualified: boolean
+  week1_payroll_period_id: string | null
   week2_doors: number
   week2_inspections: number
   week2_qualified: boolean
+  week2_payroll_period_id: string | null
   status: string
+  updated_at: string
+}
+
+type ApprovedBonus = {
+  id: string
+  bonus_type: string
+  amount: number
+  source_id: string | null
+  scheduled_pay_date: string | null
+}
+
+function DataRecencyLabel({ asOf }: { asOf: Date | string | null | undefined }) {
+  if (!asOf) return null
+  return (
+    <p className="text-[10px] font-medium uppercase tracking-wide text-gray-500">
+      Updated {formatDataRecency(asOf)}
+    </p>
+  )
+}
+
+function OnPaceChip({ onPace, label }: { onPace: boolean | null; label: string }) {
+  if (onPace === null) return null
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+        onPace
+          ? 'border-emerald-500/40 bg-emerald-950/50 text-emerald-300'
+          : 'border-red-500/40 bg-red-950/40 text-red-300'
+      }`}
+    >
+      {onPace ? 'On pace' : 'Behind pace'} · {label}
+    </span>
+  )
 }
 
 // ─── Icon helpers ──────────────────────────────────────────────────────────────
@@ -50,6 +89,246 @@ const BADGE_ICONS: Record<string, string> = {
 
 function badgeEmoji(iconKey: string): string {
   return BADGE_ICONS[iconKey] ?? '🏅'
+}
+
+type ProfileBadge = {
+  id: string
+  badge_id: string
+  awarded_at: string
+  incentive_badges: {
+    name: string
+    description: string | null
+    icon_key: string
+    color_hex: string
+    image_url: string | null
+  }
+}
+
+function initialsFromName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
+  return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase()
+}
+
+function rankBubbleClass(entry: LeaderboardEntry, isCurrentUser: boolean) {
+  if (entry.rank === 1) return 'bg-amber-500 text-white'
+  if (entry.rank === 2) return 'bg-gray-400 text-gray-900'
+  if (entry.rank === 3) return 'bg-amber-700 text-white'
+  if (isCurrentUser) return 'bg-indigo-500 text-white'
+  return 'bg-gray-800 text-gray-300'
+}
+
+function formatRoleLabel(role: string) {
+  return role.replace(/_/g, ' ')
+}
+
+function badgeCriteriaHint(badge: BadgeWithEarned): string | null {
+  if (badge.criteria_value != null && badge.criteria_value > 0) {
+    switch (badge.criteria_type) {
+      case 'inspections_set_milestone':
+      case 'streak_weekly_inspections':
+        return `${badge.criteria_value} inspections`
+      case 'closed_sales_milestone':
+      case 'streak_weekly_sales':
+        return `${badge.criteria_value} sales`
+      default:
+        return String(badge.criteria_value)
+    }
+  }
+  if (badge.criteria_type === 'first_inspection_set') return '1 inspection'
+  if (badge.criteria_type === 'first_closed_sale') return '1 sale'
+  return null
+}
+
+function EarnedTrophyBadge({
+  name,
+  iconKey,
+  colorHex,
+  imageUrl,
+  awardedAt,
+}: {
+  name: string
+  iconKey: string
+  colorHex: string
+  imageUrl: string | null
+  awardedAt: string | null
+}) {
+  const earnedDate = awardedAt
+    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
+        new Date(awardedAt),
+      )
+    : null
+
+  const badgeStub: BadgeWithEarned = {
+    id: '',
+    org_id: '',
+    name,
+    description: null,
+    icon_key: iconKey,
+    color_hex: colorHex,
+    criteria_type: 'first_inspection_set',
+    criteria_value: null,
+    is_active: true,
+    sort_order: 0,
+    image_url: imageUrl,
+    created_at: '',
+    updated_at: '',
+    earned: true,
+    awarded_at: awardedAt,
+  }
+
+  return (
+    <div
+      className="rounded-2xl border p-4 flex flex-col items-center gap-2 text-center bg-gradient-to-b from-gray-900 to-gray-950"
+      style={{
+        borderColor: `${colorHex}66`,
+        boxShadow: `0 0 20px ${colorHex}20`,
+      }}
+    >
+      <div
+        className="rounded-full ring-2 p-0.5"
+        style={{ boxShadow: `0 0 12px ${colorHex}40`, outlineColor: `${colorHex}4D` }}
+      >
+        <BadgeIcon badge={badgeStub} size="lg" />
+      </div>
+      <p className="text-sm font-bold text-white leading-tight line-clamp-2">{name}</p>
+      {earnedDate && <p className="text-xs text-amber-400/70">Earned {earnedDate}</p>}
+      <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 rounded-full px-2 py-0.5">
+        EARNED
+      </span>
+    </div>
+  )
+}
+
+function RepProfileModal({
+  entry,
+  onClose,
+}: {
+  entry: LeaderboardEntry
+  onClose: () => void
+}) {
+  const [badges, setBadges] = useState<ProfileBadge[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError(false)
+
+    fetch(`/api/sisu/badges?userId=${encodeURIComponent(entry.user_id)}`, {
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to load badges')
+        return res.json()
+      })
+      .then((data: { badges?: ProfileBadge[] }) => {
+        setBadges(data.badges ?? [])
+      })
+      .catch((err: unknown) => {
+        // Ignore abort — modal was closed before fetch completed.
+        if (err instanceof Error && err.name === 'AbortError') return
+        setError(true)
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+
+    return () => {
+      controller.abort()
+    }
+  }, [entry.user_id])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
+
+  const bubbleClass = rankBubbleClass(entry, false)
+  const badgeCount = entry.badge_count ?? 0
+  const primaryLabel = isSetterLikeRole(entry.role) ? 'Inspections' : 'Sales'
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-lg rounded-t-3xl bg-gray-950 border-t border-gray-800 p-6 pb-10 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${entry.full_name} profile`}
+      >
+        <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-gray-700" />
+
+        <div className="flex items-center gap-3 mb-5">
+          <div
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-black ${bubbleClass}`}
+          >
+            #{entry.rank}
+          </div>
+          <div
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-black ${bubbleClass}`}
+          >
+            {initialsFromName(entry.full_name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-black text-white truncate">{entry.full_name}</p>
+            <span className="inline-flex mt-1 rounded-full border border-gray-700 bg-gray-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-300">
+              {formatRoleLabel(entry.role)}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          <StatChip label={primaryLabel} value={entry.primary_metric} accent />
+          <StatChip label="Doors" value={entry.doors_knocked.toLocaleString()} />
+          <StatChip label="Badges" value={badgeCount} />
+        </div>
+
+        <h3 className="text-sm font-black text-amber-400 mb-3">🏆 Trophy Case</h3>
+
+        {loading ? (
+          <div className="grid grid-cols-3 gap-3">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-gray-800 bg-gray-900 p-4 h-32 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : error ? (
+          <p className="text-sm text-gray-400 italic">Could not load badges.</p>
+        ) : badges.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">No badges yet — on the climb.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {badges.map((b) => (
+              <EarnedTrophyBadge
+                key={b.id}
+                name={b.incentive_badges.name}
+                iconKey={b.incentive_badges.icon_key}
+                colorHex={b.incentive_badges.color_hex}
+                imageUrl={b.incentive_badges.image_url}
+                awardedAt={b.awarded_at}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ─── Progress bar ──────────────────────────────────────────────────────────────
@@ -80,19 +359,26 @@ function StatChip({
   label,
   value,
   accent = false,
+  updatedAt,
 }: {
   label: string
   value: string | number
   accent?: boolean
+  updatedAt?: Date | string | null
 }) {
   return (
     <div
-      className={`flex-1 min-w-0 rounded-xl p-3 text-center ${
+      className={`min-w-[5.5rem] flex-1 rounded-xl p-3 text-center ${
         accent ? 'bg-indigo-900/40 border border-indigo-700/50' : 'bg-gray-800/60 border border-gray-700/40'
       }`}
     >
-      <div className="text-xl font-bold text-white truncate">{value}</div>
+      <div className="text-lg sm:text-xl font-bold text-white truncate">{value}</div>
       <div className="text-xs text-gray-300 mt-0.5 truncate">{label}</div>
+      {updatedAt != null && (
+        <div className="mt-1">
+          <DataRecencyLabel asOf={updatedAt} />
+        </div>
+      )}
     </div>
   )
 }
@@ -107,6 +393,8 @@ interface HeroProps {
   leaderboard: LeaderboardResponse | null
   currentUserId: string
   onOpenLeaderboard: () => void
+  metricsAsOf: string
+  leaderboardAsOf: Date | null
 }
 
 function ThisWeekHero({
@@ -117,6 +405,8 @@ function ThisWeekHero({
   leaderboard,
   currentUserId,
   onOpenLeaderboard,
+  metricsAsOf,
+  leaderboardAsOf,
 }: HeroProps) {
   // Choose primary metric based on role
   let primaryValue: number
@@ -150,6 +440,8 @@ function ThisWeekHero({
       ? personAbove.primary_metric - myRankEntry.primary_metric
       : 0
 
+  const pace = computeOnPaceStatus(metrics, goal)
+
   return (
     <section
       className="rounded-2xl overflow-hidden border border-gray-800"
@@ -172,6 +464,9 @@ function ThisWeekHero({
           <p className="text-sm font-semibold text-amber-200/80 mt-2 uppercase tracking-widest">
             earned this period
           </p>
+          <div className="mt-2">
+            <DataRecencyLabel asOf={metricsAsOf} />
+          </div>
         </div>
 
         {/* Rank mini-widget — tap to open leaderboard */}
@@ -196,6 +491,11 @@ function ThisWeekHero({
               </p>
               <span className="text-xs font-semibold text-indigo-300 shrink-0">View →</span>
             </div>
+            {leaderboardAsOf != null && (
+              <p className="mt-1.5 text-[10px] text-indigo-400/70 uppercase tracking-wide">
+                Rankings updated {formatDataRecency(leaderboardAsOf)}
+              </p>
+            )}
           </button>
         )}
 
@@ -204,9 +504,9 @@ function ThisWeekHero({
         </p>
 
         {/* Primary metric with electric indigo glow */}
-        <div className="flex items-end gap-3 mb-1">
+        <div className="flex flex-wrap items-end gap-2 sm:gap-3 mb-1">
           <span
-            className="text-6xl font-black text-white leading-none"
+            className="text-5xl sm:text-6xl font-black text-white leading-none"
             style={{ filter: 'drop-shadow(0 0 28px rgba(99,102,241,0.55))' }}
           >
             {primaryValue}
@@ -241,12 +541,26 @@ function ThisWeekHero({
           <p className="text-xs text-gray-300 mt-1">No goal set — contact your manager to set a target.</p>
         )}
 
-        {/* Secondary chips */}
-        <div className="flex gap-2 mt-5">
+        {/* On-pace signal */}
+        <div className="mt-3 flex flex-wrap gap-2">
           {isSetterLike ? (
             <>
-              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} />
-              <StatChip label="Closed Sales" value={metrics.closedSales} />
+              <OnPaceChip onPace={pace.inspections} label="inspections" />
+              {goal?.weekly_doors_target != null && (
+                <OnPaceChip onPace={pace.doors} label="doors" />
+              )}
+            </>
+          ) : (
+            <OnPaceChip onPace={pace.sales} label="sales" />
+          )}
+        </div>
+
+        {/* Secondary chips */}
+        <div className="flex flex-wrap gap-2 mt-5">
+          {isSetterLike ? (
+            <>
+              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} updatedAt={metricsAsOf} />
+              <StatChip label="Closed Sales" value={metrics.closedSales} updatedAt={metricsAsOf} />
               {goal?.weekly_doors_target != null && (
                 <StatChip
                   label="Door Goal"
@@ -257,8 +571,8 @@ function ThisWeekHero({
             </>
           ) : (
             <>
-              <StatChip label="Inspections Set" value={metrics.inspectionsSet} />
-              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} />
+              <StatChip label="Inspections Set" value={metrics.inspectionsSet} updatedAt={metricsAsOf} />
+              <StatChip label="Doors Knocked" value={metrics.doorsKnocked} updatedAt={metricsAsOf} />
               {goal?.weekly_revenue_target != null && (
                 <StatChip label="Rev Goal" value={`$${goal.weekly_revenue_target.toLocaleString()}`} accent />
               )}
@@ -287,11 +601,13 @@ type LeaderboardEntry = {
   primary_metric: number
   doors_knocked: number
   rank: number
+  badge_count?: number
 }
 
 type LeaderboardResponse = {
   setters: LeaderboardEntry[]
   closers: LeaderboardEntry[]
+  asOf?: string
 }
 
 function isSisuSyncProgress(value: unknown): value is SisuSyncProgress {
@@ -316,8 +632,13 @@ function isLeaderboardEntry(value: unknown): value is LeaderboardEntry {
     typeof row.role === 'string' &&
     typeof row.primary_metric === 'number' &&
     typeof row.doors_knocked === 'number' &&
-    typeof row.rank === 'number'
+    typeof row.rank === 'number' &&
+    (row.badge_count === undefined || typeof row.badge_count === 'number')
   )
+}
+
+function normalizeLeaderboardEntry(row: LeaderboardEntry): LeaderboardEntry {
+  return { ...row, badge_count: row.badge_count ?? 0 }
 }
 
 function isLeaderboardResponse(value: unknown): value is LeaderboardResponse {
@@ -351,12 +672,14 @@ const LEADERBOARD_RANK_STORAGE_PREFIX = 'sisu_lb_ranks_'
 function loadAndSaveRankDeltas(
   roleTab: LeaderboardRoleTab,
   rows: LeaderboardEntry[],
+  userId: string,
 ): Map<string, number> {
   const deltas = new Map<string, number>()
   if (typeof window === 'undefined' || rows.length === 0) return deltas
 
   const today = new Date().toISOString().slice(0, 10)
-  const key = `${LEADERBOARD_RANK_STORAGE_PREFIX}${roleTab}`
+  // Prefix with userId so different users sharing a browser don't see each other's rank history
+  const key = `${LEADERBOARD_RANK_STORAGE_PREFIX}${userId}_${roleTab}`
 
   try {
     const raw = localStorage.getItem(key)
@@ -467,7 +790,7 @@ function SpiffCard({
 
   return (
     <div
-      className={`relative flex-shrink-0 w-72 rounded-2xl border p-5 flex flex-col gap-3 transition-all ${
+      className={`relative flex-shrink-0 w-[min(18rem,85vw)] sm:w-72 rounded-2xl border p-5 flex flex-col gap-3 transition-all ${
         spiff.qualified
           ? 'border-emerald-500/60 bg-gradient-to-br from-emerald-950/60 to-gray-900 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
           : `${urgencyBorderClass} bg-gray-900`
@@ -530,7 +853,12 @@ function SpiffCard({
       </div>
 
       {/* Footer row */}
-      <div className="flex items-center justify-end mt-auto pt-1">
+      <div className="flex flex-col items-end gap-1 mt-auto pt-1">
+        {spiff.qualified && spiff.payout_amount != null && spiff.payout_amount > 0 && (
+          <p className="text-xs font-semibold text-emerald-300 text-right">
+            {formatPayoutOnPayroll(spiff.payout_amount, spiff.payroll_pay_date ?? null)}
+          </p>
+        )}
         <span className={`text-xs font-medium flex items-center gap-1 ${
           isUrgent ? 'text-red-400' : countdownLabel === 'Ended' ? 'text-gray-500' : 'text-amber-400'
         }`}>
@@ -546,19 +874,28 @@ function SpiffsSection({
   spiffs,
   syncing,
   flashingSpiffIds,
+  syncedAt,
 }: {
   spiffs: SpiffWithProgress[]
   syncing: boolean
   flashingSpiffIds: Set<string>
+  syncedAt: Date | null
 }) {
   return (
     <section>
-      <div className="flex items-center gap-2 mb-4">
-        <h2 className="text-base font-bold text-white">Active Heats</h2>
-        {spiffs.length > 0 && (
-          <span className="rounded-full bg-indigo-600 text-white text-xs font-bold px-2 py-0.5">
-            {spiffs.length}
-          </span>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-bold text-white">Active Heats</h2>
+          {spiffs.length > 0 && (
+            <span className="rounded-full bg-indigo-600 text-white text-xs font-bold px-2 py-0.5">
+              {spiffs.length}
+            </span>
+          )}
+        </div>
+        {syncing ? (
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Syncing…</span>
+        ) : (
+          <DataRecencyLabel asOf={syncedAt} />
         )}
       </div>
 
@@ -627,28 +964,18 @@ function BadgeIcon({
 }
 
 function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
-  const earnedDate = badge.awarded_at
-    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-        new Date(badge.awarded_at)
-      )
-    : null
-
-  if (badge.earned) {
-    return (
-      <div className="rounded-2xl border border-gray-700/50 bg-gray-900 p-3 flex flex-col items-center gap-2 text-center">
-        <BadgeIcon badge={badge} size="lg" />
-        <p className="text-xs font-semibold text-white leading-tight line-clamp-2">{badge.name}</p>
-        {earnedDate && (
-          <p className="text-xs text-gray-300">Earned {earnedDate}</p>
-        )}
-      </div>
-    )
-  }
+  const criteriaHint = badgeCriteriaHint(badge)
 
   return (
-    <div className="rounded-2xl border border-dashed border-gray-600 bg-gray-900/80 p-3 flex flex-col items-center gap-2 text-center">
-      <BadgeIcon badge={badge} size="sm" dimmed />
+    <div className="rounded-2xl border border-dashed border-gray-600 bg-gray-900/80 p-3 flex flex-col items-center gap-2 text-center opacity-70">
+      <div className="relative">
+        <BadgeIcon badge={badge} size="sm" dimmed />
+        <span className="absolute inset-0 flex items-center justify-center text-[10px]">🔒</span>
+      </div>
       <p className="text-xs font-medium text-gray-300 leading-tight line-clamp-2">{badge.name}</p>
+      {criteriaHint && (
+        <p className="text-[10px] text-gray-500 leading-tight">{criteriaHint}</p>
+      )}
     </div>
   )
 }
@@ -656,9 +983,11 @@ function BadgeItem({ badge }: { badge: BadgeWithEarned }) {
 function BadgesSection({
   badges,
   metrics,
+  metricsAsOf,
 }: {
   badges: BadgeWithEarned[]
   metrics: LiveMetrics
+  metricsAsOf: string
 }) {
   const earned = badges.filter((b) => b.earned)
   const locked = badges.filter((b) => !b.earned)
@@ -666,19 +995,25 @@ function BadgesSection({
 
   if (badges.length === 0) return null
 
+  const nextUnlockPct = nextUnlock != null ? nextUnlock.pct : 0
+
   return (
     <section>
-      <div className="flex items-center gap-2 mb-4">
-        <h2 className="text-base font-bold text-white">My Badges</h2>
-        {earned.length > 0 && (
-          <span className="rounded-full bg-amber-600/80 text-white text-xs font-bold px-2 py-0.5">
-            {earned.length}
-          </span>
-        )}
+      <div className="flex items-center justify-between gap-2 mb-5">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🏆</span>
+          <div>
+            <h2 className="text-lg font-black text-white tracking-tight">Trophy Case</h2>
+            <p className="text-xs text-amber-400/80 font-semibold uppercase tracking-widest">
+              {earned.length} earned · {locked.length} to unlock
+            </p>
+          </div>
+        </div>
+        <DataRecencyLabel asOf={metricsAsOf} />
       </div>
 
       {nextUnlock != null && (
-        <div className="mb-5 rounded-2xl border border-indigo-500/40 bg-gradient-to-br from-indigo-950/60 to-gray-900 p-4">
+        <div className="mb-5 rounded-2xl border border-indigo-500/40 bg-gradient-to-br from-indigo-950/50 to-gray-950 p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-indigo-300 mb-3">
             Next Unlock
           </p>
@@ -689,42 +1024,53 @@ function BadgesSection({
               <p className="text-xs text-gray-300 mt-0.5">
                 {nextUnlock.current.toLocaleString()} / {nextUnlock.target.toLocaleString()}
               </p>
-              <div className="mt-2">
+              <div className={`mt-2 ${nextUnlockPct >= 0.7 ? 'animate-pulse' : ''}`}>
                 <ProgressBar
-                  pct={(nextUnlock.current / nextUnlock.target) * 100}
+                  pct={nextUnlockPct * 100}
                   colorClass="bg-indigo-500"
                   height="h-2"
                 />
               </div>
-              <p className="text-xs text-indigo-300 font-semibold mt-1.5">
-                {Math.round(nextUnlock.pct * 100)}% there — keep pushing
+              <p className="text-indigo-300 font-bold text-xs mt-1.5">
+                {100 - Math.round(nextUnlockPct * 100)}% to go
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {earned.length === 0 && (
-        <p className="text-sm text-gray-400 mb-4">
-          Earn your first badge by hitting a milestone. You've got this.
-        </p>
+      {earned.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-8 text-center mb-4">
+          <div className="text-4xl mb-2">🎯</div>
+          <p className="font-bold text-white">Start your trophy case</p>
+          <p className="text-sm text-gray-400 mt-1">Hit your first milestone to earn a badge.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          {earned.map((b) => (
+            <EarnedTrophyBadge
+              key={b.id}
+              name={b.name}
+              iconKey={b.icon_key}
+              colorHex={b.color_hex}
+              imageUrl={b.image_url}
+              awardedAt={b.awarded_at}
+            />
+          ))}
+        </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
-        {earned.map((b) => (
-          <BadgeItem key={b.id} badge={b} />
-        ))}
-      </div>
-
       {locked.length > 0 && (
-        <details className="mt-4">
-          <summary className="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-300">
-            {locked.length} locked {locked.length === 1 ? 'badge' : 'badges'}
-          </summary>
-          <div className="grid grid-cols-3 gap-3 mt-3">
-            {locked.map((b) => <BadgeItem key={b.id} badge={b} />)}
+        <div className="mt-6">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">
+            Locked — Keep Climbing
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {locked.map((b) => (
+              <BadgeItem key={b.id} badge={b} />
+            ))}
           </div>
-        </details>
+        </div>
       )}
     </section>
   )
@@ -756,6 +1102,7 @@ function LeaderboardRow({
   primaryLabel,
   gapToNext,
   isHustleAward,
+  onTap,
 }: {
   entry: LeaderboardEntry
   maxPrimaryMetric: number
@@ -763,23 +1110,17 @@ function LeaderboardRow({
   primaryLabel: string
   gapToNext: number
   isHustleAward: boolean
+  onTap: () => void
 }) {
   const barPct = maxPrimaryMetric > 0 ? (entry.primary_metric / maxPrimaryMetric) * 100 : 0
-
-  const rankBubbleClass =
-    entry.rank === 1
-      ? 'bg-amber-500 text-white'
-      : entry.rank === 2
-      ? 'bg-gray-400 text-gray-900'
-      : entry.rank === 3
-      ? 'bg-amber-700 text-white'
-      : isCurrentUser
-      ? 'bg-indigo-500 text-white'
-      : 'bg-gray-800 text-gray-300'
+  const bubbleClass = rankBubbleClass(entry, isCurrentUser)
+  const badgeCount = entry.badge_count ?? 0
 
   return (
-    <div
-      className={`rounded-2xl border p-4 ${
+    <button
+      type="button"
+      onClick={onTap}
+      className={`group w-full rounded-2xl border p-4 text-left transition hover:border-gray-600 ${
         isCurrentUser
           ? 'border-indigo-500/70 bg-indigo-950/30'
           : 'border-gray-800 bg-gray-900'
@@ -787,7 +1128,7 @@ function LeaderboardRow({
     >
       <div className="flex items-center gap-3">
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black ${rankBubbleClass}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black ${bubbleClass}`}
         >
           #{entry.rank}
         </div>
@@ -822,9 +1163,17 @@ function LeaderboardRow({
           <p className="mt-1.5 text-xs text-gray-500">
             {entry.doors_knocked.toLocaleString()} doors knocked
           </p>
+          {badgeCount > 0 && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-400 mt-0.5">
+              🏅 {badgeCount} {badgeCount === 1 ? 'badge' : 'badges'}
+            </span>
+          )}
         </div>
+        <span className="shrink-0 text-sm text-gray-600 max-sm:opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+          →
+        </span>
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -886,6 +1235,7 @@ function LeaderboardSection({
   activeRoleTab,
   setActiveRoleTab,
   currentUserId,
+  leaderboardAsOf,
 }: {
   leaderboard: LeaderboardResponse | null
   loading: boolean
@@ -893,10 +1243,12 @@ function LeaderboardSection({
   activeRoleTab: LeaderboardRoleTab
   setActiveRoleTab: (tab: LeaderboardRoleTab) => void
   currentUserId: string
+  leaderboardAsOf: Date | null
 }) {
   const [viewTab, setViewTab] = useState<LeaderboardViewTab>('rankings')
   const [showFullList, setShowFullList] = useState(false)
   const [rankDeltas, setRankDeltas] = useState<Map<string, number>>(() => new Map())
+  const [profileEntry, setProfileEntry] = useState<LeaderboardEntry | null>(null)
 
   const rows = leaderboard?.[activeRoleTab] ?? []
   const currentUserEntry = rows.find((entry) => entry.user_id === currentUserId)
@@ -915,7 +1267,7 @@ function LeaderboardSection({
   const primaryLabel = activeRoleTab === 'setters' ? 'set' : 'sales'
 
   useEffect(() => {
-    setRankDeltas(loadAndSaveRankDeltas(activeRoleTab, rows))
+    setRankDeltas(loadAndSaveRankDeltas(activeRoleTab, rows, currentUserId))
   }, [activeRoleTab, rows])
 
   useEffect(() => {
@@ -942,12 +1294,17 @@ function LeaderboardSection({
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-bold text-white">Leaderboard</h2>
           <p className="text-xs text-gray-400">This week</p>
+          {leaderboardAsOf != null && !loading && (
+            <p className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">
+              Updated {formatDataRecency(leaderboardAsOf)}
+            </p>
+          )}
         </div>
-        <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-xs font-bold">
+        <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-xs font-bold shrink-0">
           {(['setters', 'closers'] as const).map((tab) => (
             <button
               key={tab}
@@ -1027,6 +1384,7 @@ function LeaderboardSection({
                   primaryLabel={primaryLabel}
                   gapToNext={gapToNext}
                   isHustleAward={entry.user_id === hustleUserId}
+                  onTap={() => setProfileEntry(entry)}
                 />
               )
             })}
@@ -1045,6 +1403,13 @@ function LeaderboardSection({
           )}
         </>
       )}
+
+      {profileEntry != null && (
+        <RepProfileModal
+          entry={profileEntry}
+          onClose={() => setProfileEntry(null)}
+        />
+      )}
     </section>
   )
 }
@@ -1057,15 +1422,24 @@ function StatusBar({
   currentUserId,
   isSetterLike,
   enrollment444,
+  approvedBonuses,
+  weekBonusLabel,
   onOpenLeaderboard,
+  metrics,
+  goal,
 }: {
   activeSpiffs: SpiffWithProgress[]
   leaderboard: LeaderboardResponse | null
   currentUserId: string
   isSetterLike: boolean
   enrollment444: Enrollment444 | null
+  approvedBonuses: ApprovedBonus[]
+  weekBonusLabel: string
   onOpenLeaderboard: () => void
+  metrics: LiveMetrics
+  goal: UserIncentiveGoal | null
 }) {
+  const pace = computeOnPaceStatus(metrics, goal)
   const earnedFromHeats = activeSpiffs
     .filter((s) => s.qualified && s.reward_amount != null)
     .reduce((sum, s) => sum + (s.reward_amount ?? 0), 0)
@@ -1087,11 +1461,17 @@ function StatusBar({
       const parts: string[] = []
       if (doorsLeft > 0) parts.push(`${doorsLeft} doors`)
       if (inspsLeft > 0) parts.push(`${inspsLeft} insp`)
-      bonus444Label = `${parts.join(' + ')} → $400`
+      bonus444Label = `${parts.join(' + ')} → ${weekBonusLabel}`
     }
   }
 
-  const chips: { label: string; value: string; amber?: boolean; onClick?: () => void }[] = []
+  const chips: {
+    label: string
+    value: string
+    amber?: boolean
+    onClick?: () => void
+    key?: string
+  }[] = []
 
   if (earnedFromHeats > 0) {
     chips.push({ label: 'Earned', value: `$${earnedFromHeats.toLocaleString()}`, amber: true })
@@ -1109,13 +1489,31 @@ function StatusBar({
     chips.push({ label: '444 bonus', value: bonus444Label, amber: true })
   }
 
+  for (const bonus of approvedBonuses.filter(
+    (b) => b.bonus_type === '444_week1' || b.bonus_type === '444_week2',
+  )) {
+    const payLabel = bonus.scheduled_pay_date
+      ? `✓ $${bonus.amount} pays ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(bonus.scheduled_pay_date))}`
+      : `✓ $${bonus.amount} bonus approved`
+    chips.push({ label: '444 Bonus', value: payLabel, amber: true, key: bonus.id })
+  }
+
+  const primaryPace = isSetterLike ? pace.inspections : pace.sales
+  if (primaryPace != null) {
+    chips.push({
+      label: 'Pace',
+      value: primaryPace ? 'On track' : 'Behind',
+      amber: primaryPace,
+    })
+  }
+
   if (chips.length === 0) return null
 
   return (
     <div className="flex flex-wrap gap-2">
       {chips.map((chip) => (
         <button
-          key={chip.label}
+          key={chip.key ?? chip.label}
           type="button"
           disabled={!chip.onClick}
           onClick={chip.onClick}
@@ -1138,7 +1536,15 @@ function StatusBar({
 
 // ─── 444 Program card ─────────────────────────────────────────────────────────
 
-function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
+function Program444Card({
+  enrollment,
+  approvedBonuses,
+  weekBonusLabel,
+}: {
+  enrollment: Enrollment444
+  approvedBonuses: ApprovedBonus[]
+  weekBonusLabel: string
+}) {
   const now = new Date()
   const week1Start = new Date(enrollment.week1_starts_at)
   const week1End = new Date(enrollment.week1_ends_at)
@@ -1146,11 +1552,11 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
   const week2End = new Date(enrollment.week2_ends_at)
 
   const bothWeeksDone = enrollment.week1_qualified && enrollment.week2_qualified
-  const programEnded = now > week2End
+  const programEnded = now >= week2End
 
   // Determine which week's data to show
-  const inWeek1 = now >= week1Start && now <= week1End
-  const inWeek2 = now >= week2Start && now <= week2End
+  const inWeek1 = now >= week1Start && now < week1End
+  const inWeek2 = now >= week2Start && now < week2End
   const weekNum = inWeek2 ? 2 : 1
   const doors = weekNum === 2 ? enrollment.week2_doors : enrollment.week1_doors
   const inspections = weekNum === 2 ? enrollment.week2_inspections : enrollment.week1_inspections
@@ -1160,6 +1566,40 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
   const doorsPct = Math.min((doors / 400) * 100, 100)
   const inspectionsPct = Math.min((inspections / 4) * 100, 100)
 
+  const week1Bonus =
+    approvedBonuses.find(
+      (b) => b.source_id === enrollment.id && b.bonus_type === '444_week1',
+    ) ?? null
+  const week2Bonus =
+    approvedBonuses.find(
+      (b) => b.source_id === enrollment.id && b.bonus_type === '444_week2',
+    ) ?? null
+
+  const resolvedWeek1Bonus =
+    week1Bonus ??
+    approvedBonuses.find((b) => b.bonus_type === '444_week1' && b.source_id === null) ??
+    null
+  const resolvedWeek2Bonus =
+    week2Bonus ??
+    approvedBonuses.find((b) => b.bonus_type === '444_week2' && b.source_id === null) ??
+    null
+
+  const payoutLines: { id: string; label: string }[] = []
+  if (enrollment.week1_qualified && resolvedWeek1Bonus) {
+    payoutLines.push({
+      id: resolvedWeek1Bonus.id,
+      label: formatPayoutOnPayroll(resolvedWeek1Bonus.amount, resolvedWeek1Bonus.scheduled_pay_date),
+    })
+  }
+  if (enrollment.week2_qualified && resolvedWeek2Bonus) {
+    payoutLines.push({
+      id: resolvedWeek2Bonus.id,
+      label: formatPayoutOnPayroll(resolvedWeek2Bonus.amount, resolvedWeek2Bonus.scheduled_pay_date),
+    })
+  }
+
+  const activeWeekBonus = weekNum === 2 ? resolvedWeek2Bonus : resolvedWeek1Bonus
+
   return (
     <section className="rounded-2xl border border-amber-500/50 bg-gray-900 overflow-hidden">
       {/* Top accent strip */}
@@ -1167,16 +1607,25 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
 
       <div className="p-5 flex flex-col gap-4">
         {/* Header */}
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🏆</span>
-          <h2 className="text-base font-bold text-white">ARX 444 Program</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🏆</span>
+            <h2 className="text-base font-bold text-white">ARX 444 Program</h2>
+          </div>
+          <DataRecencyLabel asOf={enrollment.updated_at} />
         </div>
 
         {/* Complete state */}
         {bothWeeksDone ? (
           <div className="rounded-xl bg-emerald-900/40 border border-emerald-500/50 px-4 py-3 text-center">
-            <p className="text-emerald-300 font-bold text-sm">444 Complete — $800 earned 🎉</p>
-            <p className="text-emerald-500 text-xs mt-0.5">Both weeks qualified. Bonus processes with next payroll.</p>
+            <p className="text-emerald-300 font-bold text-sm">444 Complete — both bonuses earned 🎉</p>
+            {payoutLines.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {payoutLines.map((line) => (
+                  <p key={line.id} className="text-emerald-400 text-xs font-semibold">{line.label}</p>
+                ))}
+              </div>
+            )}
           </div>
         ) : programEnded ? (
           <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 px-4 py-3 text-center">
@@ -1194,23 +1643,31 @@ function Program444Card({ enrollment }: { enrollment: Enrollment444 }) {
             {doorsHit && inspectionsHit ? (
               <div className="text-center py-2">
                 <p
-                  className="text-2xl sm:text-3xl font-black text-emerald-300 leading-tight"
+                  className="text-xl sm:text-2xl md:text-3xl font-black text-emerald-300 leading-tight break-words px-1"
                   style={{ filter: 'drop-shadow(0 0 24px rgba(52,211,153,0.35))' }}
                 >
-                  Week qualified — $400 earned
+                  Week qualified — {weekBonusLabel} earned
                 </p>
+                {weekQualified && activeWeekBonus && (
+                  <p className="mt-2 text-xs font-semibold text-emerald-400">
+                    {formatPayoutOnPayroll(
+                      activeWeekBonus.amount,
+                      activeWeekBonus.scheduled_pay_date,
+                    )}
+                  </p>
+                )}
               </div>
             ) : (
               <div className="text-center py-2">
                 <p
-                  className="text-2xl sm:text-3xl font-black text-amber-300 leading-tight"
+                  className="text-xl sm:text-2xl md:text-3xl font-black text-amber-300 leading-tight break-words px-1"
                   style={{ filter: 'drop-shadow(0 0 28px rgba(251,191,36,0.35))' }}
                 >
                   {!doorsHit && !inspectionsHit
-                    ? `${400 - doors} doors + ${4 - inspections} inspections = $400 bonus`
+                    ? `${400 - doors} doors + ${4 - inspections} inspections = ${weekBonusLabel} bonus`
                     : doorsHit
-                    ? `${4 - inspections} more inspection${4 - inspections === 1 ? '' : 's'} = $400 bonus`
-                    : `${400 - doors} more doors + ${inspectionsHit ? 'inspections done' : `${4 - inspections} inspections`} = $400 bonus`}
+                    ? `${4 - inspections} more inspection${4 - inspections === 1 ? '' : 's'} = ${weekBonusLabel} bonus`
+                    : `${400 - doors} more doors + ${inspectionsHit ? 'inspections done' : `${4 - inspections} inspections`} = ${weekBonusLabel} bonus`}
                 </p>
                 <div className="flex items-center justify-center gap-2 mt-2">
                   <span className="text-xs font-semibold uppercase tracking-widest text-amber-400/80">
@@ -1297,6 +1754,9 @@ interface IncentivesClientProps {
   earnedBadges: BadgeWithEarned[]
   isSetterLike: boolean
   enrollment444: Enrollment444 | null
+  approvedBonuses: ApprovedBonus[]
+  weekBonusLabel: string
+  metricsAsOf: string
 }
 
 export default function IncentivesClient({
@@ -1307,9 +1767,14 @@ export default function IncentivesClient({
   earnedBadges,
   isSetterLike,
   enrollment444,
+  approvedBonuses,
+  weekBonusLabel,
+  metricsAsOf,
 }: IncentivesClientProps) {
   const [activeSpiffs, setActiveSpiffs] = useState(initialActiveSpiffs)
   const [syncingHeats, setSyncingHeats] = useState(false)
+  const [spiffsSyncedAt, setSpiffsSyncedAt] = useState<Date | null>(null)
+  const [leaderboardAsOf, setLeaderboardAsOf] = useState<Date | null>(null)
   const [flashingSpiffIds, setFlashingSpiffIds] = useState<Set<string>>(() => new Set())
   const [toastHeat, setToastHeat] = useState<SpiffWithProgress | null>(null)
   const [mainView, setMainView] = useState<MainView>('stats')
@@ -1353,6 +1818,8 @@ export default function IncentivesClient({
 
         const json: unknown = await response.json()
         if (!Array.isArray(json)) return
+
+        if (!cancelled) setSpiffsSyncedAt(new Date())
 
         const progressRows = json.filter(isSisuSyncProgress)
         if (progressRows.length === 0) return
@@ -1425,7 +1892,14 @@ export default function IncentivesClient({
           return
         }
 
-        if (!cancelled) setLeaderboard(json)
+        if (!cancelled) {
+          setLeaderboard({
+            ...json,
+            setters: json.setters.map(normalizeLeaderboardEntry),
+            closers: json.closers.map(normalizeLeaderboardEntry),
+          })
+          setLeaderboardAsOf(json.asOf ? new Date(json.asOf) : new Date())
+        }
       } catch {
         if (!cancelled) setLeaderboardError(true)
       } finally {
@@ -1484,13 +1958,17 @@ export default function IncentivesClient({
         currentUserId={profile.id}
         isSetterLike={isSetterLike}
         enrollment444={enrollment444}
+        approvedBonuses={approvedBonuses}
+        weekBonusLabel={weekBonusLabel}
         onOpenLeaderboard={() => setMainView('leaderboard')}
+        metrics={liveMetrics}
+        goal={goal}
       />
 
       {mainView === 'stats' ? (
         <>
           {/* Section 1 — Badges */}
-          <BadgesSection badges={earnedBadges} metrics={liveMetrics} />
+          <BadgesSection badges={earnedBadges} metrics={liveMetrics} metricsAsOf={metricsAsOf} />
 
           {/* Section 2 — Hero */}
           <ThisWeekHero
@@ -1501,11 +1979,17 @@ export default function IncentivesClient({
             leaderboard={leaderboard}
             currentUserId={profile.id}
             onOpenLeaderboard={() => setMainView('leaderboard')}
+            metricsAsOf={metricsAsOf}
+            leaderboardAsOf={leaderboardAsOf}
           />
 
           {/* Section 3 — 444 Program */}
           {enrollment444 !== null && (
-            <Program444Card enrollment={enrollment444} />
+            <Program444Card
+              enrollment={enrollment444}
+              approvedBonuses={approvedBonuses}
+              weekBonusLabel={weekBonusLabel}
+            />
           )}
 
           {/* Section 4 — SPIFFs */}
@@ -1513,6 +1997,7 @@ export default function IncentivesClient({
             spiffs={activeSpiffs}
             syncing={syncingHeats}
             flashingSpiffIds={flashingSpiffIds}
+            syncedAt={spiffsSyncedAt ?? new Date(metricsAsOf)}
           />
         </>
       ) : (
@@ -1523,6 +2008,7 @@ export default function IncentivesClient({
           activeRoleTab={leaderboardRoleTab}
           setActiveRoleTab={setLeaderboardRoleTab}
           currentUserId={profile.id}
+          leaderboardAsOf={leaderboardAsOf}
         />
       )}
 

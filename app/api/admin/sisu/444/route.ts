@@ -150,7 +150,9 @@ export async function GET(req: NextRequest) {
   const admin = getAdminClient()
   const { data, error } = await admin
     .from('program_444_enrollments')
-    .select('*, users:users!program_444_enrollments_user_id_fkey(full_name, role)')
+    .select(
+      '*, users:users!program_444_enrollments_user_id_fkey(full_name, role), week1_payroll_period:payroll_periods!program_444_enrollments_week1_payroll_period_id_fkey(scheduled_pay_date, period_label, status), week2_payroll_period:payroll_periods!program_444_enrollments_week2_payroll_period_id_fkey(scheduled_pay_date, period_label, status)'
+    )
     .eq('org_id', authResult.orgId)
     .order('created_at', { ascending: false })
 
@@ -176,8 +178,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'start_date must be YYYY-MM-DD' }, { status: 400 })
   }
 
-  const windows = compute444WeekWindows(new Date(`${body.start_date}T12:00:00Z`))
   const admin = getAdminClient()
+
+  // Verify the target user belongs to the caller's org — prevents cross-org enrollment
+  const { data: targetUser, error: targetUserError } = await admin
+    .from('users')
+    .select('id')
+    .eq('id', body.user_id)
+    .eq('org_id', authResult.orgId)
+    .maybeSingle()
+
+  if (targetUserError) {
+    return NextResponse.json({ error: targetUserError.message }, { status: 500 })
+  }
+  if (!targetUser) {
+    return NextResponse.json({ error: 'User not found in your organization' }, { status: 404 })
+  }
+
+  const windows = compute444WeekWindows(new Date(`${body.start_date}T12:00:00Z`))
 
   const { data, error } = await admin
     .from('program_444_enrollments')

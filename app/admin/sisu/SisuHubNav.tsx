@@ -7,6 +7,7 @@ const TABS = [
   { label: 'Heats', href: '/admin/sisu/incentives' },
   { label: 'Badges', href: '/admin/sisu/incentives?tab=badges' },
   { label: '444 Program', href: '/admin/sisu/444' },
+  { label: 'Bonus Approval', href: '/admin/sisu/bonus-approval' },
   { label: 'Accountability', href: '/admin/sisu/accountability' },
 ] as const
 
@@ -16,6 +17,9 @@ function isTabActive(pathname: string, tab: string, searchTab: string | null): b
   }
   if (tab === '/admin/sisu/incentives?tab=badges') {
     return pathname === '/admin/sisu/incentives' && searchTab === 'badges'
+  }
+  if (tab === '/admin/sisu/bonus-approval') {
+    return pathname === '/admin/sisu/bonus-approval'
   }
   return pathname === tab
 }

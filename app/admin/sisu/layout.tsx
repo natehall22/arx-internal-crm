@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import Nav from '@/components/Nav'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth'
 import SisuHubNav from './SisuHubNav'
 
 export const dynamic = 'force-dynamic'
@@ -21,22 +21,9 @@ const ADMIN_ROLES = [
 ]
 
 export default async function SisuAdminLayout({ children }: { children: ReactNode }) {
-  const supabase = createClient()
+  const { profile } = await requireAuth()
 
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) redirect('/login')
-
-  const { data: profile } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.role || !ADMIN_ROLES.includes(profile.role)) {
+  if (!ADMIN_ROLES.includes(profile.role)) {
     redirect('/dashboard')
   }
 

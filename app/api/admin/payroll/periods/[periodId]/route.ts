@@ -53,6 +53,21 @@ export async function PATCH(
         return NextResponse.json({ error: 'Only open periods can be locked' }, { status: 409 })
       }
 
+      // Guard: reject lock if any bonus lines are still pending approval
+      const { count: pendingCount } = await supabase
+        .from('payroll_bonus_lines')
+        .select('id', { count: 'exact', head: true })
+        .eq('payroll_period_id', periodId)
+        .eq('org_id', orgId)
+        .eq('status', 'pending_approval')
+
+      if (pendingCount && pendingCount > 0) {
+        return NextResponse.json(
+          { error: `Cannot lock: ${pendingCount} bonus line(s) are still pending approval` },
+          { status: 409 }
+        )
+      }
+
       const { error: updErr } = await supabase
         .from('payroll_periods')
         .update({ status: 'locked', locked_at: now })
@@ -62,6 +77,29 @@ export async function PATCH(
       if (updErr) {
         console.error('period lock', updErr)
         return NextResponse.json({ error: 'Failed to lock period' }, { status: 500 })
+      }
+
+      // TOCTOU re-check: a concurrent 444 sync could have inserted pending_approval lines
+      // between the first guard and the UPDATE. Re-verify and roll back if so.
+      const { count: postLockPending } = await supabase
+        .from('payroll_bonus_lines')
+        .select('id', { count: 'exact', head: true })
+        .eq('payroll_period_id', periodId)
+        .eq('org_id', orgId)
+        .eq('status', 'pending_approval')
+
+      if (postLockPending && postLockPending > 0) {
+        await supabase
+          .from('payroll_periods')
+          .update({ status: 'open', locked_at: null })
+          .eq('id', periodId)
+          .eq('org_id', orgId)
+        return NextResponse.json(
+          {
+            error: `Lock rolled back: ${postLockPending} bonus line(s) became pending during lock. Review and retry.`,
+          },
+          { status: 409 }
+        )
       }
 
       await supabase.from('payroll_period_snapshots').upsert(

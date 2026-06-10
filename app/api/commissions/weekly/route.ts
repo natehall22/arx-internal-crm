@@ -89,18 +89,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    // Calculate this week's boundaries (Sunday to Saturday)
+    // Calculate this week's boundaries (Sunday to Saturday) in ET
+    // getDay() uses the server's local timezone which may not be ET; use Intl instead
     const now = new Date()
-    const dayOfWeek = now.getDay()
-    const weekStart = new Date(now)
-    weekStart.setDate(now.getDate() - dayOfWeek)
-    weekStart.setHours(0, 0, 0, 0)
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekStart.getDate() + 6)
-    weekEnd.setHours(23, 59, 59, 999)
-
-    const weekStartStr = weekStart.toISOString().split('T')[0]
-    const weekEndStr = weekEnd.toISOString().split('T')[0]
+    const etDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(now)
+    const [etYear, etMonth, etDay] = etDateStr.split('-').map(Number)
+    const etDow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+      new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now)
+    )
+    if (etDow < 0) throw new Error('Unable to compute ET day-of-week')
+    const weekStartStr = new Date(Date.UTC(etYear, etMonth - 1, etDay - etDow)).toISOString().split('T')[0]
+    const weekEndStr = new Date(Date.UTC(etYear, etMonth - 1, etDay - etDow + 6)).toISOString().split('T')[0]
 
     // Check if user has a comp plan assigned
     const { data: userCompPlan } = await supabase

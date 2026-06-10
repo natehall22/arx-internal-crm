@@ -290,7 +290,7 @@ function GoalCell({
     const parsed = draft.trim() === '' ? null : parseInt(draft, 10)
     if (parsed !== null && isNaN(parsed)) { setEditing(false); return }
     setSaving(true)
-    await fetch('/api/admin/sisu/goals', {
+    const res = await fetch('/api/admin/sisu/goals', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -300,6 +300,10 @@ function GoalCell({
     })
     setSaving(false)
     setEditing(false)
+    if (!res.ok) {
+      console.error('[GoalCell] Failed to save goal:', res.status)
+      return
+    }
     onSaved(userId, field, parsed)
   }
 
@@ -401,9 +405,16 @@ export default function AccountabilityClient() {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
 
   const sync444 = useCallback(async () => {
-    await fetch('/api/admin/sisu/sync-444', { method: 'POST' })
-      .then(() => { setLastSyncedAt(new Date()) })
-      .catch(() => { /* non-fatal */ })
+    try {
+      const res = await fetch('/api/admin/sisu/sync-444', { method: 'POST' })
+      if (!res.ok) {
+        console.error('[accountability] sync-444 returned', res.status)
+      }
+      setLastSyncedAt(new Date())
+    } catch (err) {
+      // Non-fatal — accountability data still loads; log so it's visible in DevTools
+      console.error('[accountability] sync-444 fetch failed:', err)
+    }
   }, [])
 
   const loadRows = useCallback(async (showLoading: boolean) => {
@@ -596,14 +607,14 @@ export default function AccountabilityClient() {
               {loading ? (
                 [0, 1, 2, 3].map((item) => (
                   <tr key={item}>
-                    <td colSpan={8} className="px-4 py-4">
+                    <td colSpan={10} className="px-4 py-4">
                       <div className="h-12 animate-pulse rounded-lg bg-slate-800/70" />
                     </td>
                   </tr>
                 ))
               ) : sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
                     No setter activity to show yet.
                   </td>
                 </tr>

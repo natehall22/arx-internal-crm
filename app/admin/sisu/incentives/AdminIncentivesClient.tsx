@@ -37,13 +37,16 @@ const THRESHOLD_LABELS: Record<SpiffTriggerMetric, string> = {
 }
 
 const BADGE_CRITERIA_LABELS: Record<BadgeCriteriaType, string> = {
+  // Auto-awarded by the sync engine (api/sisu/sync)
   first_inspection_set: 'First Inspection Set',
   first_closed_sale: 'First Closed Sale',
+  // Auto-awarded criteria — handled by future milestones/streak engine
   inspections_set_milestone: 'Inspections Set Milestone',
   closed_sales_milestone: 'Closed Sales Milestone',
   streak_weekly_inspections: 'Streak: Weekly Inspections',
   streak_weekly_sales: 'Streak: Weekly Sales',
   close_rate_threshold: 'Close Rate Threshold',
+  // Manual-only: these are awarded by admins — no automated trigger exists
   spiff_winner: 'Heat Winner',
   top_leaderboard: 'Top Leaderboard',
 }
@@ -523,10 +526,10 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
         return
       }
       const data = await res.json()
-      setSpiffs(data.spiffs || [])
-      setCycles(data.cycles || [])
-      setBadges(data.badges || [])
-      setUsers(data.users || [])
+      setSpiffs(Array.isArray(data.spiffs) ? data.spiffs : [])
+      setCycles(Array.isArray(data.cycles) ? data.cycles : [])
+      setBadges(Array.isArray(data.badges) ? data.badges : [])
+      setUsers(Array.isArray(data.users) ? data.users : [])
     } catch {
       setError('Failed to load Sisu')
     }
@@ -727,14 +730,21 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
       alert('No qualified winners to export')
       return
     }
+    // Escape a CSV field: wrap in quotes, double any internal quotes, strip leading
+    // formula injection chars (=, +, -, @) to prevent spreadsheet formula injection
+    function csvField(raw: string | number | null | undefined): string {
+      const s = String(raw ?? '')
+      const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+      return `"${safe.replace(/"/g, '""')}"`
+    }
     const header = 'User Name,Role,Heat Name,Payout Amount\n'
     const lines = rows.map((a) => {
       const user = users.find((u) => u.id === a.user_id)
       return [
-        user?.full_name ?? a.user_id,
-        user?.role ?? '',
-        spiffs.find((s) => s.id === a.spiff_program_id)?.name ?? a.spiff_program_id,
-        a.payout_amount ?? 0,
+        csvField(user?.full_name ?? a.user_id),
+        csvField(user?.role ?? ''),
+        csvField(spiffs.find((s) => s.id === a.spiff_program_id)?.name ?? a.spiff_program_id),
+        csvField(a.payout_amount ?? 0),
       ].join(',')
     })
     const csv = header + lines.join('\n')

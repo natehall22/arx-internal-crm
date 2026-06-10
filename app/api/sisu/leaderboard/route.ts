@@ -6,11 +6,6 @@ import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
 export const dynamic = 'force-dynamic'
 
-type LeaderboardRequestBody = {
-  orgId?: unknown
-  role?: unknown
-}
-
 type UserProfile = {
   id: string
   org_id: string
@@ -36,11 +31,13 @@ type LeaderboardEntry = {
   primary_metric: number
   doors_knocked: number
   rank: number
+  badge_count: number
 }
 
 type LeaderboardResponse = {
   setters: LeaderboardEntry[]
   closers: LeaderboardEntry[]
+  asOf: string
 }
 
 const CLOSER_ROLES = new Set(['closer', 'sales_rep', 'rep'])
@@ -59,10 +56,6 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function readOptionalString(value: unknown) {
-  return typeof value === 'string' ? value : null
-}
-
 function countMap(rows: CountRow[], idKey: 'owner_id' | 'canvasser_id') {
   const map = new Map<string, number>()
   for (const row of rows) {
@@ -76,6 +69,7 @@ function rankEntries(
   users: OrgUser[],
   primaryByUserId: Map<string, number>,
   doorsByUserId: Map<string, number>,
+  badgeCountByUserId: Map<string, number>,
 ) {
   return users
     .map((user) => ({
@@ -84,6 +78,7 @@ function rankEntries(
       role: user.role,
       primary_metric: primaryByUserId.get(user.id) ?? 0,
       doors_knocked: doorsByUserId.get(user.id) ?? 0,
+      badge_count: badgeCountByUserId.get(user.id) ?? 0,
       rank: 0,
     }))
     .sort((a, b) => {
@@ -106,9 +101,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const rawBody = (await request.json().catch(() => ({}))) as LeaderboardRequestBody
-    const requestedOrgId = readOptionalString(rawBody.orgId)
-    const requestedRole = readOptionalString(rawBody.role)
+    // Body fields are accepted but ignored — org + role always come from the DB-verified profile
+    await request.json().catch(() => ({}))
 
     const admin = getAdminClient()
     const { data: profile, error: profileError } = await admin
@@ -122,18 +116,12 @@ export async function POST(request: NextRequest) {
     }
 
     const userProfile = profile as UserProfile
-    if (
-      (requestedOrgId && requestedOrgId !== userProfile.org_id) ||
-      (requestedRole && requestedRole !== userProfile.role)
-    ) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
 
     const { data: userRows, error: usersError } = await admin
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', userProfile.org_id)
-      .eq('is_active', true)
+      .eq('active', true)
       .order('full_name', { ascending: true })
 
     if (usersError) {
@@ -143,7 +131,7 @@ export async function POST(request: NextRequest) {
     const orgUsers = (userRows ?? []) as unknown as OrgUser[]
     const memberIds = orgUsers.map((orgUser) => orgUser.id)
     if (memberIds.length === 0) {
-      return NextResponse.json({ setters: [], closers: [] } satisfies LeaderboardResponse)
+      return NextResponse.json({ setters: [], closers: [], asOf: new Date().toISOString() } satisfies LeaderboardResponse)
     }
 
     const { start, end } = getDateRangeForTimeFrame('week', TIMEZONE, false)
@@ -172,18 +160,41 @@ export async function POST(request: NextRequest) {
     )
     const salesByUserId = countMap((salesRows.data ?? []) as unknown as CountRow[], 'owner_id')
 
+    const { data: badgeRows, error: badgeCountError } = await admin
+      .from('user_badges')
+      .select('user_id')
+      .eq('org_id', userProfile.org_id)
+      .in('user_id', memberIds)
+
+    if (badgeCountError) {
+      // Non-fatal: badge counts are bonus display data. Log and continue with zeroes
+      // rather than failing the whole leaderboard response.
+      console.error('leaderboard: failed to fetch badge counts', badgeCountError)
+    }
+
+    const badgeCountByUserId = new Map<string, number>()
+    for (const row of badgeRows ?? []) {
+      badgeCountByUserId.set(row.user_id, (badgeCountByUserId.get(row.user_id) ?? 0) + 1)
+    }
+
     const setters = rankEntries(
       orgUsers.filter((orgUser) => isSetterLikeRole(orgUser.role)),
       inspectionsByUserId,
       doorsByUserId,
+      badgeCountByUserId,
     )
     const closers = rankEntries(
       orgUsers.filter((orgUser) => CLOSER_ROLES.has(orgUser.role)),
       salesByUserId,
       doorsByUserId,
+      badgeCountByUserId,
     )
 
-    return NextResponse.json({ setters, closers } satisfies LeaderboardResponse)
+    return NextResponse.json({
+      setters,
+      closers,
+      asOf: new Date().toISOString(),
+    } satisfies LeaderboardResponse)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error'
     return NextResponse.json({ error: message }, { status: 500 })

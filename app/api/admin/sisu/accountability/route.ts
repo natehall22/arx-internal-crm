@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'
 type AuthResult = {
   userId: string
   orgId: string
+  role: string
 }
 
 type SessionData = {
@@ -20,6 +21,7 @@ type OrgUser = {
 
 type LeadMetricRow = {
   owner_user_id: string | null
+  pin_attributed_user_id: string | null
 }
 
 type AppointmentMetricRow = {
@@ -53,6 +55,9 @@ const ADMIN_ROLES = [
   'manager',
   'operations',
 ]
+
+// Roles that see only their direct reports (manager_user_id = viewer.id)
+const MANAGER_SCOPED_ROLES = new Set(['setter_manager', 'sales_manager', 'regional_setter_manager'])
 
 const ACCOUNTABILITY_ROLES = ['setter', 'canvasser', 'inside_sales', 'call_center']
 const DOOR_SOURCES = ['door_to_door', 'canvass', 'door_knock']
@@ -148,7 +153,7 @@ async function assertAdmin(req: NextRequest): Promise<AuthResult | NextResponse>
     return NextResponse.json({ error: 'No org found' }, { status: 400 })
   }
 
-  return { userId: user.id, orgId: profile.org_id }
+  return { userId: user.id, orgId: profile.org_id, role: profile.role }
 }
 
 function getTimeZoneDateParts(date: Date, timezone: string): { year: number; month: number; day: number; weekday: string } {
@@ -238,12 +243,19 @@ function getCurrentWeekRange(timezone = 'America/New_York'): { startsAt: string;
   if (weekdayIndex < 0) throw new Error('Unable to compute weekday')
 
   const sunday = addDays(todayParts, -weekdayIndex)
-  const saturday = addDays(sunday, 6)
+  // Use exclusive end (Sunday 00:00 next week) so sub-second timestamps on
+  // Saturday 23:59:59.xxx are never silently dropped.
+  const nextSunday = addDays(sunday, 7)
 
   return {
     startsAt: zonedDateTimeToIso(sunday, timezone, 0, 0, 0),
-    endsAt: zonedDateTimeToIso(saturday, timezone, 23, 59, 59),
+    endsAt: zonedDateTimeToIso(nextSunday, timezone, 0, 0, 0),
   }
+}
+
+function getEtDayOfWeek(): number {
+  const parts = getTimeZoneDateParts(new Date(), 'America/New_York')
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday)
 }
 
 function incrementCount(map: Map<string, number>, userId: string | null) {
@@ -255,7 +267,7 @@ function getCurrentEnrollment(enrollments: Program444Enrollment[], now: number):
   return enrollments.find((enrollment) => {
     const week1Starts = new Date(enrollment.week1_starts_at).getTime()
     const week2Ends = new Date(enrollment.week2_ends_at).getTime()
-    return now >= week1Starts && now <= week2Ends
+    return now >= week1Starts && now < week2Ends  // exclusive end
   }) ?? enrollments[0] ?? null
 }
 
@@ -267,8 +279,9 @@ function getWeekIn444(enrollment: Program444Enrollment | null, now: number): 1 |
   const week2Starts = new Date(enrollment.week2_starts_at).getTime()
   const week2Ends = new Date(enrollment.week2_ends_at).getTime()
 
-  if (now >= week1Starts && now <= week1Ends) return 1
-  if (now >= week2Starts && now <= week2Ends) return 2
+  // Use exclusive end (ts < end) to match the exclusive boundary stored in the DB
+  if (now >= week1Starts && now < week1Ends) return 1
+  if (now >= week2Starts && now < week2Ends) return 2
   return null
 }
 
@@ -281,27 +294,34 @@ export async function GET(req: NextRequest) {
 
   const todayIso = new Date().toISOString().slice(0, 10)
 
-  const [usersRes, leadsRes, appointmentsRes, enrollmentsRes, goalsRes] = await Promise.all([
-    admin
+  const usersQuery = (() => {
+    const base = admin
       .from('users')
       .select('id, full_name, role')
       .eq('org_id', authResult.orgId)
-      .eq('is_active', true)
+      .eq('active', true)
       .in('role', ACCOUNTABILITY_ROLES)
-      .order('full_name'),
+      .order('full_name')
+    return MANAGER_SCOPED_ROLES.has(authResult.role)
+      ? base.eq('manager_user_id', authResult.userId)
+      : base
+  })()
+
+  const [usersRes, leadsRes, appointmentsRes, enrollmentsRes, goalsRes] = await Promise.all([
+    usersQuery,
     admin
       .from('leads')
-      .select('owner_user_id')
+      .select('owner_user_id, pin_attributed_user_id')
       .eq('org_id', authResult.orgId)
       .in('source', DOOR_SOURCES)
       .gte('created_at', weekRange.startsAt)
-      .lte('created_at', weekRange.endsAt),
+      .lt('created_at', weekRange.endsAt),  // exclusive end
     admin
       .from('scheduled_appointments')
       .select('canvasser_user_id')
       .eq('org_id', authResult.orgId)
       .gte('created_at', weekRange.startsAt)
-      .lte('created_at', weekRange.endsAt),
+      .lt('created_at', weekRange.endsAt),  // exclusive end
     admin
       .from('program_444_enrollments')
       .select('user_id, week1_starts_at, week1_ends_at, week2_starts_at, week2_ends_at, week1_qualified, week2_qualified')
@@ -337,7 +357,10 @@ export async function GET(req: NextRequest) {
   const enrollmentsByUser = new Map<string, Program444Enrollment[]>()
   const now = Date.now()
 
-  leads.forEach((lead) => incrementCount(doorsByUser, lead.owner_user_id))
+  // Pin-first attribution: matches sync/leaderboard/dashboard logic
+  leads.forEach((lead) =>
+    incrementCount(doorsByUser, lead.pin_attributed_user_id ?? lead.owner_user_id)
+  )
   appointments.forEach((appointment) => incrementCount(inspectionsByUser, appointment.canvasser_user_id))
   enrollments.forEach((enrollment) => {
     const current = enrollmentsByUser.get(enrollment.user_id) ?? []
@@ -346,9 +369,11 @@ export async function GET(req: NextRequest) {
   })
 
   // Pace factor: how far through the work-week are we (Mon=1 … Fri=5, clamp 0–1)
-  const dayOfWeek = new Date().getDay() // 0=Sun, 6=Sat
-  const workDayIndex = Math.max(1, Math.min(5, dayOfWeek === 0 ? 1 : dayOfWeek))
-  const paceFactor = workDayIndex / 5
+  // Sunday (0) → 0 (new week, no expectation yet) — mirrors getWeeklyPaceThresholdPct()
+  // Saturday (6) → 1.0 (full week expectation)
+  // Use ET timezone — server may run in UTC so getDay() would be wrong near midnight ET
+  const dayOfWeek = getEtDayOfWeek() // 0=Sun, 6=Sat in America/New_York
+  const paceFactor = dayOfWeek === 0 ? 0 : Math.min(5, dayOfWeek) / 5
 
   const accountability = users.map((user) => {
     const userEnrollments = enrollmentsByUser.get(user.id) ?? []

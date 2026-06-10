@@ -159,6 +159,7 @@ export async function buildPayrollStatement(
     .eq('payroll_period_id', periodId)
     .eq('user_id', userId)
     .eq('org_id', orgId)
+    .in('status', ['approved', 'paid'])
 
   const bonuses: PayrollStatementBonusLine[] = (bonusRows ?? []).map((b) => ({
     id: b.id as string,

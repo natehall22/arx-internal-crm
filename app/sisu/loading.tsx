@@ -36,7 +36,7 @@ export default function IncentivesLoading() {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
@@ -80,7 +80,7 @@ export default function IncentivesLoading() {
             {[1, 2].map((i) => (
               <div
                 key={i}
-                className="flex-shrink-0 w-72 h-52 rounded-2xl bg-gray-900 border border-gray-800 animate-pulse"
+                className="flex-shrink-0 w-[min(18rem,85vw)] sm:w-72 h-52 rounded-2xl bg-gray-900 border border-gray-800 animate-pulse"
               />
             ))}
           </div>

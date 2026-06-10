@@ -1,13 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-
-// ── Config ────────────────────────────────────────────────────────────────────
-// Configurable via PROGRAM_444_BONUS_AMOUNT env var. Defaults to $400.
-// Update the env var to change the bonus without a redeploy.
-const WEEK_BONUS_AMOUNT = (() => {
-  const raw = process.env.PROGRAM_444_BONUS_AMOUNT
-  const parsed = raw ? Number(raw) : NaN
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 400
-})()
+import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,18 +14,19 @@ type Enrollment = {
   week1_doors: number
   week1_inspections: number
   week1_qualified: boolean
-  week1_paid_at: string | null
+  week1_qualified_at: string | null
   week1_payroll_period_id: string | null
   week2_doors: number
   week2_inspections: number
   week2_qualified: boolean
-  week2_paid_at: string | null
+  week2_qualified_at: string | null
   week2_payroll_period_id: string | null
   status: 'active' | 'completed' | 'cancelled'
 }
 
 type LeadRow = {
   owner_user_id: string | null
+  pin_attributed_user_id: string | null
   created_at: string
 }
 
@@ -58,32 +51,38 @@ export type SyncOrgResult = {
 
 const DOOR_KNOCK_SOURCES = ['door_to_door', 'canvass', 'door_knock']
 
+// 444 program qualification thresholds — shared constants so they're easy to find and change
+export const PROGRAM_444_DOOR_THRESHOLD = 400
+export const PROGRAM_444_INSPECTION_THRESHOLD = 4
+
 function countLeads(
-  leads: LeadRow[],
+  leadsByUser: Map<string, LeadRow[]>,
   userId: string,
   startsAt: string,
   endsAt: string,
 ): number {
-  return leads.filter(
-    (l) =>
-      l.owner_user_id === userId &&
-      l.created_at >= startsAt &&
-      l.created_at <= endsAt,
-  ).length
+  const leads = leadsByUser.get(userId) ?? []
+  const start = new Date(startsAt).getTime()
+  const end = new Date(endsAt).getTime()
+  return leads.filter((l) => {
+    const ts = new Date(l.created_at).getTime()
+    return ts >= start && ts < end  // exclusive end — matches stored exclusive boundary
+  }).length
 }
 
 function countAppointments(
-  appointments: AppointmentRow[],
+  appointmentsByUser: Map<string, AppointmentRow[]>,
   userId: string,
   startsAt: string,
   endsAt: string,
 ): number {
-  return appointments.filter(
-    (a) =>
-      a.canvasser_user_id === userId &&
-      a.created_at >= startsAt &&
-      a.created_at <= endsAt,
-  ).length
+  const appointments = appointmentsByUser.get(userId) ?? []
+  const start = new Date(startsAt).getTime()
+  const end = new Date(endsAt).getTime()
+  return appointments.filter((a) => {
+    const ts = new Date(a.created_at).getTime()
+    return ts >= start && ts < end  // exclusive end — matches stored exclusive boundary
+  }).length
 }
 
 export async function syncOrgEnrollments(
@@ -93,36 +92,56 @@ export async function syncOrgEnrollments(
 ): Promise<SyncOrgResult> {
   const nowIso = new Date().toISOString()
 
-  const { data: enrollmentRows, error: enrollmentError } = await admin
-    .from('program_444_enrollments')
-    .select(
-      [
-        'id',
-        'org_id',
-        'user_id',
-        'week1_starts_at',
-        'week1_ends_at',
-        'week2_starts_at',
-        'week2_ends_at',
-        'week1_doors',
-        'week1_inspections',
-        'week1_qualified',
-        'week1_paid_at',
-        'week1_payroll_period_id',
-        'week2_doors',
-        'week2_inspections',
-        'week2_qualified',
-        'week2_paid_at',
-        'week2_payroll_period_id',
-        'status',
-      ].join(', '),
-    )
-    .eq('org_id', orgId)
-    .eq('status', 'active')
+  // ── Fetch org settings + active enrollments in parallel ──────────────────
+  const [orgResult, enrollmentResult] = await Promise.all([
+    admin
+      .from('orgs')
+      .select('program_444_week_bonus_amount, program_444_week_bonus_label')
+      .eq('id', orgId)
+      .single(),
+    admin
+      .from('program_444_enrollments')
+      .select(
+        [
+          'id',
+          'org_id',
+          'user_id',
+          'week1_starts_at',
+          'week1_ends_at',
+          'week2_starts_at',
+          'week2_ends_at',
+          'week1_doors',
+          'week1_inspections',
+          'week1_qualified',
+          'week1_qualified_at',
+          'week1_payroll_period_id',
+          'week2_doors',
+          'week2_inspections',
+          'week2_qualified',
+          'week2_qualified_at',
+          'week2_payroll_period_id',
+          'status',
+        ].join(', '),
+      )
+      .eq('org_id', orgId)
+      .eq('status', 'active'),
+  ])
 
-  if (enrollmentError) throw new Error(enrollmentError.message)
+  if (orgResult.error || !orgResult.data) {
+    throw new Error(`sync-444: failed to fetch org settings: ${orgResult.error?.message ?? 'org not found'}`)
+  }
+  if (enrollmentResult.error) throw new Error(enrollmentResult.error.message)
 
-  const enrollments = (enrollmentRows ?? []) as unknown as Enrollment[]
+  // Amount used for payroll bonus line records. Null means non-monetary reward —
+  // fall back to 0 so the line is still written but carries no dollar value.
+  const rawAmount = orgResult.data.program_444_week_bonus_amount
+  const weekBonusAmount = rawAmount != null && Number.isFinite(Number(rawAmount)) ? Number(rawAmount) : 0
+  // Use the org-configured display label in notifications (can be "ARX hoodie", "$400", etc.)
+  // Falls back to dollar amount if label is missing, then to generic copy as last resort.
+  const weekBonusLabel: string =
+    orgResult.data.program_444_week_bonus_label ?? (weekBonusAmount > 0 ? `$${weekBonusAmount}` : 'your reward')
+
+  const enrollments = (enrollmentResult.data ?? []) as unknown as Enrollment[]
   if (enrollments.length === 0) return { synced: 0, qualified: [] }
 
   const allStarts = enrollments.flatMap((e) => [e.week1_starts_at, e.week2_starts_at])
@@ -133,17 +152,17 @@ export async function syncOrgEnrollments(
   const [leadsResult, appointmentsResult] = await Promise.all([
     admin
       .from('leads')
-      .select('owner_user_id, created_at')
+      .select('owner_user_id, pin_attributed_user_id, created_at')
       .eq('org_id', orgId)
       .in('source', DOOR_KNOCK_SOURCES)
       .gte('created_at', rangeStart)
-      .lte('created_at', rangeEnd),
+      .lt('created_at', rangeEnd),    // exclusive end — matches stored exclusive boundary
     admin
       .from('scheduled_appointments')
       .select('canvasser_user_id, created_at')
       .eq('org_id', orgId)
       .gte('created_at', rangeStart)
-      .lte('created_at', rangeEnd),
+      .lt('created_at', rangeEnd),    // exclusive end
   ])
 
   if (leadsResult.error) throw new Error(leadsResult.error.message)
@@ -151,6 +170,25 @@ export async function syncOrgEnrollments(
 
   const allLeads = (leadsResult.data ?? []) as LeadRow[]
   const allAppointments = (appointmentsResult.data ?? []) as AppointmentRow[]
+
+  // Use the same attribution logic as the rep dashboard — pin_attributed_user_id
+  // takes precedence over owner_user_id (matches getAttributedCanvassLeadUserId)
+  const leadsByUser = new Map<string, LeadRow[]>()
+  for (const l of allLeads) {
+    const userId = getAttributedCanvassLeadUserId(l)
+    if (!userId) continue
+    const arr = leadsByUser.get(userId) ?? []
+    arr.push(l)
+    leadsByUser.set(userId, arr)
+  }
+
+  const appointmentsByUser = new Map<string, AppointmentRow[]>()
+  for (const a of allAppointments) {
+    if (!a.canvasser_user_id) continue
+    const arr = appointmentsByUser.get(a.canvasser_user_id) ?? []
+    arr.push(a)
+    appointmentsByUser.set(a.canvasser_user_id, arr)
+  }
 
   let openPayrollPeriodId: string | null = null
   const { data: periodRows, error: periodError } = await admin
@@ -176,13 +214,13 @@ export async function syncOrgEnrollments(
   let synced = 0
 
   for (const enrollment of enrollments) {
-    const week1Doors = countLeads(allLeads, enrollment.user_id, enrollment.week1_starts_at, enrollment.week1_ends_at)
-    const week1Inspections = countAppointments(allAppointments, enrollment.user_id, enrollment.week1_starts_at, enrollment.week1_ends_at)
-    const week2Doors = countLeads(allLeads, enrollment.user_id, enrollment.week2_starts_at, enrollment.week2_ends_at)
-    const week2Inspections = countAppointments(allAppointments, enrollment.user_id, enrollment.week2_starts_at, enrollment.week2_ends_at)
+    const week1Doors = countLeads(leadsByUser, enrollment.user_id, enrollment.week1_starts_at, enrollment.week1_ends_at)
+    const week1Inspections = countAppointments(appointmentsByUser, enrollment.user_id, enrollment.week1_starts_at, enrollment.week1_ends_at)
+    const week2Doors = countLeads(leadsByUser, enrollment.user_id, enrollment.week2_starts_at, enrollment.week2_ends_at)
+    const week2Inspections = countAppointments(appointmentsByUser, enrollment.user_id, enrollment.week2_starts_at, enrollment.week2_ends_at)
 
-    const week1NowQualified = week1Doors >= 400 && week1Inspections >= 4
-    const week2NowQualified = week2Doors >= 400 && week2Inspections >= 4
+    const week1NowQualified = week1Doors >= PROGRAM_444_DOOR_THRESHOLD && week1Inspections >= PROGRAM_444_INSPECTION_THRESHOLD
+    const week2NowQualified = week2Doors >= PROGRAM_444_DOOR_THRESHOLD && week2Inspections >= PROGRAM_444_INSPECTION_THRESHOLD
 
     const week1NewlyQualified = !enrollment.week1_qualified && week1NowQualified
     const week2NewlyQualified = !enrollment.week2_qualified && week2NowQualified
@@ -196,13 +234,13 @@ export async function syncOrgEnrollments(
 
     if (week1NewlyQualified) {
       enrollmentUpdate.week1_qualified = true
-      enrollmentUpdate.week1_paid_at = nowIso
+      enrollmentUpdate.week1_qualified_at = nowIso
       if (openPayrollPeriodId) enrollmentUpdate.week1_payroll_period_id = openPayrollPeriodId
     }
 
     if (week2NewlyQualified) {
       enrollmentUpdate.week2_qualified = true
-      enrollmentUpdate.week2_paid_at = nowIso
+      enrollmentUpdate.week2_qualified_at = nowIso
       if (openPayrollPeriodId) enrollmentUpdate.week2_payroll_period_id = openPayrollPeriodId
     }
 
@@ -219,13 +257,17 @@ export async function syncOrgEnrollments(
       .update(enrollmentUpdate)
       .eq('id', enrollment.id)
 
+    // Lock on every flag we're about to flip AND any flag already set — prevents
+    // split-sync races where two concurrent syncs each write one bonus line.
     const lockedQuery =
       week1NewlyQualified && week2NewlyQualified
         ? baseQuery.eq('week1_qualified', false).eq('week2_qualified', false)
         : week1NewlyQualified
         ? baseQuery.eq('week1_qualified', false)
         : week2NewlyQualified
-        ? baseQuery.eq('week2_qualified', false)
+        // Also assert week1_qualified matches what we read — a concurrent sync
+        // that just flipped week1 must not allow this sync to also write week2 alone
+        ? baseQuery.eq('week2_qualified', false).eq('week1_qualified', enrollment.week1_qualified)
         : baseQuery
 
     const { data: updatedRows, error: updateError } = await lockedQuery.select('id')
@@ -252,10 +294,11 @@ export async function syncOrgEnrollments(
           payroll_period_id: openPayrollPeriodId,
           user_id: enrollment.user_id,
           bonus_type: '444_week1',
-          amount: WEEK_BONUS_AMOUNT,
+          amount: weekBonusAmount,
           description: `ARX 444 Program Week 1 Bonus`,
           source_id: enrollment.id,
           created_by: callerUserId,
+          status: 'pending_approval',
         })
         if (!bonusError || bonusError.code === '23505') {
           bonusRegistered = true
@@ -267,10 +310,10 @@ export async function syncOrgEnrollments(
       // ── Notification (Fix #1 — only fire when bonus is confirmed or payroll
       //    period missing; body is honest about registration status) ───────────
       const bonusBody = bonusRegistered
-        ? `You qualified for the $${WEEK_BONUS_AMOUNT} Week 1 bonus. It has been registered for payroll.`
+        ? `You qualified for the ${weekBonusLabel} Week 1 bonus. It has been registered for payroll.`
         : openPayrollPeriodId
         ? `You qualified for Week 1! Bonus registration encountered an issue — contact your manager.`
-        : `You qualified for Week 1! Your $${WEEK_BONUS_AMOUNT} bonus will be registered once the payroll period opens.`
+        : `You qualified for Week 1! Your ${weekBonusLabel} bonus will be registered once the payroll period opens.`
 
       const { error: notifError } = await admin.from('notifications').insert({
         org_id: orgId,
@@ -296,10 +339,11 @@ export async function syncOrgEnrollments(
           payroll_period_id: openPayrollPeriodId,
           user_id: enrollment.user_id,
           bonus_type: '444_week2',
-          amount: WEEK_BONUS_AMOUNT,
+          amount: weekBonusAmount,
           description: `ARX 444 Program Week 2 Bonus`,
           source_id: enrollment.id,
           created_by: callerUserId,
+          status: 'pending_approval',
         })
         if (!bonusError || bonusError.code === '23505') {
           bonusRegistered = true
@@ -310,10 +354,10 @@ export async function syncOrgEnrollments(
 
       // ── Notification ────────────────────────────────────────────────────────
       const bonusBody = bonusRegistered
-        ? `You qualified for the $${WEEK_BONUS_AMOUNT} Week 2 bonus. Incredible work — it has been registered for payroll.`
+        ? `You qualified for the ${weekBonusLabel} Week 2 bonus. Incredible work — it has been registered for payroll.`
         : openPayrollPeriodId
         ? `You qualified for Week 2! Bonus registration encountered an issue — contact your manager.`
-        : `You qualified for Week 2! Your $${WEEK_BONUS_AMOUNT} bonus will be registered once the payroll period opens.`
+        : `You qualified for Week 2! Your ${weekBonusLabel} bonus will be registered once the payroll period opens.`
 
       const { error: notifError } = await admin.from('notifications').insert({
         org_id: orgId,

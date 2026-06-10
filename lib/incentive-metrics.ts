@@ -43,6 +43,10 @@ export interface SpiffWithProgress {
   currentValue: number
   /** Whether the rep has crossed the threshold. */
   qualified: boolean
+  /** Payout amount from achievement row (when qualified). */
+  payout_amount?: number | null
+  /** Scheduled pay date from linked payroll period. */
+  payroll_pay_date?: string | null
 }
 
 export interface BadgeWithEarned extends IncentiveBadge {
@@ -146,4 +150,79 @@ export function progressBarColor(pct: number): string {
 /** Clamp a value to [0, 100]. */
 export function clamp100(value: number): number {
   return Math.min(100, Math.max(0, value))
+}
+
+/** Relative time label for data freshness (e.g. "just now", "5 minutes ago"). */
+export function formatDataRecency(date: Date | string): string {
+  const then = typeof date === 'string' ? new Date(date).getTime() : date.getTime()
+  const diffMs = Date.now() - then
+  const diffMins = Math.floor(diffMs / 60_000)
+  if (diffMins < 1) return 'just now'
+  if (diffMins === 1) return '1 min ago'
+  if (diffMins < 60) return `${diffMins} min ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours === 1) return '1 hr ago'
+  if (diffHours < 24) return `${diffHours} hr ago`
+  const diffDays = Math.floor(diffHours / 24)
+  return diffDays === 1 ? '1 day ago' : `${diffDays} days ago`
+}
+
+/** Mon–Fri work-week pace threshold (% of goal expected by today). Matches accountability API.
+ *  Sunday (0) returns 0 — start of week, no pace expectation yet.
+ *  Saturday (6) returns 100 — end of week, full expectations apply.
+ *  Uses ET day-of-week so the pace resets at ET midnight Sunday, not server local midnight.
+ */
+export function getWeeklyPaceThresholdPct(): number {
+  // Use ET day-of-week — getDay() uses server/browser local timezone which may not be ET
+  const etWeekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+  }).format(new Date())
+  const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(etWeekday)
+  // Sunday (0) = start of new week — no pace expectation yet
+  // Saturday (6) = end of week — show 100% to reflect full-week expectations
+  if (dayOfWeek <= 0) return 0
+  return Math.round((Math.min(5, dayOfWeek) / 5) * 100)
+}
+
+/** Whether current progress is on pace toward a weekly goal. Null when no goal set. */
+export function isOnPace(current: number, goal: number | null): boolean | null {
+  if (goal == null || goal <= 0) return null
+  const pct = Math.round((current / goal) * 100)
+  return pct >= getWeeklyPaceThresholdPct()
+}
+
+export type OnPaceStatus = {
+  doors: boolean | null
+  inspections: boolean | null
+  sales: boolean | null
+}
+
+export function computeOnPaceStatus(
+  metrics: LiveMetrics,
+  goal: UserIncentiveGoal | null,
+): OnPaceStatus {
+  return {
+    doors: isOnPace(metrics.doorsKnocked, goal?.weekly_doors_target ?? null),
+    inspections: isOnPace(metrics.inspectionsSet, goal?.weekly_inspections_target ?? null),
+    sales: isOnPace(metrics.closedSales, goal?.weekly_sales_target ?? null),
+  }
+}
+
+/** Short pay date for rep-facing payout copy. */
+export function formatPayrollPayDate(dateString: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'America/New_York',
+  }).format(new Date(dateString))
+}
+
+/** e.g. "$400 on Mar 14 payroll" */
+export function formatPayoutOnPayroll(amount: number, payDate: string | null): string {
+  const formatted = `$${amount.toLocaleString()}`
+  if (payDate) {
+    return `${formatted} on ${formatPayrollPayDate(payDate)} payroll`
+  }
+  return `${formatted} — payroll date pending`
 }

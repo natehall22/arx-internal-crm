@@ -9,6 +9,12 @@ type EnrollmentUser = {
   role: string | null
 }
 
+type PayrollPeriodSummary = {
+  scheduled_pay_date: string
+  period_label: string | null
+  status: string
+}
+
 type Program444Enrollment = {
   id: string
   org_id: string
@@ -22,18 +28,20 @@ type Program444Enrollment = {
   week1_doors: number
   week1_inspections: number
   week1_qualified: boolean
-  week1_paid_at: string | null
+  week1_qualified_at: string | null
   week1_payroll_period_id: string | null
   week2_doors: number
   week2_inspections: number
   week2_qualified: boolean
-  week2_paid_at: string | null
+  week2_qualified_at: string | null
   week2_payroll_period_id: string | null
   status: EnrollmentStatus
   notes: string | null
   created_at: string
   updated_at: string
   users: EnrollmentUser | EnrollmentUser[] | null
+  week1_payroll_period?: PayrollPeriodSummary | PayrollPeriodSummary[] | null
+  week2_payroll_period?: PayrollPeriodSummary | PayrollPeriodSummary[] | null
 }
 
 type OrgUser = {
@@ -90,12 +98,12 @@ function isProgram444Enrollment(value: unknown): value is Program444Enrollment {
     typeof value.week1_doors === 'number' &&
     typeof value.week1_inspections === 'number' &&
     typeof value.week1_qualified === 'boolean' &&
-    (typeof value.week1_paid_at === 'string' || value.week1_paid_at === null) &&
+    (typeof value.week1_qualified_at === 'string' || value.week1_qualified_at === null) &&
     (typeof value.week1_payroll_period_id === 'string' || value.week1_payroll_period_id === null) &&
     typeof value.week2_doors === 'number' &&
     typeof value.week2_inspections === 'number' &&
     typeof value.week2_qualified === 'boolean' &&
-    (typeof value.week2_paid_at === 'string' || value.week2_paid_at === null) &&
+    (typeof value.week2_qualified_at === 'string' || value.week2_qualified_at === null) &&
     (typeof value.week2_payroll_period_id === 'string' || value.week2_payroll_period_id === null) &&
     isEnrollmentStatus(value.status) &&
     (typeof value.notes === 'string' || value.notes === null) &&
@@ -110,6 +118,55 @@ function isProgram444Enrollment(value: unknown): value is Program444Enrollment {
 function getEnrollmentUser(enrollment: Program444Enrollment): EnrollmentUser | null {
   if (Array.isArray(enrollment.users)) return enrollment.users[0] ?? null
   return enrollment.users
+}
+
+function getPayrollPeriod(
+  value: PayrollPeriodSummary | PayrollPeriodSummary[] | null | undefined,
+): PayrollPeriodSummary | null {
+  if (!value) return null
+  if (Array.isArray(value)) return value[0] ?? null
+  return value
+}
+
+function PayrollReconciliation({
+  qualified,
+  qualifiedAt,
+  payrollPeriodId,
+  payrollPeriod,
+  weekBonusLabel,
+}: {
+  qualified: boolean
+  qualifiedAt: string | null
+  payrollPeriodId: string | null
+  payrollPeriod: PayrollPeriodSummary | PayrollPeriodSummary[] | null | undefined
+  weekBonusLabel: string
+}) {
+  if (!qualified) {
+    return <span className="text-xs text-slate-500">Not qualified</span>
+  }
+
+  const period = getPayrollPeriod(payrollPeriod)
+
+  return (
+    <div className="min-w-[150px] space-y-1 text-xs">
+      <p className="font-semibold text-emerald-300">{weekBonusLabel} bonus line</p>
+      {period?.scheduled_pay_date ? (
+        <p className="text-slate-200">
+          Pay {formatDate(period.scheduled_pay_date)}
+        </p>
+      ) : payrollPeriodId ? (
+        <p className="text-amber-300">Period linked — date TBD</p>
+      ) : (
+        <p className="text-amber-300">Awaiting open payroll period</p>
+      )}
+      {period?.period_label && (
+        <p className="text-slate-400">{period.period_label}</p>
+      )}
+      {qualifiedAt && (
+        <p className="text-slate-500">Qualified {formatDateTime(qualifiedAt)}</p>
+      )}
+    </div>
+  )
 }
 
 function displayRole(role: string | null): string {
@@ -160,7 +217,7 @@ function getWeekState(qualified: boolean, startsAt: string, endsAt: string): Wee
     }
   }
 
-  if (now > ends) {
+  if (now >= ends) {
     return {
       icon: '🔴',
       label: 'Missed',
@@ -221,7 +278,7 @@ function WeekStatus({
   )
 }
 
-export default function Program444Client() {
+export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: string }) {
   const [enrollments, setEnrollments] = useState<Program444Enrollment[]>([])
   const [users, setUsers] = useState<OrgUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -372,7 +429,7 @@ export default function Program444Client() {
 
       <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-2xl shadow-black/20">
         <div className="overflow-x-auto">
-          <table className="min-w-[1120px] w-full divide-y divide-slate-800">
+          <table className="min-w-[1380px] w-full divide-y divide-slate-800">
             <thead className="bg-slate-950/70">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Rep name</th>
@@ -380,7 +437,9 @@ export default function Program444Client() {
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Start Date</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 1 window</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 1 status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 1 payroll</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 2 status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Week 2 payroll</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Actions</th>
               </tr>
@@ -388,13 +447,13 @@ export default function Program444Client() {
             <tbody className="divide-y divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
                     Loading enrollments...
                   </td>
                 </tr>
               ) : enrollments.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
                     No 444 enrollments yet.
                   </td>
                 </tr>
@@ -425,12 +484,30 @@ export default function Program444Client() {
                         />
                       </td>
                       <td className="px-4 py-4">
+                        <PayrollReconciliation
+                          qualified={enrollment.week1_qualified}
+                          qualifiedAt={enrollment.week1_qualified_at}
+                          payrollPeriodId={enrollment.week1_payroll_period_id}
+                          payrollPeriod={enrollment.week1_payroll_period}
+                          weekBonusLabel={weekBonusLabel}
+                        />
+                      </td>
+                      <td className="px-4 py-4">
                         <WeekStatus
                           doors={enrollment.week2_doors}
                           inspections={enrollment.week2_inspections}
                           qualified={enrollment.week2_qualified}
                           startsAt={enrollment.week2_starts_at}
                           endsAt={enrollment.week2_ends_at}
+                        />
+                      </td>
+                      <td className="px-4 py-4">
+                        <PayrollReconciliation
+                          qualified={enrollment.week2_qualified}
+                          qualifiedAt={enrollment.week2_qualified_at}
+                          payrollPeriodId={enrollment.week2_payroll_period_id}
+                          payrollPeriod={enrollment.week2_payroll_period}
+                          weekBonusLabel={weekBonusLabel}
                         />
                       </td>
                       <td className="px-4 py-4">

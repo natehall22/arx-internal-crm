@@ -61,6 +61,16 @@ export interface SpiffAchievement {
   users?: { full_name: string; role: string }
 }
 
+/**
+ * IncentiveCycle tracks the administrative period for a Heat (SPIFF) payout run.
+ * It is separate from payroll_periods and payroll_bonus_lines. The relationship is:
+ *   IncentiveCycle → contains SpiffAchievements (winners for that cycle window)
+ *   SpiffAchievement.payroll_period_id → links to payroll_periods
+ *   payroll_bonus_lines are written at qualification time (by sync-444-core / sync route)
+ *     and reference payroll_periods directly — they are NOT automatically created from
+ *     IncentiveCycle. Admins use the cycle "Lock & Payout" action to review winners and
+ *     export CSV; the actual payroll line creation is a separate admin step.
+ */
 export interface IncentiveCycle {
   id: string
   org_id: string

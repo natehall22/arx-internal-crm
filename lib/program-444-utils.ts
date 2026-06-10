@@ -128,14 +128,16 @@ export function compute444WeekWindows(startDate: Date, timezone = 'America/New_Y
 
   const daysUntilSunday = startWeekdayIndex === 0 ? 0 : 7 - startWeekdayIndex
   const week1StartParts = addDaysToDateParts(startParts, daysUntilSunday)
-  const week1EndParts = addDaysToDateParts(week1StartParts, 6)
   const week2StartParts = addDaysToDateParts(week1StartParts, 7)
-  const week2EndParts = addDaysToDateParts(week1StartParts, 13)
+  const week3StartParts = addDaysToDateParts(week1StartParts, 14)
 
+  // Use exclusive end boundaries (start of the next period) so that sub-second
+  // timestamps at the end of Saturday are never silently dropped.
+  // Comparisons in sync and accountability use ts < endsAt (not ts <= endsAt).
   return {
     week1StartsAt: zonedDateTimeToUtcIso(week1StartParts, timezone, 0, 0, 0),
-    week1EndsAt: zonedDateTimeToUtcIso(week1EndParts, timezone, 23, 59, 59),
+    week1EndsAt: zonedDateTimeToUtcIso(week2StartParts, timezone, 0, 0, 0),
     week2StartsAt: zonedDateTimeToUtcIso(week2StartParts, timezone, 0, 0, 0),
-    week2EndsAt: zonedDateTimeToUtcIso(week2EndParts, timezone, 23, 59, 59),
+    week2EndsAt: zonedDateTimeToUtcIso(week3StartParts, timezone, 0, 0, 0),
   }
 }

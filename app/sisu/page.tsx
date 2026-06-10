@@ -27,7 +27,10 @@ export default async function IncentivesPage() {
   const supabase = createClient()
 
   const { start: weekStart, end: weekEnd } = getDateRangeForTimeFrame('week', 'America/New_York')
-  const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+  // Use ET so goal effective dates match the company's business timezone
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) // YYYY-MM-DD in ET
+
+  const metricsAsOf = new Date().toISOString()
 
   // ── Live metrics ─────────────────────────────────────────────────────────────
 
@@ -85,6 +88,7 @@ export default async function IncentivesPage() {
       'id, weekly_doors_target, weekly_inspections_target, weekly_sales_target, weekly_revenue_target, effective_from, effective_to'
     )
     .eq('user_id', profile.id)
+    .eq('org_id', profile.org_id)
     .lte('effective_from', today)
     .or(`effective_to.is.null,effective_to.gte.${today}`)
     .order('effective_from', { ascending: false })
@@ -118,7 +122,7 @@ export default async function IncentivesPage() {
   if (spiffIds.length > 0) {
     const { data: achievementRows } = await supabase
       .from('spiff_achievements')
-      .select('id, spiff_program_id, user_id, current_value, qualified, qualified_at, payout_amount')
+      .select('id, spiff_program_id, user_id, current_value, qualified, qualified_at, payout_amount, payroll_period_id')
       .eq('user_id', profile.id)
       .in('spiff_program_id', spiffIds)
 
@@ -127,24 +131,112 @@ export default async function IncentivesPage() {
     }
   }
 
-  const activeSpiffs: SpiffWithProgress[] = eligibleSpiffs.map((s) => {
-    const ach = achievementMap.get(s.id)
-    return {
-      ...s,
-      currentValue: ach ? Number(ach.current_value) : 0,
-      qualified: ach?.qualified ?? false,
-    }
-  })
-
-  // ── 444 Program enrollment ────────────────────────────────────────────────────
-  const { data: enrollment444 } = await supabase
+  const { data: enrollment444Row } = await supabase
     .from('program_444_enrollments')
-    .select('id, week1_starts_at, week1_ends_at, week2_starts_at, week2_ends_at, week1_doors, week1_inspections, week1_qualified, week2_doors, week2_inspections, week2_qualified, status')
+    .select(
+      'id, week1_starts_at, week1_ends_at, week2_starts_at, week2_ends_at, week1_doors, week1_inspections, week1_qualified, week2_doors, week2_inspections, week2_qualified, status, week1_payroll_period_id, week2_payroll_period_id, updated_at'
+    )
     .eq('user_id', profile.id)
+    .eq('org_id', profile.org_id)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  const payrollPeriodIds = new Set<string>()
+  for (const ach of Array.from(achievementMap.values())) {
+    if (ach.payroll_period_id) payrollPeriodIds.add(ach.payroll_period_id)
+  }
+  if (enrollment444Row?.week1_payroll_period_id) {
+    payrollPeriodIds.add(enrollment444Row.week1_payroll_period_id)
+  }
+  if (enrollment444Row?.week2_payroll_period_id) {
+    payrollPeriodIds.add(enrollment444Row.week2_payroll_period_id)
+  }
+
+  const payDateByPeriodId = new Map<string, string>()
+  if (payrollPeriodIds.size > 0) {
+    const { data: periodRows } = await supabase
+      .from('payroll_periods')
+      .select('id, scheduled_pay_date')
+      .in('id', Array.from(payrollPeriodIds))
+
+    for (const period of periodRows ?? []) {
+      if (period.scheduled_pay_date) {
+        payDateByPeriodId.set(period.id, period.scheduled_pay_date)
+      }
+    }
+  }
+
+  const activeSpiffs: SpiffWithProgress[] = eligibleSpiffs.map((s) => {
+    const ach = achievementMap.get(s.id)
+    const periodId = ach?.payroll_period_id ?? null
+    return {
+      ...s,
+      currentValue: ach ? Number(ach.current_value) : 0,
+      qualified: ach?.qualified ?? false,
+      payout_amount: ach?.payout_amount != null ? Number(ach.payout_amount) : null,
+      payroll_pay_date: periodId ? payDateByPeriodId.get(periodId) ?? null : null,
+    }
+  })
+
+  const enrollment444 = enrollment444Row ?? null
+
+  // ── Approved bonus lines (rep-visible pay confirmations) ─────────────────────
+  // Only fetch 'approved' — pending/rejected are invisible to reps.
+  type ApprovedBonus = {
+    id: string
+    bonus_type: string
+    amount: number
+    source_id: string | null
+    scheduled_pay_date: string | null
+  }
+
+  // Supabase returns joined rows as an array when using !fkey syntax; normalize to first element.
+  function pickScheduledPayDate(period: unknown): string | null {
+    if (!period) return null
+    const row = Array.isArray(period) ? period[0] : period
+    if (!row || typeof row !== 'object') return null
+    const p = row as Record<string, unknown>
+    return typeof p.scheduled_pay_date === 'string' ? p.scheduled_pay_date : null
+  }
+
+  const { data: approvedBonusRows, error: bonusError } = await supabase
+    .from('payroll_bonus_lines')
+    .select(`
+      id,
+      bonus_type,
+      amount,
+      source_id,
+      period:payroll_periods!payroll_bonus_lines_payroll_period_id_fkey (
+        scheduled_pay_date
+      )
+    `)
+    .eq('user_id', profile.id)
+    .eq('org_id', profile.org_id)
+    .eq('status', 'approved')
+
+  if (bonusError) {
+    console.error('[sisu/page] Failed to fetch approved bonus lines:', bonusError)
+  }
+
+  const approvedBonuses: ApprovedBonus[] = (approvedBonusRows ?? [])
+    .filter((row): row is NonNullable<typeof row> => row != null)
+    .map((row) => ({
+      id: row.id as string,
+      bonus_type: row.bonus_type as string,
+      amount: Number(row.amount),
+      source_id: (row.source_id as string | null) ?? null,
+      scheduled_pay_date: pickScheduledPayDate(row.period),
+    }))
+
+  // ── Org 444 bonus label (display string — can be cash, merch, or anything) ────
+  const { data: orgRow } = await supabase
+    .from('orgs')
+    .select('program_444_week_bonus_label')
+    .eq('id', profile.org_id)
+    .maybeSingle()
+  const weekBonusLabel: string = orgRow?.program_444_week_bonus_label ?? '$400'
 
   // ── Badges ────────────────────────────────────────────────────────────────────
   // Fetch all org badges + which ones this user has earned
@@ -161,6 +253,7 @@ export default async function IncentivesPage() {
     .from('user_badges')
     .select('id, badge_id, awarded_at, note')
     .eq('user_id', profile.id)
+    .eq('org_id', profile.org_id)
 
   const userBadgeMap = new Map<string, UserBadge>(
     (userBadgeRows ?? []).map((ub) => [ub.badge_id, ub as UserBadge])
@@ -185,7 +278,10 @@ export default async function IncentivesPage() {
         activeSpiffs={activeSpiffs}
         earnedBadges={earnedBadges}
         isSetterLike={isSetterLikeRole(profile.role)}
-        enrollment444={enrollment444 ?? null}
+        enrollment444={enrollment444}
+        approvedBonuses={approvedBonuses}
+        weekBonusLabel={weekBonusLabel}
+        metricsAsOf={metricsAsOf}
       />
     </div>
   )

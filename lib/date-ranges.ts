@@ -67,8 +67,14 @@ export function getDateRangeForTimeFrame(
       break
 
     case 'week':
-      // Start of this week (Sunday) in local time
-      // weekStartsOn: 0 = Sunday (matches existing app convention)
+      // Start of this week (Sunday) in local time, end = start of tomorrow (partial week).
+      // weekStartsOn: 0 = Sunday (matches existing app convention).
+      //
+      // INTENTIONAL SPLIT: this 'week' case ends at "today" (not Saturday) because
+      // rep-facing dashboards and leaderboards show YTW progress, not a full calendar
+      // week. Admin accountability uses getCurrentWeekRange() in
+      // app/api/admin/sisu/accountability/route.ts which produces a full Sun→Sun
+      // exclusive window. Do NOT unify these — they serve different UX needs.
       startLocal = startOfWeek(nowLocal, { weekStartsOn: 0 })
       endLocal = addDays(startOfDay(nowLocal), 1) // Through end of today
       break

@@ -374,11 +374,14 @@ export async function POST(request: NextRequest) {
         case '7d':
           return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
         case 'week': {
-          // Start of current week (Sunday)
-          const startOfWeek = new Date(now)
-          startOfWeek.setDate(now.getDate() - now.getDay())
-          startOfWeek.setHours(0, 0, 0, 0)
-          return startOfWeek.toISOString()
+          // Start of current week (Sunday) in ET — getDay() uses local timezone, not ET
+          const etDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(now)
+          const [etYear, etMonth, etDay] = etDateStr.split('-').map(Number)
+          const etDow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+            new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now)
+          )
+          if (etDow < 0) throw new Error('Unable to compute ET day-of-week')
+          return new Date(Date.UTC(etYear, etMonth - 1, etDay - etDow)).toISOString()
         }
         case '30d':
           return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()

@@ -144,11 +144,12 @@ async function countDoorsKnocked(
   startsAt: string,
   endsAt: string,
 ) {
+  // Match dashboard attribution: pin_attributed_user_id takes precedence over owner_user_id
   const { count, error } = await admin
     .from('leads')
     .select('id', { count: 'exact', head: true })
     .eq('org_id', orgId)
-    .eq('owner_user_id', userId)
+    .or(`pin_attributed_user_id.eq.${userId},and(pin_attributed_user_id.is.null,owner_user_id.eq.${userId})`)
     .in('source', DOOR_KNOCK_SOURCES)
     .gte('created_at', startsAt)
     .lte('created_at', endsAt)
@@ -319,6 +320,7 @@ export async function POST(request: NextRequest) {
         const qualified = previouslyQualified || newlyQualified
         const qualifiedAt = newlyQualified ? nowIso : existing?.qualified_at ?? null
 
+        // Upsert progress metrics — preserve qualified/qualified_at as-is (don't upgrade here)
         const { data: achievement, error: upsertError } = await admin
           .from('spiff_achievements')
           .upsert(
@@ -327,9 +329,8 @@ export async function POST(request: NextRequest) {
               spiff_program_id: spiff.id,
               user_id: userId,
               current_value: currentValue,
-              qualified,
-              qualified_at: qualifiedAt,
-              payout_amount: newlyQualified ? spiff.reward_amount : undefined,
+              qualified: previouslyQualified,
+              qualified_at: existing?.qualified_at ?? null,
             },
             { onConflict: 'spiff_program_id,user_id' },
           )
@@ -343,8 +344,28 @@ export async function POST(request: NextRequest) {
           )
         }
 
+        // Atomic qualification flip — only the sync that actually flips qualified
+        // false → true sends the notification (prevents duplicate notifications in
+        // concurrent syncs that both read qualified=false before either writes)
+        let didQualify = false
         if (newlyQualified) {
+          const { data: flipRows, error: flipError } = await admin
+            .from('spiff_achievements')
+            .update({ qualified: true, qualified_at: nowIso, payout_amount: spiff.reward_amount })
+            .eq('spiff_program_id', spiff.id)
+            .eq('user_id', userId)
+            .eq('qualified', false) // optimistic lock
+            .select('id')
+
+          if (flipError) {
+            return NextResponse.json({ error: flipError.message }, { status: 500 })
+          }
+          didQualify = (flipRows?.length ?? 0) > 0
+        }
+
+        if (didQualify) {
           const reward = formatReward(spiff)
+          // Notification is best-effort — don't 500 on notification failure
           const { error: notificationError } = await admin.from('notifications').insert({
             org_id: userProfile.org_id,
             recipient_user_id: userId,
@@ -353,17 +374,16 @@ export async function POST(request: NextRequest) {
             title: 'You hit it.',
             body: `You qualified for ${spiff.name}. ${reward}`,
           })
-
           if (notificationError) {
-            return NextResponse.json({ error: notificationError.message }, { status: 500 })
+            console.error('[sisu/sync] Failed to insert heat-qualified notification:', notificationError)
           }
         }
 
         updated.push({
           spiff_program_id: String(achievement.spiff_program_id),
           current_value: toNumber(achievement.current_value),
-          qualified: Boolean(achievement.qualified),
-          qualified_at: achievement.qualified_at ? String(achievement.qualified_at) : null,
+          qualified: previouslyQualified || didQualify,
+          qualified_at: didQualify ? nowIso : (achievement.qualified_at ? String(achievement.qualified_at) : null),
         })
       }
     }
