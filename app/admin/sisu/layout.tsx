@@ -41,8 +41,12 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
         </div>
 
         <div className="mb-6">
-          <p className="text-sm font-medium text-indigo-300">Sisu Admin</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-white">Sisu Hub</h1>
+          <p className="text-xs font-bold uppercase tracking-widest text-indigo-400">Sisu Admin</p>
+          <h1 className="mt-1 text-3xl font-black tracking-tight">
+            <span className="bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-transparent">
+              Sisu Hub
+            </span>
+          </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
             Manage Heats, badges, the 444 program, and field marketer accountability.
           </p>

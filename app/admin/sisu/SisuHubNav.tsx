@@ -42,7 +42,7 @@ export default function SisuHubNav() {
             href={tab.href}
             className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
               active
-                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-950/30'
+                ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-950/40'
                 : 'text-slate-400 hover:bg-slate-800/80 hover:text-slate-100'
             }`}
           >

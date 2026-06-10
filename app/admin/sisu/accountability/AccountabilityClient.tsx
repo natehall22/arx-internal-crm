@@ -496,8 +496,7 @@ export default function AccountabilityClient() {
     <div className="space-y-6 text-slate-100">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-indigo-300">Sisu Admin</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-white">Manager Accountability</h1>
+          <h1 className="text-3xl font-black tracking-tight text-white">Manager Accountability</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
             Current-week setter activity, door gates, inspection gates, and 444 enrollment status.
           </p>

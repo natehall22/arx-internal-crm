@@ -205,9 +205,10 @@ function getWeekState(qualified: boolean, startsAt: string, endsAt: string): Wee
 
   if (qualified) {
     return {
-      icon: '🟢',
+      icon: '🏆',
       label: 'Qualified',
-      className: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
+      className:
+        'text-emerald-200 bg-emerald-500/15 border-emerald-400/50 shadow-[0_0_14px_rgba(16,185,129,0.35)]',
     }
   }
 
@@ -264,11 +265,23 @@ function WeekStatus({
       <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
         <div className="rounded-lg bg-slate-900/70 px-2 py-1.5">
           <div className="text-slate-500">Doors</div>
-          <div className="font-semibold text-white">{doors}/400</div>
+          <div className="font-bold text-white">{doors}<span className="font-medium text-slate-500">/400</span></div>
+          <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-800">
+            <div
+              className={`h-full rounded-full ${doors >= 400 ? 'bg-gradient-to-r from-emerald-500 to-emerald-300' : 'bg-gradient-to-r from-indigo-500 to-violet-400'}`}
+              style={{ width: `${Math.min(100, (doors / 400) * 100)}%` }}
+            />
+          </div>
         </div>
         <div className="rounded-lg bg-slate-900/70 px-2 py-1.5">
           <div className="text-slate-500">Inspections</div>
-          <div className="font-semibold text-white">{inspections}/4</div>
+          <div className="font-bold text-white">{inspections}<span className="font-medium text-slate-500">/4</span></div>
+          <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-800">
+            <div
+              className={`h-full rounded-full ${inspections >= 4 ? 'bg-gradient-to-r from-emerald-500 to-emerald-300' : 'bg-gradient-to-r from-indigo-500 to-violet-400'}`}
+              style={{ width: `${Math.min(100, (inspections / 4) * 100)}%` }}
+            />
+          </div>
         </div>
       </div>
       {qualified && (
@@ -440,8 +453,12 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
     <div className="space-y-6 text-slate-100">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-indigo-300">Sisu Admin</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-white">444 Program</h1>
+          <h1 className="text-3xl font-black tracking-tight text-white">
+            444 Program{' '}
+            <span className="bg-gradient-to-r from-amber-300 to-amber-500 bg-clip-text text-transparent">
+              {weekBonusLabel}/week
+            </span>
+          </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
             Enroll reps, track their two-week 400-door and 4-inspection windows, and manage enrollment status.
           </p>
@@ -452,10 +469,10 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
             setError(null)
             setModalOpen(true)
           }}
-          className="inline-flex items-center justify-center rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-950/40 transition hover:from-indigo-400 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={usersLoading}
         >
-          Enroll Rep
+          + Enroll Rep
         </button>
       </div>
 

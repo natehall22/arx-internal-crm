@@ -494,9 +494,9 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
     <div className="space-y-6 text-slate-100">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-bold tracking-tight text-white">Bonus Approval</h1>
+          <h1 className="text-3xl font-black tracking-tight text-white">Bonus Approval</h1>
           {pendingCount > 0 && (
-            <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-300">
+            <span className="inline-flex animate-pulse rounded-full border border-amber-400/50 bg-amber-500/15 px-2.5 py-1 text-xs font-black text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)]">
               {pendingCount} pending
             </span>
           )}
