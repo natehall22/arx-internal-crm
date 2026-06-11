@@ -92,34 +92,58 @@ function hasInstallationSalePin(pin: AnyPin): boolean {
   return false
 }
 
+// Existing-customer (sold) marker: large green $ badge.
+// Built as data-URI SVGs at module scope so every sold marker shares the same
+// cached image. Unsynced pins keep the established amber-ring + faded treatment.
+function buildSaleBadgeUrl(synced: boolean): string {
+  const ring = synced ? '#ffffff' : '#FCD34D'
+  // Match legacy unsynced treatment: fills dim to 0.6 but the amber ring and
+  // $ glyph stay fully opaque so the pending-sync signal reads in sunlight.
+  const fillOpacity = synced ? '1' : '0.6'
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="76" height="88" viewBox="0 0 38 44">' +
+    `<path d="M19 43L12 29h14z" fill="#15803d" fill-opacity="${fillOpacity}" stroke="${ring}" stroke-width="1.5" stroke-linejoin="round"/>` +
+    `<circle cx="19" cy="17" r="15" fill="#16a34a" fill-opacity="${fillOpacity}" stroke="${ring}" stroke-width="3"/>` +
+    '<text x="19" y="23.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#ffffff">$</text>' +
+    '</svg>'
+  return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg)
+}
+const SALE_BADGE_URL_SYNCED = buildSaleBadgeUrl(true)
+const SALE_BADGE_URL_UNSYNCED = buildSaleBadgeUrl(false)
+
 function teardropIconAndLabel(pin: AnyPin, dispositionColor: string, synced: boolean) {
   const sale = hasInstallationSalePin(pin)
-  const fillColor = sale ? '#16a34a' : dispositionColor
+  if (sale) {
+    const icon = {
+      url: synced ? SALE_BADGE_URL_SYNCED : SALE_BADGE_URL_UNSYNCED,
+      scaledSize: new google.maps.Size(38, 44),
+      anchor: new google.maps.Point(19, 43),
+    }
+    return { icon, label: null, sale }
+  }
   const icon = {
     path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
-    fillColor,
+    fillColor: dispositionColor,
     fillOpacity: synced ? 1 : 0.6,
     strokeColor: synced ? '#ffffff' : '#FCD34D',
     strokeWeight: synced ? 2 : 3,
     scale: 1.5,
     anchor: new google.maps.Point(12, 22),
   }
-  const label = sale
-    ? { text: '$', color: '#FFFFFF', fontSize: '12px', fontWeight: 'bold' as const }
-    : null
-  return { icon, label, sale }
+  return { icon, label: null, sale }
 }
 
 function getMarkerVisualSignature(pin: AnyPin, dispositionColor: string, synced: boolean): string {
   const sale = hasInstallationSalePin(pin)
-  const label = sale ? '$' : ''
+  // 'badge-v1' marks the large $ badge so a marker re-renders if this design changes.
+  const saleVisual = sale ? 'badge-v1' : ''
   return [
     pin.lat,
     pin.lng,
     dispositionColor,
     synced ? '1' : '0',
     sale ? '1' : '0',
-    label,
+    saleVisual,
   ].join('|')
 }
 

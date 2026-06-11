@@ -22,6 +22,7 @@ import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibil
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
+import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 
 export const dynamic = 'force-dynamic'
 
@@ -1219,7 +1220,7 @@ export async function DELETE(request: Request) {
     // First verify the lead exists and belongs to this org
     const { data: lead, error: fetchError } = await supabase
       .from('leads')
-      .select('id, org_id, owner_user_id')
+      .select('id, org_id, owner_user_id, installation_agreement_signed_at')
       .eq('id', leadId)
       .single()
 
@@ -1231,12 +1232,34 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Only allow deletion by owner or admin
-    const isAdmin = profile.role === 'admin'
+    const isOrgAdmin = isOrgSuperuserRoleSlug(profile.role)
     const isOwner = lead.owner_user_id === profile.id
-    
-    if (!isAdmin && !isOwner) {
+
+    // Sold/customer pins (signed installation agreement) are protected:
+    // only org admins may delete them, regardless of pin ownership.
+    if (lead.installation_agreement_signed_at && !isOrgAdmin) {
+      return NextResponse.json(
+        { error: 'This pin belongs to a signed customer and can only be deleted by an admin' },
+        { status: 403 }
+      )
+    }
+
+    // Only allow deletion by owner or admin
+    if (!isOrgAdmin && !isOwner) {
       return NextResponse.json({ error: 'Only the pin owner or admin can delete this pin' }, { status: 403 })
+    }
+
+    const { data: linkedOpportunities } = await supabase
+      .from('opportunities')
+      .select('id')
+      .eq('lead_id', leadId)
+      .limit(1)
+
+    if (linkedOpportunities && linkedOpportunities.length > 0) {
+      return NextResponse.json(
+        { error: 'Cannot delete pin with linked opportunity. Delete the opportunity first.' },
+        { status: 400 },
+      )
     }
 
     // Delete the lead

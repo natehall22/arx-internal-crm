@@ -1,46 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 72" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116 60" fill="none">
   <defs>
-    <linearGradient id="sisuFlameL" x1="34" y1="6" x2="34" y2="66" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#818cf8"/>
-      <stop offset="0.55" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#7c3aed"/>
-    </linearGradient>
-    <linearGradient id="sisuCoreL" x1="34" y1="26" x2="34" y2="60" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fde68a"/>
-      <stop offset="0.5" stop-color="#fbbf24"/>
-      <stop offset="1" stop-color="#f59e0b"/>
-    </linearGradient>
-    <linearGradient id="sisuText" x1="86" y1="36" x2="296" y2="36" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#c7d2fe"/>
-    </linearGradient>
+    <clipPath id="sisuCut"><path d="M0 -2 L116.3 -2 L116.3 27.12 L0 37.30 Z M0 41.20 L116.3 31.02 L116.3 62 L0 62 Z"/></clipPath>
   </defs>
-  <!-- Flame mark -->
-  <g transform="translate(2,3)">
-    <path d="M32 3
-             C33.5 13 44 17 47 26
-             C50 34.5 48 44.5 42 51.5
-             C39 55 35.5 58.5 32 61
-             C28.5 58.5 25 55 22 51.5
-             C16 44.5 14 34.5 17 26
-             C20 17 30.5 13 32 3 Z"
-          fill="url(#sisuFlameL)"/>
-    <path d="M32 23
-             C33 29.5 39.5 32.5 40.5 39
-             C41.5 45 38 50.5 32 54
-             C26 50.5 22.5 45 23.5 39
-             C24.5 32.5 31 29.5 32 23 Z"
-          fill="url(#sisuCoreL)"/>
-    <circle cx="45.5" cy="11.5" r="2.5" fill="#fbbf24"/>
+  <g fill="#FFFFFF" clip-path="url(#sisuCut)">
+    <path d="M18.46 56.47Q11.40 56.47 8.78 52.95Q6.15 49.44 7.23 41.77L7.94 36.73H18.13L17.22 43.18Q16.97 44.96 17.37 45.97Q17.77 46.98 19.12 46.98Q20.52 46.98 21.18 46.16Q21.84 45.34 22.10 43.47Q22.43 41.10 22.19 39.50Q21.94 37.91 20.99 36.46Q20.04 35.01 18.26 33.07L14.25 28.68Q9.76 23.79 10.64 17.50Q11.57 10.91 15.11 7.45Q18.66 4.0 24.45 4.0Q31.54 4.0 33.98 7.78Q36.42 11.55 35.34 19.25H24.86L25.36 15.71Q25.50 14.66 24.99 14.07Q24.47 13.49 23.44 13.49Q22.21 13.49 21.55 14.17Q20.88 14.86 20.73 15.95Q20.57 17.03 20.98 18.29Q21.39 19.55 22.89 21.19L28.03 26.90Q29.58 28.59 30.80 30.48Q32.03 32.37 32.59 34.88Q33.14 37.38 32.64 40.98Q31.62 48.24 28.36 52.35Q25.10 56.47 18.46 56.47Z"/>
+    <path d="M35.28 56.0 42.53 4.47H52.48L45.24 56.0Z"/>
+    <path d="M63.31 56.47Q56.25 56.47 53.63 52.95Q51.00 49.44 52.08 41.77L52.79 36.73H62.98L62.07 43.18Q61.82 44.96 62.22 45.97Q62.62 46.98 63.97 46.98Q65.37 46.98 66.03 46.16Q66.69 45.34 66.95 43.47Q67.28 41.10 67.04 39.50Q66.80 37.91 65.84 36.46Q64.89 35.01 63.11 33.07L59.10 28.68Q54.61 23.79 55.49 17.50Q56.42 10.91 59.96 7.45Q63.51 4.0 69.31 4.0Q76.39 4.0 78.83 7.78Q81.27 11.55 80.19 19.25H69.71L70.21 15.71Q70.36 14.66 69.84 14.07Q69.32 13.49 68.30 13.49Q67.07 13.49 66.40 14.17Q65.73 14.86 65.58 15.95Q65.43 17.03 65.83 18.29Q66.24 19.55 67.74 21.19L72.88 26.90Q74.43 28.59 75.66 30.48Q76.88 32.37 77.44 34.88Q78.00 37.38 77.49 40.98Q76.47 48.24 73.21 52.35Q69.96 56.47 63.31 56.47Z"/>
+    <path d="M92.45 56.47Q86.01 56.47 83.48 52.85Q80.94 49.24 81.93 42.21L87.23 4.47H97.24L92.00 41.80Q91.82 43.09 91.80 44.27Q91.78 45.46 92.20 46.22Q92.62 46.98 93.79 46.98Q94.99 46.98 95.62 46.24Q96.25 45.49 96.55 44.29Q96.85 43.09 97.03 41.80L102.28 4.47H112.29L106.99 42.21Q106.00 49.24 102.45 52.85Q98.90 56.47 92.45 56.47Z"/>
   </g>
-  <!-- Wordmark -->
-  <text x="86" y="52"
-        font-family="'Arial Black', 'Helvetica Neue', Arial, sans-serif"
-        font-size="44" font-weight="900" font-style="italic"
-        letter-spacing="8" fill="url(#sisuText)">SISU</text>
-  <!-- Tagline -->
-  <text x="89" y="67"
-        font-family="'Helvetica Neue', Arial, sans-serif"
-        font-size="10.5" font-weight="700" letter-spacing="5.5"
-        fill="#fbbf24">GRIT PAYS</text>
 </svg>

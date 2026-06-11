@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 
 export const dynamic = 'force-dynamic'
 
@@ -150,7 +151,7 @@ export async function DELETE(
     // Get the lead to verify ownership and org
     const { data: lead } = await adminClient
       .from('leads')
-      .select('id, owner_user_id, org_id')
+      .select('id, owner_user_id, org_id, installation_agreement_signed_at')
       .eq('id', leadId)
       .eq('org_id', profile.org_id)
       .single()
@@ -167,16 +168,26 @@ export async function DELETE(
       return NextResponse.json({ error: 'You do not have permission to delete this lead' }, { status: 403 })
     }
 
-    // Check if there's an opportunity linked - prevent deletion if so
-    const { data: linkedOpportunity } = await adminClient
+    // Signed customers are protected: only org admins may delete (matches canvass).
+    if (lead.installation_agreement_signed_at && !isOrgSuperuserRoleSlug(profile.role)) {
+      return NextResponse.json(
+        { error: 'This lead is a signed customer and can only be deleted by an admin' },
+        { status: 403 }
+      )
+    }
+
+    // Check if there's an opportunity linked - prevent deletion if so.
+    // (limit(1) instead of maybeSingle: maybeSingle errors out when multiple
+    // opportunities exist, which previously bypassed this guard silently.)
+    const { data: linkedOpportunities } = await adminClient
       .from('opportunities')
       .select('id')
       .eq('lead_id', leadId)
-      .maybeSingle()
+      .limit(1)
 
-    if (linkedOpportunity) {
-      return NextResponse.json({ 
-        error: 'Cannot delete lead with linked opportunity. Delete the opportunity first.' 
+    if (linkedOpportunities && linkedOpportunities.length > 0) {
+      return NextResponse.json({
+        error: 'Cannot delete lead with linked opportunity. Delete the opportunity first.'
       }, { status: 400 })
     }
 

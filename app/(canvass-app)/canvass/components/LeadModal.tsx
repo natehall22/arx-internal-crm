@@ -662,7 +662,7 @@ export default function LeadModal({
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t bg-gray-50 safe-area-bottom space-y-3">
+          <div className="px-4 pt-4 pb-safe border-t bg-gray-50 space-y-3">
             <button
               type="submit"
               disabled={!canSubmit || isSaving}

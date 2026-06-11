@@ -1,32 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <defs>
-    <linearGradient id="sisuFlame" x1="32" y1="3" x2="32" y2="61" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#818cf8"/>
-      <stop offset="0.55" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#7c3aed"/>
-    </linearGradient>
-    <linearGradient id="sisuCore" x1="32" y1="22" x2="32" y2="54" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fde68a"/>
-      <stop offset="0.5" stop-color="#fbbf24"/>
-      <stop offset="1" stop-color="#f59e0b"/>
-    </linearGradient>
+    <clipPath id="sisuMarkCut"><path d="M0 -2 L64.0 -2 L64.0 30.84 L0 36.44 Z M0 39.29 L64.0 33.69 L64.0 66 L0 66 Z"/></clipPath>
   </defs>
-  <!-- Outer flame -->
-  <path d="M32 3
-           C33.5 13 44 17 47 26
-           C50 34.5 48 44.5 42 51.5
-           C39 55 35.5 58.5 32 61
-           C28.5 58.5 25 55 22 51.5
-           C16 44.5 14 34.5 17 26
-           C20 17 30.5 13 32 3 Z"
-        fill="url(#sisuFlame)"/>
-  <!-- Gold core flame -->
-  <path d="M32 23
-           C33 29.5 39.5 32.5 40.5 39
-           C41.5 45 38 50.5 32 54
-           C26 50.5 22.5 45 23.5 39
-           C24.5 32.5 31 29.5 32 23 Z"
-        fill="url(#sisuCore)"/>
-  <!-- Rising spark -->
-  <circle cx="45.5" cy="11.5" r="2.5" fill="#fbbf24"/>
+  <rect width="64" height="64" rx="14" fill="#0A0A0B"/>
+  <g fill="#D8FF3D" clip-path="url(#sisuMarkCut)">
+    <path d="M29.93 51.17Q24.77 51.17 22.85 48.60Q20.93 46.04 21.72 40.43L22.24 36.75H29.69L29.02 41.46Q28.84 42.76 29.13 43.50Q29.42 44.24 30.41 44.24Q31.44 44.24 31.92 43.64Q32.40 43.04 32.59 41.67Q32.83 39.94 32.65 38.77Q32.47 37.61 31.78 36.55Q31.08 35.49 29.78 34.08L26.85 30.87Q23.57 27.29 24.22 22.69Q24.89 17.88 27.48 15.35Q30.07 12.83 34.31 12.83Q39.49 12.83 41.27 15.59Q43.06 18.35 42.26 23.98H34.60L34.97 21.39Q35.08 20.62 34.70 20.19Q34.32 19.76 33.57 19.76Q32.67 19.76 32.18 20.26Q31.70 20.77 31.58 21.56Q31.47 22.35 31.77 23.27Q32.07 24.19 33.16 25.39L36.92 29.56Q38.05 30.80 38.95 32.18Q39.85 33.56 40.25 35.39Q40.66 37.22 40.29 39.85Q39.54 45.16 37.16 48.16Q34.78 51.17 29.93 51.17Z"/>
+  </g>
 </svg>

@@ -13,6 +13,7 @@ import { useOfflineStore } from './lib/offlineStore'
 import { useGeolocation } from './lib/useGeolocation'
 import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLeads'
 import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
+import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 
 // Global type declarations for Google Maps and MarkerClusterer
 declare global {
@@ -724,7 +725,13 @@ export default function CanvassPage() {
           location={newPinLocation}
           prefillAddress={prefillAddress}
           onSave={handleSaveLead}
-          onDelete={selectedPin?.synced ? handleDeleteLead : undefined}
+          onDelete={
+            // Sold/customer pins are admin-delete only (server enforces this too)
+            selectedPin?.synced &&
+            (isOrgSuperuserRoleSlug(profile?.role) || !hasInstallationSale(selectedPin))
+              ? handleDeleteLead
+              : undefined
+          }
           onClose={() => {
             setShowLeadModal(false)
             setSelectedPin(null)

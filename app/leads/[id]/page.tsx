@@ -31,6 +31,7 @@ import {
   getInspectionOutcomeConfig,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -666,7 +667,10 @@ export default async function LeadDetailPage({
   // Check if user can delete this lead
   const isAdmin = ['admin', 'regional_manager', 'sales_manager', 'manager'].includes(profile.role)
   const isOwner = lead.owner_user_id === profile.id
-  const canDelete = isAdmin || isOwner
+  const isSignedCustomer = Boolean(lead.installation_agreement_signed_at)
+  const canDelete = isSignedCustomer
+    ? isOrgSuperuserRoleSlug(profile.role)
+    : isAdmin || isOwner
 
   const canScheduleInspection = await userHasSchedulingCreate(supabase, profile.id, profile)
   const hasActiveInspectionSlot = (appointments ?? []).some(

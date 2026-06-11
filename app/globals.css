@@ -40,6 +40,13 @@ html, body {
   padding-bottom: var(--safe-area-inset-bottom);
 }
 
+/* Used by canvass bottom navs (was previously undefined). Additive: base
+   nav padding + device inset, so it stays correct even though it overrides
+   Tailwind pb-* utilities on the same element (same specificity, later order). */
+.safe-area-bottom {
+  padding-bottom: calc(0.375rem + var(--safe-area-inset-bottom));
+}
+
 .pb-safe {
   padding-bottom: calc(var(--safe-area-inset-bottom) + 1rem);
 }

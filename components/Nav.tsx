@@ -327,7 +327,13 @@ export default function Nav() {
                     setCompanyLogo(null)
                   }}
                 />
-              ) : null}
+              ) : (
+                <img
+                  src="/brand/arx-shield.png"
+                  alt="ARX"
+                  className="h-8 w-auto flex-shrink-0 object-contain"
+                />
+              )}
               <span className="hidden sm:inline">{companyName}</span>
               {/* Show abbreviated name on very small screens if no logo */}
               {!companyLogo && (
