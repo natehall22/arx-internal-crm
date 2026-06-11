@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { getEasternPaceFactor } from '@/lib/eastern-datetime'
 
 type AccountabilityRow = {
   user_id: string
@@ -133,6 +134,56 @@ function getProgramStatus(row: AccountabilityRow): string {
   if (row.week_in_444 === 1) return row.week1_qualified ? 'Week 1 ✓' : 'Week 1 In Progress'
   if (row.week_in_444 === 2) return row.week2_qualified ? 'Week 2 ✓' : 'Week 2 In Progress'
   return row.week1_qualified || row.week2_qualified ? 'Complete' : 'Not enrolled'
+}
+
+function recomputeRowGoalMetrics(
+  row: AccountabilityRow,
+  field: 'doors' | 'inspections',
+  newGoal: number | null,
+): AccountabilityRow {
+  const updated: AccountabilityRow = {
+    ...row,
+    [`${field}_goal`]: newGoal,
+  } as AccountabilityRow
+
+  const doorsPct = updated.doors_goal
+    ? Math.round((updated.doors_knocked / updated.doors_goal) * 100)
+    : null
+  const inspectionsPct = updated.inspections_goal
+    ? Math.round((updated.inspections_set / updated.inspections_goal) * 100)
+    : null
+  const paceThreshold = Math.round(getEasternPaceFactor() * 100)
+
+  return {
+    ...updated,
+    doors_pct: doorsPct,
+    inspections_pct: inspectionsPct,
+    on_pace_doors: doorsPct !== null ? doorsPct >= paceThreshold : null,
+    on_pace_inspections: inspectionsPct !== null ? inspectionsPct >= paceThreshold : null,
+  }
+}
+
+function recomputeTeamSummary(rows: AccountabilityRow[]): TeamSummary {
+  const withDoorGoal = rows.filter((r) => r.doors_pct !== null)
+  const withInspGoal = rows.filter((r) => r.inspections_pct !== null)
+
+  return {
+    total_reps: rows.length,
+    on_pace_doors: withDoorGoal.filter((r) => r.on_pace_doors).length,
+    on_pace_inspections: withInspGoal.filter((r) => r.on_pace_inspections).length,
+    reps_with_door_goal: withDoorGoal.length,
+    reps_with_insp_goal: withInspGoal.length,
+    enrolled_444: rows.filter((r) => r.is_enrolled_444).length,
+    completed_444: rows.filter((r) => r.week1_qualified && r.week2_qualified).length,
+    needs_attention: rows.filter(
+      (r) => r.on_pace_doors === false || r.on_pace_inspections === false,
+    ).length,
+    close_to_goal: rows.filter(
+      (r) =>
+        (r.doors_pct !== null && r.doors_pct >= 80 && r.doors_pct < 100) ||
+        (r.inspections_pct !== null && r.inspections_pct >= 80 && r.inspections_pct < 100),
+    ).length,
+  }
 }
 
 function compareRows(a: AccountabilityRow, b: AccountabilityRow, key: SortKey): number {
@@ -402,18 +453,30 @@ export default function AccountabilityClient() {
   const [sortKey, setSortKey] = useState<SortKey>('inspections_set')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [syncing, setSyncing] = useState(false)
+  const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
 
   const sync444 = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/sisu/sync-444', { method: 'POST' })
       if (!res.ok) {
-        console.error('[accountability] sync-444 returned', res.status)
+        const payload: unknown = await res.json().catch(() => null)
+        const message =
+          payload &&
+          typeof payload === 'object' &&
+          'error' in payload &&
+          typeof (payload as { error?: unknown }).error === 'string'
+            ? (payload as { error: string }).error
+            : `444 sync failed (${res.status})`
+        setSyncWarning(message)
+        return false
       }
+      setSyncWarning(null)
       setLastSyncedAt(new Date())
+      return true
     } catch (err) {
-      // Non-fatal — accountability data still loads; log so it's visible in DevTools
-      console.error('[accountability] sync-444 fetch failed:', err)
+      setSyncWarning(err instanceof Error ? err.message : '444 sync failed')
+      return false
     }
   }, [])
 
@@ -423,7 +486,17 @@ export default function AccountabilityClient() {
 
     try {
       const response = await fetch('/api/admin/sisu/accountability')
-      if (!response.ok) throw new Error('Unable to load accountability data')
+      if (!response.ok) {
+        const payload: unknown = await response.json().catch(() => null)
+        const message =
+          payload &&
+          typeof payload === 'object' &&
+          'error' in payload &&
+          typeof (payload as { error?: unknown }).error === 'string'
+            ? (payload as { error: string }).error
+            : 'Unable to load accountability data'
+        throw new Error(message)
+      }
       const payload: unknown = await response.json()
 
       if (!isRecord(payload) || !Array.isArray(payload.accountability)) {
@@ -432,8 +505,10 @@ export default function AccountabilityClient() {
 
       setRows(payload.accountability.filter(isAccountabilityRow))
       if (isTeamSummary(payload.summary)) setSummary(payload.summary)
-    } catch {
-      setError('Accountability data unavailable')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Accountability data unavailable')
+      setRows([])
+      setSummary(null)
     } finally {
       if (showLoading) setLoading(false)
     }
@@ -473,13 +548,13 @@ export default function AccountabilityClient() {
   }, [rows, sortDirection, sortKey])
 
   function handleGoalSaved(userId: string, field: 'doors' | 'inspections', newValue: number | null) {
-    setRows((prev) =>
-      prev.map((r) =>
-        r.user_id === userId
-          ? { ...r, [`${field}_goal`]: newValue }
-          : r
+    setRows((prev) => {
+      const next = prev.map((r) =>
+        r.user_id === userId ? recomputeRowGoalMetrics(r, field, newValue) : r,
       )
-    )
+      setSummary(recomputeTeamSummary(next))
+      return next
+    })
   }
 
   function handleSort(key: SortKey) {
@@ -541,6 +616,12 @@ export default function AccountabilityClient() {
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {error}
+        </div>
+      )}
+
+      {syncWarning && !error && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          444 sync warning: {syncWarning}. Accountability counts may be stale until sync succeeds.
         </div>
       )}
 
@@ -611,7 +692,7 @@ export default function AccountabilityClient() {
                     </td>
                   </tr>
                 ))
-              ) : sortedRows.length === 0 ? (
+              ) : sortedRows.length === 0 && !error ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
                     No setter activity to show yet.

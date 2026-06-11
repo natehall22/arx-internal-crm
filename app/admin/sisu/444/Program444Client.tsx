@@ -300,6 +300,7 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
   const [usersLoading, setUsersLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [enrollError, setEnrollError] = useState<string | null>(null)
   const [selectedUserId, setSelectedUserId] = useState('')
   const [startDate, setStartDate] = useState('')
   const [saving, setSaving] = useState(false)
@@ -327,7 +328,9 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
 
     try {
       const response = await fetch('/api/admin/sisu/444')
-      if (!response.ok) throw new Error('Unable to load enrollments')
+      if (!response.ok) {
+        throw new Error(await readApiError(response, 'Unable to load enrollments'))
+      }
       const payload: unknown = await response.json()
 
       if (!isRecord(payload) || !Array.isArray(payload.enrollments)) {
@@ -335,8 +338,8 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
       }
 
       setEnrollments(payload.enrollments.filter(isProgram444Enrollment))
-    } catch {
-      setError('Unable to load 444 enrollments')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load 444 enrollments')
     } finally {
       setLoading(false)
     }
@@ -379,7 +382,7 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
     if (!selectedUserId || !startDate) return
 
     setSaving(true)
-    setError(null)
+    setEnrollError(null)
     try {
       const response = await fetch('/api/admin/sisu/444', {
         method: 'POST',
@@ -411,7 +414,7 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
       setSelectedUserId('')
       setStartDate('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to enroll rep')
+      setEnrollError(err instanceof Error ? err.message : 'Unable to enroll rep')
     } finally {
       setSaving(false)
     }
@@ -467,6 +470,7 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
           type="button"
           onClick={() => {
             setError(null)
+            setEnrollError(null)
             setModalOpen(true)
           }}
           className="inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-950/40 transition hover:from-indigo-400 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
@@ -639,6 +643,12 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
                 Close
               </button>
             </div>
+
+            {enrollError && (
+              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {enrollError}
+              </div>
+            )}
 
             <div className="mt-6 space-y-4">
               <label className="block">

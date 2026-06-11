@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getEasternPaceFactor, getEasternTodayIso } from '@/lib/eastern-datetime'
 
 export const dynamic = 'force-dynamic'
 
@@ -253,11 +254,6 @@ function getCurrentWeekRange(timezone = 'America/New_York'): { startsAt: string;
   }
 }
 
-function getEtDayOfWeek(): number {
-  const parts = getTimeZoneDateParts(new Date(), 'America/New_York')
-  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday)
-}
-
 function incrementCount(map: Map<string, number>, userId: string | null) {
   if (!userId) return
   map.set(userId, (map.get(userId) ?? 0) + 1)
@@ -292,7 +288,7 @@ export async function GET(req: NextRequest) {
   const admin = getAdminClient()
   const weekRange = getCurrentWeekRange()
 
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = getEasternTodayIso()
 
   const usersQuery = (() => {
     const base = admin
@@ -372,8 +368,7 @@ export async function GET(req: NextRequest) {
   // Sunday (0) → 0 (new week, no expectation yet) — mirrors getWeeklyPaceThresholdPct()
   // Saturday (6) → 1.0 (full week expectation)
   // Use ET timezone — server may run in UTC so getDay() would be wrong near midnight ET
-  const dayOfWeek = getEtDayOfWeek() // 0=Sun, 6=Sat in America/New_York
-  const paceFactor = dayOfWeek === 0 ? 0 : Math.min(5, dayOfWeek) / 5
+  const paceFactor = getEasternPaceFactor()
 
   const accountability = users.map((user) => {
     const userEnrollments = enrollmentsByUser.get(user.id) ?? []

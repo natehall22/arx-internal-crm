@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
+import { isPayrollAdminRole, isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
 import SisuHubNav from './SisuHubNav'
 
 export const dynamic = 'force-dynamic'
@@ -26,6 +27,9 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
   if (!ADMIN_ROLES.includes(profile.role)) {
     redirect('/dashboard')
   }
+
+  const canAccessBonusApproval =
+    isPayrollAdminRole(profile.role) || isRegionalBonusApproverRole(profile.role)
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -53,7 +57,7 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
         </div>
 
         <Suspense fallback={<div className="h-11 rounded-xl border border-slate-800 bg-slate-900/70" />}>
-          <SisuHubNav />
+          <SisuHubNav showBonusApproval={canAccessBonusApproval} />
         </Suspense>
 
         <div className="mt-6">{children}</div>

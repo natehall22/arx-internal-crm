@@ -181,9 +181,11 @@ export async function POST(req: NextRequest) {
   const admin = getAdminClient()
 
   // Verify the target user belongs to the caller's org — prevents cross-org enrollment
+  const ELIGIBLE_444_ROLES = new Set(['setter', 'canvasser', 'field_marketer'])
+
   const { data: targetUser, error: targetUserError } = await admin
     .from('users')
-    .select('id')
+    .select('id, role')
     .eq('id', body.user_id)
     .eq('org_id', authResult.orgId)
     .maybeSingle()
@@ -193,6 +195,12 @@ export async function POST(req: NextRequest) {
   }
   if (!targetUser) {
     return NextResponse.json({ error: 'User not found in your organization' }, { status: 404 })
+  }
+  if (!targetUser.role || !ELIGIBLE_444_ROLES.has(targetUser.role)) {
+    return NextResponse.json(
+      { error: 'Only setters, canvassers, and field marketers can be enrolled in the 444 program' },
+      { status: 400 },
+    )
   }
 
   const windows = compute444WeekWindows(new Date(`${body.start_date}T12:00:00Z`))

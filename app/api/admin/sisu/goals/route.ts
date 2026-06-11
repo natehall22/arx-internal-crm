@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { getEasternTodayIso } from '@/lib/eastern-datetime'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { isUserInManagerHierarchy } from '@/lib/payroll-statement-access'
 
@@ -78,7 +79,7 @@ export async function PUT(request: NextRequest) {
     }
   }
 
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = getEasternTodayIso()
 
   // Fetch the current active goal so we can merge — prevents a partial update
   // (e.g., only changing sales_target) from wiping unrelated fields to null.

@@ -24,17 +24,20 @@ function isTabActive(pathname: string, tab: string, searchTab: string | null): b
   return pathname === tab
 }
 
-export default function SisuHubNav() {
+export default function SisuHubNav({ showBonusApproval = false }: { showBonusApproval?: boolean }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const searchTab = searchParams.get('tab')
+  const visibleTabs = TABS.filter(
+    (tab) => tab.href !== '/admin/sisu/bonus-approval' || showBonusApproval,
+  )
 
   return (
     <nav
       aria-label="Sisu admin sections"
       className="flex flex-wrap gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-1"
     >
-      {TABS.map((tab) => {
+      {visibleTabs.map((tab) => {
         const active = isTabActive(pathname, tab.href, searchTab)
         return (
           <Link

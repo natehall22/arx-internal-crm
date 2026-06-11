@@ -3,6 +3,23 @@ import { fromZonedTime } from 'date-fns-tz'
 /** IANA zone used for lead/calendar labels like "Inspection scheduled for (ET)" */
 export const EASTERN_TZ = 'America/New_York'
 
+/** Calendar date YYYY-MM-DD in Eastern Time (matches rep /sisu goal lookups). */
+export function getEasternTodayIso(timeZone = EASTERN_TZ): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone })
+}
+
+/** 0=Sun … 6=Sat in Eastern Time. */
+export function getEasternWeekdayIndex(timeZone = EASTERN_TZ): number {
+  const weekday = new Date().toLocaleDateString('en-US', { timeZone, weekday: 'short' })
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday)
+}
+
+/** Work-week pace factor (Mon=0.2 … Fri=1.0, Sun=0, Sat=1.0) — matches accountability API. */
+export function getEasternPaceFactor(timeZone = EASTERN_TZ): number {
+  const dayOfWeek = getEasternWeekdayIndex(timeZone)
+  return dayOfWeek === 0 ? 0 : Math.min(5, dayOfWeek) / 5
+}
+
 /**
  * Converts `<input type="datetime-local" />` values that represent Eastern wall time
  * into a UTC ISO-8601 string for Postgres.

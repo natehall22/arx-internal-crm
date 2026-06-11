@@ -70,7 +70,7 @@ function statusBadge(status: SpiffStatus) {
     draft: 'bg-slate-800 text-slate-400',
     active: 'bg-emerald-500/15 text-emerald-300',
     completed: 'bg-blue-500/15 text-blue-300',
-    cancelled: 'bg-red-500/100/15 text-red-300',
+    cancelled: 'bg-red-500/15 text-red-300',
   }
   return (
     <span className={`px-2 py-1 text-xs rounded-full font-medium ${classes[status]}`}>
@@ -607,6 +607,16 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
       status: publishNow ? 'active' : editingSpiff ? spiffForm.status : 'draft',
       created_by: currentUserId,
     }
+    if (
+      publishNow &&
+      editingSpiff &&
+      (editingSpiff.status === 'cancelled' || editingSpiff.status === 'completed')
+    ) {
+      alert('Cannot publish a cancelled or completed heat.')
+      setSpiffSaving(false)
+      return
+    }
+
     try {
       const res = await fetch('/api/admin/incentives', {
         method: editingSpiff ? 'PATCH' : 'POST',
@@ -851,7 +861,12 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
     if (!confirm('Remove this badge image?')) return
     setBadgeImageUploading(true)
     try {
-      await fetch(`/api/admin/incentives/badges/${badgeId}/image`, { method: 'DELETE' })
+      const res = await fetch(`/api/admin/incentives/badges/${badgeId}/image`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        alert((d as { error?: string }).error || 'Failed to remove image')
+        return
+      }
       setBadgeImagePreview(null)
       loadAll()
     } catch {
@@ -938,7 +953,19 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
   // ── render ────────────────────────────────────────────────────────────────
 
   const filteredSpiffs =
-    spiffFilter === 'all' ? spiffs : spiffs.filter((s) => s.status === spiffFilter)
+    spiffFilter === 'all'
+      ? spiffs
+      : spiffFilter === 'active'
+        ? spiffs.filter(
+            (s) => s.status === 'active' && new Date(s.ends_at).getTime() >= Date.now(),
+          )
+        : spiffFilter === 'completed'
+          ? spiffs.filter(
+              (s) =>
+                s.status === 'completed' ||
+                (s.status === 'active' && new Date(s.ends_at).getTime() < Date.now()),
+            )
+          : spiffs.filter((s) => s.status === spiffFilter)
 
   if (loading) {
     return (
@@ -1207,7 +1234,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                 <div className="flex gap-2 pt-3 border-t border-slate-800">
                   <button
                     onClick={() => openEditBadge(b)}
-                    className="flex-1 py-1.5 text-sm text-indigo-400 border border-indigo-500/30 rounded-lg hover:bg-indigo-500/100/10"
+                    className="flex-1 py-1.5 text-sm text-indigo-400 border border-indigo-500/30 rounded-lg hover:bg-indigo-500/10"
                   >
                     Edit
                   </button>
@@ -1292,10 +1319,18 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                       onClick={() => saveSpiff(false)}
                       className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300 disabled:opacity-50"
                     >
-                      {spiffSaving ? 'Saving...' : 'Save as Draft'}
+                      {spiffSaving
+                        ? 'Saving...'
+                        : editingSpiff?.status === 'active'
+                          ? 'Save Changes'
+                          : 'Save as Draft'}
                     </button>
                     <button
-                      disabled={spiffSaving}
+                      disabled={
+                        spiffSaving ||
+                        editingSpiff?.status === 'cancelled' ||
+                        editingSpiff?.status === 'completed'
+                      }
                       onClick={() => saveSpiff(true)}
                       className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 disabled:opacity-50"
                     >
@@ -1666,7 +1701,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
       {/* ══════════════════════ MODAL: Award badge ═══════════════════════════ */}
       {showAwardModal && awardBadge && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-sm w-full">
+          <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-sm w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-800">
               <h2 className="text-xl font-bold text-white">Award Badge Manually</h2>
               <p className="text-sm text-slate-400 mt-1">{awardBadge.name}</p>

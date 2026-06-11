@@ -182,13 +182,14 @@ export default async function IncentivesPage() {
 
   const enrollment444 = enrollment444Row ?? null
 
-  // ── Approved bonus lines (rep-visible pay confirmations) ─────────────────────
-  // Only fetch 'approved' — pending/rejected are invisible to reps.
+  // ── Approved/paid bonus lines (rep-visible pay confirmations) ────────────────
+  // Pending/rejected are invisible to reps; paid rows stay visible after payroll.
   type ApprovedBonus = {
     id: string
     bonus_type: string
     amount: number
     source_id: string | null
+    status: string
     scheduled_pay_date: string | null
   }
 
@@ -208,13 +209,14 @@ export default async function IncentivesPage() {
       bonus_type,
       amount,
       source_id,
+      status,
       period:payroll_periods!payroll_bonus_lines_payroll_period_id_fkey (
         scheduled_pay_date
       )
     `)
     .eq('user_id', profile.id)
     .eq('org_id', profile.org_id)
-    .eq('status', 'approved')
+    .in('status', ['approved', 'paid'])
 
   if (bonusError) {
     console.error('[sisu/page] Failed to fetch approved bonus lines:', bonusError)
@@ -227,6 +229,7 @@ export default async function IncentivesPage() {
       bonus_type: row.bonus_type as string,
       amount: Number(row.amount),
       source_id: (row.source_id as string | null) ?? null,
+      status: (row.status as string) ?? 'approved',
       scheduled_pay_date: pickScheduledPayDate(row.period),
     }))
 

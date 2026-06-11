@@ -145,10 +145,15 @@ export async function DELETE(
     }
   }
 
-  await admin
+  const { error: updateError } = await admin
     .from('incentive_badges')
     .update({ image_url: null })
     .eq('id', badgeId)
+    .eq('org_id', profile.org_id)
+
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 })
+  }
 
   return NextResponse.json({ success: true })
 }

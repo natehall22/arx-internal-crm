@@ -207,6 +207,7 @@ function BonusLineSkeleton() {
 function BonusLineCard({
   line,
   actionState,
+  actionError,
   justReviewed,
   isFullAdmin,
   onApprove,
@@ -215,6 +216,7 @@ function BonusLineCard({
 }: {
   line: BonusLine
   actionState: CardActionState
+  actionError: string | null
   justReviewed: boolean
   isFullAdmin: boolean
   onApprove: (note: string) => void
@@ -251,7 +253,9 @@ function BonusLineCard({
       )}
 
       {actionState === 'error' && (
-        <p className="mb-3 text-sm font-semibold text-red-300">Failed — try again</p>
+        <p className="mb-3 text-sm font-semibold text-red-300">
+          {actionError ?? 'Failed — try again'}
+        </p>
       )}
 
       <div className="flex items-start justify-between gap-4">
@@ -291,7 +295,14 @@ function BonusLineCard({
 
       {showActions && (
         <div className="mt-5 border-t border-slate-800 pt-4">
-          <div className="flex flex-wrap gap-2">
+          <input
+            type="text"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Add a note (optional)"
+            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:border-indigo-400"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => onApprove(note)}
@@ -309,13 +320,6 @@ function BonusLineCard({
               Reject
             </button>
           </div>
-          <input
-            type="text"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Add a note (optional)"
-            className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:border-indigo-400"
-          />
         </div>
       )}
 
@@ -343,6 +347,7 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionStates, setActionStates] = useState<Record<string, CardActionState>>({})
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [justReviewed, setJustReviewed] = useState<Set<string>>(() => new Set())
 
   const fetchPendingCount = useCallback(async () => {
@@ -406,6 +411,11 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
     note: string,
   ) {
     setActionStates((prev) => ({ ...prev, [lineId]: 'confirming' }))
+    setActionErrors((prev) => {
+      const next = { ...prev }
+      delete next[lineId]
+      return next
+    })
 
     try {
       const response = await fetch(`/api/admin/payroll/bonus-lines/${lineId}/status`, {
@@ -414,7 +424,17 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
         body: JSON.stringify({ status, note: note.trim() || null }),
       })
 
-      if (!response.ok) throw new Error('Patch failed')
+      if (!response.ok) {
+        const payload: unknown = await response.json().catch(() => null)
+        const message =
+          payload &&
+          typeof payload === 'object' &&
+          'error' in payload &&
+          typeof (payload as { error?: unknown }).error === 'string'
+            ? (payload as { error: string }).error
+            : 'Failed to update bonus status'
+        throw new Error(message)
+      }
 
       const payload: unknown = await response.json()
       if (!isRecord(payload) || !isRecord(payload.bonus_line)) {
@@ -485,8 +505,12 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
         }, 1500)
         void fetchPendingCount()
       }
-    } catch {
+    } catch (err) {
       setActionStates((prev) => ({ ...prev, [lineId]: 'error' }))
+      setActionErrors((prev) => ({
+        ...prev,
+        [lineId]: err instanceof Error ? err.message : 'Failed — try again',
+      }))
     }
   }
 
@@ -559,6 +583,7 @@ export default function BonusApprovalClient({ isFullAdmin }: { isFullAdmin: bool
               key={line.id}
               line={line}
               actionState={actionStates[line.id] ?? 'idle'}
+              actionError={actionErrors[line.id] ?? null}
               justReviewed={justReviewed.has(line.id)}
               isFullAdmin={isFullAdmin}
               onApprove={(note) => void patchStatus(line.id, 'approved', note)}

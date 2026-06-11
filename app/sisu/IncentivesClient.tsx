@@ -45,7 +45,25 @@ type ApprovedBonus = {
   bonus_type: string
   amount: number
   source_id: string | null
+  status: string
   scheduled_pay_date: string | null
+}
+
+function formatBonusChipLabel(bonus: ApprovedBonus): string {
+  const amountLabel = `$${bonus.amount.toLocaleString()}`
+  const payDateLabel = bonus.scheduled_pay_date
+    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
+        new Date(bonus.scheduled_pay_date),
+      )
+    : null
+  if (bonus.status === 'paid') {
+    return payDateLabel
+      ? `✓ ${amountLabel} paid · ${payDateLabel} payroll`
+      : `✓ ${amountLabel} paid`
+  }
+  return payDateLabel
+    ? `✓ ${amountLabel} pays ${payDateLabel}`
+    : `✓ ${amountLabel} bonus approved`
 }
 
 function DataRecencyLabel({ asOf }: { asOf: Date | string | null | undefined }) {
@@ -1454,10 +1472,12 @@ function StatusBar({
   for (const bonus of approvedBonuses.filter(
     (b) => b.bonus_type === '444_week1' || b.bonus_type === '444_week2',
   )) {
-    const payLabel = bonus.scheduled_pay_date
-      ? `✓ $${bonus.amount} pays ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(bonus.scheduled_pay_date))}`
-      : `✓ $${bonus.amount} bonus approved`
-    chips.push({ label: '444 Bonus', value: payLabel, amber: true, key: bonus.id })
+    chips.push({
+      label: '444 Bonus',
+      value: formatBonusChipLabel(bonus),
+      amber: true,
+      key: bonus.id,
+    })
   }
 
   const primaryPace = isSetterLike ? pace.inspections : pace.sales
