@@ -327,15 +327,9 @@ export default function Nav() {
                     setCompanyLogo(null)
                   }}
                 />
-              ) : (
-                <img
-                  src="/brand/sisu-mark.svg"
-                  alt="ARX"
-                  className="h-8 w-8 flex-shrink-0"
-                />
-              )}
+              ) : null}
               <span className="hidden sm:inline">{companyName}</span>
-              {/* Show abbreviated name on very small screens */}
+              {/* Show abbreviated name on very small screens if no logo */}
               {!companyLogo && (
                 <span className="sm:hidden">
                   {companyName.length > 10 ? companyName.substring(0, 10) + '...' : companyName}

@@ -25,9 +25,6 @@ export default function LoginPage({
       <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6 py-12">
         <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
           <div className="mb-6 text-center">
-            <div className="flex justify-center mb-4">
-              <img src="/brand/sisu-mark.svg" alt="ARX" className="h-12 w-12" />
-            </div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
               ARX Roofing & Exteriors
             </p>

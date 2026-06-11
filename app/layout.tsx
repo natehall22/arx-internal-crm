@@ -9,10 +9,6 @@ export const metadata: Metadata = {
   title: 'ARX Internal CRM',
   description: 'Internal CRM and estimating system for ARX Roofing',
   manifest: '/manifest.json',
-  icons: {
-    icon: '/brand/sisu-mark.svg',
-    apple: '/brand/sisu-mark.svg',
-  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -40,7 +36,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="apple-touch-icon" href="/brand/sisu-mark.svg" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
