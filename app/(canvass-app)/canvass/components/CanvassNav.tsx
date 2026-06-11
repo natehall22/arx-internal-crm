@@ -93,13 +93,34 @@ export default function CanvassNav({
         </button>
 
         <a
-          href="/dashboard"
+          href="/sisu"
           className="flex flex-col items-center py-2 px-6 rounded-xl text-gray-500"
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          {/* Sisu flame mark (see public/brand/sisu-mark.svg) */}
+          <svg className="w-6 h-6" viewBox="0 0 64 64" fill="none">
+            <defs>
+              <linearGradient id="sisuNavFlame" x1="32" y1="3" x2="32" y2="61" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stopColor="#818cf8" />
+                <stop offset="0.55" stopColor="#6366f1" />
+                <stop offset="1" stopColor="#7c3aed" />
+              </linearGradient>
+              <linearGradient id="sisuNavCore" x1="32" y1="22" x2="32" y2="54" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stopColor="#fde68a" />
+                <stop offset="0.5" stopColor="#fbbf24" />
+                <stop offset="1" stopColor="#f59e0b" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M32 3 C33.5 13 44 17 47 26 C50 34.5 48 44.5 42 51.5 C39 55 35.5 58.5 32 61 C28.5 58.5 25 55 22 51.5 C16 44.5 14 34.5 17 26 C20 17 30.5 13 32 3 Z"
+              fill="url(#sisuNavFlame)"
+            />
+            <path
+              d="M32 23 C33 29.5 39.5 32.5 40.5 39 C41.5 45 38 50.5 32 54 C26 50.5 22.5 45 23.5 39 C24.5 32.5 31 29.5 32 23 Z"
+              fill="url(#sisuNavCore)"
+            />
+            <circle cx="45.5" cy="11.5" r="2.5" fill="#fbbf24" />
           </svg>
-          <span className="text-xs mt-1 font-medium">Stats</span>
+          <span className="text-[10px] sm:text-xs mt-1 font-medium leading-tight text-center">Sisu</span>
         </a>
 
         <a
