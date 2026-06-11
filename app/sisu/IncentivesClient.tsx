@@ -1879,38 +1879,80 @@ export default function IncentivesClient({
 
   return (
     <main className="max-w-2xl mx-auto px-4 pb-16 pt-6 space-y-8">
-      {/* Page header */}
-      <div>
-        <p className="text-sm text-gray-400">{greeting}</p>
-        <div className="flex items-center gap-3 mt-0.5">
-          <div className="w-10 h-10 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
-            {initials}
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-white tracking-tight">My Sisu</h1>
-            <p className="text-sm text-gray-400 mt-0.5">Your performance. Your proof.</p>
+      {/* Branded hero header + tab switcher */}
+      <div className="space-y-3">
+        <div className="relative overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-gray-950 via-indigo-950/50 to-gray-950 px-4 py-4 shadow-lg shadow-indigo-950/25 sm:px-5 sm:py-4">
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-400/50 to-transparent"
+            aria-hidden="true"
+          />
+          <div
+            className="pointer-events-none absolute -right-6 -top-10 h-28 w-28 rounded-full bg-indigo-500/15 blur-3xl"
+            aria-hidden="true"
+          />
+          <div
+            className="pointer-events-none absolute -bottom-6 left-4 h-20 w-20 rounded-full bg-amber-500/10 blur-2xl"
+            aria-hidden="true"
+          />
+
+          <div className="relative flex items-center gap-3 sm:gap-4">
+            <div className="relative shrink-0">
+              <div
+                className="absolute -inset-0.5 rounded-full bg-gradient-to-br from-indigo-400/70 to-violet-600/70 opacity-75 blur-[2px]"
+                aria-hidden="true"
+              />
+              <div
+                className="relative flex h-11 w-11 items-center justify-center rounded-full border border-indigo-400/30 bg-gray-950 text-sm font-bold text-white ring-1 ring-indigo-500/40 sm:h-12 sm:w-12"
+                aria-hidden="true"
+              >
+                {initials}
+              </div>
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-500">
+                  {greeting}
+                </p>
+                <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
+                  Performance Dashboard
+                </span>
+              </div>
+
+              <img
+                src="/brand/sisu-logo.svg"
+                alt="Sisu"
+                width={116}
+                height={60}
+                className="h-7 w-auto max-w-[min(100%,11rem)] object-contain object-left sm:h-8"
+              />
+
+              <p className="mt-1.5 text-xs leading-snug text-gray-400 sm:text-sm">
+                Your performance. Your proof.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-sm font-bold">
-        {([
-          ['stats', 'My Sisu'],
-          ['leaderboard', 'Leaderboard'],
-        ] as const).map(([view, label]) => (
-          <button
-            key={view}
-            type="button"
-            onClick={() => setMainView(view)}
-            className={`rounded-full px-4 py-2 transition ${
-              mainView === view
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/40'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+        <div className="grid grid-cols-2 rounded-2xl border border-gray-800/80 bg-gray-900/90 p-1 text-sm font-bold shadow-inner shadow-black/20">
+          {([
+            ['stats', 'My Sisu'],
+            ['leaderboard', 'Leaderboard'],
+          ] as const).map(([view, label]) => (
+            <button
+              key={view}
+              type="button"
+              onClick={() => setMainView(view)}
+              className={`rounded-xl px-4 py-2.5 transition-all duration-150 ${
+                mainView === view
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50 ring-1 ring-indigo-400/30'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Status bar — always visible regardless of tab */}

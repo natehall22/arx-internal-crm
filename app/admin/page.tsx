@@ -118,11 +118,7 @@ export default async function AdminPage() {
       title: 'Sisu Incentive System',
       description: 'Heats, badges, 444 program, and live field marketer accountability — all in one place',
       href: '/admin/sisu',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-      ),
+      sisuBranded: true,
     },
     {
       title: 'Campaigns & Lead Sources',
@@ -357,12 +353,40 @@ export default async function AdminPage() {
             <Link
               key={section.href}
               href={section.href}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-indigo-200 transition-all group"
+              className={`rounded-xl border p-6 shadow-sm transition-all group ${
+                'sisuBranded' in section && section.sisuBranded
+                  ? 'relative overflow-hidden border-indigo-200/70 bg-gradient-to-br from-white via-indigo-50/40 to-white hover:border-amber-300/50 hover:shadow-md hover:shadow-indigo-100/60'
+                  : 'border-gray-200 bg-white hover:border-indigo-200 hover:shadow-md'
+              }`}
             >
-              <div className="text-indigo-600 mb-4 group-hover:text-indigo-700">
-                {section.icon}
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
+              {'sisuBranded' in section && section.sisuBranded ? (
+                <>
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent"
+                    aria-hidden="true"
+                  />
+                  <div className="relative mb-4 h-8">
+                    <div className="inline-flex h-8 items-center overflow-hidden rounded-lg bg-gradient-to-br from-gray-950 via-indigo-950 to-slate-900 px-2.5 shadow-md ring-1 ring-amber-400/30 group-hover:ring-amber-400/50">
+                      <div
+                        className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-white/[0.08] via-transparent to-amber-400/[0.06]"
+                        aria-hidden="true"
+                      />
+                      <img
+                        src="/brand/sisu-logo.svg"
+                        alt=""
+                        width={116}
+                        height={60}
+                        className="relative h-[18px] w-auto shrink-0"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mb-4 text-indigo-600 group-hover:text-indigo-700">
+                  {'icon' in section ? section.icon : null}
+                </div>
+              )}
+              <h2 className="mb-1 text-lg font-semibold text-gray-900">
                 {section.title}
               </h2>
               <p className="text-sm text-gray-500">
