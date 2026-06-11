@@ -353,30 +353,34 @@ export default async function AdminPage() {
             <Link
               key={section.href}
               href={section.href}
-              className={`rounded-xl border p-6 shadow-sm transition-all group ${
+              className={`rounded-xl p-6 transition-all group ${
                 'sisuBranded' in section && section.sisuBranded
-                  ? 'relative overflow-hidden border-indigo-200/70 bg-gradient-to-br from-white via-indigo-50/40 to-white hover:border-amber-300/50 hover:shadow-md hover:shadow-indigo-100/60'
-                  : 'border-gray-200 bg-white hover:border-indigo-200 hover:shadow-md'
+                  ? 'relative overflow-hidden border-2 border-amber-500/45 bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 shadow-lg shadow-black/30 ring-1 ring-amber-600/20 hover:border-amber-400/65 hover:shadow-xl hover:shadow-amber-950/25'
+                  : 'border border-gray-200 bg-white shadow-sm hover:border-indigo-200 hover:shadow-md'
               }`}
             >
               {'sisuBranded' in section && section.sisuBranded ? (
                 <>
                   <div
-                    className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent"
+                    className="pointer-events-none absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_at_30%_0%,rgba(251,191,36,0.12),transparent_55%),radial-gradient(ellipse_at_80%_100%,rgba(99,102,241,0.08),transparent_50%)]"
+                    aria-hidden="true"
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-[5px] rounded-[10px] border border-white/[0.07]"
+                    aria-hidden="true"
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/50 to-transparent"
                     aria-hidden="true"
                   />
                   <div className="relative mb-4 h-8">
-                    <div className="inline-flex h-8 items-center overflow-hidden rounded-lg bg-gradient-to-br from-gray-950 via-indigo-950 to-slate-900 px-2.5 shadow-md ring-1 ring-amber-400/30 group-hover:ring-amber-400/50">
-                      <div
-                        className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-white/[0.08] via-transparent to-amber-400/[0.06]"
-                        aria-hidden="true"
-                      />
+                    <div className="inline-flex h-8 items-center rounded-md border border-amber-500/35 bg-gradient-to-b from-slate-800/90 to-gray-950 px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_2px_8px_rgba(0,0,0,0.45)]">
                       <img
                         src="/brand/sisu-logo.svg"
                         alt=""
                         width={116}
                         height={60}
-                        className="relative h-[18px] w-auto shrink-0"
+                        className="h-[18px] w-auto shrink-0"
                       />
                     </div>
                   </div>
@@ -386,12 +390,29 @@ export default async function AdminPage() {
                   {'icon' in section ? section.icon : null}
                 </div>
               )}
-              <h2 className="mb-1 text-lg font-semibold text-gray-900">
+              <h2
+                className={`mb-1 text-lg font-semibold ${
+                  'sisuBranded' in section && section.sisuBranded
+                    ? 'relative text-white'
+                    : 'text-gray-900'
+                }`}
+              >
                 {section.title}
               </h2>
-              <p className="text-sm text-gray-500">
+              <p
+                className={`text-sm ${
+                  'sisuBranded' in section && section.sisuBranded
+                    ? 'relative text-slate-400'
+                    : 'text-gray-500'
+                }`}
+              >
                 {section.description}
               </p>
+              {'sisuBranded' in section && section.sisuBranded ? (
+                <p className="relative mt-2.5 text-[9px] font-bold uppercase tracking-[0.28em] text-amber-400/75">
+                  GRIT PAYS
+                </p>
+              ) : null}
             </Link>
           ))}
         </div>
