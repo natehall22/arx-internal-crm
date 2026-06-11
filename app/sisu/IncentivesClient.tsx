@@ -1910,14 +1910,9 @@ export default function IncentivesClient({
             </div>
 
             <div className="min-w-0 flex-1">
-              <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-500">
-                  {greeting}
-                </p>
-                <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
-                  Performance Dashboard
-                </span>
-              </div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-500">
+                {greeting}
+              </p>
 
               <img
                 src="/brand/sisu-logo.svg"
@@ -1927,8 +1922,8 @@ export default function IncentivesClient({
                 className="h-7 w-auto max-w-[min(100%,11rem)] object-contain object-left sm:h-8"
               />
 
-              <p className="mt-1.5 text-xs leading-snug text-gray-400 sm:text-sm">
-                Your performance. Your proof.
+              <p className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.28em] text-amber-400/90 sm:text-[11px]">
+                GRIT PAYS
               </p>
             </div>
           </div>
