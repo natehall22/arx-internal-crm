@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import type {
   SpiffProgram,
   SpiffAchievement,
@@ -465,7 +466,23 @@ interface Props {
 }
 
 export default function AdminIncentivesClient({ currentUserId, initialTab = 'spiffs' }: Props) {
+  const router = useRouter()
+  const pathname = usePathname()
   const [activeTab, setActiveTab] = useState<'spiffs' | 'cycles' | 'badges'>(initialTab)
+
+  // Hub nav uses ?tab=badges; soft navigation reuses this client instance without remounting.
+  useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  function selectTab(tab: 'spiffs' | 'cycles' | 'badges') {
+    setActiveTab(tab)
+    if (tab === 'badges') {
+      router.replace(`${pathname}?tab=badges`, { scroll: false })
+    } else {
+      router.replace(pathname, { scroll: false })
+    }
+  }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -994,7 +1011,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
         ] as const).map(([tab, label]) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => selectTab(tab)}
             className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
               activeTab === tab
                 ? 'border-indigo-500 text-indigo-400'
