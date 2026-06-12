@@ -147,6 +147,8 @@ function badgeCriteriaHint(badge: BadgeWithEarned): string | null {
       case 'inspections_set_milestone':
       case 'streak_weekly_inspections':
         return `${badge.criteria_value} inspections`
+      case 'doors_knocked_milestone':
+        return `${badge.criteria_value} doors this week`
       case 'closed_sales_milestone':
       case 'streak_weekly_sales':
         return `${badge.criteria_value} sales`
@@ -744,6 +746,8 @@ function badgeProgressValue(
     case 'inspections_set_milestone':
     case 'streak_weekly_inspections':
       return { current: metrics.inspectionsSet, target }
+    case 'doors_knocked_milestone':
+      return { current: metrics.doorsKnocked, target }
     case 'closed_sales_milestone':
     case 'streak_weekly_sales':
       return { current: metrics.closedSales, target }

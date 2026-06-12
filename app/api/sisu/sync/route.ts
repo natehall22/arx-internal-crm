@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { formatReward } from '@/lib/incentive-metrics'
+import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import type { SpiffProgram, SpiffTriggerMetric } from '@/lib/types/incentive'
 
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,7 @@ type OrgBadgeRow = {
   id: string
   name: string
   criteria_type: string
+  criteria_value: number | string | null
   is_active: boolean
 }
 
@@ -392,10 +394,14 @@ export async function POST(request: NextRequest) {
     // Fetch all active org badges for criteria types handled here
     const { data: orgBadgeRows, error: orgBadgeError } = await admin
       .from('incentive_badges')
-      .select('id, name, criteria_type, is_active')
+      .select('id, name, criteria_type, criteria_value, is_active')
       .eq('org_id', userProfile.org_id)
       .eq('is_active', true)
-      .in('criteria_type', ['first_inspection_set', 'first_closed_sale'])
+      .in('criteria_type', [
+        'first_inspection_set',
+        'first_closed_sale',
+        'doors_knocked_milestone',
+      ])
 
     if (orgBadgeError) {
       // Non-fatal: log and continue so spiff results are still returned
@@ -462,6 +468,23 @@ export async function POST(request: NextRequest) {
           hasEverClosedSale = saleErr ? null : (saleData ?? []).length > 0
         }
 
+        let weeklyDoorsKnocked: number | null = null
+        const needsWeeklyDoorsCheck = unearnedBadges.some(
+          (b) => b.criteria_type === 'doors_knocked_milestone',
+        )
+        if (needsWeeklyDoorsCheck) {
+          try {
+            weeklyDoorsKnocked = await countDoorsKnockedForBadgeAward(
+              admin,
+              userProfile.org_id,
+              userId,
+            )
+          } catch (doorsErr) {
+            console.error('[sisu/sync] weekly doors count error:', doorsErr)
+            weeklyDoorsKnocked = null
+          }
+        }
+
         for (const badge of unearnedBadges) {
           let conditionMet = false
 
@@ -469,6 +492,10 @@ export async function POST(request: NextRequest) {
             conditionMet = hasEverSetInspection === true
           } else if (badge.criteria_type === 'first_closed_sale') {
             conditionMet = hasEverClosedSale === true
+          } else if (badge.criteria_type === 'doors_knocked_milestone') {
+            const threshold = toNumber(badge.criteria_value)
+            conditionMet =
+              weeklyDoorsKnocked !== null && threshold > 0 && weeklyDoorsKnocked >= threshold
           }
 
           if (!conditionMet) continue

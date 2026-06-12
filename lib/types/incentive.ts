@@ -18,6 +18,7 @@ export type BadgeCriteriaType =
   | 'first_closed_sale'
   | 'inspections_set_milestone'
   | 'closed_sales_milestone'
+  | 'doors_knocked_milestone'
   | 'streak_weekly_inspections'
   | 'streak_weekly_sales'
   | 'close_rate_threshold'

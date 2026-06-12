@@ -41,8 +41,9 @@ const BADGE_CRITERIA_LABELS: Record<BadgeCriteriaType, string> = {
   // Auto-awarded by the sync engine (api/sisu/sync)
   first_inspection_set: 'First Inspection Set',
   first_closed_sale: 'First Closed Sale',
-  // Auto-awarded criteria — handled by future milestones/streak engine
-  inspections_set_milestone: 'Inspections Set Milestone',
+  doors_knocked_milestone: 'Doors Knocked Milestone (weekly threshold)',
+  // Shown in UI; auto-award not wired yet — use manual award or wait for engine
+  inspections_set_milestone: 'Inspections Set Milestone (this week)',
   closed_sales_milestone: 'Closed Sales Milestone',
   streak_weekly_inspections: 'Streak: Weekly Inspections',
   streak_weekly_sales: 'Streak: Weekly Sales',
@@ -61,6 +62,7 @@ const ELIGIBLE_ROLE_OPTIONS = [
 const CRITERIA_VALUE_REQUIRED: BadgeCriteriaType[] = [
   'inspections_set_milestone',
   'closed_sales_milestone',
+  'doors_knocked_milestone',
   'streak_weekly_inspections',
   'streak_weekly_sales',
   'close_rate_threshold',
