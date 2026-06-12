@@ -200,25 +200,28 @@ export async function POST(
       const userId = entry.user_id
       if (!userId) continue
 
+      const reg = Math.max(0, Number(entry.regular_hours) || 0)
+      const ot = Math.max(0, Number(entry.overtime_hours) || 0)
+
       const assignment = await loadActiveCompPlanForUser(supabase, userId, orgId, saleDate)
       const plan = assignment?.comp_plans as (CompPlanForCalc & { hourly_rate?: number | null }) | null
       const hourlyRate = resolveHourlyRate({
         hourlyRateOverride: assignment?.hourly_rate_override,
         compPlan: plan,
       })
-      if (hourlyRate == null) {
+      // Only require a resolved hourly rate when actual hours are being recorded.
+      // Commission-only reps (no hourly component) may appear on the entry table
+      // but should not block saving when their hours are zero.
+      if (hourlyRate == null && (reg > 0 || ot > 0)) {
         return NextResponse.json(
           { error: `No hourly rate for user ${userId}` },
           { status: 400 }
         )
       }
-
-      const reg = Math.max(0, Number(entry.regular_hours) || 0)
-      const ot = Math.max(0, Number(entry.overtime_hours) || 0)
       const earnings = computeHourlyEarnings({
         regularHours: reg,
         overtimeHours: ot,
-        hourlyRate,
+        hourlyRate: hourlyRate ?? 0,
       })
 
       const { data: existing } = await supabase
