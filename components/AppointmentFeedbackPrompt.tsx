@@ -1,11 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useAppointmentPrompts } from '@/hooks/useRealtimeUpdates'
+
+const FEEDBACK_FORM_PATHS = ['/appointments/feedback', '/appointments/close-feedback']
 
 export default function AppointmentFeedbackPrompt() {
   const router = useRouter()
+  const pathname = usePathname()
   const { prompts, refresh } = useAppointmentPrompts()
   const [dismissing, setDismissing] = useState<string | null>(null)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
@@ -29,6 +32,7 @@ export default function AppointmentFeedbackPrompt() {
 
   const visiblePrompts = prompts.filter(p => !dismissedIds.has(p.id))
 
+  if (FEEDBACK_FORM_PATHS.some((path) => pathname?.startsWith(path))) return null
   if (visiblePrompts.length === 0) return null
 
   return (

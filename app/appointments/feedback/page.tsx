@@ -422,7 +422,7 @@ export default function AppointmentFeedbackPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
-      <div className="max-w-2xl mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto px-4 py-8 pb-[calc(4rem+var(--safe-area-inset-bottom))]">
         <div className="mb-6">
           <Link href={backLink} className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
             ← Back
@@ -496,19 +496,19 @@ export default function AppointmentFeedbackPage() {
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">What was the outcome?</h2>
 
-          <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
             {outcomeRows.map((opt) => (
               <button
                 key={opt.id}
                 type="button"
                 onClick={() => handleOutcomeChange(opt.id)}
-                className={`p-4 rounded-lg border-2 text-left transition-all ${
+                className={`p-4 rounded-lg border-2 text-left transition-all min-h-[88px] overflow-hidden ${
                   outcome === opt.id
                     ? 'border-indigo-500 bg-indigo-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-start gap-3">
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-lg font-bold ${
                       opt.color?.startsWith('#') ? 'text-white' : opt.color || 'bg-gray-500 text-white'
@@ -517,9 +517,9 @@ export default function AppointmentFeedbackPage() {
                   >
                     {opt.icon}
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-900">{opt.label}</p>
-                    <p className="text-xs text-gray-500">{opt.description}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 break-words">{opt.label}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 break-words">{opt.description}</p>
                   </div>
                 </div>
               </button>
@@ -578,9 +578,9 @@ export default function AppointmentFeedbackPage() {
             <textarea
               value={feedbackNotes}
               onChange={(e) => setFeedbackNotes(e.target.value)}
-              rows={3}
+              rows={4}
               placeholder="Add any additional notes about this appointment..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 resize-none"
+              className="w-full box-border px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 resize-none text-base leading-normal"
             />
           </div>
 
@@ -588,7 +588,7 @@ export default function AppointmentFeedbackPage() {
           <button
             onClick={handleSubmit}
             disabled={!outcome || submitting}
-            className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full min-h-[48px] py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {submitting ? (
               <>
