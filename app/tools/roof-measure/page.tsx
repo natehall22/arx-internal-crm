@@ -389,7 +389,6 @@ export default function RoofMeasurePage() {
   const googleMapRef = useRef<any>(null)
   const drawingManagerRef = useRef<any>(null)
   const polygonsRef = useRef<Map<string, any>>(new Map())
-  const labelsRef = useRef<Map<string, any>>(new Map())
   const drainOverlaysRef = useRef<{ polyline: any; tipMarker: any | null } | null>(null)
   const aiDraftPolygonsRef = useRef<Map<string, any>>(new Map())
   const aiDraftBoundaryRef = useRef<Map<string, any>>(new Map())
@@ -462,7 +461,7 @@ export default function RoofMeasurePage() {
   const [satelliteOutlineFetchSettled, setSatelliteOutlineFetchSettled] = useState(false)
   const prevIsDetectingForSatelliteRef = useRef(false)
   const prevFacetCountForAutoExpandRef = useRef(0)
-  const firstSectionListItemRef = useRef<HTMLDivElement | null>(null)
+  const sectionListItemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const facetsRef = useRef<RoofFacet[]>([])
   const linearFeaturesRef = useRef<LinearFeature[]>([])
   const polylinesRef = useRef<Map<string, any>>(new Map())
@@ -520,6 +519,11 @@ export default function RoofMeasurePage() {
   const selectFacet = (facetId: string | null) => {
     setIsAdjustingDrain(false)
     setSelectedFacet(facetId)
+    if (facetId) {
+      window.requestAnimationFrame(() => {
+        sectionListItemRefs.current.get(facetId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      })
+    }
   }
 
   const clearDrainOverlay = () => {
@@ -650,9 +654,6 @@ export default function RoofMeasurePage() {
     const prev = prevFacetCountForAutoExpandRef.current
     if (prev === 0 && n > 0 && facets[0]?.id) {
       selectFacet(facets[0].id)
-      window.requestAnimationFrame(() => {
-        firstSectionListItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      })
     }
     prevFacetCountForAutoExpandRef.current = n
   }, [facets])
@@ -740,17 +741,15 @@ export default function RoofMeasurePage() {
     if (restoredFacets.length === 0 && restoredFeatures.length === 0) return false
 
     polygonsRef.current.forEach((polygon) => polygon.setMap(null))
-    labelsRef.current.forEach((label) => label.setMap(null))
     polylinesRef.current.forEach((polyline) => polyline.setMap(null))
     clearDrainOverlay()
     polygonsRef.current.clear()
-    labelsRef.current.clear()
     polylinesRef.current.clear()
     clearAIDraftOverlays()
 
     const map = googleMapRef.current
 
-    restoredFacets.forEach((facet, index) => {
+    restoredFacets.forEach((facet) => {
       const polygon = new google.maps.Polygon({
         paths: facet.points.map((p) => ({ lat: p.lat, lng: p.lng })),
         fillColor: facet.color,
@@ -764,31 +763,6 @@ export default function RoofMeasurePage() {
       polygonsRef.current.set(facet.id, polygon)
       polygon.addListener('click', () => selectFacet(facet.id))
       attachPolygonEditListeners(facet.id, polygon)
-
-      const centroid = facet.points.reduce(
-        (acc, p) => ({ lat: acc.lat + p.lat / facet.points.length, lng: acc.lng + p.lng / facet.points.length }),
-        { lat: 0, lng: 0 }
-      )
-      const labelMarker = new google.maps.Marker({
-        position: centroid,
-        map,
-        label: {
-          text: `${index + 1}`,
-          color: '#FFFFFF',
-          fontSize: '14px',
-          fontWeight: 'bold',
-        },
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 16,
-          fillColor: facet.color,
-          fillOpacity: 0.9,
-          strokeColor: '#FFFFFF',
-          strokeWeight: 2,
-        },
-        clickable: false,
-      })
-      labelsRef.current.set(facet.id, labelMarker)
     })
 
     restoredFeatures.forEach((feature) => {
@@ -1152,10 +1126,8 @@ export default function RoofMeasurePage() {
 
   const resetMeasurementSession = () => {
     polygonsRef.current.forEach((polygon) => polygon.setMap(null))
-    labelsRef.current.forEach((label) => label.setMap(null))
     polylinesRef.current.forEach((polyline) => polyline.setMap(null))
     polygonsRef.current.clear()
-    labelsRef.current.clear()
     polylinesRef.current.clear()
     clearAIDraftOverlays()
     clearHdGroundOverlay()
@@ -1324,7 +1296,6 @@ export default function RoofMeasurePage() {
         : f
     )
     commitFacets(nextFacets)
-    updateLabelMarkerPosition(facetId, points)
     updateMeasurements(nextFacets, linearFeaturesRef.current)
     setFineTuneFacetId(null)
   }
@@ -1373,17 +1344,6 @@ export default function RoofMeasurePage() {
         finish()
       })
     })
-  }
-
-  const updateLabelMarkerPosition = (facetId: string, points: Point[]) => {
-    const label = labelsRef.current.get(facetId)
-    if (!label || points.length === 0) return
-    label.setPosition(
-      points.reduce(
-        (acc, p) => ({ lat: acc.lat + p.lat / points.length, lng: acc.lng + p.lng / points.length }),
-        { lat: 0, lng: 0 }
-      )
-    )
   }
 
   const recalculateFacetFromPoints = (facet: RoofFacet, points: Point[]): RoofFacet => {
@@ -1440,7 +1400,6 @@ export default function RoofMeasurePage() {
         : facet
     )
     commitFacets(nextFacets)
-    updateLabelMarkerPosition(facetId, points)
     updateMeasurements(nextFacets, linearFeaturesRef.current)
   }
 
@@ -1875,32 +1834,6 @@ export default function RoofMeasurePage() {
       polygon.addListener('click', () => selectFacet(newFacet.id))
       attachPolygonEditListeners(newFacet.id, polygon)
 
-      const facetIndex = facetsRef.current.length + 1
-      const centroid = newFacet.points.reduce(
-        (acc, p) => ({ lat: acc.lat + p.lat / newFacet.points.length, lng: acc.lng + p.lng / newFacet.points.length }),
-        { lat: 0, lng: 0 }
-      )
-      const labelMarker = new google.maps.Marker({
-        position: centroid,
-        map: googleMapRef.current,
-        label: {
-          text: `${facetIndex}`,
-          color: '#FFFFFF',
-          fontSize: '14px',
-          fontWeight: 'bold',
-        },
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 16,
-          fillColor: newFacet.color,
-          fillOpacity: 0.9,
-          strokeColor: '#FFFFFF',
-          strokeWeight: 2,
-        },
-        clickable: false,
-      })
-      labelsRef.current.set(newFacet.id, labelMarker)
-
       const nextFacets = enrichAllFacetsWithDrainDefaults([...facetsRef.current, newFacet])
       commitFacets(nextFacets)
       updateMeasurements(nextFacets, linearFeaturesRef.current)
@@ -2234,36 +2167,6 @@ export default function RoofMeasurePage() {
         selectFacet(newFacet.id)
       })
       attachPolygonEditListeners(newFacet.id, polygon)
-      
-      // Add label marker at the center of the facet
-      const facetIndex = facets.length + 1
-      const centroid = newFacet.points.reduce(
-        (acc, p) => ({ lat: acc.lat + p.lat / newFacet.points.length, lng: acc.lng + p.lng / newFacet.points.length }),
-        { lat: 0, lng: 0 }
-      )
-      
-      // Create a custom label using a marker with a label
-      const labelMarker = new google.maps.Marker({
-        position: centroid,
-        map: googleMapRef.current,
-        label: {
-          text: `${facetIndex}`,
-          color: '#FFFFFF',
-          fontSize: '14px',
-          fontWeight: 'bold',
-        },
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 16,
-          fillColor: newFacet.color,
-          fillOpacity: 0.9,
-          strokeColor: '#FFFFFF',
-          strokeWeight: 2,
-        },
-        clickable: false,
-      })
-      
-      labelsRef.current.set(newFacet.id, labelMarker)
     }
     
     const nextFacets = enrichAllFacetsWithDrainDefaults([...facetsRef.current, newFacet])
@@ -2291,32 +2194,12 @@ export default function RoofMeasurePage() {
       polygon.setMap(null)
       polygonsRef.current.delete(facetId)
     }
-    
-    // Also remove the label marker
-    const label = labelsRef.current.get(facetId)
-    if (label) {
-      label.setMap(null)
-      labelsRef.current.delete(facetId)
-    }
-    
+
     const newFacets = facets.filter(f => f.id !== facetId)
     clearDrainOverlay()
     commitFacets(newFacets)
     selectFacet(null)
     updateMeasurements(newFacets, linearFeaturesRef.current)
-    
-    // Update remaining labels to reflect new numbering
-    newFacets.forEach((facet, idx) => {
-      const existingLabel = labelsRef.current.get(facet.id)
-      if (existingLabel) {
-        existingLabel.setLabel({
-          text: `${idx + 1}`,
-          color: '#FFFFFF',
-          fontSize: '14px',
-          fontWeight: 'bold',
-        })
-      }
-    })
   }
 
   const updateFacetSectionType = (facetId: string, sectionType: SectionType) => {
@@ -3135,11 +3018,7 @@ export default function RoofMeasurePage() {
     // Clear polygons (facets)
     polygonsRef.current.forEach(polygon => polygon.setMap(null))
     polygonsRef.current.clear()
-    
-    // Clear labels
-    labelsRef.current.forEach(label => label.setMap(null))
-    labelsRef.current.clear()
-    
+
     // Clear polylines (linear features)
     polylinesRef.current.forEach(polyline => polyline.setMap(null))
     polylinesRef.current.clear()
@@ -3585,7 +3464,10 @@ export default function RoofMeasurePage() {
                   return (
                   <div
                     key={facet.id}
-                    ref={idx === 0 ? firstSectionListItemRef : undefined}
+                    ref={(el) => {
+                      if (el) sectionListItemRefs.current.set(facet.id, el)
+                      else sectionListItemRefs.current.delete(facet.id)
+                    }}
                     onClick={() => selectFacet(facet.id)}
                     className={`p-3 rounded-lg cursor-pointer transition ${
                       selectedFacet === facet.id 
