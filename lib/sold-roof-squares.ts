@@ -81,7 +81,22 @@ export function resolveProposalSoldRoofSquares(
   proposal: ProposalLike | null | undefined,
   lineItems: ProposalLineItemLike[] = []
 ): number | null {
-  return roundSquares(proposal?.sold_squares) ?? inferSoldRoofSquaresFromLineItems(lineItems)
+  const stored = roundSquares(proposal?.sold_squares)
+  const inferred = inferSoldRoofSquaresFromLineItems(lineItems)
+
+  // When a line item quantity is manually bumped above the stored/inferred value
+  // (e.g. the description says "= 53.31 sq" but qty was changed to 57), use the
+  // higher raw quantity so ops sees the correct amount to order.
+  const squareItems = lineItems.filter((item) => !item.is_adder && parseSquareUnit(item.unit))
+  const roofingItems = squareItems.filter(looksRoofingRelated)
+  const candidateItems = roofingItems.length > 0 ? roofingItems : squareItems
+  const rawLineItemMax = candidateItems.reduce<number | null>((best, item) => {
+    const q = roundSquares(item.quantity)
+    return q != null && q > 0 && (best == null || q > best) ? q : best
+  }, null)
+
+  const candidates = [stored, inferred, rawLineItemMax].filter((v): v is number => v != null && v > 0)
+  return candidates.length > 0 ? Math.max(...candidates) : null
 }
 
 export function resolveProposalMeasuredSquares(

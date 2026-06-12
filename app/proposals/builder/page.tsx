@@ -452,8 +452,12 @@ export default function ProposalBuilderPage() {
     capLineItemsInjectedRef.current = true
 
     setLineItems(prev => {
-      const hasRidge = prev.some(i => i.id === 'ridge-cap-auto')
-      const hasHip = prev.some(i => i.id === 'hip-cap-auto')
+      const isRidgeCap = (i: { id: string; name?: string; category?: string; is_adder?: boolean }) =>
+        i.id === 'ridge-cap-auto' || (i.name === 'Ridge Cap Shingles' && !i.is_adder)
+      const isHipCap = (i: { id: string; name?: string; category?: string; is_adder?: boolean }) =>
+        i.id === 'hip-cap-auto' || (i.name === 'Hip Cap Shingles' && !i.is_adder)
+      const hasRidge = prev.some(isRidgeCap)
+      const hasHip = prev.some(isHipCap)
       if (hasRidge && hasHip) return prev
 
       const next = [...prev]
