@@ -748,7 +748,7 @@ function badgeProgressValue(
     case 'streak_weekly_inspections':
       return { current: metrics.inspectionsSet, target }
     case 'doors_knocked_milestone':
-      return { current: metrics.doorsKnocked, target }
+      return { current: metrics.doorsKnockedForBadge, target }
     case 'closed_sales_milestone':
       return { current: metrics.closedSalesMonth, target }
     case 'streak_weekly_sales':

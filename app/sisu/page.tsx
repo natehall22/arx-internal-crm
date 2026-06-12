@@ -11,6 +11,7 @@ import {
   countClosedSalesForBadgeAward,
   countUserClosedSalesFromRows,
 } from '@/lib/sisu-monthly-closed-sales'
+import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { SALE_AGREEMENT_TYPES, isCanvassDoorLead } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
@@ -77,13 +78,18 @@ export default async function IncentivesPage() {
     profile.id,
   )
 
-  const closedSalesMonth = await countClosedSalesForBadgeAward(
-    supabase,
-    profile.org_id,
-    profile.id,
-  )
+  const [closedSalesMonth, doorsKnockedForBadge] = await Promise.all([
+    countClosedSalesForBadgeAward(supabase, profile.org_id, profile.id),
+    countDoorsKnockedForBadgeAward(supabase, profile.org_id, profile.id),
+  ])
 
-  const liveMetrics: LiveMetrics = { inspectionsSet, doorsKnocked, closedSales, closedSalesMonth }
+  const liveMetrics: LiveMetrics = {
+    inspectionsSet,
+    doorsKnocked,
+    doorsKnockedForBadge,
+    closedSales,
+    closedSalesMonth,
+  }
 
   // ── Current incentive goal ────────────────────────────────────────────────────
   const { data: goalRows } = await supabase

@@ -397,7 +397,7 @@ export default function AppointmentFeedbackPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Nav />
-        <div className="max-w-2xl mx-auto px-4 py-8">
+        <div className="max-w-2xl mx-auto px-4 pt-8 pb-[calc(4rem+var(--safe-area-inset-bottom))]">
           <div className="mb-6">
             <Link href={backLink} className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
               ← Back

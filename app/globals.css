@@ -128,13 +128,13 @@ textarea::placeholder {
 }
 
 /* Dark slate admin modals (Sisu incentives, 444 enroll, etc.) */
-.bg-slate-900 input,
+.bg-slate-900 input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']),
 .bg-slate-900 textarea,
 .bg-slate-900 select,
-.bg-slate-950 input,
+.bg-slate-950 input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']),
 .bg-slate-950 textarea,
 .bg-slate-950 select,
-input.bg-slate-950,
+input.bg-slate-950:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']),
 textarea.bg-slate-950,
 select.bg-slate-950 {
   color: #ffffff !important;
@@ -143,19 +143,19 @@ select.bg-slate-950 {
   caret-color: #ffffff !important;
 }
 
-.bg-slate-900 input::placeholder,
+.bg-slate-900 input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset'])::placeholder,
 .bg-slate-900 textarea::placeholder,
-.bg-slate-950 input::placeholder,
+.bg-slate-950 input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset'])::placeholder,
 .bg-slate-950 textarea::placeholder,
-input.bg-slate-950::placeholder,
+input.bg-slate-950:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset'])::placeholder,
 textarea.bg-slate-950::placeholder {
   color: #64748b !important; /* slate-500 */
 }
 
-.bg-slate-900 input:-webkit-autofill,
+.bg-slate-900 input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']):-webkit-autofill,
 .bg-slate-900 textarea:-webkit-autofill,
 .bg-slate-900 select:-webkit-autofill,
-input.bg-slate-950:-webkit-autofill,
+input.bg-slate-950:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']):-webkit-autofill,
 textarea.bg-slate-950:-webkit-autofill,
 select.bg-slate-950:-webkit-autofill {
   -webkit-text-fill-color: #ffffff !important;
