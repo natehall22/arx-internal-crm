@@ -127,6 +127,44 @@ textarea::placeholder {
   color: #9ca3af;
 }
 
+/* Dark slate admin modals (Sisu incentives, 444 enroll, etc.) */
+.bg-slate-900 input,
+.bg-slate-900 textarea,
+.bg-slate-900 select,
+.bg-slate-950 input,
+.bg-slate-950 textarea,
+.bg-slate-950 select,
+input.bg-slate-950,
+textarea.bg-slate-950,
+select.bg-slate-950 {
+  color: #ffffff !important;
+  background-color: #020617 !important; /* slate-950 */
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+}
+
+.bg-slate-900 input::placeholder,
+.bg-slate-900 textarea::placeholder,
+.bg-slate-950 input::placeholder,
+.bg-slate-950 textarea::placeholder,
+input.bg-slate-950::placeholder,
+textarea.bg-slate-950::placeholder {
+  color: #64748b !important; /* slate-500 */
+}
+
+.bg-slate-900 input:-webkit-autofill,
+.bg-slate-900 textarea:-webkit-autofill,
+.bg-slate-900 select:-webkit-autofill,
+input.bg-slate-950:-webkit-autofill,
+textarea.bg-slate-950:-webkit-autofill,
+select.bg-slate-950:-webkit-autofill {
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0px 1000px #020617 inset !important;
+  box-shadow: 0 0 0px 1000px #020617 inset !important;
+  transition: background-color 9999s ease-out 0s !important;
+}
+
 /* Ensure login page dark inputs always show typed text clearly. */
 .login-dark input,
 .login-dark textarea,
