@@ -150,6 +150,7 @@ function badgeCriteriaHint(badge: BadgeWithEarned): string | null {
       case 'doors_knocked_milestone':
         return `${badge.criteria_value} doors this week`
       case 'closed_sales_milestone':
+        return `${badge.criteria_value} sales this month`
       case 'streak_weekly_sales':
         return `${badge.criteria_value} sales`
       default:
@@ -749,6 +750,7 @@ function badgeProgressValue(
     case 'doors_knocked_milestone':
       return { current: metrics.doorsKnocked, target }
     case 'closed_sales_milestone':
+      return { current: metrics.closedSalesMonth, target }
     case 'streak_weekly_sales':
       return { current: metrics.closedSales, target }
     default:

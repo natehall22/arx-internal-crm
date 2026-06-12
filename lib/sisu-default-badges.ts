@@ -74,7 +74,7 @@ export const DEFAULT_BADGES: DefaultBadgeDefinition[] = [
   },
   {
     name: '10 Closes',
-    description: 'Close 10 deals total',
+    description: 'Close 10 deals this month',
     icon_key: 'diamond',
     color_hex: '#10B981',
     criteria_type: 'closed_sales_milestone',

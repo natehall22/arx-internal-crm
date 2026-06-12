@@ -7,8 +7,12 @@ import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import IncentivesClient from './IncentivesClient'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import {
+  countClosedSalesForBadgeAward,
+  countUserClosedSalesFromRows,
+} from '@/lib/sisu-monthly-closed-sales'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { SALE_AGREEMENT_TYPES, getAttributedInstallationSales, isCanvassDoorLead } from '@/lib/sales-metrics'
+import { SALE_AGREEMENT_TYPES, isCanvassDoorLead } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import type {
   SpiffProgram,
@@ -68,18 +72,18 @@ export default async function IncentivesPage() {
     .gte('customer_signed_at', weekStart.toISOString())
     .lt('customer_signed_at', weekEnd.toISOString())
 
-  const salesOpportunities = getAttributedInstallationSales(
-    salesContracts as InstallationSaleContractRow[] | null
+  const closedSales = countUserClosedSalesFromRows(
+    salesContracts as InstallationSaleContractRow[] | null,
+    profile.id,
   )
-  const closedSales = new Set(
-    (salesOpportunities ?? [])
-      .filter(
-        (o) => o.setter_user_id === profile.id || o.owner_user_id === profile.id
-      )
-      .map((o) => o.opportunity_id || o.id)
-  ).size
 
-  const liveMetrics: LiveMetrics = { inspectionsSet, doorsKnocked, closedSales }
+  const closedSalesMonth = await countClosedSalesForBadgeAward(
+    supabase,
+    profile.org_id,
+    profile.id,
+  )
+
+  const liveMetrics: LiveMetrics = { inspectionsSet, doorsKnocked, closedSales, closedSalesMonth }
 
   // ── Current incentive goal ────────────────────────────────────────────────────
   const { data: goalRows } = await supabase

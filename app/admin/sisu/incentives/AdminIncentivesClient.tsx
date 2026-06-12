@@ -42,9 +42,9 @@ const BADGE_CRITERIA_LABELS: Record<BadgeCriteriaType, string> = {
   first_inspection_set: 'First Inspection Set',
   first_closed_sale: 'First Closed Sale',
   doors_knocked_milestone: 'Doors Knocked Milestone (weekly threshold)',
+  closed_sales_milestone: 'Closed Sales Milestone (this month)',
   // Shown in UI; auto-award not wired yet — use manual award or wait for engine
   inspections_set_milestone: 'Inspections Set Milestone (this week)',
-  closed_sales_milestone: 'Closed Sales Milestone',
   streak_weekly_inspections: 'Streak: Weekly Inspections',
   streak_weekly_sales: 'Streak: Weekly Sales',
   close_rate_threshold: 'Close Rate Threshold',

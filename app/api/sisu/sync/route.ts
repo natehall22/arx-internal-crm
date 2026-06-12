@@ -3,6 +3,7 @@ import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js
 import { createClient } from '@/lib/supabase/server'
 import { formatReward } from '@/lib/incentive-metrics'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
+import { countClosedSalesForBadgeAward } from '@/lib/sisu-monthly-closed-sales'
 import type { SpiffProgram, SpiffTriggerMetric } from '@/lib/types/incentive'
 
 export const dynamic = 'force-dynamic'
@@ -401,6 +402,7 @@ export async function POST(request: NextRequest) {
         'first_inspection_set',
         'first_closed_sale',
         'doors_knocked_milestone',
+        'closed_sales_milestone',
       ])
 
     if (orgBadgeError) {
@@ -485,6 +487,23 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        let monthlyClosedSales: number | null = null
+        const needsMonthlySalesCheck = unearnedBadges.some(
+          (b) => b.criteria_type === 'closed_sales_milestone',
+        )
+        if (needsMonthlySalesCheck) {
+          try {
+            monthlyClosedSales = await countClosedSalesForBadgeAward(
+              admin,
+              userProfile.org_id,
+              userId,
+            )
+          } catch (salesErr) {
+            console.error('[sisu/sync] monthly closed sales count error:', salesErr)
+            monthlyClosedSales = null
+          }
+        }
+
         for (const badge of unearnedBadges) {
           let conditionMet = false
 
@@ -496,6 +515,10 @@ export async function POST(request: NextRequest) {
             const threshold = toNumber(badge.criteria_value)
             conditionMet =
               weeklyDoorsKnocked !== null && threshold > 0 && weeklyDoorsKnocked >= threshold
+          } else if (badge.criteria_type === 'closed_sales_milestone') {
+            const threshold = toNumber(badge.criteria_value)
+            conditionMet =
+              monthlyClosedSales !== null && threshold > 0 && monthlyClosedSales >= threshold
           }
 
           if (!conditionMet) continue

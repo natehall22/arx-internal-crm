@@ -71,7 +71,10 @@ export interface UserIncentiveGoal {
 export interface LiveMetrics {
   inspectionsSet: number
   doorsKnocked: number
+  /** Closed sales this week (Sun → today ET) — goals, hero, on-pace. */
   closedSales: number
+  /** Closed sales for monthly milestone badge (current month or prior full month, whichever is higher). */
+  closedSalesMonth: number
 }
 
 // ─── Page-level data bundle ───────────────────────────────────────────────────
