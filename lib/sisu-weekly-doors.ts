@@ -9,6 +9,15 @@ type DoorCountRow = {
   cnt: number | string
 }
 
+type RpcResult = {
+  data: unknown
+  error: { message: string } | null
+}
+
+type SisuDoorsAdmin = {
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<RpcResult>
+}
+
 /** Previous full calendar week (Sun 00:00 ET → this Sun 00:00 ET, exclusive end). */
 export function getPreviousFullWeekRange(timezone: string = SISU_WEEKLY_TIMEZONE): DateRange {
   const nowLocal = toZonedTime(new Date(), timezone)
@@ -21,8 +30,7 @@ export function getPreviousFullWeekRange(timezone: string = SISU_WEEKLY_TIMEZONE
 }
 
 async function countDoorsKnockedInRange(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  admin: { rpc: (fn: string, args: Record<string, unknown>) => any },
+  admin: SisuDoorsAdmin,
   orgId: string,
   userId: string,
   range: DateRange,
@@ -46,8 +54,7 @@ async function countDoorsKnockedInRange(
  * Current-week doors — matches Sisu page + leaderboard (partial week through today ET).
  */
 export async function countWeeklyDoorsKnockedForUser(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  admin: { rpc: (fn: string, args: Record<string, unknown>) => any },
+  admin: SisuDoorsAdmin,
   orgId: string,
   userId: string,
 ): Promise<number> {
@@ -60,8 +67,7 @@ export async function countWeeklyDoorsKnockedForUser(
  * Covers reps who hit threshold before the Sunday reset but sync after the new week starts.
  */
 export async function countDoorsKnockedForBadgeAward(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  admin: { rpc: (fn: string, args: Record<string, unknown>) => any },
+  admin: SisuDoorsAdmin,
   orgId: string,
   userId: string,
 ): Promise<number> {

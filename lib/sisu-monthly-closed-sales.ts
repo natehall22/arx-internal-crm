@@ -9,6 +9,27 @@ import {
 
 export const SISU_METRICS_TIMEZONE = 'America/New_York'
 
+type QueryResult = {
+  data: unknown
+  error: { message: string } | null
+}
+
+type ClosedSalesFilter = {
+  eq: (column: string, value: unknown) => ClosedSalesFilter
+  in: (column: string, values: readonly unknown[]) => ClosedSalesFilter
+  not: (column: string, operator: string, value: unknown) => ClosedSalesFilter
+  gte: (column: string, value: unknown) => ClosedSalesFilter
+  lt: (column: string, value: unknown) => PromiseLike<QueryResult>
+}
+
+type ClosedSalesQuery = {
+  select: (columns: string) => ClosedSalesFilter
+}
+
+type ClosedSalesDb = {
+  from: (table: string) => ClosedSalesQuery
+}
+
 /** Previous full calendar month (1st 00:00 ET → this month 1st 00:00 ET, exclusive end). */
 export function getPreviousFullMonthRange(timezone: string = SISU_METRICS_TIMEZONE): DateRange {
   const nowLocal = toZonedTime(new Date(), timezone)
@@ -33,13 +54,13 @@ export function countUserClosedSalesFromRows(
 }
 
 export async function countClosedSalesInRange(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: { from: (table: string) => any },
+  db: unknown,
   orgId: string,
   userId: string,
   range: DateRange,
 ): Promise<number> {
-  const { data, error } = await db
+  const typedDb = db as ClosedSalesDb
+  const { data, error } = await typedDb
     .from('order_form_contracts')
     .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
     .eq('org_id', orgId)
@@ -58,8 +79,7 @@ export async function countClosedSalesInRange(
  * Covers reps who hit threshold at month-end but sync after the new month starts.
  */
 export async function countClosedSalesForBadgeAward(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: { from: (table: string) => any },
+  db: unknown,
   orgId: string,
   userId: string,
 ): Promise<number> {

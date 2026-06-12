@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 
 interface ProductOrder {
@@ -92,11 +92,7 @@ export default function JobMaterialsCard({
     setLaborCostInput(laborCost != null ? laborCost.toString() : '')
   }, [laborCost])
 
-  useEffect(() => {
-    loadOrders()
-  }, [jobId])
-
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     try {
       const response = await fetch(`/api/jobs/${jobId}/product-orders`)
       if (response.ok) {
@@ -110,7 +106,11 @@ export default function JobMaterialsCard({
     } finally {
       setLoading(false)
     }
-  }
+  }, [jobId, onTotalChange])
+
+  useEffect(() => {
+    loadOrders()
+  }, [loadOrders])
 
   const handleAddOrder = async () => {
     if (!newOrder.description.trim() || !newOrder.amount) return
