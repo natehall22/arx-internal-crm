@@ -195,6 +195,9 @@ export async function GET(request: NextRequest) {
     }
 
     const rows: PayrollExportRow[] = []
+    // Track which user+month combos have already received their flat period bonus
+    // so it's applied exactly once regardless of how many sales fall in that month.
+    const flatBonusApplied = new Map<string, boolean>()
 
     for (const job of exportJobs || []) {
       const snap = buildCommissionPayrollSnapshot(job)
@@ -218,6 +221,7 @@ export async function GET(request: NextRequest) {
           calc: ReturnType<typeof computeRawCommissionForParticipant> | null
           periodVolume: number
           role: string
+          effectiveFlatBonus: number
         }
       >()
 
@@ -239,6 +243,7 @@ export async function GET(request: NextRequest) {
             calc: null,
             periodVolume,
             role: part.role,
+            effectiveFlatBonus: 0,
           })
           rawByUser.set(part.userId, 0)
           continue
@@ -254,7 +259,15 @@ export async function GET(request: NextRequest) {
           overridePercentage: assignment.override_percentage,
         })
 
-        metaByUser.set(part.userId, { plan, calc, periodVolume, role: part.role })
+        // Apply the period flat bonus (e.g. "$500 when sits ≥ 20") once per
+        // user per month. The bonus is excluded from pool-cap scaling.
+        const bonusKey = `${part.userId}|${mk ?? ''}`
+        const rawFlatBonus = calc.volumeBonusFlat ?? 0
+        const effectiveFlatBonus =
+          rawFlatBonus > 0 && !flatBonusApplied.has(bonusKey) ? rawFlatBonus : 0
+        if (rawFlatBonus > 0) flatBonusApplied.set(bonusKey, true)
+
+        metaByUser.set(part.userId, { plan, calc, periodVolume, role: part.role, effectiveFlatBonus })
         const excludeFromPool =
           calc.unsupported || isPoolCapExcludedPlanType(plan.plan_type)
         rawByUser.set(part.userId, excludeFromPool ? 0 : calc.totalAmount)
@@ -296,10 +309,10 @@ export async function GET(request: NextRequest) {
           base_rate_pct: calc?.baseRate ?? null,
           period_volume: meta?.periodVolume ?? 0,
           volume_bonus_rate_pct: calc?.volumeBonusRate ?? 0,
-          volume_bonus_flat: calc?.volumeBonusFlat ?? 0,
+          volume_bonus_flat: meta?.effectiveFlatBonus ?? 0,
           effective_rate_pct: calc?.effectiveRate ?? 0,
-          raw_commission: rawByUser.get(part.userId) || 0,
-          scaled_commission: scaled.get(part.userId) || 0,
+          raw_commission: (rawByUser.get(part.userId) || 0) + (meta?.effectiveFlatBonus ?? 0),
+          scaled_commission: (scaled.get(part.userId) || 0) + (meta?.effectiveFlatBonus ?? 0),
           pool_cap_enforced: enforced,
           unsupported_plan: calc?.unsupported ?? false,
           note: noteParts.length ? noteParts.join(' ') : null,

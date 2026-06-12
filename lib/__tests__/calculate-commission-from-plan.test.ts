@@ -42,7 +42,9 @@ describe('calculateCommissionFromPlanForSale', () => {
     expect(result.volumeBonusRate).toBe(6.5)
     expect(result.volumeBonusFlat).toBe(1000)
     expect(result.effectiveRate).toBe(12.5)
-    expect(result.totalAmount).toBe(2250)
+    // totalAmount is the per-sale commission only; volumeBonusFlat is applied
+    // once per period by the export pipeline, not per sale.
+    expect(result.totalAmount).toBe(1250)
   })
 
   it('returns zero commission but supported for hourly/hybrid (hours entered separately)', () => {
