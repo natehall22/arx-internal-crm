@@ -44,6 +44,24 @@ export type QualifiedResult = {
   week: 1 | 2
 }
 
+// Minimal shape needed to count progress for an enrollment. Both the full
+// Enrollment row (sync) and the GET handler's display rows satisfy this.
+export type CountableEnrollment = {
+  id: string
+  user_id: string
+  week1_starts_at: string
+  week1_ends_at: string
+  week2_starts_at: string
+  week2_ends_at: string
+}
+
+export type EnrollmentCounts = {
+  week1_doors: number
+  week1_inspections: number
+  week2_doors: number
+  week2_inspections: number
+}
+
 export type SyncOrgResult = {
   synced: number
   qualified: QualifiedResult[]
@@ -83,6 +101,89 @@ function countAppointments(
     const ts = new Date(a.created_at).getTime()
     return ts >= start && ts < end  // exclusive end — matches stored exclusive boundary
   }).length
+}
+
+// ── Pure counting core (no I/O, no side effects) ───────────────────────────────
+// Given already-fetched door-knock leads + appointments, compute each
+// enrollment's week1/week2 door and inspection counts. This is the EXACT logic
+// the sync uses to derive counts — extracted verbatim so the live display and
+// the persisted sync can never diverge. It performs NO writes and reads no DB.
+export function computeEnrollmentCounts(
+  enrollments: CountableEnrollment[],
+  leads: LeadRow[],
+  appointments: AppointmentRow[],
+): Map<string, EnrollmentCounts> {
+  // Attribution mirrors the rep dashboard: pin_attributed_user_id wins over
+  // owner_user_id (via getAttributedCanvassLeadUserId).
+  const leadsByUser = new Map<string, LeadRow[]>()
+  for (const l of leads) {
+    const userId = getAttributedCanvassLeadUserId(l)
+    if (!userId) continue
+    const arr = leadsByUser.get(userId) ?? []
+    arr.push(l)
+    leadsByUser.set(userId, arr)
+  }
+
+  const appointmentsByUser = new Map<string, AppointmentRow[]>()
+  for (const a of appointments) {
+    if (!a.canvasser_user_id) continue
+    const arr = appointmentsByUser.get(a.canvasser_user_id) ?? []
+    arr.push(a)
+    appointmentsByUser.set(a.canvasser_user_id, arr)
+  }
+
+  const counts = new Map<string, EnrollmentCounts>()
+  for (const e of enrollments) {
+    counts.set(e.id, {
+      week1_doors: countLeads(leadsByUser, e.user_id, e.week1_starts_at, e.week1_ends_at),
+      week1_inspections: countAppointments(appointmentsByUser, e.user_id, e.week1_starts_at, e.week1_ends_at),
+      week2_doors: countLeads(leadsByUser, e.user_id, e.week2_starts_at, e.week2_ends_at),
+      week2_inspections: countAppointments(appointmentsByUser, e.user_id, e.week2_starts_at, e.week2_ends_at),
+    })
+  }
+  return counts
+}
+
+// ── Read-only fetch + count (no writes) ────────────────────────────────────────
+// Fetches the door-knock leads + appointments spanning all supplied enrollments'
+// windows and returns live counts. Safe to call from the GET handler: it never
+// inserts bonus lines, notifications, or flips qualified flags.
+export async function fetchEnrollmentCounts(
+  admin: SupabaseClient,
+  orgId: string,
+  enrollments: CountableEnrollment[],
+): Promise<Map<string, EnrollmentCounts>> {
+  if (enrollments.length === 0) return new Map()
+
+  const allStarts = enrollments.flatMap((e) => [e.week1_starts_at, e.week2_starts_at])
+  const allEnds = enrollments.flatMap((e) => [e.week1_ends_at, e.week2_ends_at])
+  const rangeStart = allStarts.reduce((min, d) => (d < min ? d : min))
+  const rangeEnd = allEnds.reduce((max, d) => (d > max ? d : max))
+
+  const [leadsResult, appointmentsResult] = await Promise.all([
+    admin
+      .from('leads')
+      .select('owner_user_id, pin_attributed_user_id, created_at')
+      .eq('org_id', orgId)
+      .in('source', DOOR_KNOCK_SOURCES)
+      .gte('created_at', rangeStart)
+      .lt('created_at', rangeEnd),    // exclusive end — matches stored exclusive boundary
+    admin
+      .from('scheduled_appointments')
+      .select('canvasser_user_id, created_at')
+      .eq('org_id', orgId)
+      .gte('created_at', rangeStart)
+      .lt('created_at', rangeEnd),    // exclusive end
+  ])
+
+  if (leadsResult.error) throw new Error(leadsResult.error.message)
+  if (appointmentsResult.error) throw new Error(appointmentsResult.error.message)
+
+  return computeEnrollmentCounts(
+    enrollments,
+    (leadsResult.data ?? []) as LeadRow[],
+    (appointmentsResult.data ?? []) as AppointmentRow[],
+  )
 }
 
 export async function syncOrgEnrollments(
@@ -144,51 +245,9 @@ export async function syncOrgEnrollments(
   const enrollments = (enrollmentResult.data ?? []) as unknown as Enrollment[]
   if (enrollments.length === 0) return { synced: 0, qualified: [] }
 
-  const allStarts = enrollments.flatMap((e) => [e.week1_starts_at, e.week2_starts_at])
-  const allEnds = enrollments.flatMap((e) => [e.week1_ends_at, e.week2_ends_at])
-  const rangeStart = allStarts.reduce((min, d) => (d < min ? d : min))
-  const rangeEnd = allEnds.reduce((max, d) => (d > max ? d : max))
-
-  const [leadsResult, appointmentsResult] = await Promise.all([
-    admin
-      .from('leads')
-      .select('owner_user_id, pin_attributed_user_id, created_at')
-      .eq('org_id', orgId)
-      .in('source', DOOR_KNOCK_SOURCES)
-      .gte('created_at', rangeStart)
-      .lt('created_at', rangeEnd),    // exclusive end — matches stored exclusive boundary
-    admin
-      .from('scheduled_appointments')
-      .select('canvasser_user_id, created_at')
-      .eq('org_id', orgId)
-      .gte('created_at', rangeStart)
-      .lt('created_at', rangeEnd),    // exclusive end
-  ])
-
-  if (leadsResult.error) throw new Error(leadsResult.error.message)
-  if (appointmentsResult.error) throw new Error(appointmentsResult.error.message)
-
-  const allLeads = (leadsResult.data ?? []) as LeadRow[]
-  const allAppointments = (appointmentsResult.data ?? []) as AppointmentRow[]
-
-  // Use the same attribution logic as the rep dashboard — pin_attributed_user_id
-  // takes precedence over owner_user_id (matches getAttributedCanvassLeadUserId)
-  const leadsByUser = new Map<string, LeadRow[]>()
-  for (const l of allLeads) {
-    const userId = getAttributedCanvassLeadUserId(l)
-    if (!userId) continue
-    const arr = leadsByUser.get(userId) ?? []
-    arr.push(l)
-    leadsByUser.set(userId, arr)
-  }
-
-  const appointmentsByUser = new Map<string, AppointmentRow[]>()
-  for (const a of allAppointments) {
-    if (!a.canvasser_user_id) continue
-    const arr = appointmentsByUser.get(a.canvasser_user_id) ?? []
-    arr.push(a)
-    appointmentsByUser.set(a.canvasser_user_id, arr)
-  }
+  // Counts are derived by the shared, side-effect-free counter so the live
+  // display (GET handler) and the persisted sync can never disagree.
+  const countsById = await fetchEnrollmentCounts(admin, orgId, enrollments)
 
   let openPayrollPeriodId: string | null = null
   const { data: periodRows, error: periodError } = await admin
@@ -214,10 +273,16 @@ export async function syncOrgEnrollments(
   let synced = 0
 
   for (const enrollment of enrollments) {
-    const week1Doors = countLeads(leadsByUser, enrollment.user_id, enrollment.week1_starts_at, enrollment.week1_ends_at)
-    const week1Inspections = countAppointments(appointmentsByUser, enrollment.user_id, enrollment.week1_starts_at, enrollment.week1_ends_at)
-    const week2Doors = countLeads(leadsByUser, enrollment.user_id, enrollment.week2_starts_at, enrollment.week2_ends_at)
-    const week2Inspections = countAppointments(appointmentsByUser, enrollment.user_id, enrollment.week2_starts_at, enrollment.week2_ends_at)
+    const counts = countsById.get(enrollment.id) ?? {
+      week1_doors: 0,
+      week1_inspections: 0,
+      week2_doors: 0,
+      week2_inspections: 0,
+    }
+    const week1Doors = counts.week1_doors
+    const week1Inspections = counts.week1_inspections
+    const week2Doors = counts.week2_doors
+    const week2Inspections = counts.week2_inspections
 
     const week1NowQualified = week1Doors >= PROGRAM_444_DOOR_THRESHOLD && week1Inspections >= PROGRAM_444_INSPECTION_THRESHOLD
     const week2NowQualified = week2Doors >= PROGRAM_444_DOOR_THRESHOLD && week2Inspections >= PROGRAM_444_INSPECTION_THRESHOLD
