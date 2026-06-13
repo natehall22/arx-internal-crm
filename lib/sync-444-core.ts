@@ -190,42 +190,54 @@ export async function syncOrgEnrollments(
   admin: SupabaseClient,
   orgId: string,
   callerUserId: string | null,
+  // When userId is provided, only that rep's active enrollment(s) are processed.
+  // Everything downstream (counting, qualification flip, bonus line, notification,
+  // optimistic lock) operates strictly on the fetched enrollments, so narrowing the
+  // fetch is a complete and safe scoping — used by the rep-triggered /api/sisu/sync
+  // so a rep can finalize their OWN 444 without depending on the org-wide cron.
+  options?: { userId?: string },
 ): Promise<SyncOrgResult> {
   const nowIso = new Date().toISOString()
 
   // ── Fetch org settings + active enrollments in parallel ──────────────────
+  let enrollmentQuery = admin
+    .from('program_444_enrollments')
+    .select(
+      [
+        'id',
+        'org_id',
+        'user_id',
+        'week1_starts_at',
+        'week1_ends_at',
+        'week2_starts_at',
+        'week2_ends_at',
+        'week1_doors',
+        'week1_inspections',
+        'week1_qualified',
+        'week1_qualified_at',
+        'week1_payroll_period_id',
+        'week2_doors',
+        'week2_inspections',
+        'week2_qualified',
+        'week2_qualified_at',
+        'week2_payroll_period_id',
+        'status',
+      ].join(', '),
+    )
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+
+  if (options?.userId) {
+    enrollmentQuery = enrollmentQuery.eq('user_id', options.userId)
+  }
+
   const [orgResult, enrollmentResult] = await Promise.all([
     admin
       .from('orgs')
       .select('program_444_week_bonus_amount, program_444_week_bonus_label')
       .eq('id', orgId)
       .single(),
-    admin
-      .from('program_444_enrollments')
-      .select(
-        [
-          'id',
-          'org_id',
-          'user_id',
-          'week1_starts_at',
-          'week1_ends_at',
-          'week2_starts_at',
-          'week2_ends_at',
-          'week1_doors',
-          'week1_inspections',
-          'week1_qualified',
-          'week1_qualified_at',
-          'week1_payroll_period_id',
-          'week2_doors',
-          'week2_inspections',
-          'week2_qualified',
-          'week2_qualified_at',
-          'week2_payroll_period_id',
-          'status',
-        ].join(', '),
-      )
-      .eq('org_id', orgId)
-      .eq('status', 'active'),
+    enrollmentQuery,
   ])
 
   if (orgResult.error || !orgResult.data) {
