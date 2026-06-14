@@ -104,6 +104,7 @@ export async function POST(request: NextRequest) {
         email: body.email || null,
         address_text: body.address_text || null,
         source: body.source || null,
+        channel: body.source === 'call_center' ? 'outbound' : (body.channel || null),
         status: body.status || 'new',
         notes: body.notes || null,
         lat: body.lat || null,

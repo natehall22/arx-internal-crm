@@ -171,6 +171,7 @@ export default async function LeadDetailPage({
     'ad_campaign',
     'door_to_door',
     'call_in',
+    'call_center',
     'referral',
     'web',
     'other',

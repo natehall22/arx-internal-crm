@@ -34,6 +34,7 @@ function formatLeadSource(source: string | null | undefined): string | null {
   const s = source.toLowerCase()
   if (s === 'door_to_door') return 'Door-to-door'
   if (s === 'canvass') return 'Canvass'
+  if (s === 'call_center') return 'Call Center'
   return source.replace(/_/g, ' ')
 }
 

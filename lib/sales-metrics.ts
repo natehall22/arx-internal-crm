@@ -1,7 +1,7 @@
 const DOOR_COUNT_SOURCES = new Set(['door_to_door', 'canvass', 'door_knock', 'csv_import'])
 
 /** Inbound leads: disposition alone must not turn them into canvass doors (see migration 130). */
-const NON_CANVASS_DISPOSITION_SOURCES = new Set(['web', 'inbound'])
+const NON_CANVASS_DISPOSITION_SOURCES = new Set(['web', 'inbound', 'call_center'])
 const CONTACT_DISPOSITIONS = new Set(['go_back', 'hot_lead', 'not_interested', 'renter'])
 export const SALE_AGREEMENT_TYPES = ['installation', 'repair'] as const
 
