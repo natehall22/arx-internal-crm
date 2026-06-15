@@ -20,6 +20,7 @@ type SearchParams = {
   from?: string
   to?: string
   q?: string
+  source?: string
 }
 
 type JobRow = {
@@ -37,7 +38,7 @@ type JobRow = {
   customer?: { name: string | null } | null
   project?: {
     customers?: { name: string | null } | null
-    leads?: { homeowner_name: string | null } | null
+    leads?: { homeowner_name: string | null; source: string | null } | null
   } | null
 }
 
@@ -159,6 +160,7 @@ export default async function AdminJobProfitTrackerPage({
   const from = searchParams?.from || ''
   const to = searchParams?.to || ''
   const q = (searchParams?.q || '').trim()
+  const sourceFilter = searchParams?.source || 'all'
 
   let query = supabase
     .from('production_jobs')
@@ -176,7 +178,7 @@ export default async function AdminJobProfitTrackerPage({
         labor_cost,
         internal_notes,
         customer:customers(name),
-        project:projects(customers(name), leads(homeowner_name))
+        project:projects(customers(name), leads(homeowner_name, source))
       `
     )
     .eq('org_id', profile.org_id)
@@ -215,6 +217,15 @@ export default async function AdminJobProfitTrackerPage({
         .join(' ')
         .toLowerCase()
       return haystack.includes(needle)
+    })
+  }
+
+  if (sourceFilter === 'call_center') {
+    jobs = jobs.filter((job) => {
+      const leads = job.project?.leads
+      if (!leads) return false
+      if (Array.isArray(leads)) return leads.some((l) => l?.source === 'call_center')
+      return leads.source === 'call_center'
     })
   }
 
@@ -385,7 +396,7 @@ export default async function AdminJobProfitTrackerPage({
             </p>
           </div>
 
-          <form className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+          <form className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-sm sm:grid-cols-2 lg:grid-cols-5">
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Status</span>
               <select
@@ -424,6 +435,17 @@ export default async function AdminJobProfitTrackerPage({
               />
             </label>
             <label className="block">
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Source Filter</span>
+              <select
+                name="source"
+                defaultValue={sourceFilter}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
+              >
+                <option value="all">All</option>
+                <option value="call_center">Call Center</option>
+              </select>
+            </label>
+            <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Search</span>
               <div className="mt-1 flex gap-2">
                 <input
@@ -446,10 +468,10 @@ export default async function AdminJobProfitTrackerPage({
 
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            { label: 'Contract', value: totals.contract, className: 'border-sky-200 bg-sky-50 text-sky-950' },
+            { label: sourceFilter === 'call_center' ? 'Call Center Contract' : 'Contract', value: totals.contract, className: 'border-sky-200 bg-sky-50 text-sky-950' },
             { label: 'Finance costs', value: totals.finance, className: 'border-indigo-200 bg-indigo-50 text-indigo-950' },
             { label: 'Expenses', value: totals.expenses, className: 'border-amber-200 bg-amber-50 text-amber-950' },
-            { label: 'Gross profit', value: totals.gross, className: 'border-emerald-200 bg-emerald-50 text-emerald-950' },
+            { label: sourceFilter === 'call_center' ? 'Call Center Gross Profit' : 'Gross profit', value: totals.gross, className: 'border-emerald-200 bg-emerald-50 text-emerald-950' },
             { label: 'Net profit', value: totals.net, className: 'border-teal-200 bg-teal-50 text-teal-950' },
           ].map((item) => (
             <div key={item.label} className={`rounded-lg border px-4 py-3 shadow-sm ${item.className}`}>

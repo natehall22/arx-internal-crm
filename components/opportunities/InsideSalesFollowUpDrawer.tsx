@@ -16,7 +16,9 @@ type Props = {
   opportunityId: string
   customerName: string
   customerPhone: string | null
-  followUpKind: 'didnt_sit' | 'handoff'
+  followUpKind: 'didnt_sit' | 'handoff' | 'knockback'
+  /** Knockback reason when followUpKind is knockback */
+  knockbackReason?: string | null
   /** Admin inspection outcome label when followUpKind is handoff */
   handoffOutcomeLabel?: string | null
   assignedToName: string | null
@@ -39,6 +41,7 @@ type FollowUpAction = 'claim_self' | 'log_call' | 'log_text' | 'mark_rescheduled
 type ActionKind = Exclude<FollowUpAction, 'claim_self'> | null
 
 const CALL_RESULTS = ['Spoke with customer', 'Left voicemail', 'No answer', 'Wrong number']
+const CALL_RESULTS_KNOCKBACK = ['No Answer', 'Left Voicemail', 'Spoke with them', 'Not Interested']
 const TEXT_RESULTS = ['Sent text', 'Customer replied', 'No response yet']
 
 export default function InsideSalesFollowUpDrawer({
@@ -47,6 +50,7 @@ export default function InsideSalesFollowUpDrawer({
   customerPhone,
   followUpKind,
   handoffOutcomeLabel,
+  knockbackReason,
   assignedToName,
   statusLabel,
   nextFollowUpAt,
@@ -64,6 +68,7 @@ export default function InsideSalesFollowUpDrawer({
   const [open, setOpen] = useState(false)
   const [action, setAction] = useState<ActionKind>(null)
   const [result, setResult] = useState('')
+  const [spokeWith, setSpokeWith] = useState('')
   const [note, setNote] = useState('')
   const [nextFollowUpValue, setNextFollowUpValue] = useState('')
   const [scheduleNote, setScheduleNote] = useState('')
@@ -85,9 +90,11 @@ export default function InsideSalesFollowUpDrawer({
   )
 
   const followUpBadgeLabel =
-    followUpKind === 'handoff'
-      ? handoffOutcomeLabel?.trim() || 'Inspection handoff'
-      : "Didn't sit"
+    followUpKind === 'knockback'
+      ? (knockbackReason?.replace(/_/g, ' ') || 'Knockback').replace(/\b\w/g, (c) => c.toUpperCase())
+      : followUpKind === 'handoff'
+        ? handoffOutcomeLabel?.trim() || 'Inspection handoff'
+        : "Didn't sit"
   const headline = callableNow
     ? 'Your turn — ok to call'
     : eligibleAtIso
@@ -96,25 +103,36 @@ export default function InsideSalesFollowUpDrawer({
 
   const drawerEyebrow = 'Inside sales'
   const schedulePlaceholder =
-    followUpKind === 'handoff'
-      ? 'Example: Customer is ready for the next visit. Review prior notes before arriving and confirm the right decision-maker will be there.'
-      : 'Example: Customer available after 6 PM. Wife needs Spanish support. Confirm husband is home before driving out.'
+    followUpKind === 'knockback'
+      ? 'Example: Customer asked to call back in spring. Credit may improve by then — confirm decision-maker availability.'
+      : followUpKind === 'handoff'
+        ? 'Example: Customer is ready for the next visit. Review prior notes before arriving and confirm the right decision-maker will be there.'
+        : 'Example: Customer available after 6 PM. Wife needs Spanish support. Confirm husband is home before driving out.'
 
   const phoneDigits = customerPhone ? customerPhone.replace(/\D/g, '') : ''
 
   if (!visible) return null
 
   const resultOptions =
-    action === 'log_call' ? CALL_RESULTS : action === 'log_text' ? TEXT_RESULTS : []
+    action === 'log_call'
+      ? followUpKind === 'knockback'
+        ? CALL_RESULTS_KNOCKBACK
+        : CALL_RESULTS
+      : action === 'log_text'
+        ? TEXT_RESULTS
+        : []
 
   async function submitAction(kind: FollowUpAction) {
     setError(null)
     const payload: Record<string, string> = { action: kind }
     if (note.trim()) payload.note = note.trim()
     if (result.trim()) payload.result = result.trim()
+    if (spokeWith.trim() && (kind === 'log_call' || kind === 'log_text')) {
+      payload.spoke_with = spokeWith.trim()
+    }
     if (nextFollowUpValue) {
       payload.next_follow_up_at = nextFollowUpValue
-      payload.next_follow_up_timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
+      payload.next_follow_up_timezone = 'America/New_York'
     }
 
     const response = await fetch(`/api/opportunities/${opportunityId}/inside-sales-follow-up`, {
@@ -145,6 +163,7 @@ export default function InsideSalesFollowUpDrawer({
   function resetForm() {
     setAction(null)
     setResult('')
+    setSpokeWith('')
     setNote('')
     setNextFollowUpValue('')
     setError(null)
@@ -153,6 +172,7 @@ export default function InsideSalesFollowUpDrawer({
   function handleQuickAction(kind: Exclude<ActionKind, null>) {
     setAction(kind)
     setResult('')
+    setSpokeWith('')
     setNote('')
     setError(null)
   }
@@ -381,7 +401,9 @@ export default function InsideSalesFollowUpDrawer({
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button type="button" onClick={() => handleQuickAction('log_call')} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200">Log call</button>
                     <button type="button" onClick={() => handleQuickAction('log_text')} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200">Log text</button>
-                    <button type="button" onClick={handleOpenSchedule} className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-200">Schedule back to closer</button>
+                    {followUpKind !== 'knockback' && (
+                      <button type="button" onClick={handleOpenSchedule} className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-200">Schedule back to closer</button>
+                    )}
                     <button type="button" onClick={() => handleQuickAction('mark_rescheduled')} className="rounded-lg bg-emerald-100 px-3 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-200">Rescheduled</button>
                     <button type="button" onClick={() => handleQuickAction('mark_unresponsive')} className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200">Unresponsive</button>
                     <button type="button" onClick={() => handleQuickAction('mark_lost')} className="rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-200">Lost</button>
@@ -436,6 +458,19 @@ export default function InsideSalesFollowUpDrawer({
                               </option>
                             ))}
                           </select>
+                        </div>
+                      )}
+
+                      {action === 'log_call' && (
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Spoke with (optional)</label>
+                          <input
+                            type="text"
+                            value={spokeWith}
+                            onChange={(e) => setSpokeWith(e.target.value)}
+                            placeholder="Name of person spoken to"
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                          />
                         </div>
                       )}
 

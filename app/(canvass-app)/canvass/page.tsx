@@ -46,6 +46,10 @@ export type CanvassPin = {
   owner_user_id?: string
   owner_name?: string
   installation_agreement_signed_at?: string | null
+  rep_lat?:             number | null
+  rep_lng?:             number | null
+  rep_geo_accuracy?:    number | null
+  rep_geo_captured_at?: string | null
 }
 
 // Union type for display
@@ -308,6 +312,16 @@ export default function CanvassPage() {
     closer_user_id?: string
     inspection_scheduled_for?: string
   }) => {
+    // Snapshot rep position at the exact moment of knock — may be null if permission not granted
+    const repGeoSnapshot = position
+      ? {
+          rep_lat:             position.lat,
+          rep_lng:             position.lng,
+          rep_geo_accuracy:    position.accuracy,
+          rep_geo_captured_at: new Date(position.timestamp).toISOString(),
+        }
+      : { rep_lat: null, rep_lng: null, rep_geo_accuracy: null, rep_geo_captured_at: null }
+
     if (selectedPin) {
       // Update existing pin via API
       let apiSuccess = false
@@ -348,6 +362,7 @@ export default function CanvassPage() {
               schedule_inspection: leadData.schedule_inspection,
               closer_user_id: leadData.closer_user_id,
               inspection_scheduled_for: leadData.inspection_scheduled_for,
+              ...repGeoSnapshot,
             }),
           })
           
@@ -392,7 +407,7 @@ export default function CanvassPage() {
       }
       
       // Update local state
-      const updatedPin = { ...selectedPin, ...leadData }
+      const updatedPin = { ...selectedPin, ...leadData, ...repGeoSnapshot }
       if (leadData.schedule_inspection) {
         updatedPin.status = 'inspection'
         updatedPin.disposition = 'scheduled'
@@ -424,6 +439,7 @@ export default function CanvassPage() {
         created_at: new Date().toISOString(),
         synced: false,
         owner_user_id: profile?.id,
+        ...repGeoSnapshot,
       }
 
       if (isOnline) {
@@ -446,6 +462,7 @@ export default function CanvassPage() {
               schedule_inspection: leadData.schedule_inspection,
               closer_user_id: leadData.closer_user_id,
               inspection_scheduled_for: leadData.inspection_scheduled_for,
+              ...repGeoSnapshot,
             }),
           })
 

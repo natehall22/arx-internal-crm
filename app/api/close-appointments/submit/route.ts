@@ -9,6 +9,7 @@ import {
 } from '@/lib/close-outcomes'
 import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+  KNOCKBACK_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 import { sendSetterEmail } from '@/lib/setter-email'
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
 
     const { data: opportunity, error: oppError } = await admin
       .from('opportunities')
-      .select('id, org_id, owner_user_id, lead_id, status')
+      .select('id, org_id, owner_user_id, lead_id, status, pipeline_stage')
       .eq('id', opportunityId)
       .eq('org_id', profile.org_id)
       .maybeSingle()
@@ -268,10 +269,43 @@ export async function POST(request: NextRequest) {
     const closesAsLost = closeAction === 'lost'
     const opportunityAlreadyFinal = opportunity.status === 'won' || opportunity.status === 'lost'
 
+    const knockbackReason = body.knockback_reason as string | undefined
+    const knockbackMonths = typeof body.knockback_follow_up_months === 'number'
+      ? body.knockback_follow_up_months
+      : null
+    const validKnockbackReasons = ['credit_fail', 'not_ready', 'price_objection']
+    const validKnockbackMonths = [2, 4, 6]
+    const hasPartialKnockback =
+      Boolean(knockbackReason) !== Boolean(knockbackMonths)
+    if (hasPartialKnockback) {
+      return NextResponse.json(
+        { error: 'Knockback requires both a reason and follow-up months (2, 4, or 6)' },
+        { status: 400 }
+      )
+    }
+    const isOnInsurancePipeline =
+      String(opportunity.pipeline_stage || '').startsWith('rep_working_insurance') ||
+      String(opportunity.pipeline_stage || '').startsWith('inside_sales_insurance')
+    const validKnockback =
+      knockbackReason &&
+      outcomeNorm !== 'insurance_follow_up' &&
+      !isOnInsurancePipeline &&
+      validKnockbackReasons.includes(knockbackReason) &&
+      knockbackMonths &&
+      validKnockbackMonths.includes(knockbackMonths)
+
     if (closesAsSold) {
       oppUpdate.status = 'won'
     } else if (closesAsLost) {
       oppUpdate.status = 'lost'
+    } else if (validKnockback) {
+      const followUpDate = new Date()
+      followUpDate.setMonth(followUpDate.getMonth() + knockbackMonths)
+      oppUpdate.knockback_reason = knockbackReason
+      oppUpdate.knockback_follow_up_months = knockbackMonths
+      oppUpdate.pipeline_stage = KNOCKBACK_PIPELINE_PREFIX
+      oppUpdate.follow_up_at = followUpDate.toISOString()
+      oppUpdate.assigned_user_id = null
     } else if (!opportunityAlreadyFinal && insideSalesHandoff.enabled) {
       const delayDays = insideSalesHandoff.delayDays ?? 0
       const followUpAt = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000).toISOString()

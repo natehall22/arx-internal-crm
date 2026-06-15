@@ -459,6 +459,55 @@ export default async function OpportunityDetailPage({
     }
   } else if (
     hasInsideSalesFollowUp &&
+    insideSalesFollowUpKind === 'knockback'
+  ) {
+    const knockbackReasonLabel = (opportunity as { knockback_reason?: string | null }).knockback_reason
+      ?.replace(/_/g, ' ')
+    const followUpLabel = opportunity.follow_up_at
+      ? new Date(opportunity.follow_up_at).toLocaleString('en-US', {
+          timeZone: 'America/New_York',
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : null
+    const cal = insideSalesCallability
+    const callableNow = cal?.callableNow ?? true
+    if (callableNow) {
+      nextStep = {
+        icon: '📞',
+        title: 'Inside sales — knockback due',
+        body: knockbackReasonLabel
+          ? `Follow-up queue (${knockbackReasonLabel}). Ok to call now — log touches below or from Inside Sales.${followUpLabel ? ` Scheduled follow-up: ${followUpLabel} ET.` : ''}`
+          : `Follow-up queue. Ok to call now — log touches below or from Inside Sales.${followUpLabel ? ` Scheduled follow-up: ${followUpLabel} ET.` : ''}`,
+        bg: 'bg-amber-50 border-amber-200',
+        titleColor: 'text-amber-900',
+        ...(canViewInsideSalesQueue
+          ? {
+              link: '/inside-sales',
+              linkLabel: 'Open Inside Sales',
+            }
+          : {}),
+      }
+    } else {
+      nextStep = {
+        icon: '⏳',
+        title: 'Inside sales — knockback scheduled',
+        body: followUpLabel
+          ? `Follow-up opens ${followUpLabel} ET.${knockbackReasonLabel ? ` Reason: ${knockbackReasonLabel}.` : ''}`
+          : 'Follow-up is scheduled for a future date. Review notes and call when the date arrives.',
+        bg: 'bg-violet-50 border-violet-200',
+        titleColor: 'text-violet-900',
+        ...(canViewInsideSalesQueue
+          ? {
+              link: '/inside-sales',
+              linkLabel: 'Open Inside Sales',
+            }
+          : {}),
+      }
+    }
+  } else if (
+    hasInsideSalesFollowUp &&
     insideSalesFollowUpKind === 'handoff'
   ) {
     const cal = insideSalesCallability
@@ -625,18 +674,26 @@ export default async function OpportunityDetailPage({
                   {hasInsideSalesFollowUp && insideSalesFollowUpKind && (
                     <span
                       className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${
-                        insideSalesFollowUpKind === 'handoff' &&
-                        insideSalesCallability &&
-                        !insideSalesCallability.callableNow
-                          ? 'bg-violet-100 text-violet-800'
-                          : 'bg-amber-100 text-amber-900'
+                        insideSalesFollowUpKind === 'knockback'
+                          ? insideSalesCallability && !insideSalesCallability.callableNow
+                            ? 'bg-violet-100 text-violet-800'
+                            : 'bg-orange-100 text-orange-900'
+                          : insideSalesFollowUpKind === 'handoff' &&
+                              insideSalesCallability &&
+                              !insideSalesCallability.callableNow
+                            ? 'bg-violet-100 text-violet-800'
+                            : 'bg-amber-100 text-amber-900'
                       }`}
                     >
-                      {insideSalesFollowUpKind === 'didnt_sit'
-                        ? "Didn't sit · Ready for you"
-                        : insideSalesCallability && !insideSalesCallability.callableNow
-                          ? `${handoffInspectionLabel || 'Handoff'} · Opens ${insideSalesCallability.eligibleAtIso ? new Date(insideSalesCallability.eligibleAtIso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'soon'}`
-                          : `${handoffInspectionLabel || 'Handoff'} · Ready for you`}
+                      {insideSalesFollowUpKind === 'knockback'
+                        ? insideSalesCallability && !insideSalesCallability.callableNow
+                          ? `Knockback · Opens ${insideSalesCallability.eligibleAtIso ? new Date(insideSalesCallability.eligibleAtIso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'soon'}`
+                          : `Knockback · Ready for you`
+                        : insideSalesFollowUpKind === 'didnt_sit'
+                          ? "Didn't sit · Ready for you"
+                          : insideSalesCallability && !insideSalesCallability.callableNow
+                            ? `${handoffInspectionLabel || 'Handoff'} · Opens ${insideSalesCallability.eligibleAtIso ? new Date(insideSalesCallability.eligibleAtIso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'soon'}`
+                            : `${handoffInspectionLabel || 'Handoff'} · Ready for you`}
                     </span>
                   )}
                 </div>
@@ -770,7 +827,9 @@ export default async function OpportunityDetailPage({
         {hasInsideSalesFollowUp &&
           canViewInsideSalesQueue &&
           insideSalesFollowUpKind &&
-          (insideSalesFollowUpKind === 'didnt_sit' || insideSalesFollowUpKind === 'handoff') && (
+          (insideSalesFollowUpKind === 'didnt_sit' ||
+            insideSalesFollowUpKind === 'handoff' ||
+            insideSalesFollowUpKind === 'knockback') && (
             <div className="mb-4 sm:mb-6">
               <InsideSalesFollowUpDrawer
                 opportunityId={params.id}
@@ -778,6 +837,7 @@ export default async function OpportunityDetailPage({
                 customerPhone={customerPhone}
                 followUpKind={insideSalesFollowUpKind}
                 handoffOutcomeLabel={handoffInspectionLabel}
+                knockbackReason={(opportunity as { knockback_reason?: string | null }).knockback_reason ?? null}
                 assignedToName={assignedInsideSalesName}
                 statusLabel={String(insideSalesFollowUpStatusForDrawer || 'new').replace(/_/g, ' ')}
                 nextFollowUpAt={opportunity.follow_up_at}

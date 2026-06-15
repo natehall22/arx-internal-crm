@@ -9,6 +9,7 @@ import {
   getInsideSalesFollowUpStatus,
   hasActiveInsideSalesFollowUp,
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+  KNOCKBACK_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 
@@ -236,5 +237,48 @@ describe('inside sales follow-up queue visibility', () => {
 
     expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(false)
     expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBeNull()
+  })
+
+  it('detects knockback pipeline before didnt_sit inspection routing', () => {
+    const opportunity = {
+      status: 'open',
+      inspection_outcome: 'not_home',
+      inspection_outcome_at: '2026-05-01T13:00:00.000Z',
+      pipeline_stage: KNOCKBACK_PIPELINE_PREFIX,
+      follow_up_at: '2026-07-01T13:00:00.000Z',
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('knockback')
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(true)
+    expect(getInsideSalesFollowUpStatus(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('new')
+  })
+
+  it('treats future knockback follow_up_at as not callable yet', () => {
+    const opportunity = {
+      status: 'open',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: KNOCKBACK_PIPELINE_PREFIX,
+      follow_up_at: '2026-07-01T13:00:00.000Z',
+    }
+
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
+      callableNow: false,
+      eligibleAtIso: '2026-07-01T13:00:00.000Z',
+      adminHandoffDelayDays: null,
+    })
+  })
+
+  it('excludes resolved knockback stages from the active queue', () => {
+    const opportunity = {
+      status: 'open',
+      inspection_outcome: null,
+      inspection_outcome_at: null,
+      pipeline_stage: `${KNOCKBACK_PIPELINE_PREFIX}_lost`,
+      follow_up_at: null,
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBeNull()
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(false)
   })
 })

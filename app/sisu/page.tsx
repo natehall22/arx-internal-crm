@@ -4,6 +4,8 @@ export const fetchCache = 'force-no-store'
 
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { fetchEnrollmentCounts } from '@/lib/sync-444-core'
 import Nav from '@/components/Nav'
 import IncentivesClient from './IncentivesClient'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
@@ -190,7 +192,41 @@ export default async function IncentivesPage() {
     }
   })
 
-  const enrollment444 = enrollment444Row ?? null
+  let enrollment444 = enrollment444Row ?? null
+
+  // ── Live progress overlay (DISPLAY ONLY) ───────────────────────────────────
+  // The persisted week*_doors / week*_inspections columns only refresh when the
+  // sync runs (hourly cron or the rep-triggered /api/sisu/sync). Recompute the
+  // rep's CURRENT counts here so they always see live progress on first paint —
+  // mirrors the admin 444 page. Read-only: qualified flags, qualified_at, and
+  // payroll links stay exactly as persisted (owned by the sync). On any error we
+  // keep the persisted counts so the page can never break.
+  if (enrollment444) {
+    try {
+      const service = createServiceClient()
+      const liveCounts = await fetchEnrollmentCounts(service, profile.org_id, [
+        {
+          id: enrollment444.id,
+          user_id: profile.id,
+          week1_starts_at: enrollment444.week1_starts_at,
+          week1_ends_at: enrollment444.week1_ends_at,
+          week2_starts_at: enrollment444.week2_starts_at,
+          week2_ends_at: enrollment444.week2_ends_at,
+        },
+      ])
+      const live = liveCounts.get(enrollment444.id)
+      if (live) {
+        // Stamp updated_at to now so the rep's "as of" recency label matches the
+        // freshly recomputed counts instead of the older persisted snapshot.
+        enrollment444 = { ...enrollment444, ...live, updated_at: new Date().toISOString() }
+      }
+    } catch (overlayError) {
+      console.error(
+        '[sisu/page] 444 live count overlay failed; using persisted counts:',
+        overlayError instanceof Error ? overlayError.message : overlayError,
+      )
+    }
+  }
 
   // ── Approved/paid bonus lines (rep-visible pay confirmations) ────────────────
   // Pending/rejected are invisible to reps; paid rows stay visible after payroll.

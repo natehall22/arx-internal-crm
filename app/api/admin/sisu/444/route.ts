@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { compute444WeekWindows } from '@/lib/program-444-utils'
+import {
+  fetchEnrollmentCounts,
+  type CountableEnrollment,
+  type EnrollmentCounts,
+} from '@/lib/sync-444-core'
 
 export const dynamic = 'force-dynamic'
 
@@ -157,7 +162,46 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ enrollments: data ?? [] })
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+
+  // ── Live progress overlay (DISPLAY ONLY) ───────────────────────────────────
+  // The persisted week*_doors / week*_inspections columns are only refreshed by
+  // the hourly sync cron, so the admin table shows stale counts between runs.
+  // Here we recompute CURRENT counts for ACTIVE enrollments from source data and
+  // attach them under a separate `live` key. We deliberately do NOT:
+  //   • call syncOrgEnrollments (it writes real-money bonus lines + notifications),
+  //   • mutate persisted counts, qualified flags, qualified_at, or payroll links.
+  // The cron stays the sole writer of qualification/bonus state. Live counts are
+  // surfaced as "progress", never as "paid". If the read-only count throws for any
+  // reason, we serve persisted counts so the page can never break.
+  const activeEnrollments: CountableEnrollment[] = rows
+    .filter((r) => r.status === 'active')
+    .map((r) => ({
+      id: String(r.id),
+      user_id: String(r.user_id),
+      week1_starts_at: String(r.week1_starts_at),
+      week1_ends_at: String(r.week1_ends_at),
+      week2_starts_at: String(r.week2_starts_at),
+      week2_ends_at: String(r.week2_ends_at),
+    }))
+
+  let countsById = new Map<string, EnrollmentCounts>()
+  try {
+    countsById = await fetchEnrollmentCounts(admin, authResult.orgId, activeEnrollments)
+  } catch (overlayError) {
+    console.error(
+      '[444 GET] live count overlay failed; serving persisted counts:',
+      overlayError instanceof Error ? overlayError.message : overlayError,
+    )
+  }
+
+  const enrollments = rows.map((r) => {
+    const live = countsById.get(String(r.id))
+    return live ? { ...r, live } : r
+  })
+
+  return NextResponse.json({ enrollments })
 }
 
 export async function POST(req: NextRequest) {

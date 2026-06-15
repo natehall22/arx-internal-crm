@@ -111,7 +111,7 @@ const BASE_OPPORTUNITY_SELECT_FIELDS = [
   'updated_at',
 ]
 
-const OPTIONAL_OPPORTUNITY_SELECT_FIELDS = ['pipeline_stage', 'follow_up_at', 'assigned_user_id']
+const OPTIONAL_OPPORTUNITY_SELECT_FIELDS = ['pipeline_stage', 'follow_up_at', 'assigned_user_id', 'knockback_reason']
 
 function isMissingColumnError(error: any) {
   return error?.code === '42703' || String(error?.message || '').includes('does not exist')
@@ -222,6 +222,7 @@ export async function GET(request: NextRequest) {
       pipeline_stage: opportunity.pipeline_stage ?? null,
       follow_up_at: opportunity.follow_up_at ?? null,
       assigned_user_id: opportunity.assigned_user_id ?? null,
+      knockback_reason: opportunity.knockback_reason ?? null,
     }))
     const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)
     const leadIds = rawOpportunities.map((opportunity: any) => opportunity.lead_id).filter(Boolean)
@@ -335,6 +336,7 @@ export async function GET(request: NextRequest) {
           project_type: opportunity.project_type,
           inspection_notes: opportunity.inspection_notes,
           follow_up_at: opportunity.follow_up_at,
+          created_at: opportunity.created_at,
           customerName: lead?.homeowner_name || customer?.name || 'Unknown Customer',
           customerPhone: lead?.phone || customer?.phone || null,
           closerUserId: lead?.closer_user_id || null,
@@ -349,6 +351,7 @@ export async function GET(request: NextRequest) {
             (typeof closeOutcomeCfg?.inside_sales_handoff_delay_days === 'number'
               ? closeOutcomeCfg.inside_sales_handoff_delay_days
               : null),
+          knockback_reason: opportunity.knockback_reason ?? null,
         }
       })
       .filter((opportunity: any) => opportunity.followUpKind)
@@ -405,6 +408,7 @@ export async function GET(request: NextRequest) {
         project_type: item.project_type,
         inspection_notes: item.inspection_notes,
         follow_up_at: item.follow_up_at,
+        created_at: item.created_at ?? null,
         customerName: item.customerName,
         customerPhone: item.customerPhone,
         followUpKind: item.followUpKind,
@@ -413,6 +417,7 @@ export async function GET(request: NextRequest) {
         callableNow: item.callableNow,
         eligibleAtIso: item.eligibleAtIso,
         adminHandoffDelayDays: item.adminHandoffDelayDays,
+        knockback_reason: item.knockback_reason ?? null,
         assignedToName: item.assigned_user_id
           ? userNameMap.get(item.assigned_user_id) || 'Assigned'
           : null,
@@ -445,6 +450,7 @@ export async function GET(request: NextRequest) {
           readyToCall: readyCount,
           didntSit: items.filter((item: any) => item.followUpKind === 'didnt_sit').length,
           handoff: items.filter((item: any) => item.followUpKind === 'handoff').length,
+          knockback: items.filter((item: any) => item.followUpKind === 'knockback').length,
         },
       },
       {

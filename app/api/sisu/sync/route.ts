@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { formatReward } from '@/lib/incentive-metrics'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { countClosedSalesForBadgeAward } from '@/lib/sisu-monthly-closed-sales'
+import { syncOrgEnrollments } from '@/lib/sync-444-core'
 import type { SpiffProgram, SpiffTriggerMetric } from '@/lib/types/incentive'
 
 export const dynamic = 'force-dynamic'
@@ -551,6 +552,23 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+    }
+
+    // ── 444 Program: finalize THIS rep's own enrollment ───────────────────────
+    // Recompute the rep's 444 door/inspection counts and, if they've crossed
+    // 400/4, register qualification + the pending bonus line + notification.
+    // Scoped to this user (userId) and reusing the exact optimistic-locked,
+    // per-period-deduped logic the cron uses — so a rep simply viewing their page
+    // finalizes their own bonus even when the org-wide cron isn't running. The
+    // bonus line lands as 'pending_approval', so an admin still signs it off.
+    // Best-effort: a 444 failure must never break the spiff/badge sync response.
+    try {
+      await syncOrgEnrollments(admin, userProfile.org_id, userId, { userId })
+    } catch (sync444Error) {
+      console.error(
+        '[sisu/sync] 444 enrollment sync failed:',
+        sync444Error instanceof Error ? sync444Error.message : sync444Error,
+      )
     }
 
     return NextResponse.json(updated)

@@ -1496,7 +1496,7 @@ export default function CompPlansPage() {
                                 <span className="font-medium text-green-600">
                                   ${planForm.volume_bonuses[0]?.bonus_value} bonus
                                 </span>{' '}
-                                per sale when the tier applies.
+                                once for the period when the tier applies.
                               </>
                             )}
                           </>

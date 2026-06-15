@@ -450,6 +450,11 @@ export async function POST(request: Request) {
       }
     }
 
+    const rep_lat             = body.rep_lat             ?? null
+    const rep_lng             = body.rep_lng             ?? null
+    const rep_geo_accuracy    = body.rep_geo_accuracy    ?? null
+    const rep_geo_captured_at = body.rep_geo_captured_at ?? null
+
     // Log incoming data for debugging
     console.log('Canvass lead payload:', {
       lat: body.lat,
@@ -505,9 +510,24 @@ export async function POST(request: Request) {
     let opportunityInsertedThisRequest = false
 
     if (leadId) {
+      const { data: existingLead } = await supabase
+        .from('leads')
+        .select('rep_lat')
+        .eq('id', leadId)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+
+      const updatePayload = {
+        ...leadPayload,
+        // Only set rep geo on update if not already captured (first-touch wins)
+        ...(rep_lat != null && !existingLead?.rep_lat
+          ? { rep_lat, rep_lng, rep_geo_accuracy, rep_geo_captured_at }
+          : {}),
+      }
+
       const { data: updatedLead, error: updateError } = await supabase
         .from('leads')
-        .update(leadPayload)
+        .update(updatePayload)
         .eq('id', leadId)
         .eq('org_id', profile.org_id)
         .select('*')
@@ -528,6 +548,10 @@ export async function POST(request: Request) {
           status: scheduleInspection ? 'inspection' : 'new',
           source: body.source || 'door_to_door',
           ...leadPayload,
+          rep_lat,
+          rep_lng,
+          rep_geo_accuracy,
+          rep_geo_captured_at,
           // After spread so a stray `owner_user_id` on payload can never override the authenticated canvasser
           owner_user_id: profile.id,
         })

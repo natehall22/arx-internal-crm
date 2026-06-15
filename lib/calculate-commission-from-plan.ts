@@ -148,11 +148,14 @@ export function calculateCommissionFromPlanForSale(input: {
   const effectiveRate = roundMoney(baseRate + volumeBonusRate)
 
   if (pt === 'flat_rate') {
-    commission = roundMoney(flatDollars(plan) + volumeBonusFlat)
+    commission = roundMoney(flatDollars(plan))
   } else {
-    commission = roundMoney(v * (effectiveRate / 100) + volumeBonusFlat)
+    commission = roundMoney(v * (effectiveRate / 100))
   }
 
+  // volumeBonusFlat is a period-level bonus (e.g. "$500 when sits hit 20").
+  // It is NOT added to the per-sale commission here so it can be applied
+  // exactly once per period in the export / payroll pipeline.
   const bonus = 0
   const total = roundMoney(commission + bonus)
 

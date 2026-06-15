@@ -15,6 +15,16 @@ type PayrollPeriodSummary = {
   status: string
 }
 
+// Live, recomputed-on-read counts attached by the GET handler for ACTIVE
+// enrollments. Display only — qualified/bonus state stays driven by the
+// persisted columns, which the hourly sync owns.
+type LiveCounts = {
+  week1_doors: number
+  week1_inspections: number
+  week2_doors: number
+  week2_inspections: number
+}
+
 type Program444Enrollment = {
   id: string
   org_id: string
@@ -42,6 +52,7 @@ type Program444Enrollment = {
   users: EnrollmentUser | EnrollmentUser[] | null
   week1_payroll_period?: PayrollPeriodSummary | PayrollPeriodSummary[] | null
   week2_payroll_period?: PayrollPeriodSummary | PayrollPeriodSummary[] | null
+  live?: LiveCounts | null
 }
 
 type OrgUser = {
@@ -83,6 +94,16 @@ function isEnrollmentStatus(value: unknown): value is EnrollmentStatus {
   return value === 'active' || value === 'completed' || value === 'cancelled'
 }
 
+function isLiveCounts(value: unknown): value is LiveCounts {
+  return (
+    isRecord(value) &&
+    typeof value.week1_doors === 'number' &&
+    typeof value.week1_inspections === 'number' &&
+    typeof value.week2_doors === 'number' &&
+    typeof value.week2_inspections === 'number'
+  )
+}
+
 function isProgram444Enrollment(value: unknown): value is Program444Enrollment {
   return (
     isRecord(value) &&
@@ -111,7 +132,8 @@ function isProgram444Enrollment(value: unknown): value is Program444Enrollment {
     typeof value.updated_at === 'string' &&
     (value.users === null ||
       isEnrollmentUser(value.users) ||
-      (Array.isArray(value.users) && value.users.every(isEnrollmentUser)))
+      (Array.isArray(value.users) && value.users.every(isEnrollmentUser))) &&
+    (value.live === undefined || value.live === null || isLiveCounts(value.live))
   )
 }
 
@@ -198,17 +220,35 @@ function formatWindow(start: string, end: string): string {
   return `${formatDateTime(start)} – ${formatDateTime(inclusiveEnd.toISOString())} ET`
 }
 
-function getWeekState(qualified: boolean, startsAt: string, endsAt: string): WeekState {
-  const now = Date.now()
-  const starts = new Date(startsAt).getTime()
-  const ends = new Date(endsAt).getTime()
-
+function getWeekState(
+  qualified: boolean,
+  doors: number,
+  inspections: number,
+  startsAt: string,
+  endsAt: string,
+): WeekState {
+  // Persisted qualification is the only "paid/registered" state — owned by the sync.
   if (qualified) {
     return {
       icon: '🏆',
       label: 'Qualified',
       className:
         'text-emerald-200 bg-emerald-500/15 border-emerald-400/50 shadow-[0_0_14px_rgba(16,185,129,0.35)]',
+    }
+  }
+
+  const now = Date.now()
+  const starts = new Date(startsAt).getTime()
+  const ends = new Date(endsAt).getTime()
+
+  // Live counts have crossed 400/4 but the hourly sync hasn't registered the
+  // bonus yet. Surface it as progress awaiting finalization — explicitly NOT
+  // "Qualified" and NOT a payroll/paid state, so it can't be mistaken for paid.
+  if (doors >= 400 && inspections >= 4) {
+    return {
+      icon: '⏳',
+      label: 'Goal met · finalizing',
+      className: 'text-amber-100 bg-amber-500/15 border-amber-400/50',
     }
   }
 
@@ -247,20 +287,33 @@ function WeekStatus({
   qualified,
   startsAt,
   endsAt,
+  isLive,
 }: {
   doors: number
   inspections: number
   qualified: boolean
   startsAt: string
   endsAt: string
+  isLive: boolean
 }) {
-  const state = getWeekState(qualified, startsAt, endsAt)
+  const state = getWeekState(qualified, doors, inspections, startsAt, endsAt)
 
   return (
     <div className="min-w-[170px] space-y-2">
-      <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${state.className}`}>
-        <span aria-hidden="true">{state.icon}</span>
-        <span>{state.label}</span>
+      <div className="flex items-center gap-2">
+        <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${state.className}`}>
+          <span aria-hidden="true">{state.icon}</span>
+          <span>{state.label}</span>
+        </div>
+        {isLive && !qualified && (
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-slate-400"
+            title="Counts update on each page load. Bonus qualification is registered by the hourly sync."
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+            Live
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
         <div className="rounded-lg bg-slate-900/70 px-2 py-1.5">
@@ -528,6 +581,9 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
                   const user = getEnrollmentUser(enrollment)
 
                   const isCancelled = enrollment.status === 'cancelled'
+                  // Live counts are only attached for active enrollments; fall
+                  // back to persisted columns for completed/cancelled rows.
+                  const live = enrollment.live ?? null
 
                   return (
                     <tr
@@ -547,11 +603,12 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
                           <span className="text-xs text-slate-500">Cancelled</span>
                         ) : (
                           <WeekStatus
-                            doors={enrollment.week1_doors}
-                            inspections={enrollment.week1_inspections}
+                            doors={live ? live.week1_doors : enrollment.week1_doors}
+                            inspections={live ? live.week1_inspections : enrollment.week1_inspections}
                             qualified={enrollment.week1_qualified}
                             startsAt={enrollment.week1_starts_at}
                             endsAt={enrollment.week1_ends_at}
+                            isLive={Boolean(live)}
                           />
                         )}
                       </td>
@@ -576,11 +633,12 @@ export default function Program444Client({ weekBonusLabel }: { weekBonusLabel: s
                           <span className="text-xs text-slate-500">—</span>
                         ) : (
                           <WeekStatus
-                            doors={enrollment.week2_doors}
-                            inspections={enrollment.week2_inspections}
+                            doors={live ? live.week2_doors : enrollment.week2_doors}
+                            inspections={live ? live.week2_inspections : enrollment.week2_inspections}
                             qualified={enrollment.week2_qualified}
                             startsAt={enrollment.week2_starts_at}
                             endsAt={enrollment.week2_ends_at}
+                            isLive={Boolean(live)}
                           />
                         )}
                       </td>
