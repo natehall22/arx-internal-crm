@@ -140,13 +140,15 @@ function getDisplayPricing(proposal: ProposalPDFData['proposal']) {
   discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
   const afterDiscountCents = subtotalCents - discountCents
   const taxCents = Math.round(afterDiscountCents * ((proposal.tax_rate || 0) / 100))
-  const totalCents = afterDiscountCents + taxCents
+  const computedTotalCents = afterDiscountCents + taxCents
+  const passedTotalCents = toCents(proposal.total || 0)
 
   return {
     subtotal: fromCents(subtotalCents),
     discountAmount: fromCents(discountCents),
     taxAmount: fromCents(taxCents),
-    total: fromCents(totalCents),
+    // Caller passes quoted total (financed_contract_total when financing applies)
+    total: passedTotalCents > 0 ? fromCents(passedTotalCents) : fromCents(computedTotalCents),
   }
 }
 
