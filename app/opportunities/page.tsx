@@ -39,7 +39,8 @@ type InsideSalesItem = {
   follow_up_at: string | null
   customerName: string
   customerPhone: string | null
-  followUpKind: 'didnt_sit' | 'handoff'
+  followUpKind: 'didnt_sit' | 'handoff' | 'knockback'
+  knockback_reason?: string | null
   followUpOutcomeLabel?: string | null
   followUpStatus: string | null
   callableNow: boolean
@@ -275,6 +276,7 @@ export default function OpportunitiesPage() {
     readyToCall: insideSalesItems.filter((item) => item.callableNow).length,
     didntSit: insideSalesItems.filter((item) => item.followUpKind === 'didnt_sit').length,
     handoff: insideSalesItems.filter((item) => item.followUpKind === 'handoff').length,
+    knockback: insideSalesItems.filter((item) => item.followUpKind === 'knockback').length,
   }
 
   return (
@@ -378,6 +380,7 @@ export default function OpportunitiesPage() {
                     <option value="waiting_rep">Still with rep</option>
                     <option value="didnt_sit">Didn&apos;t sit only</option>
                     <option value="handoff">Inspection handoff only</option>
+                    <option value="knockback">Knockback only</option>
                   </>
                 ) : (
                   <>
@@ -463,17 +466,25 @@ export default function OpportunitiesPage() {
                     <p className="text-sm font-medium text-cyan-800">Inspection handoff</p>
                     <p className="mt-2 text-3xl font-bold text-cyan-950">{insideSalesCounts.handoff}</p>
                   </div>
+                  <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-orange-800">Knockback</p>
+                    <p className="mt-2 text-3xl font-bold text-orange-950">{insideSalesCounts.knockback}</p>
+                  </div>
                 </div>
 
                 {filteredInsideSalesItems.map((item) => {
                   const kindLabel =
-                    item.followUpKind === 'handoff'
-                      ? item.followUpOutcomeLabel || 'Inspection handoff'
-                      : "Didn't Sit"
+                    item.followUpKind === 'knockback'
+                      ? (item.knockback_reason?.replace(/_/g, ' ') || 'Knockback').replace(/\b\w/g, (c) => c.toUpperCase())
+                      : item.followUpKind === 'handoff'
+                        ? item.followUpOutcomeLabel || 'Inspection handoff'
+                        : "Didn't Sit"
                   const kindClasses =
-                    item.followUpKind === 'handoff'
-                      ? 'bg-cyan-100 text-cyan-800'
-                      : 'bg-amber-100 text-amber-800'
+                    item.followUpKind === 'knockback'
+                      ? 'bg-orange-100 text-orange-800'
+                      : item.followUpKind === 'handoff'
+                        ? 'bg-cyan-100 text-cyan-800'
+                        : 'bg-amber-100 text-amber-800'
                   const statusPretty = String(item.followUpStatus || 'new').replace(/_/g, ' ')
                   const phoneDigits = item.customerPhone ? String(item.customerPhone).replace(/\D/g, '') : ''
 
@@ -563,6 +574,7 @@ export default function OpportunitiesPage() {
                             customerPhone={item.customerPhone}
                             followUpKind={item.followUpKind}
                             handoffOutcomeLabel={item.followUpOutcomeLabel ?? null}
+                            knockbackReason={item.knockback_reason ?? null}
                             assignedToName={item.assignedToName}
                             statusLabel={String(item.followUpStatus || 'new').replace(/_/g, ' ')}
                             nextFollowUpAt={item.follow_up_at}

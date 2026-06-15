@@ -14,6 +14,7 @@ import {
   isBarredFromProjectsUi,
   isOrgSuperuserRoleSlug,
 } from '@/lib/permissions'
+import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 
@@ -23,6 +24,8 @@ type NavItem = {
   permission?: string // If specified, check for this specific permission
   /** Must have this permission name (from role matrix, custom role, or user grant) — used for Canvass vs lead-only workflows */
   requiresAnyPermission?: string | string[]
+  /** Visible only to inside sales reps and managers who can view the IS queue */
+  insideSalesOnly?: boolean
 }
 
 export default function Nav() {
@@ -37,6 +40,8 @@ export default function Nav() {
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState<string>('ARX CRM')
   const [companyLogo, setCompanyLogo] = useState<string | null>(null)
+  const [customRoleName, setCustomRoleName] = useState<string | null>(null)
+  const [customRoleDisplayName, setCustomRoleDisplayName] = useState<string | null>(null)
 
   const normalizeRole = (role: unknown): string | null => {
     const normalized = String(role || '').toLowerCase().trim()
@@ -101,9 +106,15 @@ export default function Nav() {
       if (user) {
         const { data: profile } = await supabase
           .from('users')
-          .select('role, org_id')
+          .select('role, org_id, custom_role:custom_roles(name, display_name)')
           .eq('id', user.id)
           .single()
+
+        const customRole = Array.isArray((profile as any)?.custom_role)
+          ? (profile as any).custom_role[0]
+          : (profile as any)?.custom_role
+        if (customRole?.name) setCustomRoleName(customRole.name)
+        if (customRole?.display_name) setCustomRoleDisplayName(customRole.display_name)
 
         // Load org info for company name and logo
         if (profile?.org_id) {
@@ -249,6 +260,7 @@ export default function Nav() {
     { href: '/calendar', label: 'Calendar', requiresAnyPermission: ['scheduling:view', 'scheduling:create', 'scheduling:edit', 'scheduling:manage_team', 'scheduling:manage_region', 'scheduling:manage_queue'] },
     { href: '/leads', label: 'Leads', requiresAnyPermission: ['leads:view', 'leads:create', 'leads:edit', 'leads:delete', 'leads:assign', 'leads:view_inbound', 'leads:manage_inbound', 'leads:claim_inbound'] },
     { href: '/opportunities', label: 'Opportunities', requiresAnyPermission: ['opportunities:view', 'opportunities:edit'] },
+    { href: '/inside-sales', label: 'Inside Sales', insideSalesOnly: true },
     {
       href: '/projects',
       label: 'Projects',
@@ -268,6 +280,13 @@ export default function Nav() {
 
   // Filter nav items based on user role and permissions
   const navItems = allNavItems.filter(item => {
+    if (item.insideSalesOnly) {
+      return canViewInsideSalesFollowUp({
+        role: userRole,
+        customRoleName,
+        customRoleDisplayName,
+      })
+    }
     if (item.href === '/projects') {
       if (isBarredFromProjectsUi(userRole)) return false
     }

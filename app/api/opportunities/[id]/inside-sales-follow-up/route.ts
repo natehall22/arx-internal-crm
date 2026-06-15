@@ -12,6 +12,7 @@ import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
+  KNOCKBACK_PIPELINE_PREFIX,
   pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
@@ -95,11 +96,15 @@ type ActionType =
   | 'mark_unresponsive'
   | 'mark_lost'
   | 'schedule_back_to_closer'
+  | 'mark_knockback'
 
 function resolvedPipelineStage(
-  kind: 'didnt_sit' | 'handoff' | null,
+  kind: 'didnt_sit' | 'handoff' | 'knockback' | null,
   status: 'scheduled' | 'rescheduled' | 'unresponsive' | 'lost'
 ): string {
+  if (kind === 'knockback') {
+    return `${KNOCKBACK_PIPELINE_PREFIX}_${status === 'scheduled' ? 'rescheduled' : status}`
+  }
   const prefix = kind === 'handoff' ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX : DIDNT_SIT_PIPELINE_PREFIX
   if (status === 'scheduled') {
     return kind === 'handoff' ? `${prefix}_scheduled` : `${prefix}_rescheduled`
@@ -107,7 +112,8 @@ function resolvedPipelineStage(
   return `${prefix}_${status}`
 }
 
-function activePipelinePrefix(kind: 'didnt_sit' | 'handoff' | null): string {
+function activePipelinePrefix(kind: 'didnt_sit' | 'handoff' | 'knockback' | null): string {
+  if (kind === 'knockback') return KNOCKBACK_PIPELINE_PREFIX
   return kind === 'handoff' ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX : DIDNT_SIT_PIPELINE_PREFIX
 }
 
@@ -319,15 +325,26 @@ export async function POST(
       inspectionByLeadId
     )
 
-    if (!hasActiveInsideSalesFollowUp(opportunityEffective, inspectionOutcomeSettings)) {
+    const body = await request.json()
+    const action = String(body.action || '') as ActionType
+    const note = typeof body.note === 'string' ? body.note.trim() : ''
+    const spokeWith = typeof body.spoke_with === 'string' ? body.spoke_with.trim() : null
+
+    if (!action) {
+      return NextResponse.json({ error: 'Missing action' }, { status: 400 })
+    }
+
+    if (action === 'mark_knockback') {
+      const status = String(opportunity.status || '').toLowerCase()
+      if (status === 'won' || status === 'lost') {
+        return NextResponse.json({ error: 'Cannot mark knockback on a won or lost opportunity' }, { status: 400 })
+      }
+    } else if (!hasActiveInsideSalesFollowUp(opportunityEffective, inspectionOutcomeSettings)) {
       return NextResponse.json({ error: 'No active inside sales follow-up for this opportunity' }, { status: 400 })
     }
 
     const followUpKind = getInsideSalesFollowUpKind(opportunityEffective, inspectionOutcomeSettings)
 
-    const body = await request.json()
-    const action = String(body.action || '') as ActionType
-    const note = typeof body.note === 'string' ? body.note.trim() : ''
     const result = typeof body.result === 'string' ? body.result.trim() : ''
     const schedule = body.schedule && typeof body.schedule === 'object' ? body.schedule : null
     const followUpTimezone =
@@ -336,15 +353,35 @@ export async function POST(
         : 'America/New_York'
     const nextFollowUpAt = parseFollowUpInput(body.next_follow_up_at, followUpTimezone)
 
-    if (!action) {
-      return NextResponse.json({ error: 'Missing action' }, { status: 400 })
-    }
-
     const updateData: Record<string, unknown> = {}
     let activityType: 'call' | 'text' | 'status_change' | null = null
     let activityBody: string | null = null
 
-    if (action === 'schedule_back_to_closer') {
+    if (action === 'mark_knockback') {
+      const knockbackReason = body.knockback_reason as string | undefined
+      const knockbackMonths = typeof body.knockback_follow_up_months === 'number'
+        ? body.knockback_follow_up_months
+        : null
+
+      if (!knockbackReason || !['credit_fail', 'not_ready', 'price_objection'].includes(knockbackReason)) {
+        return NextResponse.json({ error: 'Valid knockback_reason required' }, { status: 400 })
+      }
+      if (!knockbackMonths || ![2, 4, 6].includes(knockbackMonths)) {
+        return NextResponse.json({ error: 'knockback_follow_up_months must be 2, 4, or 6' }, { status: 400 })
+      }
+
+      const followUpDate = new Date()
+      followUpDate.setMonth(followUpDate.getMonth() + knockbackMonths)
+      const followUpAt = followUpDate.toISOString()
+
+      activityType = 'status_change'
+      activityBody = `Knockback: ${knockbackReason.replace(/_/g, ' ')} — follow up in ${knockbackMonths} months${note ? ` — ${note}` : ''}`
+      updateData.pipeline_stage = KNOCKBACK_PIPELINE_PREFIX
+      updateData.knockback_reason = knockbackReason
+      updateData.knockback_follow_up_months = knockbackMonths
+      updateData.follow_up_at = followUpAt
+      updateData.assigned_user_id = null
+    } else if (action === 'schedule_back_to_closer') {
       if (!schedule?.scheduledLocal) {
         return NextResponse.json({ error: 'Missing scheduled time' }, { status: 400 })
       }
@@ -681,6 +718,7 @@ export async function POST(
         user_id: profile.id,
         type: activityType,
         body: activityBody,
+        spoke_with: spokeWith || null,
       })
     }
 

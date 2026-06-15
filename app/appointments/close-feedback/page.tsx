@@ -6,6 +6,8 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import {
   DEFAULT_CLOSE_OUTCOMES,
+  getCloseOutcomeAction,
+  getCloseOutcomeInsideSalesHandoff,
   sortCloseOutcomes,
   type CloseOutcomeConfigRow,
 } from '@/lib/close-outcomes'
@@ -36,6 +38,8 @@ export default function CloseAppointmentFeedbackPage() {
   const [notes, setNotes] = useState('')
   const [insuranceFollowUpDate, setInsuranceFollowUpDate] = useState('')
   const [insuranceFollowUpTime, setInsuranceFollowUpTime] = useState('')
+  const [knockbackReason, setKnockbackReason] = useState<string | null>(null)
+  const [knockbackMonths, setKnockbackMonths] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -122,14 +126,21 @@ export default function CloseAppointmentFeedbackPage() {
       return
     }
 
+    if ((knockbackReason && !knockbackMonths) || (!knockbackReason && knockbackMonths)) {
+      setError('Knockback requires both a reason and follow-up months')
+      return
+    }
+
     setSubmitting(true)
     setError(null)
 
     try {
-      const body: Record<string, string | undefined> = {
+      const body: Record<string, string | number | undefined | null> = {
         opportunity_id: opportunityId,
         outcome,
         notes: notes || undefined,
+        knockback_reason: knockbackReason || null,
+        knockback_follow_up_months: knockbackMonths || null,
       }
       if (outcome?.toLowerCase() === 'insurance_follow_up') {
         body.follow_up_date = `${insuranceFollowUpDate}T${insuranceFollowUpTime}`
@@ -163,6 +174,16 @@ export default function CloseAppointmentFeedbackPage() {
   }
 
   const minDateYmd = calendarDateYmdInTimezone(FEEDBACK_PROMPT_DISPLAY_TIMEZONE)
+
+  const showKnockbackPrompt = (() => {
+    if (!outcome) return false
+    const norm = outcome.toLowerCase()
+    if (norm === 'insurance_follow_up' || norm === 'waiting_on_insurance') return false
+    const action = getCloseOutcomeAction(outcomeRows, outcome)
+    if (action === 'won' || action === 'lost') return false
+    if (getCloseOutcomeInsideSalesHandoff(outcomeRows, outcome).enabled) return false
+    return true
+  })()
 
   const formatEt = (iso: string) =>
     new Date(iso).toLocaleString('en-US', {
@@ -282,7 +303,11 @@ export default function CloseAppointmentFeedbackPage() {
                 <button
                   key={row.id}
                   type="button"
-                  onClick={() => setOutcome(row.id)}
+                  onClick={() => {
+                    setOutcome(row.id)
+                    setKnockbackReason(null)
+                    setKnockbackMonths(null)
+                  }}
                   className={`p-4 rounded-lg border-2 text-left transition-all min-h-[88px] ${
                     selected ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'
                   }`}
@@ -344,6 +369,56 @@ export default function CloseAppointmentFeedbackPage() {
                   />
                 </div>
               </div>
+            </div>
+          )}
+
+          {showKnockbackPrompt && (
+            <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <h3 className="font-medium text-amber-900 mb-3">Send to follow-up queue?</h3>
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Reason</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { id: 'credit_fail', label: 'Credit Fail' },
+                    { id: 'not_ready', label: 'Not Ready' },
+                    { id: 'price_objection', label: 'Price Objection' },
+                  ].map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setKnockbackReason(r.id)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        knockbackReason === r.id
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {knockbackReason && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Call back in</label>
+                  <div className="flex gap-2">
+                    {[2, 4, 6].map((mo) => (
+                      <button
+                        key={mo}
+                        type="button"
+                        onClick={() => setKnockbackMonths(mo)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                          knockbackMonths === mo
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                        }`}
+                      >
+                        {mo} months
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
