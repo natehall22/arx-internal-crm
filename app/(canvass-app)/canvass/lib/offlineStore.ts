@@ -65,6 +65,10 @@ export const useOfflineStore = create<OfflineState>()(
                 canvass_disposition: lead.disposition,
                 canvass_notes: lead.notes,
                 source: 'canvass',
+                rep_lat:             lead.rep_lat             ?? null,
+                rep_lng:             lead.rep_lng             ?? null,
+                rep_geo_accuracy:    lead.rep_geo_accuracy    ?? null,
+                rep_geo_captured_at: lead.rep_geo_captured_at ?? null,
               }),
             })
 
