@@ -93,6 +93,33 @@ async function copyToClipboard(text: string) {
   }
 }
 
+// Priority queue sort for insurance and didn't-sit tabs:
+// 1. Items with a future follow_up_at sink to the bottom (ordered soonest-to-resurface first)
+// 2. Never-contacted items float to top (oldest created_at first)
+// 3. Previously contacted items (no future follow-up) sorted oldest-last-contact first
+function sortQueueItems(list: QueueItem[]): QueueItem[] {
+  const now = Date.now()
+  return [...list].sort((a, b) => {
+    const aFollowUpMs = a.follow_up_at ? new Date(a.follow_up_at).getTime() : null
+    const bFollowUpMs = b.follow_up_at ? new Date(b.follow_up_at).getTime() : null
+    const aFuture = aFollowUpMs !== null && aFollowUpMs > now
+    const bFuture = bFollowUpMs !== null && bFollowUpMs > now
+
+    if (aFuture && !bFuture) return 1
+    if (!aFuture && bFuture) return -1
+    if (aFuture && bFuture) return aFollowUpMs! - bFollowUpMs!
+
+    const aContact = lastContactAt(a.activities)
+    const bContact = lastContactAt(b.activities)
+    if (!aContact && !bContact) {
+      return new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
+    }
+    if (!aContact) return -1
+    if (!bContact) return 1
+    return new Date(aContact).getTime() - new Date(bContact).getTime()
+  })
+}
+
 export default function InsideSalesPage() {
   const [items, setItems] = useState<QueueItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -147,22 +174,15 @@ export default function InsideSalesPage() {
     return () => clearInterval(interval)
   }, [loadQueue])
 
-  const insuranceItems = useMemo(() => {
-    return items
-      .filter((item) => item.followUpKind === 'handoff')
-      .sort((a, b) => {
-        const aContact = lastContactAt(a.activities)
-        const bContact = lastContactAt(b.activities)
-        if (aContact && bContact) {
-          return new Date(aContact).getTime() - new Date(bContact).getTime()
-        }
-        if (aContact && !bContact) return -1
-        if (!aContact && bContact) return 1
-        return 0
-      })
-  }, [items])
+  const insuranceItems = useMemo(
+    () => sortQueueItems(items.filter((item) => item.followUpKind === 'handoff')),
+    [items]
+  )
 
-  const didntSitItems = useMemo(() => items.filter((item) => item.followUpKind === 'didnt_sit'), [items])
+  const didntSitItems = useMemo(
+    () => sortQueueItems(items.filter((item) => item.followUpKind === 'didnt_sit')),
+    [items]
+  )
 
   const knockbackItems = useMemo(() => items.filter((item) => item.followUpKind === 'knockback'), [items])
 
