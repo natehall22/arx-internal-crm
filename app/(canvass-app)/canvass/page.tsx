@@ -567,7 +567,7 @@ export default function CanvassPage() {
         method: 'DELETE',
       })
 
-      if (response.ok) {
+      if (response.ok || response.status === 404) {
         removeViewportPin(pinId)
         
         setShowLeadModal(false)

@@ -23,6 +23,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
+import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
 
 export const dynamic = 'force-dynamic'
 
@@ -1224,7 +1225,7 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE - Delete a lead/pin
+// DELETE - Delete a lead/pin (cascades pristine pre-inspection appointments + calendar)
 export async function DELETE(request: Request) {
   try {
     const { profile } = await requireAuthApi()
@@ -1240,64 +1241,25 @@ export async function DELETE(request: Request) {
     }
 
     const supabase = getAdminClient()
+    const result = await deleteCanvassLeadWithDependencies({
+      admin: supabase,
+      orgId: profile.org_id,
+      leadId,
+      actorUserId: profile.id,
+      actorRole: profile.role,
+    })
 
-    // First verify the lead exists and belongs to this org
-    const { data: lead, error: fetchError } = await supabase
-      .from('leads')
-      .select('id, org_id, owner_user_id, installation_agreement_signed_at')
-      .eq('id', leadId)
-      .single()
-
-    if (fetchError || !lead) {
-      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status })
     }
 
-    if (lead.org_id !== profile.org_id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-    }
-
-    const isOrgAdmin = isOrgSuperuserRoleSlug(profile.role)
-    const isOwner = lead.owner_user_id === profile.id
-
-    // Sold/customer pins (signed installation agreement) are protected:
-    // only org admins may delete them, regardless of pin ownership.
-    if (lead.installation_agreement_signed_at && !isOrgAdmin) {
-      return NextResponse.json(
-        { error: 'This pin belongs to a signed customer and can only be deleted by an admin' },
-        { status: 403 }
-      )
-    }
-
-    // Only allow deletion by owner or admin
-    if (!isOrgAdmin && !isOwner) {
-      return NextResponse.json({ error: 'Only the pin owner or admin can delete this pin' }, { status: 403 })
-    }
-
-    const { data: linkedOpportunities } = await supabase
-      .from('opportunities')
-      .select('id')
-      .eq('lead_id', leadId)
-      .limit(1)
-
-    if (linkedOpportunities && linkedOpportunities.length > 0) {
-      return NextResponse.json(
-        { error: 'Cannot delete pin with linked opportunity. Delete the opportunity first.' },
-        { status: 400 },
-      )
-    }
-
-    // Delete the lead
-    const { error: deleteError } = await supabase
-      .from('leads')
-      .delete()
-      .eq('id', leadId)
-
-    if (deleteError) {
-      console.error('Delete lead error:', deleteError)
-      return NextResponse.json({ error: 'Failed to delete lead' }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, deleted_id: leadId })
+    return NextResponse.json({
+      success: true,
+      deleted_id: result.deleted_id,
+      ...(result.calendarWarnings.length > 0
+        ? { calendarSync: { warnings: result.calendarWarnings } }
+        : {}),
+    })
   } catch (error) {
     console.error('Delete lead error:', error)
     return NextResponse.json({ 

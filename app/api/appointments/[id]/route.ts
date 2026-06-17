@@ -2,30 +2,16 @@ import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { getMailTransport } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
-import { updateCalendarEvent, deleteCalendarEvent, createCalendarEvent, refreshAccessToken } from '@/lib/google-calendar'
+import { updateCalendarEvent, createCalendarEvent } from '@/lib/google-calendar'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
+import { resolveApiRequestAuthUser } from '@/lib/supabase-api-request-auth'
+import { deleteGoogleEventWithFallback, getValidAccessToken } from '@/lib/appointment-calendar-sync'
+import { syncOrgEnrollments } from '@/lib/sync-444-core'
 
 export const dynamic = 'force-dynamic'
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const accessToken = getAccessTokenFromApiRequest(req)
-
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: accessToken
-        ? { headers: { Authorization: `Bearer ${accessToken}` } }
-        : undefined,
-    }),
-    accessToken,
-  }
-}
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -34,62 +20,6 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
-}
-
-async function getValidAccessToken(
-  adminClient: ReturnType<typeof getAdminClient>,
-  userId: string
-): Promise<string | null> {
-  const { data: tokenRow } = await adminClient
-    .from('user_google_tokens')
-    .select('access_token, refresh_token, expires_at')
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (!tokenRow) return null
-
-  const expiresAt = new Date(tokenRow.expires_at)
-  if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
-    try {
-      const refreshed = await refreshAccessToken(tokenRow.refresh_token)
-      await adminClient
-        .from('user_google_tokens')
-        .update({ access_token: refreshed.access_token, expires_at: refreshed.expires_at })
-        .eq('user_id', userId)
-      return refreshed.access_token
-    } catch {
-      return tokenRow.access_token // fall back to stale token
-    }
-  }
-
-  return tokenRow.access_token
-}
-
-/**
- * Delete a Google event that was created under a team member's calendar.
- * Try the assignee first, then the canvasser/setter — some flows create the event with
- * whoever had OAuth connected at scheduling time.
- */
-async function deleteGoogleEventWithFallback(
-  adminClient: ReturnType<typeof getAdminClient>,
-  eventId: string,
-  userIdsInOrder: (string | null | undefined)[]
-): Promise<{ ok: boolean; triedUsers: string[]; lastError?: string }> {
-  const triedUsers: string[] = []
-  for (const uid of userIdsInOrder) {
-    if (!uid) continue
-    triedUsers.push(uid)
-    const token = await getValidAccessToken(adminClient, uid)
-    if (!token) continue
-    try {
-      await deleteCalendarEvent(token, eventId)
-      return { ok: true, triedUsers }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      console.error('deleteGoogleEventWithFallback: delete failed for user', uid, msg)
-    }
-  }
-  return { ok: false, triedUsers, lastError: 'No token or all delete attempts failed' }
 }
 
 function homeownerFromAppointment(appointment: { leads?: unknown }): string {
@@ -153,16 +83,11 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
+    const authResult = await resolveApiRequestAuthUser(request)
+    if (!authResult) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const { user, accessToken } = authResult
 
     const adminClient = getAdminClient()
 
@@ -266,16 +191,11 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
+    const authResult = await resolveApiRequestAuthUser(request)
+    if (!authResult) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const { user, accessToken } = authResult
 
     const adminClient = getAdminClient()
 
@@ -309,6 +229,75 @@ export async function PATCH(
 
     const isAssignedCloser = appointment.closer_user_id === user.id
     const canEditSchedule = canReassign || isAssignedCloser
+
+    // Cancel = remove the appointment entirely (calendar, CRM, 444 counts). Managers only.
+    if (status === 'cancelled') {
+      if (!canReassign) {
+        return NextResponse.json({ error: 'Only managers can cancel appointments' }, { status: 403 })
+      }
+      if (appointment.status === 'completed') {
+        return NextResponse.json(
+          { error: 'Cannot cancel a completed inspection' },
+          { status: 400 }
+        )
+      }
+
+      const calendarSync: { warnings: string[] } = { warnings: [] }
+      const existingEventId = appointment.google_event_id as string | null
+      if (existingEventId) {
+        const del = await deleteGoogleEventWithFallback(adminClient, existingEventId, [
+          appointment.closer_user_id,
+          appointment.canvasser_user_id,
+        ])
+        if (!del.ok) {
+          calendarSync.warnings.push(
+            'Google Calendar: could not remove cancelled event (no OAuth token or delete failed). It may still appear on a calendar.'
+          )
+        }
+      }
+
+      await adminClient
+        .from('pending_status_prompts')
+        .update({ dismissed: true, completed: true })
+        .eq('appointment_id', params.id)
+
+      await adminClient
+        .from('close_appointments')
+        .delete()
+        .eq('scheduled_appointment_id', params.id)
+      await adminClient
+        .from('close_appointments')
+        .delete()
+        .eq('source_inspection_appointment_id', params.id)
+
+      const { error: deleteError } = await adminClient
+        .from('scheduled_appointments')
+        .delete()
+        .eq('id', params.id)
+        .eq('org_id', profile.org_id)
+
+      if (deleteError) {
+        console.error('Appointment cancel delete error:', deleteError)
+        const { message, status: httpStatus } = mapScheduledAppointmentUpdateError(deleteError)
+        return NextResponse.json({ error: message }, { status: httpStatus })
+      }
+
+      const canvasserId = appointment.canvasser_user_id as string | null
+      if (canvasserId) {
+        try {
+          await syncOrgEnrollments(adminClient, profile.org_id, user.id, { userId: canvasserId })
+        } catch (syncErr) {
+          console.error('Appointment cancel: 444 sync failed:', syncErr)
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        cancelled: true,
+        appointment_id: params.id,
+        ...(calendarSync.warnings.length > 0 ? { calendarSync } : {}),
+      })
+    }
 
     const updateData: Record<string, any> = {}
 

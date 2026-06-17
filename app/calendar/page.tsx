@@ -136,10 +136,11 @@ export default function CalendarPage() {
 
   /** Region/team/member drill-down (same rules as Team view) applied to month/week/day/agenda. */
   const filteredAppointments = useMemo(() => {
-    if (!canAccessTeamCalendar) return appointments
+    const active = appointments.filter((apt) => apt.status !== 'cancelled')
+    if (!canAccessTeamCalendar) return active
     const userById = new Map(users.map((u) => [u.id, { team_id: u.team_id, region_id: u.region_id }]))
     const effectiveRegionId = isCalendarAdmin ? selectedRegionId : isCalendarRegional ? viewerRegionId : ''
-    return filterAppointmentsByCalendarScope(appointments, {
+    return filterAppointmentsByCalendarScope(active, {
       calendarAccess,
       viewerRegionId,
       viewerTeamId: viewerTeamId || '',
@@ -513,7 +514,21 @@ export default function CalendarPage() {
     setCancelling(true)
     setCancelError(null)
     try {
-      const token = (currentUser as { access_token?: string })?.access_token
+      // Refresh session token — stale Bearer from initial page load causes silent 401s.
+      let token = (currentUser as { access_token?: string })?.access_token
+      try {
+        const profileRes = await fetch('/api/calendar/profile')
+        if (profileRes.ok) {
+          const freshProfile = await profileRes.json()
+          if (freshProfile?.access_token) {
+            token = freshProfile.access_token
+            setCurrentUser(freshProfile)
+          }
+        }
+      } catch {
+        // Proceed with existing token / cookie fallback on the server.
+      }
+
       const res = await fetch(`/api/appointments/${appointmentId}`, {
         method: 'PATCH',
         headers: {
