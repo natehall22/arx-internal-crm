@@ -91,14 +91,34 @@ export default function AppointmentsPage() {
 
     setReassigning(true)
     try {
+      // Refresh session token — a stale/expired cookie on a long-idle page causes silent 401s.
+      let token = sessionAccessToken
+      try {
+        const profileRes = await fetch('/api/calendar/profile')
+        if (profileRes.ok) {
+          const freshProfile = await profileRes.json()
+          if (freshProfile?.access_token) {
+            token = freshProfile.access_token
+            setSessionAccessToken(freshProfile.access_token)
+          }
+        }
+      } catch {
+        // Proceed with existing token / cookie fallback on the server.
+      }
+
       const response = await fetch(`/api/appointments/${reassignModal.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(sessionAccessToken ? { Authorization: `Bearer ${sessionAccessToken}` } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ new_closer_id: newCloserId }),
       })
+
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
 
       if (!response.ok) {
         const data = await response.json()
