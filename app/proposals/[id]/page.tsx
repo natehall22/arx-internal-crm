@@ -9,6 +9,7 @@ import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
+import { compressImage } from '@/components/inspection/close-visit-shared'
 
 interface Proposal {
   id: string
@@ -1119,8 +1120,20 @@ export default function ProposalDetailPage() {
                           
                           setUploadingInspectionPhoto(true)
                           try {
+                            // Compress/normalize to JPEG client-side (handles
+                            // large iPhone photos and converts HEIC where the
+                            // browser can decode it — @react-pdf only renders
+                            // JPEG/PNG in the proposal PDF).
+                            const compressed = await compressImage(file)
+                            const ext = file.name.toLowerCase()
+                            const isHeicOriginal =
+                              compressed === file && (ext.endsWith('.heic') || ext.endsWith('.heif'))
+                            const uploadFileName = isHeicOriginal
+                              ? file.name
+                              : file.name.replace(/\.[^.]+$/, '.jpg')
+
                             const formData = new FormData()
-                            formData.append('file', file)
+                            formData.append('file', compressed, uploadFileName)
                             formData.append('type', 'inspection')
                             formData.append('index', String(inspectionPhotos.length))
                             
@@ -1133,11 +1146,12 @@ export default function ProposalDetailPage() {
                               const data = await response.json()
                               setInspectionPhotos(prev => [...prev, data.url])
                             } else {
-                              alert('Failed to upload photo')
+                              const data = await response.json().catch(() => null)
+                              alert(data?.error || 'Failed to upload photo')
                             }
                           } catch (err) {
                             console.error('Upload error:', err)
-                            alert('Failed to upload photo')
+                            alert(err instanceof Error && err.message ? err.message : 'Failed to upload photo')
                           }
                           setUploadingInspectionPhoto(false)
                           e.target.value = ''

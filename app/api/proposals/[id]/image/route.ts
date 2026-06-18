@@ -116,23 +116,42 @@ export async function POST(
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    // Validate file type
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp']
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ 
-        error: 'Invalid file type. Allowed: PNG, JPG, WEBP' 
+    // Validate file type — accept anything that looks like an image, including
+    // iPhone HEIC/HEIF photos (which arrive with mime image/heic or, when the
+    // browser omits the mime, only as a .heic filename).
+    const fileName = file.name || 'upload.jpg'
+    const mime = (file.type || '').toLowerCase()
+    const looksLikeImage =
+      mime.startsWith('image/') ||
+      /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(fileName)
+
+    if (!looksLikeImage) {
+      return NextResponse.json({
+        error: 'Invalid file type. Please upload an image (JPG, PNG, WEBP, HEIC).',
       }, { status: 400 })
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      return NextResponse.json({ 
-        error: 'File too large. Maximum size is 5MB' 
+    // Validate file size (max 10MB — matches inspection-photos bucket; full-res
+    // iPhone photos routinely exceed 5MB)
+    if (file.size > 10 * 1024 * 1024) {
+      return NextResponse.json({
+        error: 'File too large. Maximum size is 10MB',
       }, { status: 400 })
     }
+
+    const nameLower = fileName.toLowerCase()
+    const isHeicByName = nameLower.endsWith('.heic') || nameLower.endsWith('.heif')
+    const contentType =
+      mime.startsWith('image/') && mime.length > 0
+        ? mime
+        : /\.png$/i.test(fileName)
+          ? 'image/png'
+          : isHeicByName
+            ? 'image/heic'
+            : 'image/jpeg'
 
     // Generate file path based on type
-    const fileExt = file.name.split('.').pop() || 'jpg'
+    const fileExt = fileName.split('.').pop() || 'jpg'
     const timestamp = Date.now()
     const filePath = imageType === 'inspection'
       ? `proposals/${profile.org_id}/${params.id}/inspection-${imageIndex}-${timestamp}.${fileExt}`
@@ -164,7 +183,7 @@ export async function POST(
     const { error: uploadError } = await adminClient.storage
       .from('files')
       .upload(filePath, buffer, {
-        contentType: file.type,
+        contentType,
         upsert: true,
       })
 
