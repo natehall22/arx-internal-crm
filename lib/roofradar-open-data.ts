@@ -242,6 +242,49 @@ function candidateYears() {
   return Array.from({ length: count }, (_, i) => current - i)
 }
 
+function yearsForWindow(windowDays: number) {
+  const cutoff = new Date(Date.now() - windowDays * DAY_MS)
+  const currentYear = new Date().getFullYear()
+  const startYear = cutoff.getFullYear()
+  const years: number[] = []
+  for (let year = startYear; year <= currentYear; year += 1) {
+    years.push(year)
+  }
+  const allowed = new Set(candidateYears())
+  return years.filter((year) => allowed.has(year))
+}
+
+function inBbox(lat: number, lng: number, bbox: { n: number; s: number; e: number; w: number }) {
+  return lat <= bbox.n && lat >= bbox.s && lng <= bbox.e && lng >= bbox.w
+}
+
+/** Returns SPC reports of the given type within a bbox, restricted to the last `windowDays`. */
+export async function getSpcReportsInBbox(
+  bbox: { n: number; s: number; e: number; w: number },
+  type: 'hail' | 'wind',
+  windowDays: number,
+): Promise<Array<{ lat: number; lng: number; magnitude: number; date: Date }>> {
+  const cutoff = new Date(Date.now() - Math.max(1, windowDays) * DAY_MS)
+  const years = yearsForWindow(windowDays)
+  const reports = (
+    await Promise.all(years.map((year) => fetchSpcReports(year, type).catch(() => [])))
+  ).flat()
+
+  return reports
+    .filter(
+      (report) =>
+        report.type === type &&
+        report.date >= cutoff &&
+        inBbox(report.lat, report.lng, bbox),
+    )
+    .map((report) => ({
+      lat: report.lat,
+      lng: report.lng,
+      magnitude: report.magnitude,
+      date: report.date,
+    }))
+}
+
 export async function enrichPropertiesWithOpenData(properties: RoofRadarProperty[]) {
   if (!properties.length) {
     return {

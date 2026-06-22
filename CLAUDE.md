@@ -31,12 +31,21 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
 - **PDF:** Custom PDF generation for proposals and contracts
 
 ## Key Rules — Never Violate
-- `requireAuth()` / `requireAuthApi()` for all auth — never raw `supabase.auth.getUser()`
+- `requireAuth()` / `requireAuthApi()` for all auth — never raw `supabase.auth.getUser()`. NOTE: `requireAuthApi()` *throws* on failure (does not return null) — wrap in try/catch → 401.
 - `PAYROLL_ADMIN_ROLES = ['admin', 'owner', 'operations']` — never expand this set
 - `pin_attributed_user_id` takes precedence over `owner_user_id` for canvass lead attribution
 - All schema changes must be nullable/additive — system is live and in daily use
 - `bonus_status` enum: `pending_approval | approved | rejected | paid`
 - `manager_user_id` self-referential FK for org hierarchy traversal
+
+## UI Conventions
+- **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
+
+## Known Tech Debt
+- Roof Radar API routes use raw `supabase.auth.getUser()` (violates the auth rule) in `app/api/admin/roofradar/{scan,storm-lookup,sources}/route.ts`. Do NOT copy this pattern into new code; use `requireAuthApi()`.
+- Canvass service worker `public/canvass-sw.js` (~line 46) skips `/api/*` — API responses get no SW caching; client-side fetches must handle their own caching/timeouts.
+- Vercel Cron pattern: `vercel.json` runs 3 crons (`sync-444`, `cleanup-inspection-photos`, `promote-insurance-follow-ups`), each secured by `Authorization: Bearer ${CRON_SECRET}` (503 if secret unset, 401 on mismatch). Reuse this for any new cron.
+- `lib/roofradar-open-data.ts` fetches/caches free NOAA SPC hail+wind reports (in-memory `Map`, ~30min TTL); only `enrichPropertiesWithOpenData` is exported (helpers are private).
 
 ## Major Features / Modules
 | Module | Path | Notes |
@@ -81,6 +90,7 @@ Incentive program for setters:
 - **iOS native app** — SwiftUI, Bearer token auth added to API layer
 - **SEO content engine** — standalone at `~/Desktop/SEO Buildout/content-engine/`, merging into CRM as SaaS later
 - **Proposal/squares work** — auto-filling roof square footage from aerial measurements into proposals (current branch)
+- **Canvass weather overlay** (hail/wind) — design complete, build-ready for a Phase 1 trial. Full collateral package in `docs/canvass-weather-overlay-*.md` (start at `docs/canvass-weather-overlay-README.md`); build brief at `docs/prompts/canvass-weather-overlay-implementation.md`. Free NOAA data only (NWS Alerts API + SPC reports; MRMS MESH swaths = Phase 2). Additive, feature-flagged OFF (`NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY`), separate `google.maps.Data` layer under pins. Open: counsel sign-off on claims-safe copy; confirm 365-day window.
 
 ## iOS App
 - Native SwiftUI app for field reps
