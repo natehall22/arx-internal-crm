@@ -1,0 +1,42 @@
+name: Weather MRMS swath ingest
+
+on:
+  schedule:
+    # 10:00 UTC — after Vercel weather-refresh (09:00 UTC)
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      event_date:
+        description: 'Optional YYYY-MM-DD (default yesterday UTC)'
+        required: false
+        type: string
+
+jobs:
+  ingest-mrms-swaths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GDAL and AWS CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin python3-gdal awscli
+
+      - name: Contour MRMS MESH and POST swaths
+        if: vars.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY == 'true'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          WEATHER_SWATHS_INGEST_URL: ${{ vars.WEATHER_SWATHS_INGEST_URL }}
+          WEATHER_FOOTPRINT_N: ${{ vars.WEATHER_FOOTPRINT_N }}
+          WEATHER_FOOTPRINT_S: ${{ vars.WEATHER_FOOTPRINT_S }}
+          WEATHER_FOOTPRINT_E: ${{ vars.WEATHER_FOOTPRINT_E }}
+          WEATHER_FOOTPRINT_W: ${{ vars.WEATHER_FOOTPRINT_W }}
+        run: |
+          set -euo pipefail
+          ARGS=(python3 scripts/weather-mrms-worker/contour_mesh.py)
+          if [ -n "${{ github.event.inputs.event_date }}" ]; then
+            ARGS+=(--event-date "${{ github.event.inputs.event_date }}")
+          fi
+          "${ARGS[@]}"

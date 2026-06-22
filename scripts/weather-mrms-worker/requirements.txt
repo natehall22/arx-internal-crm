@@ -1,0 +1,2 @@
+# MRMS worker runs on GitHub Actions with system GDAL + awscli.
+# No pip dependencies required for the contour script.

@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/sync-444",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/weather-refresh",
+      "schedule": "0 9 * * *"
     }
   ]
 }

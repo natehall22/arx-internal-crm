@@ -202,7 +202,7 @@ ${escapeHtml(description.trim())}
 
     await transporter.sendMail({
       from: process.env.SMTP_FROM || 'noreply@arxroofing.com',
-      to: 'nathan@arxroofing.com',
+      to: 'info@arxroofing.com',
       subject,
       html: htmlContent,
     })
