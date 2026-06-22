@@ -6,7 +6,7 @@ export {
   DEFAULT_CAP_LF_PER_SQUARE,
 } from '@/lib/roof-shingle-constants'
 
-import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
+import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE, STARTER_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
 
 export type RoofFieldOrderEstimate = {
   baseSquares: number
@@ -50,6 +50,16 @@ export function roofCapBundlesFromLf(ridges_lf: number, hips_lf: number) {
     hipCapBundles,
     totalCapBundles: ridgeCapBundles + hipCapBundles,
   }
+}
+
+export function roofStarterBundlesFromLf(
+  eaves_lf: number,
+  rakes_lf: number,
+  lfPerBundle: number = STARTER_LF_PER_BUNDLE
+) {
+  const combinedLf = Math.max(0, eaves_lf) + Math.max(0, rakes_lf)
+  const bundles = combinedLf > 0 && lfPerBundle > 0 ? Math.ceil(combinedLf / lfPerBundle) : 0
+  return { combinedLf, bundles, lfPerBundle }
 }
 
 export function roofWasteAndOrder(input: {
