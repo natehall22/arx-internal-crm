@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { getInspectionSubmitCooldownRemainingMs } from '../lib/inspectionSubmitCooldown'
 import type { CanvassPin } from '../page'
+import { lookupPinStorm, type WeatherContext } from '../lib/weather-overlay'
 
 // Disposition config from admin settings
 interface DispositionConfig {
@@ -28,6 +29,7 @@ interface Props {
   inspectionDuration?: number
   isOnline?: boolean
   dispositions?: DispositionConfig[]
+  weatherContext?: WeatherContext | null
 }
 
 // Default dispositions (fallback if no admin settings)
@@ -69,7 +71,20 @@ export default function LeadModal({
   inspectionDuration = 60,
   isOnline = true,
   dispositions: dispositionsProp = [],
+  weatherContext = null,
 }: Props) {
+  const [stormExpanded, setStormExpanded] = useState(false)
+
+  const pinLat = pin?.lat ?? location?.lat
+  const pinLng = pin?.lng ?? location?.lng
+  const stormSummary = useMemo(() => {
+    if (!weatherContext || pinLat == null || pinLng == null) return null
+    return lookupPinStorm(weatherContext.layer, weatherContext.features, pinLat, pinLng)
+  }, [weatherContext, pinLat, pinLng])
+
+  useEffect(() => {
+    setStormExpanded(false)
+  }, [pin?.id, location?.lat, location?.lng, weatherContext?.layer])
   // Use admin dispositions if available, otherwise use defaults
   const dispositions = dispositionsProp.length > 0 
     ? dispositionsProp.filter(d => d.active !== false).map(d => ({
@@ -319,6 +334,42 @@ export default function LeadModal({
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-4">
+            {stormSummary && stormSummary.kind !== 'none' && (
+              <div className="rounded-xl border border-violet-200 bg-violet-50 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setStormExpanded((value) => !value)}
+                  className="w-full px-3 py-2 text-left text-sm font-medium text-[#2c2c2a]"
+                >
+                  {stormSummary.headline}
+                </button>
+                {stormExpanded && (
+                  <div className="px-3 pb-3 space-y-2 border-t border-violet-200">
+                    <p className="text-sm font-semibold text-[#2c2c2a] pt-2">
+                      {stormSummary.expandedHeadline}
+                    </p>
+                    {stormSummary.dateLabel && stormSummary.kind === 'report' && (
+                      <p className="text-xs text-gray-700">Event date: {stormSummary.dateLabel}</p>
+                    )}
+                    {stormSummary.kind === 'warning' && stormSummary.expiresLabel && (
+                      <p className="text-xs text-gray-700">
+                        Active warning until {stormSummary.expiresLabel}
+                      </p>
+                    )}
+                    <p className="text-sm text-[#2c2c2a]">{stormSummary.talkTrack}</p>
+                    <p className="text-[11px] text-gray-600">
+                      This area may have been impacted — free inspection
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            {stormSummary && stormSummary.kind === 'none' && weatherContext && (
+              <div className="px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-600">
+                {stormSummary.emptyMessage}
+              </div>
+            )}
+
             {/* Show previous knock info when editing an existing pin */}
             {pin && pin.created_at && (
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">

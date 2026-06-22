@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { matchesCanvassDispositionFilter } from '@/lib/canvass-pin-filter'
 import { CanvassTerritoriesEditor } from '@/components/canvass-territories/CanvassTerritoriesEditor'
-import CanvassMap from './components/CanvassMap'
+import CanvassMap, { type WeatherContext } from './components/CanvassMap'
 import CanvassNav from './components/CanvassNav'
 import LeadModal from './components/LeadModal'
 import SyncStatus from './components/SyncStatus'
@@ -97,6 +97,8 @@ export default function CanvassPage() {
   const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([])
   const [inspectionDuration, setInspectionDuration] = useState(60)
   const [assignedTerritories, setAssignedTerritories] = useState<AssignedTerritoryMapPayload[]>([])
+  const [weatherContext, setWeatherContext] = useState<WeatherContext | null>(null)
+  const weatherOverlayEnabled = process.env.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY === 'true'
   
   // Disposition settings from admin
   const [dispositions, setDispositions] = useState<Array<{ id: string; label: string; color: string; active: boolean }>>([
@@ -636,6 +638,8 @@ export default function CanvassPage() {
             onDispositionFilterChange={setDispositionFilter}
             dispositions={dispositions}
             assignedTerritories={assignedTerritories}
+            weatherOverlayEnabled={weatherOverlayEnabled}
+            onWeatherContextChange={setWeatherContext}
           />
         ) : (
           <div className="h-full overflow-y-auto p-4 pb-24">
@@ -761,6 +765,7 @@ export default function CanvassPage() {
           inspectionDuration={inspectionDuration}
           isOnline={isOnline}
           dispositions={dispositions}
+          weatherContext={weatherContext}
         />
       )}
     </div>

@@ -20,6 +20,13 @@ export const DEFAULT_CAP_LF_PER_SQUARE = 100
 /** GAF Seal-A-Ridge typical label; OC products may be ~20–31 LF/bundle — override per pricebook. */
 export const CAP_LF_PER_BUNDLE = 25
 
+/**
+ * Starter strip runs along eaves + rakes. ARX uses IKO Leading Edge Plus
+ * (published coverage ≈ 123.4 LF/bundle). Other products vary (GAF Pro-Start
+ * ~120 LF, WeatherBlocker ~100 LF) — override per pricebook.
+ */
+export const STARTER_LF_PER_BUNDLE = 123.4
+
 export const BASE_AREA_WASTE_RATE = 0.07
 /** ~12" tab waste per sloped course along valley (both sides cut) */
 export const WASTE_SHINGLES_PER_COURSE_VALLEY = 0.45

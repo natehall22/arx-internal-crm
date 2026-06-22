@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { hipRidgeCapFromLinearFt, ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { roofCapBundlesFromLf } from '@/lib/roof-material-order'
+import { starterFromLinearFt } from '@/lib/starter-strip'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
 export type JobSoldScopeLineItem = {
@@ -78,6 +79,8 @@ function linearMeasureRows(linear: JobSoldScopeRoofMeasureLf): Array<{ label: st
   add('Ridge', linear.ridges_lf)
   add('Valley', linear.valleys_lf)
   add('Hip', linear.hips_lf)
+  add('Eave', linear.eaves_lf)
+  add('Rake', linear.rakes_lf)
   add('Flashing', linear.flashing_lf)
   add('Step flashing', linear.step_flashing_lf)
   add('Wall flashing', linear.wall_flashing_lf)
@@ -193,6 +196,14 @@ export default function JobSoldScopeSummary({
         })
       : null
 
+  const starter =
+    showSquareMetrics && linear != null
+      ? starterFromLinearFt({
+          eaves_lf: linear.eaves_lf,
+          rakes_lf: linear.rakes_lf,
+        })
+      : null
+
   const linearLfSubline =
     hasRoofMeasureLinear && linear
       ? (() => {
@@ -267,6 +278,18 @@ export default function JobSoldScopeSummary({
               </>
             )
           })()}
+        </p>
+      )}
+
+      {starter != null && (
+        <p className="text-sm text-sky-950 mt-1 leading-snug tabular-nums">
+          <span className="text-xs font-normal text-sky-800">Starter order </span>
+          <span className="font-semibold">{starter.combinedLf.toFixed(1)}</span>
+          <span className="text-xs font-normal text-sky-800"> LF</span>
+          <span className="text-xs font-normal text-sky-800">
+            {' '}
+            ({starter.bundles} bundle{starter.bundles === 1 ? '' : 's'} · eaves + rakes)
+          </span>
         </p>
       )}
 

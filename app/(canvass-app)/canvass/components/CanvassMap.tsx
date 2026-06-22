@@ -4,6 +4,18 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
 import type { CanvassPin } from '../page'
 import type { ViewportPin } from '../lib/useViewportLeads'
+import {
+  HAIL_LEGEND,
+  WIND_LEGEND,
+  storeWeatherLayer,
+  summarizeViewport,
+  weatherFeatureStyle,
+  type WeatherContext,
+  type WeatherFeatureCollection,
+  type WeatherLayer,
+} from '../lib/weather-overlay'
+
+export type { WeatherContext }
 
 // Declare google as a global variable for TypeScript
 declare const google: any
@@ -42,6 +54,9 @@ interface Props {
   dispositions?: DispositionConfig[]
   /** Work areas assigned to this user (directly or via team) — shown as tinted polygons under pins */
   assignedTerritories?: AssignedTerritoryMapPayload[]
+  weatherOverlayEnabled?: boolean
+  weatherTimeWindowDays?: number
+  onWeatherContextChange?: (context: WeatherContext | null) => void
 }
 
 // Default pin colors (fallback if no admin settings)
@@ -170,6 +185,9 @@ export default function CanvassMap({
   onDispositionFilterChange,
   dispositions = [],
   assignedTerritories,
+  weatherOverlayEnabled = false,
+  weatherTimeWindowDays = 730,
+  onWeatherContextChange,
 }: Props) {
   // Keep latest handlers without re-running marker sync / re-binding map listeners every render.
   const onMapClickRef = useRef(onMapClick)
@@ -204,6 +222,220 @@ export default function CanvassMap({
   const [showFilterMenu, setShowFilterMenu] = useState(false)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite' | 'hybrid'>('hybrid')
   const [mapHeading, setMapHeading] = useState(0) // Track map rotation for compass
+  const weatherDataRef = useRef<any>(null)
+  const weatherAbortRef = useRef<AbortController | null>(null)
+  const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('off')
+  const [weatherControlExpanded, setWeatherControlExpanded] = useState(false)
+  const [weatherStripText, setWeatherStripText] = useState('')
+  const [weatherStripEmpty, setWeatherStripEmpty] = useState(false)
+  const [weatherStripOffline, setWeatherStripOffline] = useState(false)
+  type WeatherCacheEntry = {
+    layer: Exclude<WeatherLayer, 'off'>
+    collection: WeatherFeatureCollection
+    refreshedAt: string | null
+  }
+  const weatherLastGoodRef = useRef<WeatherCacheEntry | null>(null)
+  const onWeatherContextChangeRef = useRef(onWeatherContextChange)
+  onWeatherContextChangeRef.current = onWeatherContextChange
+
+  const applyWeatherDataStyle = useCallback((feature: { getProperty: (key: string) => unknown }) => {
+    const style = weatherFeatureStyle(feature) as Record<string, unknown>
+    const icon = style.icon as Record<string, unknown> | undefined
+    if (icon) {
+      icon.path = google.maps.SymbolPath.CIRCLE
+    }
+    return style
+  }, [])
+
+  const clearWeatherFeatures = useCallback(() => {
+    const data = weatherDataRef.current
+    if (!data) return
+    const features: any[] = []
+    data.forEach((feature: any) => features.push(feature))
+    features.forEach((feature) => data.remove(feature))
+  }, [])
+
+  const paintWeatherCollection = useCallback(
+    (collection: WeatherFeatureCollection) => {
+      const data = weatherDataRef.current
+      if (!data) return
+      clearWeatherFeatures()
+      data.addGeoJson(collection)
+      data.setStyle(applyWeatherDataStyle)
+    },
+    [applyWeatherDataStyle, clearWeatherFeatures],
+  )
+
+  const publishWeatherContext = useCallback(
+    (layer: Exclude<WeatherLayer, 'off'>, offline: boolean) => {
+      const cached = weatherLastGoodRef.current
+      if (!cached || cached.layer !== layer) {
+        onWeatherContextChangeRef.current?.(null)
+        return
+      }
+      onWeatherContextChangeRef.current?.({
+        layer: cached.layer,
+        features: cached.collection.features,
+        refreshedAt: cached.refreshedAt,
+        offline,
+      })
+    },
+    [],
+  )
+
+  const updateWeatherStrip = useCallback(
+    (layer: Exclude<WeatherLayer, 'off'>, collection: WeatherFeatureCollection, offline: boolean) => {
+      const summary = summarizeViewport(layer, collection.features)
+      if (offline && collection.features.length > 0) {
+        const refreshedAt = weatherLastGoodRef.current?.refreshedAt
+        const dateLabel = refreshedAt
+          ? new Date(refreshedAt).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            })
+          : summary.dateLabel || 'earlier'
+        setWeatherStripText(`Offline — last data shown · ${dateLabel}`)
+        setWeatherStripEmpty(false)
+        setWeatherStripOffline(true)
+        return
+      }
+      if (offline) {
+        setWeatherStripText('Offline — no stored storm data')
+        setWeatherStripEmpty(true)
+        setWeatherStripOffline(true)
+        return
+      }
+      setWeatherStripText(summary.text)
+      setWeatherStripEmpty(summary.empty)
+      setWeatherStripOffline(false)
+    },
+    [],
+  )
+
+  const fetchWeatherForLayer = useCallback(
+    async (layer: Exclude<WeatherLayer, 'off'>) => {
+      if (!weatherOverlayEnabled || !mapInstanceRef.current) return
+
+      weatherAbortRef.current?.abort()
+      const controller = new AbortController()
+      weatherAbortRef.current = controller
+      const timeoutId = window.setTimeout(() => controller.abort(), 7000)
+
+      const finish = (offline: boolean) => {
+        publishWeatherContext(layer, offline)
+      }
+
+      try {
+        if (!navigator.onLine) {
+          const cached = weatherLastGoodRef.current
+          if (cached && cached.layer === layer) {
+            paintWeatherCollection(cached.collection)
+            updateWeatherStrip(layer, cached.collection, true)
+          } else {
+            clearWeatherFeatures()
+            setWeatherStripText('Offline — no stored storm data')
+            setWeatherStripEmpty(true)
+            setWeatherStripOffline(true)
+          }
+          finish(true)
+          return
+        }
+
+        const bounds = mapInstanceRef.current.getBounds()
+        if (!bounds) return
+        const ne = bounds.getNorthEast()
+        const sw = bounds.getSouthWest()
+        const params = new URLSearchParams({
+          n: String(ne.lat()),
+          s: String(sw.lat()),
+          e: String(ne.lng()),
+          w: String(sw.lng()),
+          layer,
+          windowDays: String(weatherTimeWindowDays),
+        })
+
+        const response = await fetch(`/api/canvass/weather?${params.toString()}`, {
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error('weather fetch failed')
+
+        const payload = (await response.json()) as WeatherFeatureCollection
+        if (controller.signal.aborted) return
+
+        weatherLastGoodRef.current = {
+          layer,
+          collection: payload,
+          refreshedAt: payload.refreshedAt || new Date().toISOString(),
+        }
+        paintWeatherCollection(payload)
+        updateWeatherStrip(layer, payload, false)
+        finish(false)
+      } catch {
+        if (controller.signal.aborted) return
+
+        const cached = weatherLastGoodRef.current
+        if (cached && cached.layer === layer) {
+          paintWeatherCollection(cached.collection)
+          updateWeatherStrip(layer, cached.collection, !navigator.onLine)
+          finish(!navigator.onLine)
+        } else {
+          // No cached data and the request failed — this is a load failure, not
+          // a confirmed "no storms" result, so don't imply the area is clear.
+          clearWeatherFeatures()
+          setWeatherStripText(
+            !navigator.onLine ? 'Offline — no stored storm data' : "Couldn't load storm data",
+          )
+          setWeatherStripEmpty(true)
+          setWeatherStripOffline(!navigator.onLine)
+          onWeatherContextChangeRef.current?.(null)
+        }
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
+    },
+    [
+      clearWeatherFeatures,
+      paintWeatherCollection,
+      publishWeatherContext,
+      updateWeatherStrip,
+      weatherOverlayEnabled,
+      weatherTimeWindowDays,
+    ],
+  )
+
+  const handleWeatherLayerSelect = useCallback(
+    (nextLayer: WeatherLayer) => {
+      weatherAbortRef.current?.abort()
+      setWeatherLayer(nextLayer)
+      if (nextLayer === 'off') {
+        clearWeatherFeatures()
+        setWeatherControlExpanded(false)
+        setWeatherStripText('')
+        setWeatherStripEmpty(false)
+        setWeatherStripOffline(false)
+        onWeatherContextChangeRef.current?.(null)
+        return
+      }
+      storeWeatherLayer(nextLayer)
+      setWeatherControlExpanded(false)
+      void fetchWeatherForLayer(nextLayer)
+    },
+    [clearWeatherFeatures, fetchWeatherForLayer],
+  )
+
+  useEffect(() => {
+    if (!weatherOverlayEnabled || !mapLoaded || !mapInstanceRef.current || weatherDataRef.current) {
+      return
+    }
+    weatherDataRef.current = new google.maps.Data({ map: mapInstanceRef.current })
+    weatherDataRef.current.setStyle(applyWeatherDataStyle)
+  }, [applyWeatherDataStyle, mapLoaded, weatherOverlayEnabled])
+
+  useEffect(() => {
+    return () => {
+      weatherAbortRef.current?.abort()
+    }
+  }, [])
 
   // Load Google Maps script with marker clusterer
   useEffect(() => {
@@ -676,8 +908,92 @@ export default function CanvassMap({
     <div className="relative h-full w-full">
       <div ref={mapRef} className="h-full w-full" />
       
+      {/* Weather status strip */}
+      {weatherOverlayEnabled && weatherLayer !== 'off' && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-10 max-w-[88vw]"
+          style={{ top: 'calc(max(16px, env(safe-area-inset-top)) + 56px)' }}
+        >
+          <div
+            className={`rounded-full shadow-lg px-4 py-2 text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
+              weatherStripOffline
+                ? 'bg-amber-50 text-[#2c2c2a] border border-amber-200'
+                : weatherStripEmpty
+                  ? 'bg-white/95 text-gray-600'
+                  : 'bg-white/95 text-[#2c2c2a]'
+            }`}
+          >
+            {weatherStripOffline && (
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-2 align-middle" />
+            )}
+            {weatherStripText}
+          </div>
+        </div>
+      )}
+
+      {/* Weather legend */}
+      {weatherOverlayEnabled && weatherLayer !== 'off' && (
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 z-10">
+          <div className="bg-white/95 rounded-lg shadow-lg px-3 py-2 text-[11px] text-[#2c2c2a] space-y-1">
+            {(weatherLayer === 'hail' ? HAIL_LEGEND : WIND_LEGEND).map((item) => (
+              <div key={item.label} className="flex items-center gap-2">
+                <span
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{
+                    backgroundColor: item.fill,
+                    boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.15), 0 0 0 1px ${item.stroke}`,
+                  }}
+                />
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Map controls - left side */}
       <div className="absolute bottom-24 left-4 flex flex-col gap-2 z-10">
+        {weatherOverlayEnabled && (
+          <div className="flex flex-col gap-2 items-start">
+            {weatherControlExpanded ? (
+              <div className="bg-white rounded-full shadow-lg p-1 flex items-center gap-1">
+                {(['off', 'hail', 'wind'] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => handleWeatherLayerSelect(option)}
+                    className={`px-3 h-10 rounded-full text-xs font-semibold capitalize transition-colors ${
+                      weatherLayer === option
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-[#2c2c2a] hover:bg-gray-100'
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setWeatherControlExpanded(true)}
+                className={`w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center ${
+                  weatherLayer !== 'off' ? 'ring-2 ring-indigo-500' : ''
+                }`}
+                title="Storm overlay"
+              >
+                <svg className="w-6 h-6 text-[#2c2c2a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Refresh button (viewport mode) */}
         {isViewportMode && onRefreshArea && (
           <button

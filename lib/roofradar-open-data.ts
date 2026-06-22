@@ -242,6 +242,136 @@ function candidateYears() {
   return Array.from({ length: count }, (_, i) => current - i)
 }
 
+function yearsForWindow(windowDays: number) {
+  const cutoff = new Date(Date.now() - windowDays * DAY_MS)
+  const currentYear = new Date().getFullYear()
+  const startYear = cutoff.getFullYear()
+  const years: number[] = []
+  for (let year = startYear; year <= currentYear; year += 1) {
+    years.push(year)
+  }
+  const allowed = new Set(candidateYears())
+  return years.filter((year) => allowed.has(year))
+}
+
+function inBbox(lat: number, lng: number, bbox: { n: number; s: number; e: number; w: number }) {
+  return lat <= bbox.n && lat >= bbox.s && lng <= bbox.e && lng >= bbox.w
+}
+
+/** Returns SPC reports of the given type within a bbox, restricted to the last `windowDays`. */
+export async function getSpcReportsInBbox(
+  bbox: { n: number; s: number; e: number; w: number },
+  type: 'hail' | 'wind',
+  windowDays: number,
+): Promise<Array<{ lat: number; lng: number; magnitude: number; date: Date }>> {
+  const cutoff = new Date(Date.now() - Math.max(1, windowDays) * DAY_MS)
+  const years = yearsForWindow(windowDays)
+  const reports = (
+    await Promise.all(years.map((year) => fetchSpcReports(year, type).catch(() => [])))
+  ).flat()
+
+  return reports
+    .filter(
+      (report) =>
+        report.type === type &&
+        report.date >= cutoff &&
+        inBbox(report.lat, report.lng, bbox),
+    )
+    .map((report) => ({
+      lat: report.lat,
+      lng: report.lng,
+      magnitude: report.magnitude,
+      date: report.date,
+    }))
+}
+
+const IEM_LSR_URL = 'https://mesonet.agron.iastate.edu/geojson/lsr.geojson'
+
+function isoMinuteZ(d: Date) {
+  return d.toISOString().slice(0, 16) + 'Z'
+}
+
+export type RecentStormReport = {
+  lat: number
+  lng: number
+  /** inches for hail, mph for wind gusts, 0 for wind-damage reports with no measured gust */
+  magnitude: number
+  date: Date
+  /** true for a thunderstorm-wind-damage report (no measured gust speed) */
+  damage: boolean
+}
+
+/**
+ * Recent local storm reports (last `windowDays`) within a bbox, from the free
+ * IEM (Iowa Environmental Mesonet) Local Storm Report feed. Unlike the SPC WCM
+ * annual archive (which lags ~1 year), LSRs are near-real-time — the right
+ * source for "what hit this neighborhood recently".
+ *   hail  -> type 'H' (magf = inches)
+ *   wind  -> type 'G' (gust, magf = mph) and 'D' (TSTM wind damage, no speed)
+ */
+export async function getRecentStormReportsInBbox(
+  bbox: { n: number; s: number; e: number; w: number },
+  type: 'hail' | 'wind',
+  windowDays: number,
+): Promise<RecentStormReport[]> {
+  const ets = new Date()
+  const sts = new Date(ets.getTime() - Math.max(1, windowDays) * DAY_MS)
+  const params = new URLSearchParams({
+    sts: isoMinuteZ(sts),
+    ets: isoMinuteZ(ets),
+    west: String(bbox.w),
+    east: String(bbox.e),
+    south: String(bbox.s),
+    north: String(bbox.n),
+  })
+
+  try {
+    const res = await fetch(`${IEM_LSR_URL}?${params.toString()}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return []
+    const data = await res.json().catch(() => null)
+    const features: unknown[] = Array.isArray((data as { features?: unknown[] })?.features)
+      ? (data as { features: unknown[] }).features
+      : []
+
+    const out: RecentStormReport[] = []
+    for (const raw of features) {
+      const f = raw as {
+        properties?: Record<string, unknown>
+        geometry?: { type?: string; coordinates?: unknown }
+      }
+      const code = String(f.properties?.type || '')
+      const isHail = code === 'H'
+      const isWind = code === 'G' || code === 'D'
+      if (type === 'hail' && !isHail) continue
+      if (type === 'wind' && !isWind) continue
+
+      const coords =
+        f.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates)
+          ? (f.geometry.coordinates as number[])
+          : null
+      if (!coords) continue
+      const lng = Number(coords[0])
+      const lat = Number(coords[1])
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+
+      const when = new Date(String(f.properties?.valid || ''))
+      if (Number.isNaN(when.getTime())) continue
+
+      const magRaw = f.properties?.magf == null ? Number.NaN : Number(f.properties.magf)
+      const damage = type === 'wind' && code === 'D'
+      const magnitude = Number.isFinite(magRaw) ? magRaw : 0
+
+      out.push({ lat, lng, magnitude, date: when, damage })
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
 export async function enrichPropertiesWithOpenData(properties: RoofRadarProperty[]) {
   if (!properties.length) {
     return {
