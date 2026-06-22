@@ -186,7 +186,7 @@ export default function CanvassMap({
   dispositions = [],
   assignedTerritories,
   weatherOverlayEnabled = false,
-  weatherTimeWindowDays = 365,
+  weatherTimeWindowDays = 730,
   onWeatherContextChange,
 }: Props) {
   // Keep latest handlers without re-running marker sync / re-binding map listeners every render.
@@ -367,12 +367,14 @@ export default function CanvassMap({
           updateWeatherStrip(layer, cached, !navigator.onLine)
           finish(!navigator.onLine)
         } else {
+          // No cached data and the request failed — this is a load failure, not
+          // a confirmed "no storms" result, so don't imply the area is clear.
           clearWeatherFeatures()
           setWeatherStripText(
-            layer === 'hail' ? 'No recorded hail in this area' : 'No recorded wind in this area',
+            !navigator.onLine ? 'Offline — no stored storm data' : "Couldn't load storm data — tap to retry",
           )
           setWeatherStripEmpty(true)
-          setWeatherStripOffline(false)
+          setWeatherStripOffline(!navigator.onLine)
           onWeatherContextChangeRef.current?.(null)
         }
       } finally {
@@ -897,11 +899,11 @@ export default function CanvassMap({
       {/* Weather status strip */}
       {weatherOverlayEnabled && weatherLayer !== 'off' && (
         <div
-          className="absolute left-1/2 -translate-x-1/2 z-10 max-w-[92vw]"
-          style={{ top: 'max(16px, env(safe-area-inset-top))' }}
+          className="absolute left-1/2 -translate-x-1/2 z-10 max-w-[88vw]"
+          style={{ top: 'calc(max(16px, env(safe-area-inset-top)) + 56px)' }}
         >
           <div
-            className={`rounded-full shadow-lg px-4 py-2 text-sm font-medium whitespace-nowrap ${
+            className={`rounded-full shadow-lg px-4 py-2 text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
               weatherStripOffline
                 ? 'bg-amber-50 text-[#2c2c2a] border border-amber-200'
                 : weatherStripEmpty
@@ -919,7 +921,7 @@ export default function CanvassMap({
 
       {/* Weather legend */}
       {weatherOverlayEnabled && weatherLayer !== 'off' && (
-        <div className="absolute bottom-[13.5rem] left-4 z-10">
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 z-10">
           <div className="bg-white/95 rounded-lg shadow-lg px-3 py-2 text-[11px] text-[#2c2c2a] space-y-1">
             {(weatherLayer === 'hail' ? HAIL_LEGEND : WIND_LEGEND).map((item) => (
               <div key={item.label} className="flex items-center gap-2">

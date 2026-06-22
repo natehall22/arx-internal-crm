@@ -13,6 +13,7 @@ export type WeatherFeature = {
     kind?: 'report' | 'warning'
     layer?: WeatherLayer
     magnitude?: number
+    damage?: boolean
     date?: string
     event?: string
     source?: string
@@ -89,6 +90,25 @@ export function weatherFeatureStyle(feature: { getProperty: (key: string) => unk
 
   const layer = String(feature.getProperty('layer') || 'hail')
   const magnitude = Number(feature.getProperty('magnitude') || 0)
+  const damage = Boolean(feature.getProperty('damage'))
+
+  // Wind-damage reports have no measured gust — render as a neutral "damage" dot.
+  if (layer === 'wind' && (damage || magnitude <= 0)) {
+    return {
+      icon: {
+        path: 0,
+        scale: 5.5,
+        fillColor: '#9CA3AF',
+        fillOpacity: 0.6,
+        strokeColor: '#374151',
+        strokeOpacity: 0.9,
+        strokeWeight: 1.5,
+      },
+      clickable: false,
+      zIndex: 1,
+    }
+  }
+
   const bucket = layer === 'wind' ? windBucket(magnitude) : hailBucket(magnitude)
   return {
     icon: {
@@ -194,38 +214,56 @@ export function summarizeViewport(
     }
   }
 
-  const reports = features
+  const allReports = features
     .filter((f) => f.properties.kind === 'report')
     .map((f) => ({
       magnitude: Number(f.properties.magnitude || 0),
+      damage: Boolean(f.properties.damage),
       date: String(f.properties.date || ''),
     }))
-    .filter((r) => r.magnitude > 0)
 
-  if (!reports.length) {
-    return {
-      text:
-        layer === 'hail'
-          ? 'No recorded hail in this area'
-          : 'No recorded wind in this area',
-      empty: true,
-    }
-  }
-
-  const max = reports.reduce((best, r) => (r.magnitude > best.magnitude ? r : best), reports[0])
-  const dateLabel = formatShortDate(max.date)
   if (layer === 'hail') {
+    const reports = allReports.filter((r) => r.magnitude > 0)
+    if (!reports.length) return { text: 'No recorded hail nearby', empty: true }
+    const max = reports.reduce((best, r) => (r.magnitude > best.magnitude ? r : best), reports[0])
+    const dateLabel = formatShortDate(max.date)
     return {
       text: `est. up to ${max.magnitude.toFixed(1)}″ hail · ${dateLabel}`,
       empty: false,
       dateLabel,
     }
   }
-  return {
-    text: `est. up to ${Math.round(max.magnitude)} mph wind · ${dateLabel}`,
-    empty: false,
-    dateLabel,
+
+  // wind: measured gusts (mph) plus thunderstorm-wind-damage reports (no speed)
+  const gusts = allReports.filter((r) => !r.damage && r.magnitude > 0)
+  const damageReports = allReports.filter((r) => r.damage || r.magnitude <= 0)
+
+  if (gusts.length) {
+    const max = gusts.reduce((best, r) => (r.magnitude > best.magnitude ? r : best), gusts[0])
+    const dateLabel = formatShortDate(max.date)
+    const extra = damageReports.length ? ` · ${damageReports.length} damage` : ''
+    return {
+      text: `est. up to ${Math.round(max.magnitude)} mph wind · ${dateLabel}${extra}`,
+      empty: false,
+      dateLabel,
+    }
   }
+
+  if (damageReports.length) {
+    const newest = damageReports.reduce(
+      (best, r) => (new Date(r.date).getTime() > new Date(best.date).getTime() ? r : best),
+      damageReports[0],
+    )
+    const dateLabel = formatShortDate(newest.date)
+    const n = damageReports.length
+    return {
+      text: `${n} wind-damage report${n > 1 ? 's' : ''} · ${dateLabel}`,
+      empty: false,
+      dateLabel,
+    }
+  }
+
+  return { text: 'No recorded wind nearby', empty: true }
 }
 
 export function lookupPinStorm(
@@ -246,11 +284,12 @@ export function lookupPinStorm(
       const [reportLng, reportLat] = coords
       return {
         magnitude: Number(f.properties.magnitude || 0),
+        damage: Boolean(f.properties.damage),
         date: String(f.properties.date || ''),
         distance: distanceMiles(lat, lng, reportLat, reportLng),
       }
     })
-    .filter(Boolean) as Array<{ magnitude: number; date: string; distance: number }>
+    .filter(Boolean) as Array<{ magnitude: number; damage: boolean; date: string; distance: number }>
 
   const closestReport =
     nearbyReports.length > 0
@@ -266,7 +305,9 @@ export function lookupPinStorm(
       kind: 'warning',
       expiresLabel: expires ? formatTime(expires) : undefined,
       headline: `⛈ Active storm warning${expires ? ` until ${formatTime(expires)}` : ''} ▸`,
-      expandedHeadline: 'In an active storm warning — no confirmed or estimated hail yet',
+      expandedHeadline: `In an active storm warning — no confirmed or estimated ${
+        layer === 'wind' ? 'wind impact' : 'hail'
+      } yet`,
       talkTrack:
         'Your street may have been impacted — we are offering free roof inspections in the area.',
       dateLabel: expires ? formatShortDate(expires) : undefined,
@@ -284,6 +325,15 @@ export function lookupPinStorm(
         headline: `⛈ est. ${sizeLabel} · ${dateLabel} ▸`,
         expandedHeadline: `est. ${closestReport.magnitude.toFixed(1)}″ hail`,
         talkTrack: `Your street may have been impacted by hail on ${dateLabel} — we're offering free roof inspections in the area.`,
+      }
+    }
+    if (closestReport.damage || closestReport.magnitude <= 0) {
+      return {
+        kind: 'report',
+        dateLabel,
+        headline: `⛈ wind damage reported · ${dateLabel} ▸`,
+        expandedHeadline: 'Thunderstorm wind damage reported nearby',
+        talkTrack: `Storm-related wind damage was reported near here on ${dateLabel} — we're offering free roof inspections in the area.`,
       }
     }
     return {
@@ -319,4 +369,5 @@ export const WIND_LEGEND = [
   { label: '45–58 mph', fill: '#F59E0B', stroke: '#B45309' },
   { label: '58–70 mph', fill: '#F97316', stroke: '#C2410C' },
   { label: '70+ mph', fill: '#B91C1C', stroke: '#7F1D1D' },
+  { label: 'Damage reported', fill: '#9CA3AF', stroke: '#374151' },
 ]

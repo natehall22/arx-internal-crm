@@ -1,5 +1,5 @@
 import { requireAuthApi } from '@/lib/auth'
-import { getSpcReportsInBbox } from '@/lib/roofradar-open-data'
+import { getRecentStormReportsInBbox } from '@/lib/roofradar-open-data'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -103,44 +103,50 @@ function isStormWarningEvent(event: unknown) {
 }
 
 async function fetchNwsWarningFeatures(bbox: Bbox, layer: 'hail' | 'wind'): Promise<GeoJsonFeature[]> {
-  const response = await fetch(NWS_ALERTS_URL, {
-    headers: {
-      Accept: 'application/geo+json',
-      'User-Agent': NWS_USER_AGENT,
-    },
-    cache: 'no-store',
-  })
-  if (!response.ok) return []
-
-  const payload = (await response.json().catch(() => null)) as {
-    features?: Array<{
-      geometry?: GeoJSON.Geometry | null
-      properties?: Record<string, unknown>
-    }>
-  } | null
-
-  const features = payload?.features || []
-  const out: GeoJsonFeature[] = []
-
-  for (const feature of features) {
-    const event = feature.properties?.event
-    if (!isStormWarningEvent(event)) continue
-    const bounds = geometryBounds(feature.geometry ?? null)
-    if (!bounds || !bboxesOverlap(bbox, bounds)) continue
-    out.push({
-      type: 'Feature',
-      geometry: feature.geometry ?? null,
-      properties: {
-        kind: 'warning',
-        layer,
-        event: String(event || 'Storm Warning'),
-        source: 'nws',
-        expires: feature.properties?.expires ? String(feature.properties.expires) : undefined,
+  try {
+    const response = await fetch(NWS_ALERTS_URL, {
+      headers: {
+        Accept: 'application/geo+json',
+        'User-Agent': NWS_USER_AGENT,
       },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
     })
-  }
+    if (!response.ok) return []
 
-  return out
+    const payload = (await response.json().catch(() => null)) as {
+      features?: Array<{
+        geometry?: GeoJSON.Geometry | null
+        properties?: Record<string, unknown>
+      }>
+    } | null
+
+    const features = payload?.features || []
+    const out: GeoJsonFeature[] = []
+
+    for (const feature of features) {
+      const event = feature.properties?.event
+      if (!isStormWarningEvent(event)) continue
+      const bounds = geometryBounds(feature.geometry ?? null)
+      if (!bounds || !bboxesOverlap(bbox, bounds)) continue
+      out.push({
+        type: 'Feature',
+        geometry: feature.geometry ?? null,
+        properties: {
+          kind: 'warning',
+          layer,
+          event: String(event || 'Storm Warning'),
+          source: 'nws',
+          expires: feature.properties?.expires ? String(feature.properties.expires) : undefined,
+        },
+      })
+    }
+
+    return out
+  } catch {
+    // NWS slow/unreachable — return no warnings rather than failing the whole request
+    return []
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -153,7 +159,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const bbox = parseBbox(searchParams)
   const layer = parseLayer(searchParams.get('layer'))
-  const windowDays = Math.min(730, Math.max(1, Number(searchParams.get('windowDays') || 365)))
+  // Cap at 730 days (2 yrs) — insurance claim scope doesn't run past 2 years.
+  const windowDays = Math.min(730, Math.max(1, Number(searchParams.get('windowDays') || 730)))
 
   if (!bbox || !layer) {
     return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
@@ -166,7 +173,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const reports = await getSpcReportsInBbox(bbox, layer, windowDays)
+    const reports = await getRecentStormReportsInBbox(bbox, layer, windowDays)
     const reportFeatures: GeoJsonFeature[] = reports.map((report) => ({
       type: 'Feature',
       geometry: {
@@ -177,8 +184,9 @@ export async function GET(request: NextRequest) {
         kind: 'report',
         layer,
         magnitude: report.magnitude,
+        damage: report.damage,
         date: report.date.toISOString(),
-        source: 'spc',
+        source: 'iem',
       },
     }))
 
