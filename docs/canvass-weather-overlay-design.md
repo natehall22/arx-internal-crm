@@ -101,7 +101,7 @@ The map lives in `app/(canvass-app)/canvass/components/CanvassMap.tsx`. Relevant
 `CanvassMap` gains optional, defaulted props so nothing else changes:
 ```
 weatherOverlayEnabled?: boolean      // feature flag, default false
-weatherTimeWindowDays?: number       // default e.g. 365
+weatherTimeWindowDays?: number       // default 730 (2 years; insurance claim scope)
 ```
 `app/(canvass-app)/canvass/page.tsx` passes `weatherOverlayEnabled` from a flag. When false, the control never renders and behavior is byte-for-byte identical to today.
 

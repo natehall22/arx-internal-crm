@@ -80,7 +80,7 @@ You are working in the ARX internal CRM (Next.js 14 App Router, TypeScript stric
 - **Query params:**
   - `n,s,e,w` — bbox floats (north, south, east, west).
   - `layer` — `'hail' | 'wind'`.
-  - `windowDays` — integer, default **365** (see §9).
+  - `windowDays` — integer, default **730** (2 years; see §9). Hard cap 730.
 - **Logic:**
   - **Historical points (SPC):** call the new exported helper from `lib/roofradar-open-data.ts` (§5.1) to get SPC reports for `layer` within the bbox and `windowDays`. Emit each as a GeoJSON `Point` feature:
     ```
@@ -117,7 +117,7 @@ Implement it using the existing private `fetchSpcReports(year, type)` across `ca
 ### 6.1 New props (defaulted so nothing changes when absent)
 ```ts
 weatherOverlayEnabled?: boolean   // default false
-weatherTimeWindowDays?: number    // default 365
+weatherTimeWindowDays?: number    // default 730 (2 years)
 ```
 
 ### 6.2 New refs/state (all additive)
@@ -211,7 +211,7 @@ A simple Vercel cron may pre-warm the SPC fetch so the day's first rep request i
 ## 9. Defaults for the trial (recommendations to confirm)
 
 - **Default layer when first turned on:** Hail (ARX is storm/insurance roofing; hail drives most insurable claims). Remember last-used layer per device.
-- **Default time window:** 365 days (balances relevance against typical ~1-year carrier claim windows — *confirm with back office*). Always show the event date so recency is never ambiguous.
+- **Default time window:** 730 days (2 years), hard-capped at 730 — insurance claim scope does not run past 2 years (decided with ARX). Always show the event date so recency is never ambiguous.
 - **Live vs historical in the strip:** when an active NWS warning and historical SPC data both exist, the live warning takes the strip headline (always labeled "warning"); historical magnitude shows only when it exists.
 - **Default basemap:** unchanged (hybrid/satellite).
 
@@ -245,7 +245,7 @@ The six background docs disagreed on several values. This brief states ONE answe
 | Swath fill opacity | design doc `0.25–0.35`; impl prompt `~0.3`; UI spec `0.26–0.34`; field-readiness "raise floor to ~0.35" | **Floor 0.35, ceiling 0.40**, saturated low buckets, stroke as primary read (field-readiness wins — sunlight legibility). |
 | Hail color ramp | UI spec teal→indigo→violet→magenta pastels; field-readiness says pastels vanish in sun | Same violet/magenta family but **saturated/darker**, opacities raised (§7.1). |
 | Refresh strategy | impl prompt "optional, debounce or gate"; UI spec "explicit Refresh on the top-center strip"; field-readiness "strip refresh is unreachable mid-walk" | **Fetch once on layer activation for the trial.** No refresh tap target on the strip; if a manual refresh is added later, use the thumb-reachable bottom-left button. |
-| Default time window | open question in design doc; UI spec & impl prompt = 365 | **365 days** (confirm with back office). |
+| Default time window | open question in design doc; UI spec & impl prompt = 365 | **730 days (2 years)**, hard-capped — insurance claim scope (decided with ARX). |
 | Default layer | UI spec recommends Hail; design doc lists it as open | **Hail**, remember last-used per device. |
 | Bottom-sheet storm block | UI spec "~3 compact rows"; field-readiness "collapsed one-liner, expandable" | **Collapsed one-liner, expandable** — disposition chips must stay top-most. |
 | Real-estate segment | design/UI specs render a locked "coming soon" segment; field-readiness says hide it | **Render nothing** for real estate in the trial. |

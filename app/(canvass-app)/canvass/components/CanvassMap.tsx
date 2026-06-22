@@ -229,8 +229,12 @@ export default function CanvassMap({
   const [weatherStripText, setWeatherStripText] = useState('')
   const [weatherStripEmpty, setWeatherStripEmpty] = useState(false)
   const [weatherStripOffline, setWeatherStripOffline] = useState(false)
-  const weatherLastGoodRef = useRef<WeatherFeatureCollection | null>(null)
-  const weatherRefreshedAtRef = useRef<string | null>(null)
+  type WeatherCacheEntry = {
+    layer: Exclude<WeatherLayer, 'off'>
+    collection: WeatherFeatureCollection
+    refreshedAt: string | null
+  }
+  const weatherLastGoodRef = useRef<WeatherCacheEntry | null>(null)
   const onWeatherContextChangeRef = useRef(onWeatherContextChange)
   onWeatherContextChangeRef.current = onWeatherContextChange
 
@@ -264,15 +268,15 @@ export default function CanvassMap({
 
   const publishWeatherContext = useCallback(
     (layer: Exclude<WeatherLayer, 'off'>, offline: boolean) => {
-      const collection = weatherLastGoodRef.current
-      if (!collection) {
+      const cached = weatherLastGoodRef.current
+      if (!cached || cached.layer !== layer) {
         onWeatherContextChangeRef.current?.(null)
         return
       }
       onWeatherContextChangeRef.current?.({
-        layer,
-        features: collection.features,
-        refreshedAt: weatherRefreshedAtRef.current,
+        layer: cached.layer,
+        features: cached.collection.features,
+        refreshedAt: cached.refreshedAt,
         offline,
       })
     },
@@ -283,8 +287,9 @@ export default function CanvassMap({
     (layer: Exclude<WeatherLayer, 'off'>, collection: WeatherFeatureCollection, offline: boolean) => {
       const summary = summarizeViewport(layer, collection.features)
       if (offline && collection.features.length > 0) {
-        const dateLabel = weatherRefreshedAtRef.current
-          ? new Date(weatherRefreshedAtRef.current).toLocaleDateString('en-US', {
+        const refreshedAt = weatherLastGoodRef.current?.refreshedAt
+        const dateLabel = refreshedAt
+          ? new Date(refreshedAt).toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
             })
@@ -323,9 +328,9 @@ export default function CanvassMap({
       try {
         if (!navigator.onLine) {
           const cached = weatherLastGoodRef.current
-          if (cached) {
-            paintWeatherCollection(cached)
-            updateWeatherStrip(layer, cached, true)
+          if (cached && cached.layer === layer) {
+            paintWeatherCollection(cached.collection)
+            updateWeatherStrip(layer, cached.collection, true)
           } else {
             clearWeatherFeatures()
             setWeatherStripText('Offline — no stored storm data')
@@ -355,23 +360,30 @@ export default function CanvassMap({
         if (!response.ok) throw new Error('weather fetch failed')
 
         const payload = (await response.json()) as WeatherFeatureCollection
-        weatherLastGoodRef.current = payload
-        weatherRefreshedAtRef.current = payload.refreshedAt || new Date().toISOString()
+        if (controller.signal.aborted) return
+
+        weatherLastGoodRef.current = {
+          layer,
+          collection: payload,
+          refreshedAt: payload.refreshedAt || new Date().toISOString(),
+        }
         paintWeatherCollection(payload)
         updateWeatherStrip(layer, payload, false)
         finish(false)
       } catch {
+        if (controller.signal.aborted) return
+
         const cached = weatherLastGoodRef.current
-        if (cached) {
-          paintWeatherCollection(cached)
-          updateWeatherStrip(layer, cached, !navigator.onLine)
+        if (cached && cached.layer === layer) {
+          paintWeatherCollection(cached.collection)
+          updateWeatherStrip(layer, cached.collection, !navigator.onLine)
           finish(!navigator.onLine)
         } else {
           // No cached data and the request failed — this is a load failure, not
           // a confirmed "no storms" result, so don't imply the area is clear.
           clearWeatherFeatures()
           setWeatherStripText(
-            !navigator.onLine ? 'Offline — no stored storm data' : "Couldn't load storm data — tap to retry",
+            !navigator.onLine ? 'Offline — no stored storm data' : "Couldn't load storm data",
           )
           setWeatherStripEmpty(true)
           setWeatherStripOffline(!navigator.onLine)

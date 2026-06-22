@@ -266,12 +266,12 @@ Magnitude is therefore communicated three ways for redundancy under sunlight/CVD
 **Recommendation (to confirm with product owner):**
 
 - **Default layer when turned on:** **Hail.** ARX is storm/insurance roofing; hail drives the majority of insurable roof claims, and "did this block get hammered by hail" is the rep's central question. (Off remains the default *state*; Hail is the default *layer* the first time a rep taps in or the last-used layer thereafter — recommend remembering last-used per device.)
-- **Default time window:** **last 12 months (365 days)** — matches the design doc's default and balances relevance against typical insurance claim windows (many carriers limit claims to ~1 year from date of loss). This keeps the map focused on *actionable, still-claimable* storms rather than ancient events.
-  - Offer a quick window switch later (e.g., "Last storm / 12 mo / 24 mo") as a Phase 1.5 enhancement inside the expanded pill or strip — **not required for v1**; v1 ships fixed 365 with the date always shown so recency is never ambiguous.
+- **Default time window:** **last 24 months (730 days, hard-capped)** — decided with ARX to match insurance claim scope (does not run past 2 years). Always show the event date so recency is never ambiguous.
+  - Offer a quick window switch later (e.g., "Last storm / 12 mo / 24 mo") as a Phase 1.5 enhancement inside the expanded pill or strip — **not required for v1**; v1 ships fixed **730** with the date always shown so recency is never ambiguous.
 - **Default basemap:** unchanged (hybrid/satellite) — reps already navigate by rooflines; swaths are tuned for that basemap.
 
 **Assumptions flagged:**
-- That the typical actionable claim window is ~12 months. (Carrier-dependent; confirm with Andrew/back office.)
+- That the typical actionable claim window is **~2 years (730 days, hard-capped)** — decided with ARX; carrier-dependent edge cases still possible.
 - That hail > wind in default priority for ARX's market. (Confirm; if a recent wind event dominates the operating area, last-used memory covers it.)
 - That data coverage is adequate around the current operating area (Cabarrus County NC per Roof Radar) — the design doc itself flags coverage as TBD. UI degrades to the empty state where coverage is thin, so this is safe but should be validated in-field.
 

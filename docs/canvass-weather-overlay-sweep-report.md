@@ -19,7 +19,7 @@ Date: 2026-06-19. Scope: consistency/accuracy sweep across all 7 weather-overlay
 | Z-order (weather `zIndex 1`; territories `0`; sold `700`; user `1000`; pins above) | ✅ Consistent across design, UI spec, build brief. |
 | Layer is separate `google.maps.Data`, `clickable:false`, pins on top | ✅ Consistent. |
 | Scope = Phase 1 trial; MRMS/GRIB2 = Phase 2; no new tables in trial | ✅ Consistent. |
-| Default layer Hail, window 365d, collapse-when-off, claims-safe one-line sheet | ✅ Present and consistent in build brief; matches UI spec intent. |
+| Default layer Hail, window **730d (2 years)**, collapse-when-off, claims-safe one-line sheet | ✅ Present and consistent in build brief; matches locked ARX decision. |
 | File/function references real (`lib/roofradar-open-data.ts`, `lib/auth.ts`, `public/canvass-sw.js:46`, `vercel.json`, `app/api/cron/sync-444`) | ✅ Verified against the codebase in the QA pass. |
 | `getSpcReportsInBbox` new-export approach (SPC helpers are private) | ✅ Build brief correct. ⚠️ see Note B. |
 | Color/opacity ramp | ❌ → ✅ **Fixed** (see Finding 1). |
@@ -38,4 +38,4 @@ The build brief (§7.1) uses the **final saturated ramp** (teal `#2DD4BF`, indig
 **Note C — `weather_cache` vs `weather_swaths`.** Naming is consistent: `weather_cache` = Phase 1 SPC points / NWS snapshots; `weather_swaths` = Phase 2 MRMS MESH. The trial creates **neither** (no tables). Consistent.
 
 ## Overall verdict
-The package is internally consistent after the one fix, every code reference checks out, and the build brief is self-contained. **Ready to hand to Cursor for the Phase 1 trial.** The only true gates remain the two human decisions (claims-safe copy + legal review; confirm 365-day window / validate ramp on a real Android) — neither blocks writing code.
+The package is internally consistent after the one fix, every code reference checks out, and the build brief is self-contained. **Ready to hand to Cursor for the Phase 1 trial.** The only true gate remaining is counsel sign-off on claims-safe copy + legal review (validate ramp on a real Android) — neither blocks writing code.

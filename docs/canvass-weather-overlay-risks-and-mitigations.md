@@ -342,8 +342,8 @@ If T1, T2, T3 are not resolved, do not write code. T4 and T5 must be resolved be
   proposed `weather_refresh_runs` log. Unbounded growth bloats the DB and slows spatial queries.
 - **Severity:** Low-Med. **Likelihood:** Med (slow burn).
 - **Mitigation:**
-  - **Retention policy aligned to the claim window:** the UI/design default is **365 days** (carrier claim windows
-    ~1 year — *verify with Andrew/back office*). Prune `weather_swaths` / `weather_cache` rows older than the
+  - **Retention policy aligned to the claim window:** the UI/design default is **730 days (2 years, hard-capped)** —
+    decided with ARX (insurance claim scope). Prune `weather_swaths` / `weather_cache` rows older than the
     retention window in the same cron (or a monthly cleanup, mirroring `cleanup-inspection-photos`).
   - **Index for the read path:** index `(event_date, layer)`; if PostGIS is enabled, a GiST index on geometry —
     **verify the extension is on** (`list_extensions`); if not, store GeoJSON as `jsonb` and bbox-filter in app
@@ -407,12 +407,12 @@ Tick these before code; the **bold** ones are hard blockers.
       non-empty CSV → fail + keep last-good" sanity check.
 - [ ] (F1/F2) Live NWS fetched at request time; historical from cache; `refreshed_at` returned; freshness labeled
       honestly (6h live / event-date historical — confirm).
-- [ ] (J1) Retention policy (~365d, confirm with back office) + indexes; verify PostGIS before relying on
+- [ ] (J1) Retention policy (~730d / 2 years, hard-capped) + indexes; verify PostGIS before relying on
       `geography`/GiST.
 - [ ] (C2) Verify Vercel cron count + `maxDuration` on the current plan, or fold into existing daily cron /
       trigger from the GitHub Action.
 
-**Open product questions carried from the specs (confirm):** default layer = Hail; default window = 365d; remember
+**Open product questions carried from the specs (confirm):** default layer = Hail; default window = **730d (locked)**; remember
 last-used layer per device; live-vs-historical strip precedence; swaths visual-only vs tappable callout; priority-tag
 thresholds; wind ≥70 styling (dashed dark-red vs hatch); roof-age/claim-status availability in the lead record.
 
