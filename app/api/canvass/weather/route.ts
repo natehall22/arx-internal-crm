@@ -142,9 +142,9 @@ export async function GET(request: NextRequest) {
     // Evict expired entries before inserting so the in-memory cache can't grow unbounded.
     if (responseCache.size > 200) {
       const now = Date.now()
-      for (const [key, val] of responseCache) {
+      responseCache.forEach((val, key) => {
         if (val.expiresAt <= now) responseCache.delete(key)
-      }
+      })
     }
     responseCache.set(cacheKey, { expiresAt: Date.now() + CACHE_MS, body })
     return NextResponse.json(body)
