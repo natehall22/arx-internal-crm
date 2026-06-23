@@ -259,9 +259,13 @@ export default function CanvassMap({
     (collection: WeatherFeatureCollection) => {
       const data = weatherDataRef.current
       if (!data) return
-      clearWeatherFeatures()
-      data.addGeoJson(collection)
-      data.setStyle(applyWeatherDataStyle)
+      try {
+        clearWeatherFeatures()
+        data.addGeoJson(collection)
+        data.setStyle(applyWeatherDataStyle)
+      } catch {
+        clearWeatherFeatures()
+      }
     },
     [applyWeatherDataStyle, clearWeatherFeatures],
   )

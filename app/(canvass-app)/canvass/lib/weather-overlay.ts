@@ -10,7 +10,7 @@ export type WeatherFeature = {
   type: 'Feature'
   geometry: GeoJSON.Geometry | null
   properties: {
-    kind?: 'report' | 'warning'
+    kind?: 'report' | 'warning' | 'swath'
     layer?: WeatherLayer
     magnitude?: number
     damage?: boolean
@@ -74,6 +74,19 @@ function windBucket(magnitude: number): StyleBucket {
 
 export function weatherFeatureStyle(feature: { getProperty: (key: string) => unknown }) {
   const kind = String(feature.getProperty('kind') || '')
+  if (kind === 'swath') {
+    const magnitude = Number(feature.getProperty('magnitude') || 0)
+    const bucket = hailBucket(magnitude)
+    return {
+      fillColor: bucket.fill,
+      fillOpacity: bucket.fillOpacity,
+      strokeColor: bucket.stroke,
+      strokeOpacity: bucket.strokeOpacity,
+      strokeWeight: 1.5,
+      clickable: false,
+      zIndex: 1,
+    }
+  }
   if (kind === 'warning') {
     const layer = String(feature.getProperty('layer') || 'hail')
     const bucket = layer === 'wind' ? windBucket(70) : hailBucket(1.25)
@@ -152,16 +165,20 @@ function ringContainsPoint(ring: number[][], lat: number, lng: number) {
 
 function geometryContainsPoint(geometry: GeoJSON.Geometry | null, lat: number, lng: number) {
   if (!geometry) return false
-  if (geometry.type === 'Polygon') {
-    const [outer, ...holes] = geometry.coordinates
-    if (!outer || !ringContainsPoint(outer, lat, lng)) return false
-    return !holes.some((hole) => ringContainsPoint(hole, lat, lng))
-  }
-  if (geometry.type === 'MultiPolygon') {
-    return geometry.coordinates.some(([outer, ...holes]) => {
+  try {
+    if (geometry.type === 'Polygon') {
+      const [outer, ...holes] = geometry.coordinates
       if (!outer || !ringContainsPoint(outer, lat, lng)) return false
       return !holes.some((hole) => ringContainsPoint(hole, lat, lng))
-    })
+    }
+    if (geometry.type === 'MultiPolygon') {
+      return geometry.coordinates.some(([outer, ...holes]) => {
+        if (!outer || !ringContainsPoint(outer, lat, lng)) return false
+        return !holes.some((hole) => ringContainsPoint(hole, lat, lng))
+      })
+    }
+  } catch {
+    return false
   }
   return false
 }
@@ -223,9 +240,20 @@ export function summarizeViewport(
     }))
 
   if (layer === 'hail') {
+    const swaths = features
+      .filter((f) => f.properties.kind === 'swath')
+      .map((f) => ({
+        magnitude: Number(f.properties.magnitude || 0),
+        date: String(f.properties.date || ''),
+      }))
+      .filter((s) => s.magnitude > 0)
     const reports = allReports.filter((r) => r.magnitude > 0)
-    if (!reports.length) return { text: 'No recorded hail nearby', empty: true }
-    const max = reports.reduce((best, r) => (r.magnitude > best.magnitude ? r : best), reports[0])
+    const candidates = [...reports, ...swaths]
+    if (!candidates.length) return { text: 'No recorded hail nearby', empty: true }
+    const max = candidates.reduce(
+      (best, r) => (r.magnitude > best.magnitude ? r : best),
+      candidates[0],
+    )
     const dateLabel = formatShortDate(max.date)
     return {
       text: `est. up to ${max.magnitude.toFixed(1)}″ hail · ${dateLabel}`,
@@ -296,10 +324,34 @@ export function lookupPinStorm(
       ? nearbyReports.reduce((best, r) => (r.distance < best.distance ? r : best), nearbyReports[0])
       : null
 
+  const containingSwaths =
+    layer === 'hail'
+      ? features
+          .filter(
+            (f) =>
+              f.properties.kind === 'swath' &&
+              f.geometry &&
+              geometryContainsPoint(f.geometry, lat, lng),
+          )
+          .map((f) => ({
+            magnitude: Number(f.properties.magnitude || 0),
+            date: String(f.properties.date || ''),
+          }))
+          .filter((s) => s.magnitude > 0)
+      : []
+
+  const bestSwath =
+    containingSwaths.length > 0
+      ? containingSwaths.reduce(
+          (best, s) => (s.magnitude > best.magnitude ? s : best),
+          containingSwaths[0],
+        )
+      : null
+
   const inWarning = warnings.length > 0
   const hasNearbyReport = closestReport != null && closestReport.distance <= 8
 
-  if (inWarning && !hasNearbyReport) {
+  if (inWarning && !hasNearbyReport && !bestSwath) {
     const expires = warnings[0].properties.expires
     return {
       kind: 'warning',
@@ -314,19 +366,32 @@ export function lookupPinStorm(
     }
   }
 
-  if (hasNearbyReport && closestReport) {
-    const dateLabel = formatShortDate(closestReport.date)
-    if (layer === 'hail') {
-      const sizeLabel = hailSizeLabel(closestReport.magnitude)
-      return {
-        kind: 'report',
-        magnitude: closestReport.magnitude,
-        dateLabel,
-        headline: `⛈ est. ${sizeLabel} · ${dateLabel} ▸`,
-        expandedHeadline: `est. ${closestReport.magnitude.toFixed(1)}″ hail`,
-        talkTrack: `Your street may have been impacted by hail on ${dateLabel} — we're offering free roof inspections in the area.`,
-      }
+  if (layer === 'hail' && (hasNearbyReport || bestSwath)) {
+    const hailMagnitude = Math.max(
+      hasNearbyReport && closestReport ? closestReport.magnitude : 0,
+      bestSwath?.magnitude ?? 0,
+    )
+    const hailDate =
+      bestSwath &&
+      (!closestReport ||
+        bestSwath.magnitude >= closestReport.magnitude ||
+        !hasNearbyReport)
+        ? bestSwath.date
+        : closestReport?.date || bestSwath?.date || ''
+    const dateLabel = formatShortDate(hailDate)
+    const sizeLabel = hailSizeLabel(hailMagnitude)
+    return {
+      kind: 'report',
+      magnitude: hailMagnitude,
+      dateLabel,
+      headline: `⛈ est. ${sizeLabel} · ${dateLabel} ▸`,
+      expandedHeadline: `est. ${hailMagnitude.toFixed(1)}″ hail`,
+      talkTrack: `Your street may have been impacted by hail on ${dateLabel} — we're offering free roof inspections in the area.`,
     }
+  }
+
+  if (layer === 'wind' && hasNearbyReport && closestReport) {
+    const dateLabel = formatShortDate(closestReport.date)
     if (closestReport.damage || closestReport.magnitude <= 0) {
       return {
         kind: 'report',

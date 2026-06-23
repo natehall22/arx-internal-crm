@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import CanvassReportIssue from '../components/CanvassReportIssue'
 
 export default function CanvassSettingsPage() {
   const [profile, setProfile] = useState<any>(null)
@@ -269,6 +270,11 @@ export default function CanvassSettingsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
+
+          <CanvassReportIssue
+            userName={profile?.full_name || ''}
+            variant="settings-row"
+          />
         </div>
 
         {/* CRM Link */}
