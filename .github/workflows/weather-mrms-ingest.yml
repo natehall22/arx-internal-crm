@@ -13,16 +13,22 @@ on:
 
 jobs:
   ingest-mrms-swaths:
-    runs-on: ubuntu-latest
+    # Pinned to 22.04 — these GDAL apt packages install reliably here; ubuntu-latest (24.04)
+    # caused the install step to fail with apt exit code 100.
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install GDAL and AWS CLI
+      - name: Install GDAL
+        # AWS CLI v2 is preinstalled on GitHub runners — do NOT apt-install awscli (v1),
+        # it's redundant and can conflict. Only GDAL is needed here.
         run: |
           sudo apt-get update
-          sudo apt-get install -y gdal-bin python3-gdal awscli
+          sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal
+          gdal_translate --version
+          aws --version
 
       - name: Contour MRMS MESH and POST swaths
         if: vars.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY == 'true'
