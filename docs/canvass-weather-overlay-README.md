@@ -19,7 +19,7 @@ Design/research collateral for adding a hail/wind weather overlay to the ARX can
 | `prompts/canvass-weather-overlay-implementation.md` | **The build brief.** Self-contained Cursor task for the Phase 1 trial. | To actually build the trial. |
 
 ## The decisions that are locked (so you don't relitigate them)
-- **Scope = Phase 1 trial:** Recent storm points from free **IEM Local Storm Reports** (near-real-time) + live NWS Alerts polygons, toggled under the pins. **MRMS MESH swath pipeline is Phase 2, out of scope.**
+- **Scope:** Phase 1 (recent storm points from free **IEM Local Storm Reports** + live NWS Alerts polygons) is **merged to `main`**. Phase 2 (**MRMS MESH hail swaths** via a GitHub Action GDAL worker → `weather_swaths` table, durable cache + daily refresh cron) is **built on `feat/canvass-weather-overlay-phase2`** and verified — see `canvass-weather-overlay-phase2-verification.md`. Pending: `npm run build`, merge, and GitHub/Vercel config to run the pipeline.
 - **Additive & feature-flagged OFF** (`NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY`). Flag off ⇒ app byte-for-byte identical to today.
 - **Separate `google.maps.Data` layer**, `zIndex 1`, `clickable: false`. Pins always on top and tappable. Never touch existing marker/clusterer/territory/user refs.
 - **Auth:** rep route uses `requireAuthApi()` (it *throws* → try/catch → 401). Never raw `supabase.auth.getUser()`. Cron uses `CRON_SECRET` bearer.

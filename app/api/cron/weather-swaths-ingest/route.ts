@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
-import { clampWindowDays, weatherOverlayFeatureEnabled } from '@/lib/weather-footprint'
+import { weatherOverlayFeatureEnabled } from '@/lib/weather-footprint'
 import { replaceWeatherSwathsForDay, type WeatherSwathInsert } from '@/lib/weather-storage'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -13,6 +13,26 @@ type IngestBody = {
     magnitude?: number
     geometry?: GeoJSON.Geometry
   }>
+}
+
+// Abuse/bloat guards for the service-role insert (the ingest is reachable by any
+// holder of CRON_SECRET, so never trust the payload shape).
+const MAX_BODY_BYTES = 8 * 1024 * 1024 // 8 MB
+const MAX_FEATURES = 1000
+const MAX_VERTICES_PER_FEATURE = 6000
+const MAX_MAGNITUDE = 8 // inches — sane ceiling for MRMS MESH hail
+
+function countVertices(geometry: GeoJSON.Geometry): number {
+  if (geometry.type === 'Polygon') {
+    return geometry.coordinates.reduce((n, ring) => n + ring.length, 0)
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.reduce(
+      (n, poly) => n + poly.reduce((m, ring) => m + ring.length, 0),
+      0,
+    )
+  }
+  return 0
 }
 
 function verifyCronSecret(request: NextRequest) {
@@ -35,6 +55,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true, reason: 'weather overlay flag off' })
   }
 
+  const contentLength = Number(request.headers.get('content-length') || 0)
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
+  }
+
   let body: IngestBody
   try {
     body = (await request.json()) as IngestBody
@@ -55,12 +80,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'features array required' }, { status: 400 })
   }
 
+  if (features.length > MAX_FEATURES) {
+    return NextResponse.json(
+      { error: `Too many features (max ${MAX_FEATURES})` },
+      { status: 413 },
+    )
+  }
+
   const rows: WeatherSwathInsert[] = []
+  let skipped = 0
   for (const feature of features) {
     const magnitude = Number(feature.magnitude)
-    if (!Number.isFinite(magnitude) || magnitude <= 0) continue
-    if (!feature.geometry) continue
-    if (feature.geometry.type !== 'Polygon' && feature.geometry.type !== 'MultiPolygon') continue
+    if (!Number.isFinite(magnitude) || magnitude <= 0 || magnitude > MAX_MAGNITUDE) {
+      skipped += 1
+      continue
+    }
+    if (!feature.geometry) {
+      skipped += 1
+      continue
+    }
+    if (feature.geometry.type !== 'Polygon' && feature.geometry.type !== 'MultiPolygon') {
+      skipped += 1
+      continue
+    }
+    if (countVertices(feature.geometry) > MAX_VERTICES_PER_FEATURE) {
+      skipped += 1
+      continue
+    }
     rows.push({
       event_date: eventDate,
       layer,
@@ -78,14 +124,16 @@ export async function POST(request: NextRequest) {
   try {
     const admin = createServiceClient()
     const upserted = await replaceWeatherSwathsForDay(admin, eventDate, layer, source, rows)
+    // Retention: drop swaths older than the 2-year insurance scope.
+    const retentionCutoff = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10)
     await admin
       .from('weather_swaths')
       .delete()
       .eq('layer', layer)
       .eq('source', source)
-      .lt('event_date', new Date(Date.now() - clampWindowDays(730) * 86400000).toISOString().slice(0, 10))
+      .lt('event_date', retentionCutoff)
 
-    return NextResponse.json({ ok: true, upserted, eventDate, layer, source })
+    return NextResponse.json({ ok: true, upserted, skipped, eventDate, layer, source })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[cron/weather-swaths-ingest]', message)

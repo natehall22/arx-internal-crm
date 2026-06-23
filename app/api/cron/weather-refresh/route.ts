@@ -113,14 +113,23 @@ export async function GET(request: NextRequest) {
     errors.push(`prune: ${message}`)
   }
 
-  const { count: swathCount } = await admin
-    .from('weather_swaths')
-    .select('id', { count: 'exact', head: true })
+  try {
+    const { count: swathCount } = await admin
+      .from('weather_swaths')
+      .select('id', { count: 'exact', head: true })
+    summary.swaths = { totalRows: swathCount ?? 0 }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    errors.push(`swath_count: ${message}`)
+  }
 
-  summary.swaths = { totalRows: swathCount ?? 0 }
-
+  // 'failed' only when every data-fetch step errored (4 fetches: hail/wind × IEM/NWS);
+  // a prune/count error alone is still a 'partial' success.
+  const dataFetchErrors = errors.filter(
+    (e) => e.startsWith('iem_') || e.startsWith('nws_'),
+  ).length
   const status: 'ok' | 'partial' | 'failed' =
-    errors.length === 0 ? 'ok' : errors.length >= 5 ? 'failed' : 'partial'
+    errors.length === 0 ? 'ok' : dataFetchErrors >= 4 ? 'failed' : 'partial'
   summary.errors = errors
 
   if (runId) {

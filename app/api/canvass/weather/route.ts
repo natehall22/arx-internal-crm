@@ -94,7 +94,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
   }
 
-  const cacheKey = `${bbox.n}|${bbox.s}|${bbox.e}|${bbox.w}|${layer}|${windowDays}`
+  // Round bbox edges in the key so small pans reuse a cache entry (bounds key cardinality).
+  const k = (v: number) => v.toFixed(2)
+  const cacheKey = `${k(bbox.n)}|${k(bbox.s)}|${k(bbox.e)}|${k(bbox.w)}|${layer}|${windowDays}`
   const cached = responseCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json(cached.body)
@@ -137,6 +139,13 @@ export async function GET(request: NextRequest) {
       ...(stale ? { stale: true } : {}),
     }
 
+    // Evict expired entries before inserting so the in-memory cache can't grow unbounded.
+    if (responseCache.size > 200) {
+      const now = Date.now()
+      for (const [key, val] of responseCache) {
+        if (val.expiresAt <= now) responseCache.delete(key)
+      }
+    }
     responseCache.set(cacheKey, { expiresAt: Date.now() + CACHE_MS, body })
     return NextResponse.json(body)
   } catch {
