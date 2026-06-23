@@ -1,6 +1,10 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { weatherOverlayFeatureEnabled } from '@/lib/weather-footprint'
-import { replaceWeatherSwathsForDay, type WeatherSwathInsert } from '@/lib/weather-storage'
+import {
+  clearWeatherSwathsForDay,
+  replaceWeatherSwathsForDay,
+  type WeatherSwathInsert,
+} from '@/lib/weather-storage'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -9,6 +13,7 @@ type IngestBody = {
   eventDate?: string
   layer?: 'hail' | 'wind'
   source?: string
+  clear?: boolean
   features?: Array<{
     magnitude?: number
     geometry?: GeoJSON.Geometry
@@ -55,14 +60,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true, reason: 'weather overlay flag off' })
   }
 
-  const contentLength = Number(request.headers.get('content-length') || 0)
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+  let rawBody: string
+  try {
+    rawBody = await request.text()
+  } catch {
+    return NextResponse.json({ error: 'Unable to read request body' }, { status: 400 })
+  }
+
+  if (rawBody.length > MAX_BODY_BYTES) {
     return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
   }
 
   let body: IngestBody
   try {
-    body = (await request.json()) as IngestBody
+    body = JSON.parse(rawBody) as IngestBody
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
@@ -74,6 +85,21 @@ export async function POST(request: NextRequest) {
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
     return NextResponse.json({ error: 'eventDate must be YYYY-MM-DD' }, { status: 400 })
+  }
+
+  if (body.clear === true) {
+    if (features.length > 0) {
+      return NextResponse.json({ error: 'clear cannot be combined with features' }, { status: 400 })
+    }
+    try {
+      const admin = createServiceClient()
+      await clearWeatherSwathsForDay(admin, eventDate, layer, source)
+      return NextResponse.json({ ok: true, cleared: true, eventDate, layer, source })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[cron/weather-swaths-ingest] clear failed:', message)
+      return NextResponse.json({ error: message }, { status: 500 })
+    }
   }
 
   if (!features.length) {

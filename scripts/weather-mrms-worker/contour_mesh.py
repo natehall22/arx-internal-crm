@@ -25,6 +25,9 @@ from typing import Any
 # Hail-size contour bands (inches) — matches overlay legend buckets.
 HAIL_BANDS = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
 
+# Must match MAX_FEATURES in app/api/cron/weather-swaths-ingest/route.ts
+MAX_FEATURES_PER_BATCH = 1000
+
 MRMS_PRODUCT = "MESH/maximum_estimated_size_of_hail"
 MRMS_HTTPS_BASE = "https://mrms.ncep.noaa.gov/data/2D"
 MRMS_S3_BASE = "s3://noaa-mrms-pds/MESH/maximum_estimated_size_of_hail"
@@ -203,18 +206,11 @@ def build_features(grib: Path, work: Path) -> list[dict[str, Any]]:
     return features
 
 
-def post_ingest(
-    event_date: date,
-    features: list[dict[str, Any]],
+def _post_json(
     ingest_url: str,
     cron_secret: str,
+    body: dict[str, Any],
 ) -> dict[str, Any]:
-    body = {
-        "eventDate": event_date.isoformat(),
-        "layer": "hail",
-        "source": "mrms_mesh",
-        "features": features,
-    }
     req = urllib.request.Request(
         ingest_url,
         data=json.dumps(body).encode("utf-8"),
@@ -226,6 +222,45 @@ def post_ingest(
     )
     with urllib.request.urlopen(req, timeout=120) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def post_clear_day(
+    event_date: date,
+    ingest_url: str,
+    cron_secret: str,
+) -> dict[str, Any]:
+    body = {
+        "eventDate": event_date.isoformat(),
+        "layer": "hail",
+        "source": "mrms_mesh",
+        "features": [],
+        "clear": True,
+    }
+    return _post_json(ingest_url, cron_secret, body)
+
+
+def post_ingest(
+    event_date: date,
+    features: list[dict[str, Any]],
+    ingest_url: str,
+    cron_secret: str,
+) -> dict[str, Any]:
+    batches = [
+        features[i : i + MAX_FEATURES_PER_BATCH]
+        for i in range(0, len(features), MAX_FEATURES_PER_BATCH)
+    ]
+    last_result: dict[str, Any] = {"ok": True, "upserted": 0, "skipped": 0}
+    for batch in batches:
+        body = {
+            "eventDate": event_date.isoformat(),
+            "layer": "hail",
+            "source": "mrms_mesh",
+            "features": batch,
+        }
+        last_result = _post_json(ingest_url, cron_secret, body)
+        if not last_result.get("ok"):
+            return last_result
+    return last_result
 
 
 def main() -> int:
@@ -279,8 +314,13 @@ def main() -> int:
             return 0
 
         if not features:
-            print("No hail swath polygons for this day — clear day, skipping ingest", file=sys.stderr)
-            return 0
+            print(
+                "No hail swath polygons for this day — posting clear to remove stale swaths",
+                file=sys.stderr,
+            )
+            result = post_clear_day(event_date, args.ingest_url, cron_secret)
+            print(json.dumps(result))
+            return 0 if result.get("ok") else 3
 
         result = post_ingest(event_date, features, args.ingest_url, cron_secret)
         print(json.dumps(result))
