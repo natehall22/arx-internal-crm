@@ -14,10 +14,27 @@ type IngestBody = {
   layer?: 'hail' | 'wind'
   source?: string
   clear?: boolean
+  // ISO timestamp shared across all batches of one worker run. Lets the storage
+  // layer scope its delete-older step to PRIOR runs instead of wiping sibling
+  // batches from the same run. Optional; falls back to server time when absent.
+  refreshedAt?: string
   features?: Array<{
     magnitude?: number
     geometry?: GeoJSON.Geometry
   }>
+}
+
+// Accept a client-supplied run timestamp only if it parses and is not in the
+// future (beyond small clock skew). Otherwise use server time — a bad value must
+// never let a caller set a far-future cutoff that deletes good rows.
+function resolveRefreshedAt(raw: unknown): string {
+  if (typeof raw === 'string') {
+    const ms = Date.parse(raw)
+    if (Number.isFinite(ms) && ms <= Date.now() + 5 * 60 * 1000) {
+      return new Date(ms).toISOString()
+    }
+  }
+  return new Date().toISOString()
 }
 
 // Abuse/bloat guards for the service-role insert (the ingest is reachable by any
@@ -81,6 +98,7 @@ export async function POST(request: NextRequest) {
   const eventDate = String(body.eventDate || '').slice(0, 10)
   const layer = body.layer === 'wind' ? 'wind' : 'hail'
   const source = String(body.source || 'mrms_mesh')
+  const refreshedAt = resolveRefreshedAt(body.refreshedAt)
   const features = Array.isArray(body.features) ? body.features : []
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
@@ -139,7 +157,7 @@ export async function POST(request: NextRequest) {
       magnitude,
       geometry: feature.geometry,
       source,
-      refreshed_at: new Date().toISOString(),
+      refreshed_at: refreshedAt,
     })
   }
 
@@ -149,7 +167,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const admin = createServiceClient()
-    const upserted = await replaceWeatherSwathsForDay(admin, eventDate, layer, source, rows)
+    const upserted = await replaceWeatherSwathsForDay(
+      admin,
+      eventDate,
+      layer,
+      source,
+      rows,
+      refreshedAt,
+    )
     // Retention: drop swaths older than the 2-year insurance scope.
     const retentionCutoff = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10)
     await admin

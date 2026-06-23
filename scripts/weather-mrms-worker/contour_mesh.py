@@ -249,18 +249,27 @@ def post_ingest(
         features[i : i + MAX_FEATURES_PER_BATCH]
         for i in range(0, len(features), MAX_FEATURES_PER_BATCH)
     ]
+    # One timestamp for the whole run, sent with every batch. The ingest route's
+    # delete-older step keys off this value, so sharing it stops batch N+1 from
+    # deleting the rows batch N just inserted (which would silently truncate the
+    # swath to the last <=1000 features).
+    refreshed_at = datetime.now(timezone.utc).isoformat()
+    total_upserted = 0
     last_result: dict[str, Any] = {"ok": True, "upserted": 0, "skipped": 0}
     for batch in batches:
         body = {
             "eventDate": event_date.isoformat(),
             "layer": "hail",
             "source": "mrms_mesh",
+            "refreshedAt": refreshed_at,
             "features": batch,
         }
         last_result = _post_json(ingest_url, cron_secret, body)
         if not last_result.get("ok"):
             return last_result
-    return last_result
+        total_upserted += int(last_result.get("upserted", 0) or 0)
+    # Report the run total, not just the final batch, so logs reflect all rows.
+    return {**last_result, "upserted": total_upserted, "batches": len(batches)}
 
 
 def main() -> int:

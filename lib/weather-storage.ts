@@ -269,10 +269,14 @@ export async function replaceWeatherSwathsForDay(
   layer: WeatherLayer,
   source: string,
   rows: WeatherSwathInsert[],
+  // A single run may POST features in multiple batches (>MAX_FEATURES). Every batch
+  // must share ONE refreshedAt so the delete-older step below removes only PRIOR
+  // runs — not sibling batches from the same run. Callers that omit it get a
+  // per-call timestamp (safe only for single-batch callers).
+  refreshedAt: string = new Date().toISOString(),
 ) {
   if (!rows.length) return 0
 
-  const refreshedAt = new Date().toISOString()
   const payload = rows.map((row) => ({
     org_id: null,
     event_date: row.event_date,
