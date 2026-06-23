@@ -4,6 +4,7 @@ export type WeatherFeatureCollection = {
   type: 'FeatureCollection'
   features: WeatherFeature[]
   refreshedAt?: string
+  degraded?: boolean
 }
 
 export type WeatherFeature = {

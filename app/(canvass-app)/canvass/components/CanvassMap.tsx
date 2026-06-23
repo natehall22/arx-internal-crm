@@ -229,6 +229,7 @@ export default function CanvassMap({
   const [weatherStripText, setWeatherStripText] = useState('')
   const [weatherStripEmpty, setWeatherStripEmpty] = useState(false)
   const [weatherStripOffline, setWeatherStripOffline] = useState(false)
+  const [weatherStripDegraded, setWeatherStripDegraded] = useState(false)
   type WeatherCacheEntry = {
     layer: Exclude<WeatherLayer, 'off'>
     collection: WeatherFeatureCollection
@@ -312,6 +313,7 @@ export default function CanvassMap({
       setWeatherStripText(summary.text)
       setWeatherStripEmpty(summary.empty)
       setWeatherStripOffline(false)
+      setWeatherStripDegraded(false)
     },
     [],
   )
@@ -366,6 +368,17 @@ export default function CanvassMap({
         const payload = (await response.json()) as WeatherFeatureCollection
         if (controller.signal.aborted) return
 
+        if (payload.degraded) {
+          clearWeatherFeatures()
+          setWeatherStripText("Couldn't load storm data — tap to retry")
+          setWeatherStripEmpty(true)
+          setWeatherStripOffline(false)
+          setWeatherStripDegraded(true)
+          onWeatherContextChangeRef.current?.(null)
+          finish(false)
+          return
+        }
+
         weatherLastGoodRef.current = {
           layer,
           collection: payload,
@@ -391,6 +404,7 @@ export default function CanvassMap({
           )
           setWeatherStripEmpty(true)
           setWeatherStripOffline(!navigator.onLine)
+          setWeatherStripDegraded(false)
           onWeatherContextChangeRef.current?.(null)
         }
       } finally {
@@ -417,6 +431,7 @@ export default function CanvassMap({
         setWeatherStripText('')
         setWeatherStripEmpty(false)
         setWeatherStripOffline(false)
+        setWeatherStripDegraded(false)
         onWeatherContextChangeRef.current?.(null)
         return
       }
@@ -919,12 +934,29 @@ export default function CanvassMap({
           style={{ top: 'calc(max(16px, env(safe-area-inset-top)) + 56px)' }}
         >
           <div
+            role={weatherStripDegraded ? 'button' : undefined}
+            tabIndex={weatherStripDegraded ? 0 : undefined}
+            onClick={
+              weatherStripDegraded ? () => void fetchWeatherForLayer(weatherLayer) : undefined
+            }
+            onKeyDown={
+              weatherStripDegraded
+                ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      void fetchWeatherForLayer(weatherLayer)
+                    }
+                  }
+                : undefined
+            }
             className={`rounded-full shadow-lg px-4 py-2 text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
               weatherStripOffline
                 ? 'bg-amber-50 text-[#2c2c2a] border border-amber-200'
-                : weatherStripEmpty
-                  ? 'bg-white/95 text-gray-600'
-                  : 'bg-white/95 text-[#2c2c2a]'
+                : weatherStripDegraded
+                  ? 'bg-amber-50 text-[#2c2c2a] border border-amber-200 cursor-pointer'
+                  : weatherStripEmpty
+                    ? 'bg-white/95 text-gray-600'
+                    : 'bg-white/95 text-[#2c2c2a]'
             }`}
           >
             {weatherStripOffline && (

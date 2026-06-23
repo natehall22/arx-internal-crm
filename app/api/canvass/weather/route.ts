@@ -23,16 +23,27 @@ type WeatherResponse = {
   features: WeatherGeoFeature[]
   refreshedAt: string
   stale?: boolean
+  degraded?: boolean
 }
 
 const responseCache = new Map<string, { expiresAt: number; body: WeatherResponse }>()
 
-function emptyResponse(): WeatherResponse {
+function emptyResponse(degraded = false): WeatherResponse {
   return {
     type: 'FeatureCollection',
     features: [],
     refreshedAt: new Date().toISOString(),
+    ...(degraded ? { degraded: true } : {}),
   }
+}
+
+/** Re-filter cached warnings so expired alerts are not served from the in-memory cache. */
+function filterCachedResponse(body: WeatherResponse): WeatherResponse {
+  const features = body.features.filter(
+    (f) => f.properties.kind !== 'warning' || isActiveWeatherWarning(f.properties),
+  )
+  if (features.length === body.features.length) return body
+  return { ...body, features }
 }
 
 function parseBbox(searchParams: URLSearchParams): Bbox | null {
@@ -102,7 +113,7 @@ export async function GET(request: NextRequest) {
   const cacheKey = `${k(bbox.n)}|${k(bbox.s)}|${k(bbox.e)}|${k(bbox.w)}|${layer}|${windowDays}`
   const cached = responseCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
-    return NextResponse.json(cached.body)
+    return NextResponse.json(filterCachedResponse(cached.body))
   }
 
   try {
@@ -152,6 +163,6 @@ export async function GET(request: NextRequest) {
     responseCache.set(cacheKey, { expiresAt: Date.now() + CACHE_MS, body })
     return NextResponse.json(body)
   } catch {
-    return NextResponse.json(emptyResponse())
+    return NextResponse.json(emptyResponse(true))
   }
 }
