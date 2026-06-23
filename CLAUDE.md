@@ -46,6 +46,7 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
 - Canvass service worker `public/canvass-sw.js` (~line 46) skips `/api/*` — API responses get no SW caching; client-side fetches must handle their own caching/timeouts.
 - Vercel Cron pattern: `vercel.json` runs 3 crons (`sync-444`, `cleanup-inspection-photos`, `promote-insurance-follow-ups`), each secured by `Authorization: Bearer ${CRON_SECRET}` (503 if secret unset, 401 on mismatch). Reuse this for any new cron.
 - `lib/roofradar-open-data.ts` fetches/caches free NOAA SPC hail+wind reports (in-memory `Map`, ~30min TTL); only `enrichPropertiesWithOpenData` is exported (helpers are private).
+- **Weather overlay Phase 2** — Phase 1 + Phase 2 merged (PR #3, #4). The 8 Bugbot items (stale-warning clearing, error-as-empty `degraded` flag, swath read/ingest caps, response-cache expiry, atomic swath replace, clear-day orphans, ingest size guard) are **fixed in PR #5** (`feat/weather-phase2-bugfixes`) — verify on merge. No open weather-code debt after that. Prod flag `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY` stays OFF until the human deploy checklist (GitHub/Vercel secrets, 4th cron, migration-history reconcile, Action backfill) + counsel sign-off on claims-safe copy are done. Full status: `docs/canvass-weather-overlay-phase2-verification.md`. Separate open question (non-weather): confirm the `info@` feedback-routing + canvass "Report Issue" change bundled in commit `22e6ab5` is intended org-wide.
 
 ## Major Features / Modules
 | Module | Path | Notes |

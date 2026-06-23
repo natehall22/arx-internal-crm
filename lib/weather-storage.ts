@@ -167,13 +167,16 @@ export async function readWeatherSwathFeatures(
   windowDays: number,
 ): Promise<{ features: WeatherGeoFeature[]; refreshedAt: string | null }> {
   const cutoff = cutoffDateIso(clampWindowDays(windowDays))
+  // 5000 cap: 730-day window × ~8 hail bands/day can exceed 2000 rows for the
+  // Cabarrus footprint before client-side bbox filter; newest/largest kept first.
   const { data, error } = await admin
     .from('weather_swaths')
     .select('id, event_date, layer, magnitude, geometry, source, refreshed_at')
     .eq('layer', layer)
     .gte('event_date', cutoff)
     .order('event_date', { ascending: false })
-    .limit(2000)
+    .order('magnitude', { ascending: false })
+    .limit(5000)
 
   if (error || !data?.length) {
     return { features: [], refreshedAt: null }
@@ -210,7 +213,16 @@ export async function replaceWeatherCacheSnapshot(
   layer: WeatherLayer,
   rows: WeatherCacheInsert[],
 ) {
-  if (!rows.length) return 0
+  // Empty snapshot is authoritative — e.g. zero active NWS alerts must purge stale rows.
+  if (!rows.length) {
+    const { error: deleteError } = await admin
+      .from('weather_cache')
+      .delete()
+      .eq('source', source)
+      .eq('layer', layer)
+    if (deleteError) throw deleteError
+    return 0
+  }
 
   const refreshedAt = rows[0].refreshed_at ?? new Date().toISOString()
   const { error: insertError } = await admin.from('weather_cache').insert(rows)
@@ -236,23 +248,34 @@ export type WeatherSwathInsert = {
   refreshed_at?: string
 }
 
+export async function clearWeatherSwathsForDay(
+  admin: SupabaseClient,
+  eventDate: string,
+  layer: WeatherLayer,
+  source: string,
+) {
+  const { error } = await admin
+    .from('weather_swaths')
+    .delete()
+    .eq('event_date', eventDate)
+    .eq('layer', layer)
+    .eq('source', source)
+  if (error) throw error
+}
+
 export async function replaceWeatherSwathsForDay(
   admin: SupabaseClient,
   eventDate: string,
   layer: WeatherLayer,
   source: string,
   rows: WeatherSwathInsert[],
+  // A single run may POST features in multiple batches (>MAX_FEATURES). Every batch
+  // must share ONE refreshedAt so the delete-older step below removes only PRIOR
+  // runs — not sibling batches from the same run. Callers that omit it get a
+  // per-call timestamp (safe only for single-batch callers).
+  refreshedAt: string = new Date().toISOString(),
 ) {
   if (!rows.length) return 0
-
-  const { error: deleteError } = await admin
-    .from('weather_swaths')
-    .delete()
-    .eq('event_date', eventDate)
-    .eq('layer', layer)
-    .eq('source', source)
-
-  if (deleteError) throw deleteError
 
   const payload = rows.map((row) => ({
     org_id: null,
@@ -261,11 +284,21 @@ export async function replaceWeatherSwathsForDay(
     magnitude: row.magnitude,
     geometry: row.geometry,
     source: row.source ?? source,
-    refreshed_at: row.refreshed_at ?? new Date().toISOString(),
+    refreshed_at: refreshedAt,
   }))
 
   const { error: insertError } = await admin.from('weather_swaths').insert(payload)
   if (insertError) throw insertError
+
+  const { error: deleteError } = await admin
+    .from('weather_swaths')
+    .delete()
+    .eq('event_date', eventDate)
+    .eq('layer', layer)
+    .eq('source', source)
+    .lt('refreshed_at', refreshedAt)
+
+  if (deleteError) throw deleteError
   return payload.length
 }
 

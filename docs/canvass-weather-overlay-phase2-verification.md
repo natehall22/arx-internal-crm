@@ -54,3 +54,24 @@ Commit `22e6ab5` also bundles an unrelated "report a field issue" feature (`Canv
 
 ## Verdict
 Phase 2 is **code-complete and safe to merge** after the must-fix (#1) — now fixed — and a `npm run build` pass. Remaining items are fast-follows. The pipeline will populate swaths once the GitHub/Vercel config above is in place.
+
+---
+
+## Post-merge Bugbot triage (2026-06-22) — RESOLVED in PR #5 (pending merge)
+
+PR #3 (Phase 2) and PR #4 (`95ca488`, hardening: worker crop guard, expired-warning filter, admin-only `weather_refresh_runs` RLS) are merged to `main`. A Bugbot pass over the merged+hardened code surfaced the 8 items below (3 high). **All 8 are fixed in PR #5** (`feat/weather-phase2-bugfixes`); build compiled, eslint clean on changed files, flag still OFF. Status once PR #5 merges: no open weather-code items remain — only the human deploy checklist + counsel sign-off gate the prod flag.
+
+| # | Sev | File | Issue | Planned fix |
+|---|-----|------|-------|-------------|
+| B1 | High | `lib/weather-storage.ts` (`replaceWeatherCacheSnapshot`, ~213) | Returns early when `rows` empty → a zero-active-alert NWS refresh never deletes prior warning rows; stale (early-cancelled, future-`expires`) warnings keep serving when live NWS fails. | Treat empty snapshot as authoritative: still delete prior `(source,layer)` rows when `rows` is empty. |
+| B2 | High | `app/api/canvass/weather/route.ts` (catch) | Internal error returns 200 + empty FeatureCollection — indistinguishable from "no storms nearby." | Keep 200 but add `degraded:true`; `CanvassMap.tsx` shows "Couldn't load — tap to retry" on `degraded`, not the empty message. |
+| B3 | High | `lib/weather-storage.ts` (swath read) | 2000-row read cap vs 730-day scope could truncate. | Ensure read is bbox + `event_date >= now-730d` filtered before the cap; order by `event_date desc, magnitude desc`; document the limit. |
+| B4 | High | `app/api/cron/weather-swaths-ingest/route.ts` + `contour_mesh.py` | 1000-feature ingest cap may be smaller than a worker batch → silent truncation/413. | Chunk worker POSTs to ≤1000 features (same day/layer/source) or raise the cap to a documented max; the two must agree. |
+| B5 | Med | `app/api/canvass/weather/route.ts` (~104) | 30-min `responseCache` returns prebuilt body without re-running the expiry filter → expired warnings served up to 30 min. | Re-filter warnings on cached read, or compute warnings fresh / exclude from cache. |
+| B6 | Med | `lib/weather-storage.ts` (`replaceWeatherSwathsForDay`, ~248-268) | Delete-before-insert; failed insert leaves the day with no swaths. | Insert first then delete stale, or wrap in a transaction. |
+| B7 | Med | `scripts/weather-mrms-worker/contour_mesh.py` (~281) | No-hail day exits without ingest → prior `eventDate` swaths orphaned. | POST an explicit `clear:true` (empty features); add a clear path in the ingest route. Keep distinct from the crop-error exit (PR #4). |
+| B8 | Med | `app/api/cron/weather-swaths-ingest/route.ts` (~58) | 8 MB cap only triggers on a truthful `Content-Length`. | Read raw body text with a hard byte cap before `JSON.parse`. |
+
+**All B1–B8 fixed in PR #5** (build/lint green, flag OFF). Verify the fixes on merge, then the prod flag is gated only by the human checklist below.
+
+Also outstanding (non-weather, from collateral scan): confirm the global **feedback routing change** (`nathan@`→`info@`) and the canvass "Report Issue" UI bundled in commit `22e6ab5` are intended org-wide — product/ops decision, not a weather blocker.

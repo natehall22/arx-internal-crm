@@ -1,6 +1,10 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { weatherOverlayFeatureEnabled } from '@/lib/weather-footprint'
-import { replaceWeatherSwathsForDay, type WeatherSwathInsert } from '@/lib/weather-storage'
+import {
+  clearWeatherSwathsForDay,
+  replaceWeatherSwathsForDay,
+  type WeatherSwathInsert,
+} from '@/lib/weather-storage'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -9,10 +13,28 @@ type IngestBody = {
   eventDate?: string
   layer?: 'hail' | 'wind'
   source?: string
+  clear?: boolean
+  // ISO timestamp shared across all batches of one worker run. Lets the storage
+  // layer scope its delete-older step to PRIOR runs instead of wiping sibling
+  // batches from the same run. Optional; falls back to server time when absent.
+  refreshedAt?: string
   features?: Array<{
     magnitude?: number
     geometry?: GeoJSON.Geometry
   }>
+}
+
+// Accept a client-supplied run timestamp only if it parses and is not in the
+// future (beyond small clock skew). Otherwise use server time — a bad value must
+// never let a caller set a far-future cutoff that deletes good rows.
+function resolveRefreshedAt(raw: unknown): string {
+  if (typeof raw === 'string') {
+    const ms = Date.parse(raw)
+    if (Number.isFinite(ms) && ms <= Date.now() + 5 * 60 * 1000) {
+      return new Date(ms).toISOString()
+    }
+  }
+  return new Date().toISOString()
 }
 
 // Abuse/bloat guards for the service-role insert (the ingest is reachable by any
@@ -55,14 +77,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true, reason: 'weather overlay flag off' })
   }
 
-  const contentLength = Number(request.headers.get('content-length') || 0)
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+  let rawBody: string
+  try {
+    rawBody = await request.text()
+  } catch {
+    return NextResponse.json({ error: 'Unable to read request body' }, { status: 400 })
+  }
+
+  if (rawBody.length > MAX_BODY_BYTES) {
     return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
   }
 
   let body: IngestBody
   try {
-    body = (await request.json()) as IngestBody
+    body = JSON.parse(rawBody) as IngestBody
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
@@ -70,10 +98,26 @@ export async function POST(request: NextRequest) {
   const eventDate = String(body.eventDate || '').slice(0, 10)
   const layer = body.layer === 'wind' ? 'wind' : 'hail'
   const source = String(body.source || 'mrms_mesh')
+  const refreshedAt = resolveRefreshedAt(body.refreshedAt)
   const features = Array.isArray(body.features) ? body.features : []
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
     return NextResponse.json({ error: 'eventDate must be YYYY-MM-DD' }, { status: 400 })
+  }
+
+  if (body.clear === true) {
+    if (features.length > 0) {
+      return NextResponse.json({ error: 'clear cannot be combined with features' }, { status: 400 })
+    }
+    try {
+      const admin = createServiceClient()
+      await clearWeatherSwathsForDay(admin, eventDate, layer, source)
+      return NextResponse.json({ ok: true, cleared: true, eventDate, layer, source })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[cron/weather-swaths-ingest] clear failed:', message)
+      return NextResponse.json({ error: message }, { status: 500 })
+    }
   }
 
   if (!features.length) {
@@ -113,7 +157,7 @@ export async function POST(request: NextRequest) {
       magnitude,
       geometry: feature.geometry,
       source,
-      refreshed_at: new Date().toISOString(),
+      refreshed_at: refreshedAt,
     })
   }
 
@@ -123,7 +167,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const admin = createServiceClient()
-    const upserted = await replaceWeatherSwathsForDay(admin, eventDate, layer, source, rows)
+    const upserted = await replaceWeatherSwathsForDay(
+      admin,
+      eventDate,
+      layer,
+      source,
+      rows,
+      refreshedAt,
+    )
     // Retention: drop swaths older than the 2-year insurance scope.
     const retentionCutoff = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10)
     await admin
