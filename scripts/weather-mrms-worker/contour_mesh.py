@@ -106,6 +106,42 @@ def crop_grib(src: Path, dest: Path, bbox: dict[str, float]) -> None:
     )
 
 
+def cropped_raster_has_valid_pixels(path: Path) -> bool:
+    """True if the crop contains at least one non-NoData pixel (config sanity check)."""
+    proc = subprocess.run(
+        ["gdalinfo", "-json", "-stats", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"gdalinfo failed on cropped raster: {proc.stderr.strip()}")
+
+    info = json.loads(proc.stdout)
+    size = info.get("size") or [0, 0]
+    if len(size) < 2 or size[0] <= 0 or size[1] <= 0:
+        return False
+
+    for band in info.get("bands") or []:
+        meta = (band.get("metadata") or {}).get("", {})
+        valid_pct = meta.get("STATISTICS_VALID_PERCENT")
+        if valid_pct is not None and float(valid_pct) > 0:
+            return True
+
+        cmin = band.get("computedMin")
+        cmax = band.get("computedMax")
+        nodata = band.get("noDataValue")
+        if cmin is None and cmax is None:
+            continue
+        if nodata is not None:
+            if cmin != nodata or cmax != nodata:
+                return True
+        else:
+            return True
+
+    return False
+
+
 def contour_band(src: Path, work: Path, threshold: float) -> dict[str, Any] | None:
     mask_tif = work / f"mask_{threshold:.2f}.tif"
     mask_geojson = work / f"mask_{threshold:.2f}.geojson"
@@ -218,6 +254,14 @@ def main() -> int:
         raw = download_mrms_grib(event_date, work)
         cropped = work / "cropped.grib2"
         crop_grib(raw, cropped, bbox)
+        if not cropped_raster_has_valid_pixels(cropped):
+            print(
+                "ERROR: cropped MRMS raster is empty or all NoData — "
+                "check WEATHER_FOOTPRINT_N/S/E/W and lon convention (likely CRS misconfig, not a clear day)",
+                file=sys.stderr,
+            )
+            return 6
+
         features = build_features(cropped, work)
 
         print(
@@ -235,8 +279,8 @@ def main() -> int:
             return 0
 
         if not features:
-            print("No swath polygons generated — skipping ingest", file=sys.stderr)
-            return 2
+            print("No hail swath polygons for this day — clear day, skipping ingest", file=sys.stderr)
+            return 0
 
         result = post_ingest(event_date, features, args.ingest_url, cron_secret)
         print(json.dumps(result))

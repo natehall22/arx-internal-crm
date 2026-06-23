@@ -87,6 +87,15 @@ function cutoffDateIso(windowDays: number) {
   return cutoff.toISOString().slice(0, 10)
 }
 
+/** Drop cached NWS warnings whose expires timestamp is in the past. */
+export function isActiveWeatherWarning(properties: Record<string, unknown> | null | undefined): boolean {
+  const expires = properties?.expires
+  if (!expires) return true
+  const expMs = new Date(String(expires)).getTime()
+  if (Number.isNaN(expMs)) return true
+  return expMs > Date.now()
+}
+
 export function cacheRowToFeature(row: WeatherCacheRow): WeatherGeoFeature {
   return {
     type: 'Feature',
@@ -142,6 +151,7 @@ export async function readWeatherCacheFeatures(
   const features: WeatherGeoFeature[] = []
   for (const raw of data) {
     const row = raw as WeatherCacheRow
+    if (row.kind === 'warning' && !isActiveWeatherWarning(row.properties)) continue
     if (!geometryIntersectsBbox(row.geometry, bbox)) continue
     if (!refreshedAt || row.refreshed_at > refreshedAt) refreshedAt = row.refreshed_at
     features.push(cacheRowToFeature(row))

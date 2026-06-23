@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { clampQueryBbox, clampWindowDays } from '@/lib/weather-footprint'
 import { fetchNwsWarningFeatures } from '@/lib/weather-nws'
 import {
+  isActiveWeatherWarning,
   maxIsoTimestamp,
   readWeatherCacheFeatures,
   readWeatherSwathFeatures,
@@ -74,8 +75,10 @@ function warningFeaturesForResponse(
   cached: WeatherGeoFeature[],
   live: { features: WeatherGeoFeature[]; live: boolean },
 ): WeatherGeoFeature[] {
-  if (live.live) return live.features
-  return cached.filter((f) => f.properties.kind === 'warning')
+  if (live.live) return live.features.filter((f) => isActiveWeatherWarning(f.properties))
+  return cached.filter(
+    (f) => f.properties.kind === 'warning' && isActiveWeatherWarning(f.properties),
+  )
 }
 
 export async function GET(request: NextRequest) {
