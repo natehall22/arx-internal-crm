@@ -136,6 +136,30 @@ def crop_grib(src: Path, dest: Path, bbox: dict[str, float]) -> None:
     )
 
 
+def _band_min_max(band: dict[str, Any]) -> tuple[float | None, float | None]:
+    """Read a band's (min, max) across GDAL versions. `gdalinfo -json -stats` exposes
+    them as `minimum`/`maximum` on GDAL 3.4 (ubuntu-22.04), as `computedMin`/
+    `computedMax` on others, and mirrors them into band metadata as STATISTICS_*."""
+    meta = (band.get("metadata") or {}).get("", {})
+
+    def num(*vals: Any) -> float | None:
+        for v in vals:
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, (int, float)):
+                return float(v)
+            if isinstance(v, str):
+                try:
+                    return float(v)
+                except ValueError:
+                    pass
+        return None
+
+    cmin = num(band.get("minimum"), band.get("computedMin"), meta.get("STATISTICS_MINIMUM"))
+    cmax = num(band.get("maximum"), band.get("computedMax"), meta.get("STATISTICS_MAXIMUM"))
+    return cmin, cmax
+
+
 def cropped_raster_has_valid_pixels(path: Path) -> bool:
     """True if the crop contains at least one non-NoData pixel (config sanity check)."""
     proc = subprocess.run(
@@ -158,8 +182,7 @@ def cropped_raster_has_valid_pixels(path: Path) -> bool:
         if valid_pct is not None and float(valid_pct) > 0:
             return True
 
-        cmin = band.get("computedMin")
-        cmax = band.get("computedMax")
+        cmin, cmax = _band_min_max(band)
         nodata = band.get("noDataValue")
         if cmin is None and cmax is None:
             continue
@@ -196,14 +219,11 @@ def raster_stats_mm(path: Path) -> dict[str, Any]:
     if not bands:
         return {}
     band = bands[0]
-    cmax = band.get("computedMax")
-    cmin = band.get("computedMin")
+    cmin, cmax = _band_min_max(band)
     return {
         "min_mm": cmin,
         "max_mm": cmax,
-        "max_inches": round(cmax / MM_PER_INCH, 2)
-        if isinstance(cmax, (int, float))
-        else None,
+        "max_inches": round(cmax / MM_PER_INCH, 2) if cmax is not None else None,
         "noDataValue": band.get("noDataValue"),
         "unit": (band.get("metadata") or {}).get("", {}).get("GRIB_UNIT"),
     }
