@@ -281,7 +281,7 @@ export function summarizeViewport(
     }
   }
 
-  // wind: measured gusts (mph) plus thunderstorm-wind-damage reports (no speed)
+  // wind: measured gusts (mph) plus wind-damage reports (TSTM 'D' + non-TSTM 'O', no speed)
   const gusts = allReports.filter((r) => !r.damage && r.magnitude > 0)
   const damageReports = allReports.filter((r) => r.damage || r.magnitude <= 0)
 
@@ -417,7 +417,7 @@ export function lookupPinStorm(
         kind: 'report',
         dateLabel,
         headline: `⛈ wind damage reported · ${dateLabel} ▸`,
-        expandedHeadline: 'Thunderstorm wind damage reported nearby',
+        expandedHeadline: 'Wind damage reported nearby',
         talkTrack: `Storm-related wind damage was reported near here on ${dateLabel} — we're offering free roof inspections in the area.`,
       }
     }
