@@ -335,29 +335,38 @@ export default function LeadModal({
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-4">
             {stormSummary && stormSummary.kind !== 'none' && (
-              <div className="rounded-xl border border-violet-200 bg-violet-50 overflow-hidden">
+              <div className="rounded-xl border border-violet-200 bg-violet-50 overflow-hidden px-3 py-3 space-y-2">
+                {/* Data headline — always visible, sized to read in sun */}
+                <p className="text-base font-semibold text-[#2c2c2a] leading-snug">
+                  {stormSummary.headline.replace(' ▸', '')}
+                </p>
+                {/* The line the rep actually says — shown by default, not a tap away */}
+                {stormSummary.talkTrack && (
+                  <p className="text-base text-[#2c2c2a] leading-snug">
+                    “{stormSummary.talkTrack}”
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => setStormExpanded((value) => !value)}
-                  className="w-full px-3 py-2 text-left text-sm font-medium text-[#2c2c2a]"
+                  className="text-xs font-medium text-violet-700 underline"
                 >
-                  {stormSummary.headline}
+                  {stormExpanded ? 'Hide details' : 'Details'}
                 </button>
                 {stormExpanded && (
-                  <div className="px-3 pb-3 space-y-2 border-t border-violet-200">
-                    <p className="text-sm font-semibold text-[#2c2c2a] pt-2">
+                  <div className="space-y-1 border-t border-violet-200 pt-2">
+                    <p className="text-sm font-semibold text-[#2c2c2a]">
                       {stormSummary.expandedHeadline}
                     </p>
                     {stormSummary.dateLabel && stormSummary.kind === 'report' && (
-                      <p className="text-xs text-gray-700">Event date: {stormSummary.dateLabel}</p>
+                      <p className="text-xs text-[#2c2c2a]">Event date: {stormSummary.dateLabel}</p>
                     )}
                     {stormSummary.kind === 'warning' && stormSummary.expiresLabel && (
-                      <p className="text-xs text-gray-700">
+                      <p className="text-xs text-[#2c2c2a]">
                         Active warning until {stormSummary.expiresLabel}
                       </p>
                     )}
-                    <p className="text-sm text-[#2c2c2a]">{stormSummary.talkTrack}</p>
-                    <p className="text-[11px] text-gray-600">
+                    <p className="text-[11px] text-[#2c2c2a]">
                       This area may have been impacted — free inspection
                     </p>
                   </div>
@@ -365,8 +374,12 @@ export default function LeadModal({
               </div>
             )}
             {stormSummary && stormSummary.kind === 'none' && weatherContext && (
-              <div className="px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-600">
-                {stormSummary.emptyMessage}
+              <div className="px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 space-y-2">
+                {/* No dot here ≠ no damage — still hand the rep a sayable, safe line */}
+                {stormSummary.talkTrack && (
+                  <p className="text-base text-[#2c2c2a] leading-snug">“{stormSummary.talkTrack}”</p>
+                )}
+                <p className="text-xs text-[#2c2c2a]">{stormSummary.emptyMessage}</p>
               </div>
             )}
 

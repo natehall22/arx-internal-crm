@@ -274,6 +274,10 @@ export async function replaceWeatherSwathsForDay(
   // runs — not sibling batches from the same run. Callers that omit it get a
   // per-call timestamp (safe only for single-batch callers).
   refreshedAt: string = new Date().toISOString(),
+  // Only delete the prior run's rows once the FINAL batch of this run has landed.
+  // Earlier batches insert-only, so a mid-run failure leaves the previous good
+  // swath intact rather than half-replacing it with a truncated one.
+  deleteOlder = true,
 ) {
   if (!rows.length) return 0
 
@@ -289,6 +293,8 @@ export async function replaceWeatherSwathsForDay(
 
   const { error: insertError } = await admin.from('weather_swaths').insert(payload)
   if (insertError) throw insertError
+
+  if (!deleteOlder) return payload.length
 
   const { error: deleteError } = await admin
     .from('weather_swaths')

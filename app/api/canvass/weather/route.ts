@@ -120,7 +120,15 @@ export async function GET(request: NextRequest) {
     const admin = createServiceClient()
     const [cacheRead, swathRead, liveWarnings] = await Promise.all([
       readWeatherCacheFeatures(admin, bbox, layer, windowDays),
-      layer === 'hail' ? readWeatherSwathFeatures(admin, bbox, layer, windowDays) : Promise.resolve({ features: [], refreshedAt: null }),
+      // Isolate the swath read: a single malformed swath row (or a DB timeout once
+      // the table holds 2 years of rows) must degrade ONLY swaths, never take down
+      // reports + live NWS warnings with it.
+      layer === 'hail'
+        ? readWeatherSwathFeatures(admin, bbox, layer, windowDays).catch(() => ({
+            features: [],
+            refreshedAt: null,
+          }))
+        : Promise.resolve({ features: [], refreshedAt: null }),
       fetchNwsWarningFeatures(bbox, layer),
     ])
 
