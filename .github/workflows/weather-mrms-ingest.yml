@@ -10,6 +10,11 @@ on:
         description: 'Optional YYYY-MM-DD (default yesterday UTC)'
         required: false
         type: string
+      dry_run:
+        description: 'Validate + report units only — fetch, crop, contour, gdalinfo, but do NOT POST to the CRM'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   ingest-mrms-swaths:
@@ -30,8 +35,26 @@ jobs:
           gdal_translate --version
           aws --version
 
+      # Verification path: fetch + crop + contour + gdalinfo and print a units report,
+      # but NEVER POST. Intentionally NOT gated on the overlay var so we can prove the
+      # MESH path/date/unit handling against real data without touching prod swaths.
+      - name: Validate MRMS MESH (dry-run, no POST)
+        if: github.event.inputs.dry_run == 'true'
+        env:
+          WEATHER_FOOTPRINT_N: ${{ vars.WEATHER_FOOTPRINT_N }}
+          WEATHER_FOOTPRINT_S: ${{ vars.WEATHER_FOOTPRINT_S }}
+          WEATHER_FOOTPRINT_E: ${{ vars.WEATHER_FOOTPRINT_E }}
+          WEATHER_FOOTPRINT_W: ${{ vars.WEATHER_FOOTPRINT_W }}
+        run: |
+          set -euo pipefail
+          ARGS=(python3 scripts/weather-mrms-worker/contour_mesh.py --dry-run)
+          if [ -n "${{ github.event.inputs.event_date }}" ]; then
+            ARGS+=(--event-date "${{ github.event.inputs.event_date }}")
+          fi
+          "${ARGS[@]}"
+
       - name: Contour MRMS MESH and POST swaths
-        if: vars.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY == 'true'
+        if: vars.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY == 'true' && github.event.inputs.dry_run != 'true'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           WEATHER_SWATHS_INGEST_URL: ${{ vars.WEATHER_SWATHS_INGEST_URL }}
