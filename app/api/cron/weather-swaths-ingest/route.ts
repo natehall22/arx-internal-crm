@@ -18,6 +18,10 @@ type IngestBody = {
   // layer scope its delete-older step to PRIOR runs instead of wiping sibling
   // batches from the same run. Optional; falls back to server time when absent.
   refreshedAt?: string
+  // True only on the last batch of a run. Until then, batches insert-only so a
+  // mid-run failure can't half-replace the previous good swath. Defaults to true
+  // (single-batch callers are always "final").
+  final?: boolean
   features?: Array<{
     magnitude?: number
     geometry?: GeoJSON.Geometry
@@ -55,6 +59,21 @@ function countVertices(geometry: GeoJSON.Geometry): number {
     )
   }
   return 0
+}
+
+// gdal_polygonize can emit degenerate rings (<4 positions) at the crop edge. Such
+// geometry passes the type/vertex checks but makes google.maps.Data.addGeoJson throw
+// on the client, blanking the whole overlay. Reject it server-side so it never lands.
+function hasValidRings(geometry: GeoJSON.Geometry): boolean {
+  const ringsOk = (rings: number[][][]) =>
+    rings.length > 0 && rings.every((ring) => ring.length >= 4)
+  if (geometry.type === 'Polygon') {
+    return ringsOk(geometry.coordinates)
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.length > 0 && geometry.coordinates.every(ringsOk)
+  }
+  return false
 }
 
 function verifyCronSecret(request: NextRequest) {
@@ -151,6 +170,10 @@ export async function POST(request: NextRequest) {
       skipped += 1
       continue
     }
+    if (!hasValidRings(feature.geometry)) {
+      skipped += 1
+      continue
+    }
     rows.push({
       event_date: eventDate,
       layer,
@@ -174,6 +197,7 @@ export async function POST(request: NextRequest) {
       source,
       rows,
       refreshedAt,
+      body.final !== false,
     )
     // Retention: drop swaths older than the 2-year insurance scope.
     const retentionCutoff = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10)

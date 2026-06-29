@@ -47,30 +47,44 @@ type StyleBucket = {
   fillOpacity: number
   stroke: string
   strokeOpacity: number
+  strokeWeight: number
   dashed?: boolean
 }
 
 function hailBucket(magnitude: number): StyleBucket {
+  // Sequential warm "heat" ramp: light amber (low) → dark crimson/violet (extreme).
+  // Order is carried by LUMINANCE, so it survives deuteranopia/protanopia and a
+  // sunlit screen even when hue discrimination fails. Warm hues sit far from the
+  // green/blue of satellite imagery so swaths stay visible over rooftops & grass.
+  // Stroke weight escalates with severity as a second, colorblind-proof channel.
+  if (magnitude >= 2.5) {
+    // tennis ball+ — darkest, heaviest edge: the "go here first" band
+    return { fill: '#7F1D6F', fillOpacity: 0.42, stroke: '#4A0E40', strokeOpacity: 0.95, strokeWeight: 2.5 }
+  }
   if (magnitude >= 1.75) {
-    return { fill: '#E11D74', fillOpacity: 0.4, stroke: '#9D174D', strokeOpacity: 0.9 }
+    // golf ball+ — deep red
+    return { fill: '#B91C1C', fillOpacity: 0.42, stroke: '#7F1D1D', strokeOpacity: 0.95, strokeWeight: 2.25 }
   }
   if (magnitude >= 1.25) {
-    return { fill: '#A855F7', fillOpacity: 0.38, stroke: '#7E22CE', strokeOpacity: 0.9 }
+    // half-dollar → golf ball — orange-red
+    return { fill: '#EA580C', fillOpacity: 0.4, stroke: '#9A3412', strokeOpacity: 0.9, strokeWeight: 2 }
   }
   if (magnitude >= 1.0) {
-    return { fill: '#6366F1', fillOpacity: 0.35, stroke: '#4338CA', strokeOpacity: 0.85 }
+    // quarter → half-dollar — orange (the ~1" functional-damage line)
+    return { fill: '#F59E0B', fillOpacity: 0.38, stroke: '#B45309', strokeOpacity: 0.9, strokeWeight: 1.75 }
   }
-  return { fill: '#2DD4BF', fillOpacity: 0.35, stroke: '#0F766E', strokeOpacity: 0.85 }
+  // penny → quarter — amber-yellow, kept warm so it doesn't read as foliage
+  return { fill: '#FACC15', fillOpacity: 0.36, stroke: '#A16207', strokeOpacity: 0.85, strokeWeight: 1.5 }
 }
 
 function windBucket(magnitude: number): StyleBucket {
   if (magnitude >= 70) {
-    return { fill: '#B91C1C', fillOpacity: 0.38, stroke: '#7F1D1D', strokeOpacity: 0.9, dashed: true }
+    return { fill: '#B91C1C', fillOpacity: 0.38, stroke: '#7F1D1D', strokeOpacity: 0.9, strokeWeight: 2, dashed: true }
   }
   if (magnitude >= 58) {
-    return { fill: '#F97316', fillOpacity: 0.38, stroke: '#C2410C', strokeOpacity: 0.85 }
+    return { fill: '#F97316', fillOpacity: 0.38, stroke: '#C2410C', strokeOpacity: 0.85, strokeWeight: 1.75 }
   }
-  return { fill: '#F59E0B', fillOpacity: 0.35, stroke: '#B45309', strokeOpacity: 0.85 }
+  return { fill: '#F59E0B', fillOpacity: 0.35, stroke: '#B45309', strokeOpacity: 0.85, strokeWeight: 1.5 }
 }
 
 export function weatherFeatureStyle(feature: { getProperty: (key: string) => unknown }) {
@@ -83,7 +97,7 @@ export function weatherFeatureStyle(feature: { getProperty: (key: string) => unk
       fillOpacity: bucket.fillOpacity,
       strokeColor: bucket.stroke,
       strokeOpacity: bucket.strokeOpacity,
-      strokeWeight: 1.5,
+      strokeWeight: bucket.strokeWeight,
       clickable: false,
       zIndex: 1,
     }
@@ -208,10 +222,14 @@ function formatTime(iso: string) {
 }
 
 function hailSizeLabel(inches: number) {
+  // Coin language matches HAIL_LEGEND and the worker's band buckets (US references:
+  // penny≈0.75″, quarter≈1″, half-dollar≈1.25″, golf ball≈1.75″, tennis ball≈2.5″).
+  if (inches >= 2.5) return 'tennis-ball hail'
   if (inches >= 1.75) return 'golf-ball hail'
   if (inches >= 1.25) return 'half-dollar hail'
   if (inches >= 1.0) return 'quarter hail'
-  return `${inches.toFixed(1)}″ hail`
+  if (inches >= 0.75) return 'penny-size hail'
+  return 'small hail'
 }
 
 export function summarizeViewport(
@@ -270,9 +288,10 @@ export function summarizeViewport(
   if (gusts.length) {
     const max = gusts.reduce((best, r) => (r.magnitude > best.magnitude ? r : best), gusts[0])
     const dateLabel = formatShortDate(max.date)
-    const extra = damageReports.length ? ` · ${damageReports.length} damage` : ''
+    // Keep the strip short so the date (the part the rep says) never ellipsis-clips
+    // on a narrow phone — the damage-report count isn't sayable, so it's dropped here.
     return {
-      text: `est. up to ${Math.round(max.magnitude)} mph wind · ${dateLabel}${extra}`,
+      text: `est. up to ${Math.round(max.magnitude)} mph wind · ${dateLabel}`,
       empty: false,
       dateLabel,
     }
@@ -362,7 +381,7 @@ export function lookupPinStorm(
         layer === 'wind' ? 'wind impact' : 'hail'
       } yet`,
       talkTrack:
-        'Your street may have been impacted — we are offering free roof inspections in the area.',
+        'Your street is under an active storm warning — we are offering free roof inspections in the area.',
       dateLabel: expires ? formatShortDate(expires) : undefined,
     }
   }
@@ -416,19 +435,23 @@ export function lookupPinStorm(
     kind: 'none',
     headline: '',
     expandedHeadline: '',
-    talkTrack: '',
+    // No dot here ≠ no damage. Give the rep a claims-safe line so an empty spot
+    // never reads as "skip this house" (storm data has real coverage gaps).
+    talkTrack:
+      'This neighborhood may have been impacted by recent storms — we’re offering free roof inspections in the area.',
     emptyMessage:
       layer === 'hail'
-        ? 'No recorded hail at this address — data is incomplete.'
-        : 'No recorded wind at this address — data is incomplete.',
+        ? 'No hail recorded right at this spot. Storm data has gaps — nearby homes may still have damage.'
+        : 'No wind recorded right at this spot. Storm data has gaps — nearby homes may still have damage.',
   }
 }
 
 export const HAIL_LEGEND = [
-  { label: '0.75–1″ quarter', fill: '#2DD4BF', stroke: '#0F766E' },
-  { label: '1–1.25″ half-dollar', fill: '#6366F1', stroke: '#4338CA' },
-  { label: '1.25–1.75″ golf ball', fill: '#A855F7', stroke: '#7E22CE' },
-  { label: '1.75″+', fill: '#E11D74', stroke: '#9D174D' },
+  { label: '0.75–1″ (penny)', fill: '#FACC15', stroke: '#A16207' },
+  { label: '1–1.25″ quarter', fill: '#F59E0B', stroke: '#B45309' },
+  { label: '1.25–1.75″ half-dollar', fill: '#EA580C', stroke: '#9A3412' },
+  { label: '1.75–2.5″ golf ball', fill: '#B91C1C', stroke: '#7F1D1D' },
+  { label: '2.5″+ tennis ball', fill: '#7F1D6F', stroke: '#4A0E40' },
 ]
 
 export const WIND_LEGEND = [
