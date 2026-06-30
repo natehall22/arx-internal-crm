@@ -119,38 +119,36 @@ export function weatherFeatureStyle(feature: { getProperty: (key: string) => unk
   const layer = String(feature.getProperty('layer') || 'hail')
   const magnitude = Number(feature.getProperty('magnitude') || 0)
   const damage = Boolean(feature.getProperty('damage'))
+  const { scale, strokeWeight } = reportDotScale(layer, magnitude, damage)
 
-  // Wind-damage reports have no measured gust — render as a neutral "damage" dot.
-  if (layer === 'wind' && (damage || magnitude <= 0)) {
-    return {
-      icon: {
-        path: 0,
-        scale: 5.5,
-        fillColor: '#9CA3AF',
-        fillOpacity: 0.6,
-        strokeColor: '#374151',
-        strokeOpacity: 0.9,
-        strokeWeight: 1.5,
-      },
-      clickable: false,
-      zIndex: 1,
-    }
-  }
-
-  const bucket = layer === 'wind' ? windBucket(magnitude) : hailBucket(magnitude)
   return {
     icon: {
       path: 0, // google.maps.SymbolPath.CIRCLE — resolved at runtime in CanvassMap
-      scale: 7,
-      fillColor: bucket.fill,
-      fillOpacity: bucket.fillOpacity,
-      strokeColor: bucket.stroke,
-      strokeOpacity: bucket.strokeOpacity,
-      strokeWeight: 1.5,
+      scale,
+      fillColor: '#D1D5DB',
+      fillOpacity: 0.9,
+      strokeColor: '#374151',
+      strokeOpacity: 1,
+      strokeWeight,
     },
-    clickable: false,
+    clickable: true,
     zIndex: 1,
   }
+}
+
+/** Storm report dots: uniform gray; size conveys severity (distinct from canvass pins). */
+function reportDotScale(layer: string, magnitude: number, damage: boolean) {
+  if (layer === 'wind' && (damage || magnitude <= 0)) {
+    return { scale: 5.5, strokeWeight: 1.5 }
+  }
+  if (layer === 'hail') {
+    if (magnitude >= 1.75) return { scale: 8, strokeWeight: 1.75 }
+    if (magnitude >= 1.0) return { scale: 6.5, strokeWeight: 1.5 }
+    return { scale: 5, strokeWeight: 1.5 }
+  }
+  if (magnitude >= 70) return { scale: 8, strokeWeight: 1.75 }
+  if (magnitude >= 58) return { scale: 6.5, strokeWeight: 1.5 }
+  return { scale: 5, strokeWeight: 1.5 }
 }
 
 function distanceMiles(aLat: number, aLng: number, bLat: number, bLng: number) {
@@ -446,7 +444,14 @@ export function lookupPinStorm(
   }
 }
 
-export const HAIL_LEGEND = [
+export const STORM_REPORT_LEGEND = {
+  label: 'Storm report (bigger = stronger)',
+  fill: '#D1D5DB',
+  stroke: '#374151',
+}
+
+/** Hail swath polygon ramp — report dots are gray (see STORM_REPORT_LEGEND). */
+export const HAIL_SWATH_LEGEND = [
   { label: '0.75–1″ (penny)', fill: '#FACC15', stroke: '#A16207' },
   { label: '1–1.25″ quarter', fill: '#F59E0B', stroke: '#B45309' },
   { label: '1.25–1.75″ half-dollar', fill: '#EA580C', stroke: '#9A3412' },
@@ -454,9 +459,8 @@ export const HAIL_LEGEND = [
   { label: '2.5″+ tennis ball', fill: '#7F1D6F', stroke: '#4A0E40' },
 ]
 
-export const WIND_LEGEND = [
-  { label: '45–58 mph', fill: '#F59E0B', stroke: '#B45309' },
-  { label: '58–70 mph', fill: '#F97316', stroke: '#C2410C' },
-  { label: '70+ mph', fill: '#B91C1C', stroke: '#7F1D1D' },
-  { label: 'Damage reported', fill: '#9CA3AF', stroke: '#374151' },
-]
+/** @deprecated Use STORM_REPORT_LEGEND + HAIL_SWATH_LEGEND */
+export const HAIL_LEGEND = HAIL_SWATH_LEGEND
+
+/** @deprecated Use STORM_REPORT_LEGEND only — wind has no swath ramp */
+export const WIND_LEGEND: typeof HAIL_SWATH_LEGEND = []

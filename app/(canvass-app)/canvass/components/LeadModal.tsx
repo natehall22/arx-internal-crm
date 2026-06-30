@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { getInspectionSubmitCooldownRemainingMs } from '../lib/inspectionSubmitCooldown'
 import type { CanvassPin } from '../page'
 import { lookupPinStorm, type WeatherContext } from '../lib/weather-overlay'
+import StormCard from './StormCard'
 
 // Disposition config from admin settings
 interface DispositionConfig {
@@ -73,8 +74,6 @@ export default function LeadModal({
   dispositions: dispositionsProp = [],
   weatherContext = null,
 }: Props) {
-  const [stormExpanded, setStormExpanded] = useState(false)
-
   const pinLat = pin?.lat ?? location?.lat
   const pinLng = pin?.lng ?? location?.lng
   const stormSummary = useMemo(() => {
@@ -82,9 +81,6 @@ export default function LeadModal({
     return lookupPinStorm(weatherContext.layer, weatherContext.features, pinLat, pinLng)
   }, [weatherContext, pinLat, pinLng])
 
-  useEffect(() => {
-    setStormExpanded(false)
-  }, [pin?.id, location?.lat, location?.lng, weatherContext?.layer])
   // Use admin dispositions if available, otherwise use defaults
   const dispositions = dispositionsProp.length > 0 
     ? dispositionsProp.filter(d => d.active !== false).map(d => ({
@@ -335,52 +331,10 @@ export default function LeadModal({
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-4">
             {stormSummary && stormSummary.kind !== 'none' && (
-              <div className="rounded-xl border border-violet-200 bg-violet-50 overflow-hidden px-3 py-3 space-y-2">
-                {/* Data headline — always visible, sized to read in sun */}
-                <p className="text-base font-semibold text-[#2c2c2a] leading-snug">
-                  {stormSummary.headline.replace(' ▸', '')}
-                </p>
-                {/* The line the rep actually says — shown by default, not a tap away */}
-                {stormSummary.talkTrack && (
-                  <p className="text-base text-[#2c2c2a] leading-snug">
-                    “{stormSummary.talkTrack}”
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setStormExpanded((value) => !value)}
-                  className="text-xs font-medium text-violet-700 underline"
-                >
-                  {stormExpanded ? 'Hide details' : 'Details'}
-                </button>
-                {stormExpanded && (
-                  <div className="space-y-1 border-t border-violet-200 pt-2">
-                    <p className="text-sm font-semibold text-[#2c2c2a]">
-                      {stormSummary.expandedHeadline}
-                    </p>
-                    {stormSummary.dateLabel && stormSummary.kind === 'report' && (
-                      <p className="text-xs text-[#2c2c2a]">Event date: {stormSummary.dateLabel}</p>
-                    )}
-                    {stormSummary.kind === 'warning' && stormSummary.expiresLabel && (
-                      <p className="text-xs text-[#2c2c2a]">
-                        Active warning until {stormSummary.expiresLabel}
-                      </p>
-                    )}
-                    <p className="text-[11px] text-[#2c2c2a]">
-                      This area may have been impacted — free inspection
-                    </p>
-                  </div>
-                )}
-              </div>
+              <StormCard summary={stormSummary} />
             )}
             {stormSummary && stormSummary.kind === 'none' && weatherContext && (
-              <div className="px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 space-y-2">
-                {/* No dot here ≠ no damage — still hand the rep a sayable, safe line */}
-                {stormSummary.talkTrack && (
-                  <p className="text-base text-[#2c2c2a] leading-snug">“{stormSummary.talkTrack}”</p>
-                )}
-                <p className="text-xs text-[#2c2c2a]">{stormSummary.emptyMessage}</p>
-              </div>
+              <StormCard summary={stormSummary} showNoneCase />
             )}
 
             {/* Show previous knock info when editing an existing pin */}

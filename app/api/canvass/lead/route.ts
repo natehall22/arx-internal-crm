@@ -27,6 +27,31 @@ import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
 
 export const dynamic = 'force-dynamic'
 
+const REASSIGN_AFTER_DAYS = 14
+
+type OwnershipHistoryEntry = {
+  from_user_id: string
+  from_pin_attributed_user_id: string | null
+  to_user_id: string
+  reassigned_at: string
+  prior_knock_at: string
+}
+
+function appendOwnershipHistory(
+  existing: unknown,
+  entry: OwnershipHistoryEntry,
+): OwnershipHistoryEntry[] {
+  const history = Array.isArray(existing) ? (existing as OwnershipHistoryEntry[]) : []
+  const isDuplicate = history.some(
+    (h) =>
+      h.from_user_id === entry.from_user_id &&
+      h.to_user_id === entry.to_user_id &&
+      h.prior_knock_at === entry.prior_knock_at,
+  )
+  if (isDuplicate) return history
+  return [...history, entry]
+}
+
 function formatInspectionTimeEt(iso: string | null | undefined): string {
   if (!iso) return 'TBD'
   return `${formatDateTimeInTimezone(iso)} ET`
@@ -513,13 +538,41 @@ export async function POST(request: Request) {
     if (leadId) {
       const { data: existingLead } = await supabase
         .from('leads')
-        .select('rep_lat')
+        .select(
+          'rep_lat, owner_user_id, pin_attributed_user_id, updated_at, created_at, ownership_history',
+        )
         .eq('id', leadId)
         .eq('org_id', profile.org_id)
         .maybeSingle()
 
+      let ownershipPatch: Record<string, unknown> = {}
+      if (existingLead) {
+        const lastKnockAt = existingLead.updated_at ?? existingLead.created_at
+        const isDifferentRep =
+          !!existingLead.owner_user_id && existingLead.owner_user_id !== profile.id
+        const isStale =
+          !!lastKnockAt &&
+          Date.now() - new Date(lastKnockAt).getTime() >= REASSIGN_AFTER_DAYS * 86_400_000
+
+        if (isDifferentRep && isStale && existingLead.owner_user_id) {
+          const reassignedAt = new Date().toISOString()
+          ownershipPatch = {
+            owner_user_id: profile.id,
+            ownership_reassigned_at: reassignedAt,
+            ownership_history: appendOwnershipHistory(existingLead.ownership_history, {
+              from_user_id: existingLead.owner_user_id,
+              from_pin_attributed_user_id: existingLead.pin_attributed_user_id ?? null,
+              to_user_id: profile.id,
+              reassigned_at: reassignedAt,
+              prior_knock_at: lastKnockAt,
+            }),
+          }
+        }
+      }
+
       const updatePayload = {
         ...leadPayload,
+        ...ownershipPatch,
         // Only set rep geo on update if not already captured (first-touch wins)
         ...(rep_lat != null && !existingLead?.rep_lat
           ? { rep_lat, rep_lng, rep_geo_accuracy, rep_geo_captured_at }

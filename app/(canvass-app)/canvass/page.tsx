@@ -7,7 +7,9 @@ import { CanvassTerritoriesEditor } from '@/components/canvass-territories/Canva
 import CanvassMap, { type WeatherContext } from './components/CanvassMap'
 import CanvassNav from './components/CanvassNav'
 import LeadModal from './components/LeadModal'
+import StormPeekSheet from './components/StormPeekSheet'
 import SyncStatus from './components/SyncStatus'
+import { lookupPinStorm } from './lib/weather-overlay'
 import { recordSuccessfulInspectionSubmit } from './lib/inspectionSubmitCooldown'
 import { useOfflineStore } from './lib/offlineStore'
 import { useGeolocation } from './lib/useGeolocation'
@@ -98,7 +100,29 @@ export default function CanvassPage() {
   const [inspectionDuration, setInspectionDuration] = useState(60)
   const [assignedTerritories, setAssignedTerritories] = useState<AssignedTerritoryMapPayload[]>([])
   const [weatherContext, setWeatherContext] = useState<WeatherContext | null>(null)
+  const [peekLocation, setPeekLocation] = useState<{ lat: number; lng: number } | null>(null)
   const weatherOverlayEnabled = process.env.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY === 'true'
+
+  const peekSummary = useMemo(() => {
+    if (!peekLocation) return null
+    if (!weatherContext) {
+      return {
+        kind: 'none' as const,
+        headline: '',
+        expandedHeadline: '',
+        talkTrack:
+          'This neighborhood may have been impacted by recent storms — we’re offering free roof inspections in the area.',
+        emptyMessage:
+          'Storm data is unavailable right now. Nearby homes may still have damage.',
+      }
+    }
+    return lookupPinStorm(
+      weatherContext.layer,
+      weatherContext.features,
+      peekLocation.lat,
+      peekLocation.lng,
+    )
+  }, [weatherContext, peekLocation])
   
   // Disposition settings from admin
   const [dispositions, setDispositions] = useState<Array<{ id: string; label: string; color: string; active: boolean }>>([
@@ -270,6 +294,7 @@ export default function CanvassPage() {
   }, [pendingLeads, viewportPins, dispositionFilter])
 
   const handlePinClick = useCallback(async (pin: DisplayPin) => {
+    setPeekLocation(null)
     setNewPinLocation(null)
     
     // If it's a viewport pin (minimal data), fetch full details
@@ -626,6 +651,7 @@ export default function CanvassPage() {
             pins={displayPins}
             currentPosition={position}
             onMapClick={handleMapClick}
+            onStormPeek={(lat, lng) => setPeekLocation({ lat, lng })}
             onPinClick={handlePinClick}
             onAddressSelect={handleAddressSelect}
             onBoundsChanged={handleBoundsChanged}
@@ -738,6 +764,18 @@ export default function CanvassPage() {
           return new Date(createdAt) >= today
         }).length}
       />
+
+      {/* Storm peek (overlay on — tap map/dot without creating a pin) */}
+      {peekLocation && peekSummary && (
+        <StormPeekSheet
+          summary={peekSummary}
+          onDropPin={() => {
+            handleMapClick(peekLocation.lat, peekLocation.lng)
+            setPeekLocation(null)
+          }}
+          onClose={() => setPeekLocation(null)}
+        />
+      )}
 
       {/* Lead Modal */}
       {showLeadModal && (
