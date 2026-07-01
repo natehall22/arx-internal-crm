@@ -28,6 +28,15 @@ export type JobSoldScopeRoofMeasureLf = {
   flashing_lf: number | null
   step_flashing_lf: number | null
   wall_flashing_lf: number | null
+  drip_edge_lf?: number | null
+}
+
+/** Extra measurement-derived inputs for the materials order list (additive; may be absent on older payloads). */
+export type JobSoldScopeMaterialsExtras = {
+  ridge_segment_count: number | null
+  low_slope_area_sqft: number | null
+  low_slope_facet_count: number | null
+  penetration_count: number | null
 }
 
 export type JobSoldScope = {
@@ -42,6 +51,7 @@ export type JobSoldScope = {
   proposal_number: string | null
   line_items: JobSoldScopeLineItem[]
   roof_measurement_linear: JobSoldScopeRoofMeasureLf | null
+  materials_extras?: JobSoldScopeMaterialsExtras | null
 }
 
 const SOLD_SCOPE_LINE_PREVIEW = 14

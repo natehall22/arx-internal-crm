@@ -27,6 +27,21 @@ export const CAP_LF_PER_BUNDLE = 25
  */
 export const STARTER_LF_PER_BUNDLE = 123.4
 
+/** Synthetic underlayment (Rhino/FeltBuster class) — typical 10 sq coverage per roll. Override per pricebook. */
+export const UNDERLAYMENT_SQ_PER_ROLL = 10
+/** Ridge vent stops short of each ridge end (ARX convention: 3 ft per end). */
+export const RIDGE_VENT_END_SETBACK_FT = 3
+/** Common stick length for shingle-over ridge vent (GAF Cobra Rigid Vent class). */
+export const RIDGE_VENT_LF_PER_PIECE = 4
+/** Ice & water shield — 36" × ~66.7 ft roll ≈ 2 sq. LF of run covered per roll. */
+export const ICE_WATER_LF_PER_ROLL = 66
+/** Ice & water coverage in sq ft per roll (36" × 66.7 ft). */
+export const ICE_WATER_SQFT_PER_ROLL = 200
+/** Drip edge sticks are sold in 10 ft lengths. */
+export const DRIP_EDGE_LF_PER_STICK = 10
+/** Step flashing pieces set one per course at architectural exposure (5.625"). */
+export const STEP_FLASHING_PIECES_PER_LF = 12 / 5.625
+
 export const BASE_AREA_WASTE_RATE = 0.07
 /** ~12" tab waste per sloped course along valley (both sides cut) */
 export const WASTE_SHINGLES_PER_COURSE_VALLEY = 0.45

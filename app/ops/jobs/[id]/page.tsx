@@ -17,6 +17,11 @@ import {
   resolveProposalSoldRoofSquares,
   resolveProposalWastePercent,
 } from '@/lib/sold-roof-squares'
+import { buildMaterialsExtras } from '@/lib/materials-order-extras'
+import {
+  resolveMaterialsCoverageOverrides,
+  type MaterialsCoverageOverrides,
+} from '@/lib/materials-coverage-overrides'
 
 interface PageProps {
   params: { id: string }
@@ -44,6 +49,15 @@ type JobSoldScopeRoofMeasureLf = {
   flashing_lf: number | null
   step_flashing_lf: number | null
   wall_flashing_lf: number | null
+  drip_edge_lf?: number | null
+}
+
+/** Extra measurement-derived inputs for the ops materials order list (all optional/additive). */
+type JobSoldScopeMaterialsExtras = {
+  ridge_segment_count: number | null
+  low_slope_area_sqft: number | null
+  low_slope_facet_count: number | null
+  penetration_count: number | null
 }
 
 type JobSoldScope = {
@@ -60,6 +74,7 @@ type JobSoldScope = {
   line_items: JobSoldScopeLineItem[]
   /** Ridge / valley / flashing LF from roof_measurements linked to the proposal (or opp/project fallback). */
   roof_measurement_linear: JobSoldScopeRoofMeasureLf | null
+  materials_extras?: JobSoldScopeMaterialsExtras | null
 }
 
 type FinancialSourceProposalOption = {
@@ -96,6 +111,7 @@ function buildRoofMeasurementLinear(
     rakes_lf?: number | null
     flashing_lf?: number | null
     step_flashing_lf?: number | null
+    drip_edge_lf?: number | null
     source?: string | null
     raw_data?: unknown
   } | null
@@ -117,6 +133,8 @@ function buildRoofMeasurementLinear(
     step_flashing_lf:
       positiveLinearFt(row.step_flashing_lf) ?? (raw ? positiveLinearFt(raw.step_flashing_lf) : null),
     wall_flashing_lf: raw ? positiveLinearFt(raw.wall_flashing_lf) : null,
+    drip_edge_lf:
+      positiveLinearFt(row.drip_edge_lf) ?? (raw ? positiveLinearFt(raw.drip_edge_lf) : null),
   }
 
   const hasNumeric =
@@ -199,7 +217,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         .single()
     : jobResWithPaymentMethod
 
-  const [jobRes, crewsRes, subsRes] = await Promise.all([
+  const [jobRes, crewsRes, subsRes, orgCoverageRes] = await Promise.all([
     Promise.resolve(jobResult),
     supabase
       .from('crews')
@@ -211,6 +229,13 @@ export default async function JobDetailPage({ params }: PageProps) {
       .select('id, company_name, services')
       .eq('org_id', profile.org_id)
       .eq('active', true),
+    supabase
+      .from('orgs')
+      .select(
+        'starter_lf_per_bundle, cap_lf_per_bundle, underlayment_sq_per_roll, ridge_vent_lf_per_piece, ridge_vent_end_setback_ft, ice_water_lf_per_roll'
+      )
+      .eq('id', profile.org_id)
+      .maybeSingle(),
   ])
 
   if (!jobRes.data) {
@@ -696,7 +721,7 @@ export default async function JobDetailPage({ params }: PageProps) {
             : null
 
     const measureSelect =
-      'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, source, raw_data, suggested_waste_percent'
+      'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, drip_edge_lf, penetration_count, source, raw_data, suggested_waste_percent'
     let measurementRow: Parameters<typeof buildRoofMeasurementLinear>[0] = null
 
     if (proposalId) {
@@ -794,6 +819,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         proposal_number,
         line_items,
         roof_measurement_linear: roofMeasurementLinear,
+        materials_extras: buildMaterialsExtras(measurementRow),
       }
     }
   } catch {
@@ -833,9 +859,14 @@ export default async function JobDetailPage({ params }: PageProps) {
   const canEditPayrollAttribution =
     isOrgSuperuserRoleSlug(profile.role) || profile.role === 'operations'
 
+  const materialsCoverageOverrides: MaterialsCoverageOverrides = resolveMaterialsCoverageOverrides(
+    orgCoverageRes.data
+  )
+
   return (
     <JobDetailClient
       initialJob={transformedJob as any}
+      materialsCoverageOverrides={materialsCoverageOverrides}
       crews={crewsRes.data || []}
       subs={subsRes.data || []}
       userRole={profile.role}

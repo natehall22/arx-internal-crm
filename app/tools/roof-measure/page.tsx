@@ -136,6 +136,12 @@ interface MeasurementData {
   drip_edge_lf: number        // Total drip edge (eaves + rakes)
   step_flashing_lf: number    // Step flashing (manually drawn)
   wall_flashing_lf: number    // Wall flashing (manually drawn)
+  /** Pipe / vent penetrations (pipe boot order hint). */
+  penetration_count?: number
+  chimney_count?: number
+  skylight_count?: number
+  /** Distinct ridge runs (manual ridge lines or classified segments). */
+  ridge_run_count?: number
   // Pitch information
   predominant_pitch: string
   avg_pitch_multiplier: number
@@ -464,6 +470,7 @@ export default function RoofMeasurePage() {
   const sectionListItemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const facetsRef = useRef<RoofFacet[]>([])
   const linearFeaturesRef = useRef<LinearFeature[]>([])
+  const penetrationCountsRef = useRef({ penetration_count: 0, chimney_count: 0, skylight_count: 0 })
   const polylinesRef = useRef<Map<string, any>>(new Map())
   const pendingOpportunityMapFocusRef = useRef<{ lat: number; lng: number } | null>(null)
   /** Summed Solar `ground_area` (sq ft). Overlapping segment quads sum above this — we scale totals to match. */
@@ -514,6 +521,17 @@ export default function RoofMeasurePage() {
   const commitLinearFeatures = (nextFeatures: LinearFeature[]) => {
     linearFeaturesRef.current = nextFeatures
     setLinearFeatures(nextFeatures)
+  }
+
+  const adjustPenetrationCount = (
+    field: 'penetration_count' | 'chimney_count' | 'skylight_count',
+    delta: number
+  ) => {
+    penetrationCountsRef.current = {
+      ...penetrationCountsRef.current,
+      [field]: Math.max(0, penetrationCountsRef.current[field] + delta),
+    }
+    updateMeasurements(facetsRef.current, linearFeaturesRef.current)
   }
 
   const selectFacet = (facetId: string | null) => {
@@ -784,6 +802,11 @@ export default function RoofMeasurePage() {
 
     commitFacets(facetsWithRecomputedArea)
     commitLinearFeatures(restoredFeatures)
+    penetrationCountsRef.current = {
+      penetration_count: Math.max(0, saved.penetration_count ?? 0),
+      chimney_count: Math.max(0, saved.chimney_count ?? 0),
+      skylight_count: Math.max(0, saved.skylight_count ?? 0),
+    }
 
     const primaryGeometrySource =
       facetsWithRecomputedArea.find((facet) => facet.geometry_source)?.geometry_source ?? null
@@ -2539,6 +2562,11 @@ export default function RoofMeasurePage() {
       .filter(f => f.type === 'ridge')
       .reduce((sum, f) => sum + f.length_ft, 0)
     const ridges = manualRidges > 0 ? Math.round(manualRidges) : geoEdges.ridges_lf
+    if (manualRidges > 0) {
+      validationNotes.push(
+        'Manual ridge lines replaced the auto-estimated ridge length — verify total ridge LF before quoting.'
+      )
+    }
 
     const hips  = geoEdges.hips_lf
     const eaves = geoEdges.eaves_lf
@@ -2548,8 +2576,6 @@ export default function RoofMeasurePage() {
       .filter(f => f.type === 'valley')
       .reduce((sum, f) => sum + f.length_ft, 0)
     const valleys = geoEdges.valleys_lf + Math.round(manualValleys)
-
-    const dripEdge = eaves + rakes
 
     const estimatedPitchMultipliers = currentFacets
       .map((facet) => {
@@ -2758,6 +2784,7 @@ export default function RoofMeasurePage() {
     const measuredEaves = Math.round(eaves)
     const measuredRakes = Math.round(rakes)
     const measuredDripEdge = measuredEaves + measuredRakes
+    const ridgeRunCount = features.filter((f) => f.type === 'ridge').length
     const hasMeasuredLinework =
       measuredRidges > 0 ||
       measuredHips > 0 ||
@@ -2835,6 +2862,10 @@ export default function RoofMeasurePage() {
       drip_edge_lf: safeNum(measuredDripEdge),
       step_flashing_lf: safeNum(measuredStepFlashing),
       wall_flashing_lf: safeNum(measuredWallFlashing),
+      penetration_count: penetrationCountsRef.current.penetration_count,
+      chimney_count: penetrationCountsRef.current.chimney_count,
+      skylight_count: penetrationCountsRef.current.skylight_count,
+      ridge_run_count: ridgeRunCount > 0 ? ridgeRunCount : undefined,
       predominant_pitch: predominantPitch,
       avg_pitch_multiplier: safeNum(Math.round(avgPitchMultiplier * 1000) / 1000, 1),
       avg_pitch_degrees: safeNum(Math.round(avgPitchDegrees * 100) / 100, 0),
@@ -3027,6 +3058,7 @@ export default function RoofMeasurePage() {
     
     commitFacets([])
     commitLinearFeatures([])
+    penetrationCountsRef.current = { penetration_count: 0, chimney_count: 0, skylight_count: 0 }
     setMeasurements(null)
     selectFacet(null)
     setAiDraftSections([])
@@ -3771,6 +3803,47 @@ export default function RoofMeasurePage() {
                   <span>Drip Edge:</span>
                   <span className="text-gray-300">{measurements.drip_edge_lf} LF</span>
                 </div>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-gray-600/50 bg-gray-700/30 p-3">
+                <p className="text-xs font-medium text-gray-300 mb-2">Roof penetrations (optional)</p>
+                <div className="space-y-2">
+                  {(
+                    [
+                      { field: 'penetration_count' as const, label: 'Penetrations' },
+                      { field: 'chimney_count' as const, label: 'Chimneys' },
+                      { field: 'skylight_count' as const, label: 'Skylights' },
+                    ] as const
+                  ).map(({ field, label }) => (
+                    <div key={field} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-gray-400">{label}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => adjustPenetrationCount(field, -1)}
+                          className="h-7 w-7 rounded border border-gray-500 text-gray-200 hover:bg-gray-600"
+                          aria-label={`Decrease ${label}`}
+                        >
+                          −
+                        </button>
+                        <span className="min-w-[1.5rem] text-center font-medium text-white tabular-nums">
+                          {measurements[field] ?? 0}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => adjustPenetrationCount(field, 1)}
+                          className="h-7 w-7 rounded border border-gray-500 text-gray-200 hover:bg-gray-600"
+                          aria-label={`Increase ${label}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[10px] text-gray-500">
+                  Pipe boot counts flow to the ops materials order list when saved.
+                </p>
               </div>
 
               {unresolvedPitchCount === 0 && measurements.total_squares > 0 && (

@@ -29,4 +29,10 @@ describe('starter strip order (IKO Leading Edge Plus, 123.4 LF/bundle)', () => {
     expect(o.combinedLf).toBe(250)
     expect(o.bundles).toBe(3) // 250 / 123.4 = 2.03 → 3
   })
+
+  it('applies optional cushion percent before bundle math', () => {
+    const s = starterFromLinearFt({ eaves_lf: 122, rakes_lf: 0, cushionPercent: 5 })
+    expect(s!.combinedLf).toBeCloseTo(128.1, 1)
+    expect(s!.bundles).toBe(2) // 128.1 / 123.4 → 2 (was 1 without cushion)
+  })
 })

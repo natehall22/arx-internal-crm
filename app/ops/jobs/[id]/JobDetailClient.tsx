@@ -18,7 +18,9 @@ import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import JobSoldScopeSummary, { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
+import MaterialsOrderCard from '@/components/ops/MaterialsOrderCard'
 import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
+import type { MaterialsCoverageOverrides } from '@/lib/materials-coverage-overrides'
 import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
 import OperationsSnapshotCard from '@/components/ops/OperationsSnapshotCard'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
@@ -366,6 +368,7 @@ interface FinancialSourceProposalOption {
 
 interface JobDetailClientProps {
   initialJob: Job
+  materialsCoverageOverrides?: MaterialsCoverageOverrides
   crews: Crew[]
   subs: SubContractor[]
   userRole: string
@@ -536,6 +539,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
 
 export default function JobDetailClient({
   initialJob,
+  materialsCoverageOverrides,
   crews,
   subs,
   userRole,
@@ -1693,6 +1697,16 @@ export default function JobDetailClient({
                   scope={job.sold_scope}
                   showSquareMetrics={job.job_type === 'roofing'}
                   variant="materials"
+                />
+              ) : null}
+              {job.sold_scope && job.job_type === 'roofing' ? (
+                <MaterialsOrderCard
+                  scope={job.sold_scope}
+                  jobId={job.id}
+                  jobNumber={job.job_number}
+                  customerName={job.customer?.name ?? null}
+                  address={job.address_text}
+                  coverageOverrides={materialsCoverageOverrides ?? null}
                 />
               ) : null}
               <JobMaterialsCard

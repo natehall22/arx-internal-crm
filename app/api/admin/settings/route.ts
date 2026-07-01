@@ -414,6 +414,32 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    if (type === 'materials_coverage') {
+      const parseOptional = (value: unknown): number | null => {
+        if (value == null || String(value).trim() === '') return null
+        const n = Number(value)
+        if (!Number.isFinite(n) || n <= 0) return null
+        return n
+      }
+
+      const { error } = await adminClient
+        .from('orgs')
+        .update({
+          starter_lf_per_bundle: parseOptional(data.starter_lf_per_bundle),
+          cap_lf_per_bundle: parseOptional(data.cap_lf_per_bundle),
+          underlayment_sq_per_roll: parseOptional(data.underlayment_sq_per_roll),
+          ridge_vent_lf_per_piece: parseOptional(data.ridge_vent_lf_per_piece),
+          ridge_vent_end_setback_ft: parseOptional(data.ridge_vent_end_setback_ft),
+          ice_water_lf_per_roll: parseOptional(data.ice_water_lf_per_roll),
+        })
+        .eq('id', profile.org_id)
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+      return NextResponse.json({ success: true })
+    }
+
     if (type === 'reports') {
       const { error } = await adminClient
         .from('orgs')

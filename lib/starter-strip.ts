@@ -30,14 +30,21 @@ export function starterFromLinearFt(input: {
   eaves_lf: number | null | undefined
   rakes_lf: number | null | undefined
   lfPerBundle?: number
+  /** Extra LF cushion before bundle math (e.g. 5 = add 5%). Default 0. */
+  cushionPercent?: number
 }): StarterStripSummary | null {
   const lfPerBundle = input.lfPerBundle ?? STARTER_LF_PER_BUNDLE
   if (!(lfPerBundle > 0)) return null
 
   const eaves_lf = positiveLf(input.eaves_lf)
   const rakes_lf = positiveLf(input.rakes_lf)
-  const combinedLf = round2(eaves_lf + rakes_lf)
+  let combinedLf = round2(eaves_lf + rakes_lf)
   if (combinedLf <= 0) return null
+
+  const cushionPercent = input.cushionPercent ?? 0
+  if (cushionPercent > 0) {
+    combinedLf = round2(combinedLf * (1 + cushionPercent / 100))
+  }
 
   const bundles = Math.ceil(combinedLf / lfPerBundle)
 

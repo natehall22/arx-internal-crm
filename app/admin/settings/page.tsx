@@ -10,6 +10,14 @@ import {
   DEFAULT_INSPECTION_OUTCOMES,
   normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
+import {
+  CAP_LF_PER_BUNDLE,
+  ICE_WATER_LF_PER_ROLL,
+  RIDGE_VENT_END_SETBACK_FT,
+  RIDGE_VENT_LF_PER_PIECE,
+  STARTER_LF_PER_BUNDLE,
+  UNDERLAYMENT_SQ_PER_ROLL,
+} from '@/lib/roof-shingle-constants'
 
 type SettingsSection = 
   | 'contact-fields' 
@@ -154,6 +162,14 @@ export default function AdminSettingsPage() {
     roofr_enabled: false,
     solo_enabled: false,
     aurora_enabled: false,
+  })
+  const [materialsCoverageSettings, setMaterialsCoverageSettings] = useState({
+    starter_lf_per_bundle: '',
+    cap_lf_per_bundle: '',
+    underlayment_sq_per_roll: '',
+    ridge_vent_lf_per_piece: '',
+    ridge_vent_end_setback_ft: '',
+    ice_water_lf_per_roll: '',
   })
   const [reportSettings, setReportSettings] = useState({
     include_admins_in_reports: true, // Default: admins show in reports
@@ -612,6 +628,22 @@ export default function AdminSettingsPage() {
           measure_tool_enabled: data.settings.measure_tool_enabled,
           ...(data.settings.external_integrations || {}),
         }))
+      }
+
+      if (data.org) {
+        setMaterialsCoverageSettings({
+          starter_lf_per_bundle:
+            data.org.starter_lf_per_bundle != null ? String(data.org.starter_lf_per_bundle) : '',
+          cap_lf_per_bundle: data.org.cap_lf_per_bundle != null ? String(data.org.cap_lf_per_bundle) : '',
+          underlayment_sq_per_roll:
+            data.org.underlayment_sq_per_roll != null ? String(data.org.underlayment_sq_per_roll) : '',
+          ridge_vent_lf_per_piece:
+            data.org.ridge_vent_lf_per_piece != null ? String(data.org.ridge_vent_lf_per_piece) : '',
+          ridge_vent_end_setback_ft:
+            data.org.ridge_vent_end_setback_ft != null ? String(data.org.ridge_vent_end_setback_ft) : '',
+          ice_water_lf_per_roll:
+            data.org.ice_water_lf_per_roll != null ? String(data.org.ice_water_lf_per_roll) : '',
+        })
       }
       
       // Load report settings
@@ -1750,6 +1782,68 @@ export default function AdminSettingsPage() {
                 ))}
               </div>
 
+              <div className="bg-white rounded-xl shadow-sm border p-6 mb-6 mt-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">Materials order coverage</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  Override shingle-order constants for your org. Leave blank to use ARX defaults
+                  (shown as placeholders).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {(
+                    [
+                      {
+                        key: 'starter_lf_per_bundle',
+                        label: 'Starter LF per bundle',
+                        placeholder: String(STARTER_LF_PER_BUNDLE),
+                      },
+                      {
+                        key: 'cap_lf_per_bundle',
+                        label: 'Cap LF per bundle',
+                        placeholder: String(CAP_LF_PER_BUNDLE),
+                      },
+                      {
+                        key: 'underlayment_sq_per_roll',
+                        label: 'Underlayment sq per roll',
+                        placeholder: String(UNDERLAYMENT_SQ_PER_ROLL),
+                      },
+                      {
+                        key: 'ridge_vent_lf_per_piece',
+                        label: 'Ridge vent LF per piece',
+                        placeholder: String(RIDGE_VENT_LF_PER_PIECE),
+                      },
+                      {
+                        key: 'ridge_vent_end_setback_ft',
+                        label: 'Ridge vent end setback (ft)',
+                        placeholder: String(RIDGE_VENT_END_SETBACK_FT),
+                      },
+                      {
+                        key: 'ice_water_lf_per_roll',
+                        label: 'Ice & water LF per roll',
+                        placeholder: String(ICE_WATER_LF_PER_ROLL),
+                      },
+                    ] as const
+                  ).map((field) => (
+                    <label key={field.key} className="block">
+                      <span className="text-sm font-medium text-gray-900">{field.label}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={materialsCoverageSettings[field.key]}
+                        onChange={(e) =>
+                          setMaterialsCoverageSettings((prev) => ({
+                            ...prev,
+                            [field.key]: e.target.value,
+                          }))
+                        }
+                        placeholder={field.placeholder}
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={async () => {
@@ -1773,6 +1867,20 @@ export default function AdminSettingsPage() {
                       if (!response.ok) {
                         const data = await response.json()
                         alert(data.error || 'Failed to save settings')
+                        return
+                      }
+
+                      const coverageResponse = await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'materials_coverage',
+                          ...materialsCoverageSettings,
+                        }),
+                      })
+                      if (!coverageResponse.ok) {
+                        const data = await coverageResponse.json()
+                        alert(data.error || 'Failed to save materials coverage settings')
                         return
                       }
                       

@@ -42,9 +42,13 @@ export function roofFieldOrderFromMeasurement(input: {
   }
 }
 
-export function roofCapBundlesFromLf(ridges_lf: number, hips_lf: number) {
-  const ridgeCapBundles = ridges_lf > 0 ? Math.ceil(ridges_lf / CAP_LF_PER_BUNDLE) : 0
-  const hipCapBundles = hips_lf > 0 ? Math.ceil(hips_lf / CAP_LF_PER_BUNDLE) : 0
+export function roofCapBundlesFromLf(
+  ridges_lf: number,
+  hips_lf: number,
+  lfPerBundle: number = CAP_LF_PER_BUNDLE
+) {
+  const ridgeCapBundles = ridges_lf > 0 && lfPerBundle > 0 ? Math.ceil(ridges_lf / lfPerBundle) : 0
+  const hipCapBundles = hips_lf > 0 && lfPerBundle > 0 ? Math.ceil(hips_lf / lfPerBundle) : 0
   return {
     ridgeCapBundles,
     hipCapBundles,
