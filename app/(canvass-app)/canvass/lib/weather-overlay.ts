@@ -96,11 +96,13 @@ export const WEATHER_WIDER_PROBE_DAYS = DEFAULT_WEATHER_WINDOW_DAYS
  */
 export function widerWindowHintText(
   currentDays: number,
+  widerDays: number,
   layer: Exclude<WeatherLayer, 'off'>,
 ): string {
   const currentLabel = weatherWindowLabel(currentDays)
+  const widerLabel = weatherWindowLabel(widerDays)
   const layerWord = layer === 'hail' ? 'hail' : 'wind'
-  return `No recorded ${layerWord} in last ${currentLabel} — history on 2yr (tap to switch)`
+  return `No recorded ${layerWord} in last ${currentLabel} — history on ${widerLabel} (tap to switch)`
 }
 
 type StyleBucket = {

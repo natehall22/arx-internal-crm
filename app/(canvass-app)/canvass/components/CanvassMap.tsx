@@ -18,11 +18,11 @@ import {
   weatherFeatureStyle,
   weatherWindowLabel,
   widerWindowHintText,
-  WEATHER_WIDER_PROBE_DAYS,
   type WeatherContext,
   type WeatherFeatureCollection,
   type WeatherLayer,
   type WeatherWindowDays,
+  DEFAULT_WEATHER_WINDOW_DAYS,
 } from '../lib/weather-overlay'
 
 export type { WeatherContext }
@@ -258,6 +258,8 @@ export default function CanvassMap({
   const [weatherStripOffline, setWeatherStripOffline] = useState(false)
   const [weatherStripDegraded, setWeatherStripDegraded] = useState(false)
   const [weatherStripWiderHint, setWeatherStripWiderHint] = useState(false)
+  const [weatherStripWiderTargetDays, setWeatherStripWiderTargetDays] =
+    useState<WeatherWindowDays>(DEFAULT_WEATHER_WINDOW_DAYS)
   type WeatherCacheEntry = {
     layer: Exclude<WeatherLayer, 'off'>
     collection: WeatherFeatureCollection
@@ -421,6 +423,14 @@ export default function CanvassMap({
 
   // Rep-selected window, hard-capped by the org-level prop (and again server-side).
   const effectiveWindowDays = Math.min(selectedWindowDays, weatherTimeWindowDays)
+  const widestAllowedWindowDays = useMemo(
+    () =>
+      visibleWindowOptions.reduce(
+        (best, option) => (option.days > best ? option.days : best),
+        visibleWindowOptions[0].days,
+      ),
+    [visibleWindowOptions],
+  )
 
   const fetchWeatherForLayer = useCallback(
     async (layer: Exclude<WeatherLayer, 'off'>) => {
@@ -530,17 +540,13 @@ export default function CanvassMap({
         paintWeatherCollection(payload)
 
         const primarySummary = summarizeViewport(layer, payload.features)
-        if (
-          primarySummary.empty &&
-          effectiveWindowDays < WEATHER_WIDER_PROBE_DAYS &&
-          effectiveWindowDays < weatherTimeWindowDays
-        ) {
+        if (primarySummary.empty && effectiveWindowDays < widestAllowedWindowDays) {
           // Lightweight wider-window probe: only when the selected window is empty
-          // but older recorded storms may still exist in the 2yr cap.
+          // but older recorded storms may still exist within the org-allowed cap.
           try {
             const widerParams = new URLSearchParams({
               ...bboxParams,
-              windowDays: String(WEATHER_WIDER_PROBE_DAYS),
+              windowDays: String(widestAllowedWindowDays),
             })
             const widerResponse = await fetch(`/api/canvass/weather?${widerParams.toString()}`, {
               signal: controller.signal,
@@ -551,11 +557,14 @@ export default function CanvassMap({
                 !widerPayload.degraded &&
                 !summarizeViewport(layer, widerPayload.features).empty
               ) {
-                setWeatherStripText(widerWindowHintText(effectiveWindowDays, layer))
+                setWeatherStripText(
+                  widerWindowHintText(effectiveWindowDays, widestAllowedWindowDays, layer),
+                )
                 setWeatherStripEmpty(true)
                 setWeatherStripOffline(false)
                 setWeatherStripDegraded(false)
                 setWeatherStripWiderHint(true)
+                setWeatherStripWiderTargetDays(widestAllowedWindowDays)
                 finish(false)
                 return
               }
@@ -601,6 +610,7 @@ export default function CanvassMap({
       updateWeatherStrip,
       weatherOverlayEnabled,
       weatherTimeWindowDays,
+      widestAllowedWindowDays,
     ],
   )
   // Latest fetcher for the map 'idle' listener (bound once at map init).
@@ -1196,7 +1206,7 @@ export default function CanvassMap({
             tabIndex={weatherStripDegraded || weatherStripWiderHint ? 0 : undefined}
             onClick={
               weatherStripWiderHint
-                ? () => handleWeatherWindowSelect(730)
+                ? () => handleWeatherWindowSelect(weatherStripWiderTargetDays)
                 : weatherStripDegraded
                   ? () => void fetchWeatherForLayer(weatherLayer)
                   : undefined
@@ -1207,7 +1217,7 @@ export default function CanvassMap({
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
                       if (weatherStripWiderHint) {
-                        handleWeatherWindowSelect(730)
+                        handleWeatherWindowSelect(weatherStripWiderTargetDays)
                       } else {
                         void fetchWeatherForLayer(weatherLayer)
                       }
