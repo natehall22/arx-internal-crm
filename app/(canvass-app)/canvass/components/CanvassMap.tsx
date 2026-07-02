@@ -7,12 +7,18 @@ import type { ViewportPin } from '../lib/useViewportLeads'
 import {
   HAIL_SWATH_LEGEND,
   STORM_REPORT_LEGEND,
+  WEATHER_WINDOW_OPTIONS,
+  readStoredWeatherLayer,
+  readStoredWeatherWindowDays,
   storeWeatherLayer,
+  storeWeatherWindowDays,
   summarizeViewport,
   weatherFeatureStyle,
+  weatherWindowLabel,
   type WeatherContext,
   type WeatherFeatureCollection,
   type WeatherLayer,
+  type WeatherWindowDays,
 } from '../lib/weather-overlay'
 
 export type { WeatherContext }
@@ -236,6 +242,13 @@ export default function CanvassMap({
     weatherLayerRef.current = weatherLayer
   }, [weatherLayer])
   const [weatherControlExpanded, setWeatherControlExpanded] = useState(false)
+  const [weatherWindowDays, setWeatherWindowDays] = useState<WeatherWindowDays>(() =>
+    readStoredWeatherWindowDays(),
+  )
+  // Debounced pan/zoom refetch + client-side dedupe so idling on the same block
+  // doesn't re-hit the API (server also caches by rounded bbox, but why ask).
+  const weatherIdleTimerRef = useRef<number | null>(null)
+  const weatherFetchKeyRef = useRef<string | null>(null)
   const [weatherStripText, setWeatherStripText] = useState('')
   const [weatherStripEmpty, setWeatherStripEmpty] = useState(false)
   const [weatherStripOffline, setWeatherStripOffline] = useState(false)
@@ -337,46 +350,99 @@ export default function CanvassMap({
     [],
   )
 
+  // Window options the org cap allows (default cap 730 shows all three). Options
+  // above the cap are hidden rather than clamped silently, so the chips/pill can
+  // never claim a wider search window than what was actually queried.
+  const visibleWindowOptions = useMemo(() => {
+    const allowed = WEATHER_WINDOW_OPTIONS.filter((option) => option.days <= weatherTimeWindowDays)
+    return allowed.length > 0 ? allowed : [WEATHER_WINDOW_OPTIONS[0]]
+  }, [weatherTimeWindowDays])
+
+  // Largest visible option not exceeding the stored selection (falls back to the
+  // smallest visible option). This is what the UI highlights AND what we query.
+  const selectedWindowDays = useMemo(
+    () =>
+      visibleWindowOptions.reduce(
+        (best, option) => (option.days <= weatherWindowDays ? option.days : best),
+        visibleWindowOptions[0].days,
+      ),
+    [visibleWindowOptions, weatherWindowDays],
+  )
+
+  // Rep-selected window, hard-capped by the org-level prop (and again server-side).
+  const effectiveWindowDays = Math.min(selectedWindowDays, weatherTimeWindowDays)
+
   const fetchWeatherForLayer = useCallback(
     async (layer: Exclude<WeatherLayer, 'off'>) => {
       if (!weatherOverlayEnabled || !mapInstanceRef.current) return
+
+      const finish = (offline: boolean) => {
+        publishWeatherContext(layer, offline)
+      }
+
+      if (!navigator.onLine) {
+        weatherAbortRef.current?.abort()
+        // Invalidate the dedupe key: once we're back online, the next idle must
+        // do a real fetch so the "Offline" strip/context can't stick around.
+        weatherFetchKeyRef.current = null
+        const cached = weatherLastGoodRef.current
+        if (cached && cached.layer === layer) {
+          paintWeatherCollection(cached.collection)
+          updateWeatherStrip(layer, cached.collection, true)
+        } else {
+          clearWeatherFeatures()
+          setWeatherStripText('Offline — no stored storm data')
+          setWeatherStripEmpty(true)
+          setWeatherStripOffline(true)
+        }
+        finish(true)
+        return
+      }
+
+      const bounds = mapInstanceRef.current.getBounds()
+      if (!bounds) return
+      const ne = bounds.getNorthEast()
+      const sw = bounds.getSouthWest()
+
+      // Skip if we already have fresh data for effectively this viewport+layer+window
+      // (rounded so sub-block pans dedupe). Cleared on layer off, window change, failure.
+      const fetchKey = [
+        ne.lat().toFixed(3),
+        ne.lng().toFixed(3),
+        sw.lat().toFixed(3),
+        sw.lng().toFixed(3),
+        layer,
+        effectiveWindowDays,
+      ].join('|')
+      if (
+        weatherFetchKeyRef.current === fetchKey &&
+        weatherLastGoodRef.current?.layer === layer
+      ) {
+        return
+      }
 
       weatherAbortRef.current?.abort()
       const controller = new AbortController()
       weatherAbortRef.current = controller
       const timeoutId = window.setTimeout(() => controller.abort(), 7000)
 
-      const finish = (offline: boolean) => {
-        publishWeatherContext(layer, offline)
+      // First load for this layer: tell the rep something is happening instead of
+      // a silent empty map. Pans keep the last paint until fresh data lands.
+      if (!weatherLastGoodRef.current || weatherLastGoodRef.current.layer !== layer) {
+        setWeatherStripText('Checking storms…')
+        setWeatherStripEmpty(false)
+        setWeatherStripOffline(false)
+        setWeatherStripDegraded(false)
       }
 
       try {
-        if (!navigator.onLine) {
-          const cached = weatherLastGoodRef.current
-          if (cached && cached.layer === layer) {
-            paintWeatherCollection(cached.collection)
-            updateWeatherStrip(layer, cached.collection, true)
-          } else {
-            clearWeatherFeatures()
-            setWeatherStripText('Offline — no stored storm data')
-            setWeatherStripEmpty(true)
-            setWeatherStripOffline(true)
-          }
-          finish(true)
-          return
-        }
-
-        const bounds = mapInstanceRef.current.getBounds()
-        if (!bounds) return
-        const ne = bounds.getNorthEast()
-        const sw = bounds.getSouthWest()
         const params = new URLSearchParams({
           n: String(ne.lat()),
           s: String(sw.lat()),
           e: String(ne.lng()),
           w: String(sw.lng()),
           layer,
-          windowDays: String(weatherTimeWindowDays),
+          windowDays: String(effectiveWindowDays),
         })
 
         const response = await fetch(`/api/canvass/weather?${params.toString()}`, {
@@ -388,6 +454,7 @@ export default function CanvassMap({
         if (controller.signal.aborted) return
 
         if (payload.degraded) {
+          weatherFetchKeyRef.current = null
           clearWeatherFeatures()
           setWeatherStripText("Couldn't load storm data — tap to retry")
           setWeatherStripEmpty(true)
@@ -398,6 +465,7 @@ export default function CanvassMap({
           return
         }
 
+        weatherFetchKeyRef.current = fetchKey
         weatherLastGoodRef.current = {
           layer,
           collection: payload,
@@ -408,6 +476,7 @@ export default function CanvassMap({
         finish(false)
       } catch {
         if (controller.signal.aborted) return
+        weatherFetchKeyRef.current = null
 
         const cached = weatherLastGoodRef.current
         if (cached && cached.layer === layer) {
@@ -432,19 +501,27 @@ export default function CanvassMap({
     },
     [
       clearWeatherFeatures,
+      effectiveWindowDays,
       paintWeatherCollection,
       publishWeatherContext,
       updateWeatherStrip,
       weatherOverlayEnabled,
-      weatherTimeWindowDays,
     ],
   )
+  // Latest fetcher for the map 'idle' listener (bound once at map init).
+  const fetchWeatherForLayerRef = useRef(fetchWeatherForLayer)
+  fetchWeatherForLayerRef.current = fetchWeatherForLayer
 
   const handleWeatherLayerSelect = useCallback(
     (nextLayer: WeatherLayer) => {
       weatherAbortRef.current?.abort()
+      if (weatherIdleTimerRef.current) {
+        window.clearTimeout(weatherIdleTimerRef.current)
+        weatherIdleTimerRef.current = null
+      }
       setWeatherLayer(nextLayer)
       if (nextLayer === 'off') {
+        weatherFetchKeyRef.current = null
         clearWeatherFeatures()
         setWeatherControlExpanded(false)
         setWeatherStripText('')
@@ -461,6 +538,34 @@ export default function CanvassMap({
     },
     [clearWeatherFeatures, fetchWeatherForLayer],
   )
+
+  const handleWeatherWindowSelect = useCallback(
+    (days: WeatherWindowDays) => {
+      if (days === weatherWindowDays) return
+      // Kill any pending pan-debounce so it can't race the window-change refetch
+      // with an identical (aborted-and-reissued) request.
+      if (weatherIdleTimerRef.current) {
+        window.clearTimeout(weatherIdleTimerRef.current)
+        weatherIdleTimerRef.current = null
+      }
+      setWeatherWindowDays(days)
+      storeWeatherWindowDays(days)
+      // The narrower/wider window invalidates the dedupe key; the effect below
+      // refetches once state (and the fetch callback) reflect the new window.
+      weatherFetchKeyRef.current = null
+    },
+    [weatherWindowDays],
+  )
+
+  // Refetch after a window change while a layer is live.
+  const prevWeatherWindowRef = useRef(weatherWindowDays)
+  useEffect(() => {
+    if (prevWeatherWindowRef.current === weatherWindowDays) return
+    prevWeatherWindowRef.current = weatherWindowDays
+    if (weatherOverlayEnabled && weatherLayer !== 'off') {
+      void fetchWeatherForLayer(weatherLayer)
+    }
+  }, [weatherWindowDays, weatherLayer, weatherOverlayEnabled, fetchWeatherForLayer])
 
   useEffect(() => {
     if (!weatherOverlayEnabled || !mapLoaded || !mapInstanceRef.current || weatherDataRef.current) {
@@ -484,6 +589,9 @@ export default function CanvassMap({
   useEffect(() => {
     return () => {
       weatherAbortRef.current?.abort()
+      if (weatherIdleTimerRef.current) {
+        window.clearTimeout(weatherIdleTimerRef.current)
+      }
     }
   }, [])
 
@@ -584,6 +692,23 @@ export default function CanvassMap({
         }
       })
     }
+
+    // Weather overlay follows the viewport: refetch (debounced) after every
+    // pan/zoom while a layer is on, so a rep scouting a new neighborhood sees
+    // its storms without re-toggling. Dedupe inside fetchWeatherForLayer keeps
+    // same-block idles from re-hitting the API.
+    mapInstanceRef.current.addListener('idle', () => {
+      if (!weatherOverlayEnabledRef.current) return
+      const layer = weatherLayerRef.current
+      if (layer === 'off') return
+      if (weatherIdleTimerRef.current) window.clearTimeout(weatherIdleTimerRef.current)
+      weatherIdleTimerRef.current = window.setTimeout(() => {
+        weatherIdleTimerRef.current = null
+        const currentLayer = weatherLayerRef.current
+        if (currentLayer === 'off') return
+        void fetchWeatherForLayerRef.current(currentLayer)
+      }, 700)
+    })
 
     // Track heading changes for compass
     mapInstanceRef.current.addListener('heading_changed', () => {
@@ -1005,67 +1130,165 @@ export default function CanvassMap({
         </div>
       )}
 
-      {/* Weather legend — shown only while the weather control is expanded, to keep
-          the map clear of reference clutter and sun glare during a knock. */}
-      {weatherOverlayEnabled && weatherLayer !== 'off' && weatherControlExpanded && (
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 z-10">
-          <div className="bg-white rounded-lg shadow-lg px-3 py-2 text-[11px] text-[#2c2c2a] space-y-1">
-            <div className="flex items-center gap-2">
-              <span
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{
-                  backgroundColor: STORM_REPORT_LEGEND.fill,
-                  boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 1.5px ${STORM_REPORT_LEGEND.stroke}`,
-                }}
-              />
-              <span>{STORM_REPORT_LEGEND.label}</span>
-            </div>
-            {weatherLayer === 'hail' &&
-              HAIL_SWATH_LEGEND.map((item) => (
-                <div key={item.label} className="flex items-center gap-2">
-                  <span
-                    className="w-3 h-3 rounded-sm flex-shrink-0 opacity-80"
-                    style={{
-                      backgroundColor: item.fill,
-                      boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 1.5px ${item.stroke}`,
-                    }}
-                  />
-                  <span>{item.label} swath</span>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
       {/* Map controls - left side */}
       <div className="absolute bottom-24 left-4 flex flex-col gap-2 z-10">
         {weatherOverlayEnabled && (
           <div className="flex flex-col gap-2 items-start">
             {weatherControlExpanded ? (
-              <div className="bg-white rounded-full shadow-lg p-1 flex items-center gap-1">
-                {(['off', 'hail', 'wind'] as const).map((option) => (
+              /* Expanded panel: layer + time window + legend in one card so nothing
+                 floats mid-screen. Collapses to a compact pill for knocking. */
+              <div className="bg-white rounded-2xl shadow-xl w-[232px] overflow-hidden">
+                <div className="flex items-center justify-between pl-3 pr-1 pt-1.5 pb-0.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#2c2c2a]">
+                    Storm overlay
+                  </span>
                   <button
-                    key={option}
                     type="button"
-                    onClick={() => handleWeatherLayerSelect(option)}
-                    className={`px-3 h-10 rounded-full text-xs font-semibold capitalize transition-colors ${
-                      weatherLayer === option
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-[#2c2c2a] hover:bg-gray-100'
-                    }`}
+                    onClick={() => setWeatherControlExpanded(false)}
+                    className="p-2.5 text-gray-500 active:text-gray-700"
+                    aria-label="Collapse storm overlay panel"
                   >
-                    {option}
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
                   </button>
-                ))}
+                </div>
+
+                {/* Layer segmented control */}
+                <div className="px-3">
+                  <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded-xl p-1">
+                    {(['hail', 'wind'] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => handleWeatherLayerSelect(option)}
+                        aria-pressed={weatherLayer === option}
+                        className={`h-10 rounded-lg text-sm font-semibold capitalize transition-colors ${
+                          weatherLayer === option
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'text-[#2c2c2a] active:bg-gray-200'
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Time window chips */}
+                <div className="px-3 pt-2">
+                  <div className="flex gap-1.5">
+                    {visibleWindowOptions.map((option) => (
+                      <button
+                        key={option.days}
+                        type="button"
+                        onClick={() => handleWeatherWindowSelect(option.days)}
+                        title={option.title}
+                        aria-pressed={selectedWindowDays === option.days}
+                        className={`flex-1 h-10 rounded-lg text-xs font-semibold border transition-colors ${
+                          selectedWindowDays === option.days
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-white border-gray-300 text-[#2c2c2a] active:bg-gray-100'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Legend for the active layer */}
+                {weatherLayer !== 'off' && (
+                  <div className="px-3 pt-2 space-y-1 text-[11px] leading-tight text-[#2c2c2a]">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{
+                          backgroundColor: STORM_REPORT_LEGEND.fill,
+                          boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 1.5px ${STORM_REPORT_LEGEND.stroke}`,
+                        }}
+                      />
+                      <span>{STORM_REPORT_LEGEND.label}</span>
+                    </div>
+                    {weatherLayer === 'hail' &&
+                      HAIL_SWATH_LEGEND.map((item) => (
+                        <div key={item.label} className="flex items-center gap-2">
+                          <span
+                            className="w-3 h-3 rounded-sm flex-shrink-0 opacity-80"
+                            style={{
+                              backgroundColor: item.fill,
+                              boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 1.5px ${item.stroke}`,
+                            }}
+                          />
+                          <span>{item.label} swath</span>
+                        </div>
+                      ))}
+                    {weatherLayer === 'wind' && (
+                      <p className="text-[11px] text-[#2c2c2a]">
+                        Dots include measured gusts and wind-damage reports
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="p-3 pt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleWeatherLayerSelect('off')}
+                    className="w-full h-10 rounded-xl border border-gray-300 text-sm font-semibold text-[#2c2c2a] active:bg-gray-100"
+                  >
+                    Hide overlay
+                  </button>
+                </div>
+              </div>
+            ) : weatherLayer !== 'off' ? (
+              /* Active + collapsed: compact status pill. Body reopens the panel;
+                 ✕ is the desire path — one thumb-tap kills the overlay clutter. */
+              <div className="bg-white rounded-full shadow-lg flex items-center h-12 pl-1 pr-1">
+                <button
+                  type="button"
+                  onClick={() => setWeatherControlExpanded(true)}
+                  className="flex items-center gap-1.5 h-10 pl-2 pr-1.5 rounded-full active:bg-gray-100"
+                  aria-label={`Storm overlay settings — ${weatherLayer}, ${weatherWindowLabel(selectedWindowDays)}`}
+                >
+                  <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"
+                    />
+                  </svg>
+                  <span className="text-xs font-bold uppercase tracking-wide text-[#2c2c2a]">
+                    {weatherLayer}
+                  </span>
+                  <span className="text-[11px] font-semibold text-gray-500">
+                    · {weatherWindowLabel(selectedWindowDays)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleWeatherLayerSelect('off')}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-gray-500 active:bg-gray-100"
+                  aria-label="Turn storm overlay off"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             ) : (
+              /* Off + collapsed: one tap turns the last-used layer on AND opens the
+                 panel — see storms immediately, tune after (desire path first). */
               <button
                 type="button"
-                onClick={() => setWeatherControlExpanded(true)}
-                className={`w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center ${
-                  weatherLayer !== 'off' ? 'ring-2 ring-indigo-500' : ''
-                }`}
+                onClick={() => {
+                  setWeatherControlExpanded(true)
+                  handleWeatherLayerSelect(readStoredWeatherLayer())
+                }}
+                className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
                 title="Storm overlay"
+                aria-label="Show storm overlay"
               >
                 <svg className="w-6 h-6 text-[#2c2c2a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path

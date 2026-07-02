@@ -39,7 +39,52 @@ export function readStoredWeatherLayer(): Exclude<WeatherLayer, 'off'> {
 
 export function storeWeatherLayer(layer: Exclude<WeatherLayer, 'off'>) {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(WEATHER_LAYER_STORAGE_KEY, layer)
+  try {
+    window.localStorage.setItem(WEATHER_LAYER_STORAGE_KEY, layer)
+  } catch {
+    // private-mode Safari can throw on setItem — selection just won't persist
+  }
+}
+
+/**
+ * Time-window quick filter. 730d is the product hard cap (insurance claim scope —
+ * clamped again server-side in clampWindowDays). 30d isolates "the storm that just
+ * hit" for knock strategizing; 6mo covers a season.
+ */
+export const WEATHER_WINDOW_OPTIONS = [
+  { days: 30, label: '30d', title: 'Last 30 days' },
+  { days: 183, label: '6mo', title: 'Last 6 months' },
+  { days: 730, label: '2yr', title: 'Last 2 years' },
+] as const
+
+export type WeatherWindowDays = (typeof WEATHER_WINDOW_OPTIONS)[number]['days']
+
+export const DEFAULT_WEATHER_WINDOW_DAYS: WeatherWindowDays = 730
+
+const WEATHER_WINDOW_STORAGE_KEY = 'canvass-weather-window-days'
+
+export function readStoredWeatherWindowDays(): WeatherWindowDays {
+  if (typeof window === 'undefined') return DEFAULT_WEATHER_WINDOW_DAYS
+  try {
+    const stored = Number(window.localStorage.getItem(WEATHER_WINDOW_STORAGE_KEY))
+    const match = WEATHER_WINDOW_OPTIONS.find((option) => option.days === stored)
+    return match ? match.days : DEFAULT_WEATHER_WINDOW_DAYS
+  } catch {
+    return DEFAULT_WEATHER_WINDOW_DAYS
+  }
+}
+
+export function storeWeatherWindowDays(days: WeatherWindowDays) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(WEATHER_WINDOW_STORAGE_KEY, String(days))
+  } catch {
+    // private-mode Safari can throw on setItem — selection just won't persist
+  }
+}
+
+export function weatherWindowLabel(days: number): string {
+  return WEATHER_WINDOW_OPTIONS.find((option) => option.days === days)?.label ?? `${days}d`
 }
 
 type StyleBucket = {
