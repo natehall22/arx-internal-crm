@@ -11,7 +11,7 @@ function isMissingOverridesTable(error: { code?: string; message?: string } | nu
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: { id: string } }
 ) {
   try {
     let authContext
@@ -22,7 +22,7 @@ export async function GET(
     }
 
     const admin = createServiceClient()
-    const jobId = params.jobId
+    const jobId = params.id
 
     const { data: job } = await admin
       .from('production_jobs')
@@ -58,7 +58,7 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: { id: string } }
 ) {
   try {
     let authContext
@@ -75,7 +75,7 @@ export async function PATCH(
     }
 
     const admin = createServiceClient()
-    const jobId = params.jobId
+    const jobId = params.id
 
     const { data: job } = await admin
       .from('production_jobs')
