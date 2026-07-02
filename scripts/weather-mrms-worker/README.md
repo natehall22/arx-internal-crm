@@ -28,4 +28,32 @@ python3 scripts/weather-mrms-worker/contour_mesh.py --dry-run --event-date 2026-
 
 ## Footprint override
 
-Optional env vars: `WEATHER_FOOTPRINT_N`, `WEATHER_FOOTPRINT_S`, `WEATHER_FOOTPRINT_E`, `WEATHER_FOOTPRINT_W`.
+Set on **Vercel** (cron/refresh routes) and **GitHub repo variables** (MRMS workflow):
+
+| Variable | Value |
+|---|---|
+| `WEATHER_FOOTPRINT_N` | `35.60` |
+| `WEATHER_FOOTPRINT_S` | `35.00` |
+| `WEATHER_FOOTPRINT_E` | `-80.30` |
+| `WEATHER_FOOTPRINT_W` | `-81.10` |
+
+Lat span 0.60°, lng span 0.80° — under the 5° API cap.
+
+## Backfill (730 days)
+
+One-off historical swath load after expanding the footprint:
+
+```bash
+export CRON_SECRET=...
+export WEATHER_SWATHS_INGEST_URL=https://arx-internal-crm.vercel.app/api/cron/weather-swaths-ingest
+export WEATHER_FOOTPRINT_N=35.60 WEATHER_FOOTPRINT_S=35.00 WEATHER_FOOTPRINT_E=-80.30 WEATHER_FOOTPRINT_W=-81.10
+python3 scripts/weather-mrms-worker/backfill_swaths.py --days 730 --skip-errors
+```
+
+Smoke test (dry-run, one day):
+
+```bash
+python3 scripts/weather-mrms-worker/backfill_swaths.py --days 730 --dry-run --limit 1
+```
+
+Requires GDAL CLI + AWS CLI (same as daily worker). Expect several hours for a full 730-day run; use `--skip-errors` for missing MRMS archive days.

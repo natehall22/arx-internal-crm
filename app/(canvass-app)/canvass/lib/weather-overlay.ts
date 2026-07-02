@@ -87,6 +87,22 @@ export function weatherWindowLabel(days: number): string {
   return WEATHER_WINDOW_OPTIONS.find((option) => option.days === days)?.label ?? `${days}d`
 }
 
+/** Hard cap used for the "wider window" probe when the selected window is empty. */
+export const WEATHER_WIDER_PROBE_DAYS = DEFAULT_WEATHER_WINDOW_DAYS
+
+/**
+ * Claims-safe strip copy when the viewport is clear in the rep's window but recorded
+ * storms exist at the 2yr cap — nudges them to widen without implying damage.
+ */
+export function widerWindowHintText(
+  currentDays: number,
+  layer: Exclude<WeatherLayer, 'off'>,
+): string {
+  const currentLabel = weatherWindowLabel(currentDays)
+  const layerWord = layer === 'hail' ? 'hail' : 'wind'
+  return `No recorded ${layerWord} in last ${currentLabel} — history on 2yr (tap to switch)`
+}
+
 type StyleBucket = {
   fill: string
   fillOpacity: number

@@ -105,10 +105,22 @@ export async function GET(request: NextRequest) {
 ## 3. What it fetches and computes per run
 
 ### 3.1 Area footprint determination
-The operating area is concentrated in **Cabarrus County NC**. Drive the footprint from a single configurable source of truth so it can grow:
+The operating area covers **Mecklenburg + Cabarrus** counties (Charlotte metro canvass zone). Drive the footprint from env vars so it can grow without code changes:
 
-- **Recommended:** a constant ZIP list (with a small env override), e.g. `WEATHER_REFRESH_ZIPS=28025,28027,28036,28081,28082,28107,28124,28088`. ARX's office is `28027` (Concord), consistent with this list.
-- Derive a **single bounding box** that encloses those ZIPs (precompute the bbox once; geocode each ZIP centroid via the existing US Census geocoder used in `roofradar-open-data.ts`, or hardcode a verified Cabarrus-County bbox as `n/s/e/w`). The job pre-warms cache keyed by that bbox (and/or per-ZIP sub-bboxes that mirror what the rep-facing route will request).
+| Env var | Value | Notes |
+|---|---|---|
+| `WEATHER_FOOTPRINT_N` | `35.60` | North edge (~Lake Norman / north Mecklenburg) |
+| `WEATHER_FOOTPRINT_S` | `35.00` | South edge (~south Cabarrus) |
+| `WEATHER_FOOTPRINT_E` | `-80.30` | East edge (~east Cabarrus) |
+| `WEATHER_FOOTPRINT_W` | `-81.10` | West edge (~west Mecklenburg) |
+
+- **BBox spans:** lat 0.60°, lng 0.80° — both well under `MAX_WEATHER_BBOX_SPAN_DEGREES = 5` (`lib/weather-footprint.ts`).
+- **Set on:** Vercel project env (Preview + Production for cron/refresh routes) **and** GitHub repo variables (for `.github/workflows/weather-mrms-ingest.yml`). Code default in `DEFAULT_WEATHER_FOOTPRINT` remains Cabarrus-only fallback when env is unset.
+- **Legacy Cabarrus-only default** (`n 35.58, s 35.12, e -80.32, w -80.82`) misses Charlotte/Mecklenburg — do not rely on it in prod; always set the four env vars above.
+
+**Recommended ZIP superset** (for documentation; bbox is authoritative): `28025,28027,28031,28036,28054,28078,28081,28082,28105,28107,28124,28202,28203,28204,28205,28206,28207,28208,28209,28210,28211,28212,28213,28214,28215,28216,28217,28226,28227,28262,28269,28270,28273,28277`.
+
+- Derive a **single bounding box** that encloses those ZIPs (precompute the bbox once; geocode each ZIP centroid via the existing US Census geocoder used in `roofradar-open-data.ts`, or hardcode the verified bbox as `n/s/e/w`). The job pre-warms cache keyed by that bbox (and/or per-ZIP sub-bboxes that mirror what the rep-facing route will request).
 - **Cache-key alignment is critical:** the rep-facing route (`app/api/canvass/weather/route.ts`) keys its cache by `bbox|layer|window`. The refresh job must pre-warm the **same keys** the read path will look up, or pre-warm a **superset bbox** that the read path queries against (preferred: store rows the read path filters spatially, so any rep bbox inside the footprint is a hit). Confirm the key contract with whoever builds the read route (§9).
 
 ### 3.2 Per-run work (Phase 1 — ships first)

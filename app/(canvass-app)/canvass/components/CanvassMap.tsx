@@ -17,6 +17,8 @@ import {
   summarizeViewport,
   weatherFeatureStyle,
   weatherWindowLabel,
+  widerWindowHintText,
+  WEATHER_WIDER_PROBE_DAYS,
   type WeatherContext,
   type WeatherFeatureCollection,
   type WeatherLayer,
@@ -255,6 +257,7 @@ export default function CanvassMap({
   const [weatherStripEmpty, setWeatherStripEmpty] = useState(false)
   const [weatherStripOffline, setWeatherStripOffline] = useState(false)
   const [weatherStripDegraded, setWeatherStripDegraded] = useState(false)
+  const [weatherStripWiderHint, setWeatherStripWiderHint] = useState(false)
   type WeatherCacheEntry = {
     layer: Exclude<WeatherLayer, 'off'>
     collection: WeatherFeatureCollection
@@ -392,6 +395,7 @@ export default function CanvassMap({
       setWeatherStripEmpty(summary.empty)
       setWeatherStripOffline(false)
       setWeatherStripDegraded(false)
+      setWeatherStripWiderHint(false)
     },
     [],
   )
@@ -479,15 +483,20 @@ export default function CanvassMap({
         setWeatherStripEmpty(false)
         setWeatherStripOffline(false)
         setWeatherStripDegraded(false)
+        setWeatherStripWiderHint(false)
+      }
+
+      const bboxParams = {
+        n: String(ne.lat()),
+        s: String(sw.lat()),
+        e: String(ne.lng()),
+        w: String(sw.lng()),
+        layer,
       }
 
       try {
         const params = new URLSearchParams({
-          n: String(ne.lat()),
-          s: String(sw.lat()),
-          e: String(ne.lng()),
-          w: String(sw.lng()),
-          layer,
+          ...bboxParams,
           windowDays: String(effectiveWindowDays),
         })
 
@@ -506,6 +515,7 @@ export default function CanvassMap({
           setWeatherStripEmpty(true)
           setWeatherStripOffline(false)
           setWeatherStripDegraded(true)
+          setWeatherStripWiderHint(false)
           onWeatherContextChangeRef.current?.(null)
           finish(false)
           return
@@ -518,6 +528,43 @@ export default function CanvassMap({
           refreshedAt: payload.refreshedAt || new Date().toISOString(),
         }
         paintWeatherCollection(payload)
+
+        const primarySummary = summarizeViewport(layer, payload.features)
+        if (
+          primarySummary.empty &&
+          effectiveWindowDays < WEATHER_WIDER_PROBE_DAYS &&
+          effectiveWindowDays < weatherTimeWindowDays
+        ) {
+          // Lightweight wider-window probe: only when the selected window is empty
+          // but older recorded storms may still exist in the 2yr cap.
+          try {
+            const widerParams = new URLSearchParams({
+              ...bboxParams,
+              windowDays: String(WEATHER_WIDER_PROBE_DAYS),
+            })
+            const widerResponse = await fetch(`/api/canvass/weather?${widerParams.toString()}`, {
+              signal: controller.signal,
+            })
+            if (!controller.signal.aborted && widerResponse.ok) {
+              const widerPayload = (await widerResponse.json()) as WeatherFeatureCollection
+              if (
+                !widerPayload.degraded &&
+                !summarizeViewport(layer, widerPayload.features).empty
+              ) {
+                setWeatherStripText(widerWindowHintText(effectiveWindowDays, layer))
+                setWeatherStripEmpty(true)
+                setWeatherStripOffline(false)
+                setWeatherStripDegraded(false)
+                setWeatherStripWiderHint(true)
+                finish(false)
+                return
+              }
+            }
+          } catch {
+            // Probe failure is non-fatal — fall through to the normal empty strip.
+          }
+        }
+
         updateWeatherStrip(layer, payload, false)
         finish(false)
       } catch {
@@ -539,6 +586,7 @@ export default function CanvassMap({
           setWeatherStripEmpty(true)
           setWeatherStripOffline(!navigator.onLine)
           setWeatherStripDegraded(false)
+          setWeatherStripWiderHint(false)
           onWeatherContextChangeRef.current?.(null)
         }
       } finally {
@@ -552,6 +600,7 @@ export default function CanvassMap({
       publishWeatherContext,
       updateWeatherStrip,
       weatherOverlayEnabled,
+      weatherTimeWindowDays,
     ],
   )
   // Latest fetcher for the map 'idle' listener (bound once at map init).
@@ -574,6 +623,7 @@ export default function CanvassMap({
         setWeatherStripEmpty(false)
         setWeatherStripOffline(false)
         setWeatherStripDegraded(false)
+        setWeatherStripWiderHint(false)
         onWeatherContextChangeRef.current?.(null)
         return
       }
@@ -1142,17 +1192,25 @@ export default function CanvassMap({
           style={{ top: 'calc(max(16px, env(safe-area-inset-top)) + 56px)' }}
         >
           <div
-            role={weatherStripDegraded ? 'button' : undefined}
-            tabIndex={weatherStripDegraded ? 0 : undefined}
+            role={weatherStripDegraded || weatherStripWiderHint ? 'button' : undefined}
+            tabIndex={weatherStripDegraded || weatherStripWiderHint ? 0 : undefined}
             onClick={
-              weatherStripDegraded ? () => void fetchWeatherForLayer(weatherLayer) : undefined
+              weatherStripWiderHint
+                ? () => handleWeatherWindowSelect(730)
+                : weatherStripDegraded
+                  ? () => void fetchWeatherForLayer(weatherLayer)
+                  : undefined
             }
             onKeyDown={
-              weatherStripDegraded
+              weatherStripDegraded || weatherStripWiderHint
                 ? (event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
-                      void fetchWeatherForLayer(weatherLayer)
+                      if (weatherStripWiderHint) {
+                        handleWeatherWindowSelect(730)
+                      } else {
+                        void fetchWeatherForLayer(weatherLayer)
+                      }
                     }
                   }
                 : undefined
@@ -1162,9 +1220,11 @@ export default function CanvassMap({
                 ? 'bg-amber-50 text-[#2c2c2a] border border-amber-200'
                 : weatherStripDegraded
                   ? 'bg-orange-50 text-[#2c2c2a] border border-orange-300 cursor-pointer'
-                  : weatherStripEmpty
-                    ? 'bg-white text-[#2c2c2a] italic'
-                    : 'bg-white text-[#2c2c2a]'
+                  : weatherStripWiderHint
+                    ? 'bg-indigo-50 text-[#2c2c2a] border border-indigo-300 cursor-pointer'
+                    : weatherStripEmpty
+                      ? 'bg-white text-[#2c2c2a] italic'
+                      : 'bg-white text-[#2c2c2a]'
             }`}
           >
             {weatherStripOffline && (

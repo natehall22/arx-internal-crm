@@ -1,0 +1,66 @@
+name: Weather MRMS swath backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days to backfill (max 730)'
+        required: false
+        default: '730'
+        type: string
+      limit:
+        description: 'Optional cap on days processed (smoke test)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry-run only (no POST)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  backfill-mrms-swaths:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GDAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal
+          gdal_translate --version
+          aws --version
+
+      - name: Backfill MRMS MESH swaths
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          WEATHER_SWATHS_INGEST_URL: ${{ vars.WEATHER_SWATHS_INGEST_URL }}
+          WEATHER_FOOTPRINT_N: ${{ vars.WEATHER_FOOTPRINT_N }}
+          WEATHER_FOOTPRINT_S: ${{ vars.WEATHER_FOOTPRINT_S }}
+          WEATHER_FOOTPRINT_E: ${{ vars.WEATHER_FOOTPRINT_E }}
+          WEATHER_FOOTPRINT_W: ${{ vars.WEATHER_FOOTPRINT_W }}
+        run: |
+          set -euo pipefail
+          ARGS=(python3 scripts/weather-mrms-worker/backfill_swaths.py --days "${{ github.event.inputs.days || '730' }}" --skip-errors)
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            ARGS+=(--limit "${{ github.event.inputs.limit }}")
+          fi
+          "${ARGS[@]}"
+
+      - name: Backfill dry-run
+        if: github.event.inputs.dry_run == 'true'
+        env:
+          WEATHER_FOOTPRINT_N: ${{ vars.WEATHER_FOOTPRINT_N }}
+          WEATHER_FOOTPRINT_S: ${{ vars.WEATHER_FOOTPRINT_S }}
+          WEATHER_FOOTPRINT_E: ${{ vars.WEATHER_FOOTPRINT_E }}
+          WEATHER_FOOTPRINT_W: ${{ vars.WEATHER_FOOTPRINT_W }}
+        run: |
+          set -euo pipefail
+          ARGS=(python3 scripts/weather-mrms-worker/backfill_swaths.py --days "${{ github.event.inputs.days || '730' }}" --dry-run --skip-errors)
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            ARGS+=(--limit "${{ github.event.inputs.limit }}")
+          fi
+          "${ARGS[@]}"
