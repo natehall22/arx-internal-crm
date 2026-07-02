@@ -16,6 +16,7 @@ import DeleteRoofMeasurementButton from '@/components/opportunities/DeleteRoofMe
 import DeleteProposalButton from '@/components/opportunities/DeleteProposalButton'
 import DesignPdfUpload from '@/components/opportunities/DesignPdfUpload'
 import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResultReadOnlyCard'
+import CopyShareLinkButton from '@/components/inspection-report/CopyShareLinkButton'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import {
@@ -253,6 +254,21 @@ export default async function OpportunityDetailPage({
     .select('id, source, status, total_area_sqft, total_squares, predominant_pitch, facet_count, created_at')
     .eq('opportunity_id', params.id)
     .order('created_at', { ascending: false })
+
+  // Latest customer-facing roof report (photo documentation PDF) — photo count joined
+  // so this stays a single round trip on a hot page
+  const { data: inspectionReport } = await supabase
+    .from('inspection_reports')
+    .select(
+      'id, status, share_token, pdf_generated_at, pdf_size_bytes, last_sent_to, last_sent_at, updated_at, inspection_report_photos(count)'
+    )
+    .eq('opportunity_id', params.id)
+    .eq('org_id', profile.org_id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const inspectionReportPhotoCount =
+    (inspectionReport?.inspection_report_photos as { count: number }[] | undefined)?.[0]?.count ?? 0
 
   // Fetch accepted proposal for contract creation
   const { data: acceptedProposal } = await supabase
@@ -950,6 +966,63 @@ export default async function OpportunityDetailPage({
             inspectionAppointmentId={inspectionAppointment?.id ?? null}
             hideWhenEmpty={hideInspectionEmptyCard}
           />
+        </div>
+
+        {/* Roof Report — customer-facing photo documentation PDF */}
+        <div id="roof-report-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xl font-bold text-gray-900">Roof Report</h2>
+            <Link
+              href={`/opportunities/${params.id}/report`}
+              prefetch={false}
+              className="px-4 py-2 bg-[#B0904E] text-[#2B2A28] text-sm font-bold rounded-lg hover:brightness-105"
+            >
+              {inspectionReport ? 'Open Report Builder' : '📷 Start Roof Report'}
+            </Link>
+          </div>
+          {inspectionReport ? (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-800">
+              <span>
+                <strong>{inspectionReportPhotoCount}</strong> photo{inspectionReportPhotoCount !== 1 ? 's' : ''}
+              </span>
+              {inspectionReport.pdf_generated_at ? (
+                <span>
+                  PDF built {new Date(inspectionReport.pdf_generated_at).toLocaleDateString()}
+                  {inspectionReport.pdf_size_bytes
+                    ? ` (${(inspectionReport.pdf_size_bytes / 1048576).toFixed(1)} MB)`
+                    : ''}
+                </span>
+              ) : (
+                <span className="text-amber-700 font-medium">No PDF built yet</span>
+              )}
+              {inspectionReport.last_sent_to ? (
+                <span>
+                  Sent to {inspectionReport.last_sent_to}
+                  {inspectionReport.last_sent_at
+                    ? ` on ${new Date(inspectionReport.last_sent_at).toLocaleDateString()}`
+                    : ''}
+                </span>
+              ) : null}
+              {inspectionReport.pdf_generated_at ? (
+                <span className="flex gap-2 ml-auto">
+                  <a
+                    href={`/api/inspection-reports/${inspectionReport.id}/pdf?redirect=1`}
+                    target="_blank"
+                    rel="noopener"
+                    className="px-4 py-2 border border-gray-300 text-gray-800 text-sm font-semibold rounded-lg hover:bg-gray-50"
+                  >
+                    View PDF
+                  </a>
+                  <CopyShareLinkButton shareToken={inspectionReport.share_token} />
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-700">
+              Photo-documented inspection report the customer keeps and can hand to their insurance carrier.
+              Prefilled from this opportunity — the rep just adds photos.
+            </p>
+          )}
         </div>
 
         {/* Roof Measurements Section */}

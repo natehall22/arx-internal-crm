@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/weather-refresh",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-report-photos",
+      "schedule": "11 7 * * *"
     }
   ]
 }

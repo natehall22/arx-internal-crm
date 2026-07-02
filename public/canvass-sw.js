@@ -48,6 +48,11 @@ self.addEventListener('fetch', (event) => {
   // Skip Supabase requests
   if (url.hostname.includes('supabase')) return;
 
+  // Skip the roof-report builder, opportunity pages, and public report share pages —
+  // their HTML embeds short-lived signed URLs; a cached copy served offline would render
+  // broken images/links and stale report state.
+  if (url.pathname.startsWith('/opportunities/') || url.pathname.startsWith('/r/')) return;
+
   // For navigation requests (HTML pages)
   if (request.mode === 'navigate') {
     event.respondWith(

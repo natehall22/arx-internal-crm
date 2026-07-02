@@ -20,6 +20,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/login/') ||
     pathname.startsWith('/contracts/') ||
     pathname.startsWith('/change-orders/sign/') ||
+    pathname.startsWith('/r/') || // public inspection-report share links (unguessable tokens)
     pathname.startsWith('/sub-portal/') ||
     pathname.startsWith('/_next/') ||
     pathname === '/favicon.ico' ||
