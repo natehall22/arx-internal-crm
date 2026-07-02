@@ -170,30 +170,73 @@ export function weatherFeatureStyle(feature: { getProperty: (key: string) => unk
     icon: {
       path: 0, // google.maps.SymbolPath.CIRCLE — resolved at runtime in CanvassMap
       scale,
-      fillColor: '#D1D5DB',
-      fillOpacity: 0.9,
-      strokeColor: '#374151',
+      fillColor: reportDotFill(layer, magnitude, damage),
+      fillOpacity: 1,
+      // White halo ring: the one color guaranteed to pop on gray-brown satellite
+      // imagery AND on the purple pin clusters it sits among. The old flat-gray
+      // dots were invisible in the field.
+      strokeColor: '#FFFFFF',
       strokeOpacity: 1,
       strokeWeight,
     },
     clickable: true,
-    zIndex: 1,
+    // Above swaths/warnings (zIndex 1) but below canvass pins/clusters — the rep's
+    // knock state stays the top-priority signal.
+    zIndex: 3,
   }
 }
 
-/** Storm report dots: uniform gray; size conveys severity (distinct from canvass pins). */
+/**
+ * Warm severity fill for report dots — same luminance-ordered ramp family as the
+ * hail swaths, so "darker = worse" holds everywhere and survives colorblindness
+ * and sunlit screens. Never gray: gray dies on satellite imagery.
+ */
+function reportDotFill(layer: string, magnitude: number, damage: boolean) {
+  if (layer === 'wind') {
+    if (damage || magnitude <= 0) return '#EA580C' // damage report (no measured speed)
+    if (magnitude >= 70) return '#B91C1C'
+    if (magnitude >= 58) return '#EA580C'
+    return '#F59E0B'
+  }
+  if (magnitude >= 1.75) return '#B91C1C'
+  if (magnitude >= 1.0) return '#EA580C'
+  return '#F59E0B'
+}
+
+/** Storm report dots: size + darkness convey severity (distinct from canvass pins). */
 function reportDotScale(layer: string, magnitude: number, damage: boolean) {
   if (layer === 'wind' && (damage || magnitude <= 0)) {
-    return { scale: 5.5, strokeWeight: 1.5 }
+    return { scale: 7, strokeWeight: 2.5 }
   }
   if (layer === 'hail') {
-    if (magnitude >= 1.75) return { scale: 8, strokeWeight: 1.75 }
-    if (magnitude >= 1.0) return { scale: 6.5, strokeWeight: 1.5 }
-    return { scale: 5, strokeWeight: 1.5 }
+    if (magnitude >= 1.75) return { scale: 9, strokeWeight: 2.5 }
+    if (magnitude >= 1.0) return { scale: 7.5, strokeWeight: 2.5 }
+    return { scale: 6, strokeWeight: 2 }
   }
-  if (magnitude >= 70) return { scale: 8, strokeWeight: 1.75 }
-  if (magnitude >= 58) return { scale: 6.5, strokeWeight: 1.5 }
-  return { scale: 5, strokeWeight: 1.5 }
+  if (magnitude >= 70) return { scale: 9, strokeWeight: 2.5 }
+  if (magnitude >= 58) return { scale: 7.5, strokeWeight: 2.5 }
+  return { scale: 6, strokeWeight: 2 }
+}
+
+/**
+ * Wind has no MRMS swaths, so impact AREA comes from translucent halos around
+ * damage reports and strong (58+ mph) gusts — the HailTrace-style "shaded
+ * neighborhood" read that tells a rep where to knock, visible at any zoom.
+ * Radius is an unscientific "canvass this area" est. hint, not a claim.
+ */
+export const WIND_IMPACT_HALO = {
+  fill: '#F97316',
+  fillOpacity: 0.16,
+  stroke: '#F97316',
+  strokeOpacity: 0.5,
+  strokeWeight: 1.5,
+  radiusMeters: 600,
+  /** Hard cap on halo circles per paint — keeps a dense metro viewport smooth. */
+  maxCircles: 150,
+}
+
+export function windReportGetsHalo(magnitude: number, damage: boolean): boolean {
+  return damage || magnitude <= 0 || magnitude >= 58
 }
 
 function distanceMiles(aLat: number, aLng: number, bLat: number, bLng: number) {
@@ -490,9 +533,11 @@ export function lookupPinStorm(
 }
 
 export const STORM_REPORT_LEGEND = {
-  label: 'Storm report (bigger = stronger)',
-  fill: '#D1D5DB',
-  stroke: '#374151',
+  label: 'Storm report (bigger/darker = stronger)',
+  // Legend swatch colors — map dots use a white halo ring, but white-on-white
+  // vanishes in the panel, so the swatch outlines with the darker ramp tone.
+  fill: '#EA580C',
+  stroke: '#9A3412',
 }
 
 /** Hail swath polygon ramp — report dots are gray (see STORM_REPORT_LEGEND). */

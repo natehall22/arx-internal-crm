@@ -8,6 +8,8 @@ import {
   HAIL_SWATH_LEGEND,
   STORM_REPORT_LEGEND,
   WEATHER_WINDOW_OPTIONS,
+  WIND_IMPACT_HALO,
+  windReportGetsHalo,
   readStoredWeatherLayer,
   readStoredWeatherWindowDays,
   storeWeatherLayer,
@@ -271,13 +273,23 @@ export default function CanvassMap({
     return style
   }, [])
 
+  // Wind impact halos are google.maps.Circle overlays (the Data layer can't render
+  // a point as an area), tracked separately so they clear with the features.
+  const weatherHaloCirclesRef = useRef<any[]>([])
+
+  const clearWeatherHalos = useCallback(() => {
+    weatherHaloCirclesRef.current.forEach((circle) => circle.setMap(null))
+    weatherHaloCirclesRef.current = []
+  }, [])
+
   const clearWeatherFeatures = useCallback(() => {
+    clearWeatherHalos()
     const data = weatherDataRef.current
     if (!data) return
     const features: any[] = []
     data.forEach((feature: any) => features.push(feature))
     features.forEach((feature) => data.remove(feature))
-  }, [])
+  }, [clearWeatherHalos])
 
   const paintWeatherCollection = useCallback(
     (collection: WeatherFeatureCollection) => {
@@ -296,6 +308,40 @@ export default function CanvassMap({
           }
         }
         data.setStyle(applyWeatherDataStyle)
+
+        // Wind impact halos: shaded "canvass here" areas around damage reports and
+        // 58+ mph gusts, since wind has no swath polygons. clickable:false lets the
+        // map click fall through to the storm-peek handler.
+        for (const feature of collection.features) {
+          if (weatherHaloCirclesRef.current.length >= WIND_IMPACT_HALO.maxCircles) break
+          // Whole block per-feature try/caught: one malformed feature (bad props,
+          // degenerate geometry) must drop only its own halo, never blank the
+          // overlay via the outer catch.
+          try {
+            const props = feature.properties
+            if (!props || props.kind !== 'report' || props.layer !== 'wind') continue
+            if (!windReportGetsHalo(Number(props.magnitude || 0), Boolean(props.damage))) continue
+            if (feature.geometry?.type !== 'Point') continue
+            const [lng, lat] = feature.geometry.coordinates as [number, number]
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+            weatherHaloCirclesRef.current.push(
+              new google.maps.Circle({
+                map: mapInstanceRef.current,
+                center: { lat, lng },
+                radius: WIND_IMPACT_HALO.radiusMeters,
+                fillColor: WIND_IMPACT_HALO.fill,
+                fillOpacity: WIND_IMPACT_HALO.fillOpacity,
+                strokeColor: WIND_IMPACT_HALO.stroke,
+                strokeOpacity: WIND_IMPACT_HALO.strokeOpacity,
+                strokeWeight: WIND_IMPACT_HALO.strokeWeight,
+                clickable: false,
+                zIndex: 1,
+              }),
+            )
+          } catch {
+            // drop this halo, keep going
+          }
+        }
       } catch {
         clearWeatherFeatures()
       }
@@ -1224,9 +1270,17 @@ export default function CanvassMap({
                         </div>
                       ))}
                     {weatherLayer === 'wind' && (
-                      <p className="text-[11px] text-[#2c2c2a]">
-                        Dots include measured gusts and wind-damage reports
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: WIND_IMPACT_HALO.fill,
+                            opacity: 0.35,
+                            boxShadow: `0 0 0 1.5px ${WIND_IMPACT_HALO.stroke}`,
+                          }}
+                        />
+                        <span>est. impact area (damage / 58+ mph gust)</span>
+                      </div>
                     )}
                   </div>
                 )}
