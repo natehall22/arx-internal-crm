@@ -15,13 +15,17 @@ on:
         required: false
         type: boolean
         default: false
+      backfill_days:
+        description: 'Backfill N prior UTC days (max 730; ignores event_date when set)'
+        required: false
+        type: string
 
 jobs:
   ingest-mrms-swaths:
     # Pinned to 22.04 — these GDAL apt packages install reliably here; ubuntu-latest (24.04)
     # caused the install step to fail with apt exit code 100.
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ github.event.inputs.backfill_days != '' && 360 || 45 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,8 +57,23 @@ jobs:
           fi
           "${ARGS[@]}"
 
+      - name: Backfill MRMS MESH swaths
+        if: vars.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY == 'true' && github.event.inputs.backfill_days != '' && github.event.inputs.dry_run != 'true'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          WEATHER_SWATHS_INGEST_URL: ${{ vars.WEATHER_SWATHS_INGEST_URL }}
+          WEATHER_FOOTPRINT_N: ${{ vars.WEATHER_FOOTPRINT_N }}
+          WEATHER_FOOTPRINT_S: ${{ vars.WEATHER_FOOTPRINT_S }}
+          WEATHER_FOOTPRINT_E: ${{ vars.WEATHER_FOOTPRINT_E }}
+          WEATHER_FOOTPRINT_W: ${{ vars.WEATHER_FOOTPRINT_W }}
+        run: |
+          set -euo pipefail
+          python3 scripts/weather-mrms-worker/backfill_swaths.py \
+            --days "${{ github.event.inputs.backfill_days }}" \
+            --skip-errors
+
       - name: Contour MRMS MESH and POST swaths
-        if: vars.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY == 'true' && github.event.inputs.dry_run != 'true'
+        if: vars.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY == 'true' && github.event.inputs.dry_run != 'true' && github.event.inputs.backfill_days == ''
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           WEATHER_SWATHS_INGEST_URL: ${{ vars.WEATHER_SWATHS_INGEST_URL }}
