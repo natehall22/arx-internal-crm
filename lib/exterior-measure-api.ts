@@ -32,6 +32,101 @@ export function exteriorMeasureErrorMessage(error: unknown, fallback: string): s
   return fallback
 }
 
+function one<T>(value: T | T[] | null | undefined): T | null {
+  if (value == null) return null
+  return Array.isArray(value) ? value[0] ?? null : value
+}
+
+async function findLatestJobForOpportunity(
+  supabase: ReturnType<typeof createServiceClient>,
+  orgId: string,
+  opportunityId: string
+) {
+  const { data: projects } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('opportunity_id', opportunityId)
+
+  const projectIds = (projects || []).map((project) => project.id).filter(Boolean)
+  if (projectIds.length === 0) return null
+
+  const { data: job } = await supabase
+    .from('production_jobs')
+    .select('id, job_number')
+    .eq('org_id', orgId)
+    .in('project_id', projectIds)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return job
+}
+
+async function resolveOpportunityIdForJob(
+  supabase: ReturnType<typeof createServiceClient>,
+  orgId: string,
+  job: {
+    project_id: string
+    address_text: string
+    accepted_proposal_id?: string | null
+    linked_proposal_id?: string | null
+    project?: { opportunity_id?: string | null } | { opportunity_id?: string | null }[] | null
+  }
+): Promise<string | null> {
+  const project = one(job.project)
+  if (project?.opportunity_id) return project.opportunity_id
+
+  const proposalId = job.linked_proposal_id || job.accepted_proposal_id || null
+  if (proposalId) {
+    const { data: proposal } = await supabase
+      .from('proposals')
+      .select('opportunity_id')
+      .eq('org_id', orgId)
+      .eq('id', proposalId)
+      .maybeSingle()
+    if (proposal?.opportunity_id) return proposal.opportunity_id
+  }
+
+  if (job.project_id) {
+    const { data: proposal } = await supabase
+      .from('proposals')
+      .select('opportunity_id')
+      .eq('org_id', orgId)
+      .eq('project_id', job.project_id)
+      .not('opportunity_id', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (proposal?.opportunity_id) return proposal.opportunity_id
+  }
+
+  if (job.address_text) {
+    const { data: contract } = await supabase
+      .from('order_form_contracts')
+      .select('opportunity_id')
+      .eq('org_id', orgId)
+      .eq('project_address', job.address_text)
+      .eq('status', 'completed')
+      .not('opportunity_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (contract?.opportunity_id) return contract.opportunity_id
+
+    const { data: opportunity } = await supabase
+      .from('opportunities')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('address_text', job.address_text)
+      .limit(1)
+      .maybeSingle()
+    if (opportunity?.id) return opportunity.id
+  }
+
+  return null
+}
+
 export async function resolveOpportunityMeasureContext(
   supabase: ReturnType<typeof createServiceClient>,
   orgId: string,
@@ -46,14 +141,7 @@ export async function resolveOpportunityMeasureContext(
 
   if (!opportunity) return null
 
-  const { data: job } = await supabase
-    .from('production_jobs')
-    .select('id, job_number')
-    .eq('org_id', orgId)
-    .eq('opportunity_id', opportunityId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const job = await findLatestJobForOpportunity(supabase, orgId, opportunityId)
 
   return {
     orgId,
@@ -68,17 +156,16 @@ export async function resolveJobMeasureContext(
   orgId: string,
   jobId: string
 ): Promise<(MeasureContext & { subject: Record<string, unknown> }) | null> {
-  const { data: job } = await supabase
+  const { data: job, error } = await supabase
     .from('production_jobs')
-    .select('id, org_id, job_number, address_text, opportunity_id, customer:customers(id, name, phone, email), project:projects(id, opportunity_id, leads(id, homeowner_name, phone, email))')
+    .select('id, org_id, job_number, address_text, project_id, accepted_proposal_id, linked_proposal_id, customer:customers(id, name, phone, email), project:projects(id, opportunity_id, leads(id, homeowner_name, phone, email))')
     .eq('id', jobId)
     .eq('org_id', orgId)
     .single()
 
-  if (!job) return null
+  if (error || !job) return null
 
-  const project = Array.isArray(job.project) ? job.project[0] : job.project
-  const opportunityId = job.opportunity_id || project?.opportunity_id || null
+  const opportunityId = await resolveOpportunityIdForJob(supabase, orgId, job)
   if (!opportunityId) return null
 
   return {

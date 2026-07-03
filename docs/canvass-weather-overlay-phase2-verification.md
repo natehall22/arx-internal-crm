@@ -48,9 +48,12 @@ Commit `22e6ab5` also bundles an unrelated "report a field issue" feature (`Canv
 ## Deploy prerequisites (Phase 2 produces no swaths until these are set)
 1. Migration already applied to `anzqkklwcgaoeunzpqjh` (confirmed). Reconcile migration history if you use `supabase db push`.
 2. **GitHub repo** vars/secrets: `CRON_SECRET` (secret), `WEATHER_SWATHS_INGEST_URL`, `WEATHER_FOOTPRINT_N/S/E/W`, and var `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY=true` (the Action step is gated on it).
-3. **Vercel**: now **4 crons** — verify the plan allows a 4th; set `CRON_SECRET` in Vercel env.
+3. **Vercel**: now **4 crons** — verify the plan allows a 4th; set `CRON_SECRET` in Vercel env; mirror `WEATHER_FOOTPRINT_N/S/E/W` in Preview + Production.
 4. Run `npm run build` in CI/dev to confirm the full type-check passes.
-5. Gate before field use: counsel sign-off on claims-safe copy (carried from Phase 1).
+5. Run MRMS swath backfill after config is in place (e.g. `gh workflow run weather-mrms-ingest.yml -f backfill_days=730`).
+6. Preview field QA: hail/wind layers, wider-window hint, color ramp legible on a cheap Android outdoors in sunlight.
+7. **Claims-safe copy** stays enforced in the UI ("est.", "recorded", "may have been impacted — free inspection"; never "you have damage" / "file a claim") — verify in QA; this is a product requirement, not a separate legal sign-off gate.
+8. Set `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY=true` in Vercel Production **only after 1–7**.
 
 ## Verdict
 Phase 2 is **code-complete and safe to merge** after the must-fix (#1) — now fixed — and a `npm run build` pass. Remaining items are fast-follows. The pipeline will populate swaths once the GitHub/Vercel config above is in place.
@@ -59,7 +62,7 @@ Phase 2 is **code-complete and safe to merge** after the must-fix (#1) — now f
 
 ## Post-merge Bugbot triage (2026-06-22) — RESOLVED in PR #5 (pending merge)
 
-PR #3 (Phase 2) and PR #4 (`95ca488`, hardening: worker crop guard, expired-warning filter, admin-only `weather_refresh_runs` RLS) are merged to `main`. A Bugbot pass over the merged+hardened code surfaced the 8 items below (3 high). **All 8 are fixed in PR #5** (`feat/weather-phase2-bugfixes`); build compiled, eslint clean on changed files, flag still OFF. Status once PR #5 merges: no open weather-code items remain — only the human deploy checklist + counsel sign-off gate the prod flag.
+PR #3 (Phase 2) and PR #4 (`95ca488`, hardening: worker crop guard, expired-warning filter, admin-only `weather_refresh_runs` RLS) are merged to `main`. A Bugbot pass over the merged+hardened code surfaced the 8 items below (3 high). **All 8 are fixed in PR #5** (`feat/weather-phase2-bugfixes`); build compiled, eslint clean on changed files, flag still OFF. Status once PR #5 merges: no open weather-code items remain — only the human deploy checklist above gates the prod flag.
 
 | # | Sev | File | Issue | Planned fix |
 |---|-----|------|-------|-------------|

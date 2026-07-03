@@ -105,10 +105,22 @@ export async function GET(request: NextRequest) {
 ## 3. What it fetches and computes per run
 
 ### 3.1 Area footprint determination
-The operating area is concentrated in **Cabarrus County NC**. Drive the footprint from a single configurable source of truth so it can grow:
+The operating area covers **Mecklenburg + Cabarrus** counties (Charlotte metro canvass zone). Drive the footprint from env vars so it can grow without code changes:
 
-- **Recommended:** a constant ZIP list (with a small env override), e.g. `WEATHER_REFRESH_ZIPS=28025,28027,28036,28081,28082,28107,28124,28088`. ARX's office is `28027` (Concord), consistent with this list.
-- Derive a **single bounding box** that encloses those ZIPs (precompute the bbox once; geocode each ZIP centroid via the existing US Census geocoder used in `roofradar-open-data.ts`, or hardcode a verified Cabarrus-County bbox as `n/s/e/w`). The job pre-warms cache keyed by that bbox (and/or per-ZIP sub-bboxes that mirror what the rep-facing route will request).
+| Env var | Value | Notes |
+|---|---|---|
+| `WEATHER_FOOTPRINT_N` | `35.60` | North edge (~Lake Norman / north Mecklenburg) |
+| `WEATHER_FOOTPRINT_S` | `35.00` | South edge (~south Cabarrus) |
+| `WEATHER_FOOTPRINT_E` | `-80.30` | East edge (~east Cabarrus) |
+| `WEATHER_FOOTPRINT_W` | `-81.10` | West edge (~west Mecklenburg) |
+
+- **BBox spans:** lat 0.60°, lng 0.80° — both well under `MAX_WEATHER_BBOX_SPAN_DEGREES = 5` (`lib/weather-footprint.ts`).
+- **Set on:** Vercel project env (Preview + Production for cron/refresh routes) **and** GitHub repo variables (for `.github/workflows/weather-mrms-ingest.yml`). Code default in `DEFAULT_WEATHER_FOOTPRINT` remains Cabarrus-only fallback when env is unset.
+- **Legacy Cabarrus-only default** (`n 35.58, s 35.12, e -80.32, w -80.82`) misses Charlotte/Mecklenburg — do not rely on it in prod; always set the four env vars above.
+
+**Recommended ZIP superset** (for documentation; bbox is authoritative): `28025,28027,28031,28036,28054,28078,28081,28082,28105,28107,28124,28202,28203,28204,28205,28206,28207,28208,28209,28210,28211,28212,28213,28214,28215,28216,28217,28226,28227,28262,28269,28270,28273,28277`.
+
+- Derive a **single bounding box** that encloses those ZIPs (precompute the bbox once; geocode each ZIP centroid via the existing US Census geocoder used in `roofradar-open-data.ts`, or hardcode the verified bbox as `n/s/e/w`). The job pre-warms cache keyed by that bbox (and/or per-ZIP sub-bboxes that mirror what the rep-facing route will request).
 - **Cache-key alignment is critical:** the rep-facing route (`app/api/canvass/weather/route.ts`) keys its cache by `bbox|layer|window`. The refresh job must pre-warm the **same keys** the read path will look up, or pre-warm a **superset bbox** that the read path queries against (preferred: store rows the read path filters spatially, so any rep bbox inside the footprint is a hit). Confirm the key contract with whoever builds the read route (§9).
 
 ### 3.2 Per-run work (Phase 1 — ships first)
@@ -242,6 +254,19 @@ All new, no changes to existing tables. Migrations must be additive/nullable. Bo
 - **Own branch** off `main` (e.g. `feat/canvass-weather-refresh-job` or folded into `feat/canvass-weather-overlay`) — **not** `fix/proposal-squares-and-payroll-bonuses`.
 - **Ship order:** Phase 1 (SPC + NWS snapshot into `weather_cache`) with the overlay; Phase 2 (MESH swaths worker → `weather_swaths`) later, no front-end rework.
 - **Verification before merge:** confirm 401 on a no-secret call, 503 when `CRON_SECRET` unset, idempotent re-run produces no duplicate rows, and that a simulated upstream failure leaves prior rows intact.
+
+### 8.1 Prod enable checklist (canonical: `canvass-weather-overlay-phase2-verification.md`)
+
+Before setting `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY=true` in Vercel Production:
+
+1. Migration applied; reconcile `supabase_migrations` history if you use `supabase db push`.
+2. GitHub + Vercel env: `CRON_SECRET`, `WEATHER_SWATHS_INGEST_URL`, `WEATHER_FOOTPRINT_N/S/E/W`; GitHub var `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY=true` for the MRMS Action.
+3. Vercel plan allows the 4th cron; `CRON_SECRET` and footprint vars set in Preview + Production.
+4. `npm run build` green.
+5. MRMS swath backfill run (e.g. `gh workflow run weather-mrms-ingest.yml -f backfill_days=730`).
+6. Preview field QA: layers render, wider-window hint works, color ramp legible on a cheap Android outdoors.
+7. Claims-safe copy verified in UI ("est.", "recorded", "may have been impacted"; never assert damage or instruct claims).
+8. Flip prod flag only after 1–7.
 
 ---
 

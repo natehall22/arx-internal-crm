@@ -28,8 +28,8 @@ Design/research collateral for adding a hail/wind weather overlay to the ARX can
 - **Claims-safe copy:** "may have been impacted — free inspection," never "you have damage / file a claim."
 - **Cherry-picking / knock-volume:** product owner is **not** concerned — not a build requirement (analysis docs still discuss it; that's historical).
 
-## Two human decisions still open (neither blocks writing code)
-1. Counsel sign-off on claims-safe copy + NC solicitation rules (before field use).
-2. Counsel sign-off on claims-safe copy + NC solicitation rules (before field use); validate the color ramp on a cheap Android outdoors.
+## Human checks before prod flag ON (neither blocks writing code)
+1. **Claims-safe copy** enforced in UI ("est.", "recorded", "may have been impacted — free inspection"; never assert damage or instruct claims) — verify in preview QA.
+2. Validate the color ramp on a cheap Android outdoors in sunlight (field legibility).
 
 See `canvass-weather-overlay-sweep-report.md` for the consistency-check results across this package.
