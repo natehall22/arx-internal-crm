@@ -8,9 +8,9 @@
 
 > **Honesty contract.** Every numeric, pricing, legal, plan-limit, and third-party-pipeline claim in this
 > document is a **recommendation to verify**, not a confirmed fact. The public-domain status of NOAA/NWS
-> data is my **understanding to confirm with counsel**, not legal advice. Where I describe how a commercial
+> data is my **understanding to confirm independently**, not legal advice. Where I describe how a commercial
 > vendor (e.g. HailTrace) sources data, that is an **inference from public marketing**, not verified fact.
-> I am an engineer, not a lawyer; everything in §B (Legal/Compliance) must be reviewed by counsel before launch.
+> I am an engineer, not a lawyer; §B (Legal/Compliance) is risk-flagging for awareness — it does **not** gate enabling `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY` in prod.
 
 ---
 
@@ -22,7 +22,7 @@ they are cheap on paper and expensive after code exists.
 | # | Risk | Why it must be settled first | Hard blocker? |
 |---|---|---|---|
 | **T1** | **MRMS GRIB2 → GeoJSON cannot run in a Vercel lambda** (GDAL/pyhail native binaries, memory, >60s, no Python). The refresh-job spec already flags this. If Phase 2 is in scope at all, the *processing host* must be chosen before anyone designs the table/feed contract. | Picking the wrong host (Vercel cron) means the swath pipeline silently can't ship, and the table schema/feed contract may be wrong. | **Blocker for Phase 2.** Not a blocker for Phase 1. |
-| **T2** | **Sales-ethics / bad-faith claim risk.** Reps telling homeowners "NOAA says your roof has 1.75″ hail damage, file a claim" based on **radar-estimated** data is the single largest *business* risk: it invites storm-chasing/claims-inflation scrutiny and could expose ARX to bad-faith or state-solicitation complaints. | This shapes the **UI copy, the per-home sheet language, and rep training** — all of which are designed *now*. Cannot be bolted on later. | **Blocker.** Counsel + scripted rep language required pre-launch. |
+| **T2** | **Sales-ethics / bad-faith claim risk.** Reps telling homeowners "NOAA says your roof has 1.75″ hail damage, file a claim" based on **radar-estimated** data is the single largest *business* risk: it invites storm-chasing/claims-inflation scrutiny and could expose ARX to bad-faith or state-solicitation complaints. | This shapes the **UI copy, the per-home sheet language, and rep training** — all of which are designed *now*. Cannot be bolted on later. | **Blocker for launch comms/training:** scripted, claims-safe rep language + UI copy locked (see implementation brief). |
 | **T3** | **Auth correctness.** The existing Roof Radar routes use raw `supabase.auth.getUser()` (forbidden by CLAUDE.md) in **three** files (`scan`, `storm-lookup`, `sources`). The new code path must not inherit this. | One copy-paste reintroduces a known violation. Must be a stated constraint and a verification gate. | **Blocker.** Verify unauth → 401 via `requireAuthApi()`. |
 | **T4** | **Expectation gap: Phase 1 ≠ HailTrace.** Reps imagine continuous "hail path painted on the map" (swaths). Phase 1 delivers sparse SPC **points** + live NWS **warning polygons** — visibly different and far less impressive. | If reps are told "we have HailTrace now," Phase 1 lands as a disappointment and gets abandoned before Phase 2. Set expectations *before* showing it. | Not a code blocker, but a **launch-comms blocker.** |
 | **T5** | **Behavioral risk to the 444 door-count metric.** If the overlay makes reps knock only inside hit zones, total doors knocked drops and the Sisu 444 program (400 doors/week) suffers — directly hitting the core business metric. | The overlay's framing ("sort priority, don't subtract coverage") must be designed in from day one. | Not a code blocker, but a **product-design blocker** for how priority is presented. |
@@ -107,7 +107,7 @@ If T1, T2, T3 are not resolved, do not write code. T4 and T5 must be resolved be
 ---
 
 ## B. Legal / compliance / sales ethics
-**All of §B is risk-flagging for counsel review, not legal advice. I am not a lawyer.**
+**All of §B is risk-flagging for legal/compliance awareness, not legal advice. I am not a lawyer.**
 
 ### B1. Bad-faith / claims-inflation exposure (the T2 risk)
 - **Description.** Roofing storm-chasing is under active regulatory and insurer scrutiny in many states. A rep
@@ -121,10 +121,10 @@ If T1, T2, T3 are not resolved, do not write code. T4 and T5 must be resolved be
     should file a claim."* The overlay is a **canvassing prioritizer, not a damage assessment or claims tool.**
   - The first-run interstitial (A1) doubles as a compliance acknowledgement.
   - The per-home "priority tag" (UI spec §5.2) must be framed as **knock priority** ("Knock first"), never as
-    **damage likelihood** ("Likely damaged"). Confirm wording with counsel.
+    **damage likelihood** ("Likely damaged"). Use approved claims-safe wording from the implementation brief.
   - Keep an audit note: the data shown is third-party public-domain estimate, displayed for canvassing
     prioritization.
-- **Pre-launch?** **Blocker.** Counsel sign-off + rep script.
+- **Pre-launch?** **Launch comms/training blocker:** rep script + claims-safe UI copy (not a separate legal sign-off gate).
 
 ### B2. Data licensing / attribution
 - **Description.** NOAA/NWS/MRMS/SPC data is, to my understanding, U.S.-government **public domain** and free to
@@ -142,11 +142,11 @@ If T1, T2, T3 are not resolved, do not write code. T4 and T5 must be resolved be
 ### B3. State roofing-solicitation regulation tied to storm data
 - **Description.** Some states regulate post-storm roofing solicitation (cooling-off periods, prohibitions on
   offering to pay/waive deductibles, registration after declared disasters). Tying canvassing routes to storm data
-  *may* intersect these. **Counsel must confirm for NC and any expansion state.**
+  *may* intersect these. **Product owner should confirm posture for NC and any expansion state.**
 - **Severity:** Med-High. **Likelihood:** State-dependent.
-- **Mitigation:** Counsel review of NC + target states before launch; document allowed/forbidden rep behavior.
+- **Mitigation:** Document allowed/forbidden rep behavior; align with existing canvass compliance training.
   This is policy, not code.
-- **Pre-launch?** **Blocker** (counsel confirmation that current canvassing + this overlay is compliant in NC).
+- **Pre-launch?** Product/ops awareness — not a separate gate on the prod feature flag.
 
 ---
 
@@ -376,9 +376,9 @@ If T1, T2, T3 are not resolved, do not write code. T4 and T5 must be resolved be
 Tick these before code; the **bold** ones are hard blockers.
 
 **Blockers (resolve before any code):**
-- [ ] **(T2/B1)** Counsel sign-off on storm-data-driven solicitation; scripted, trained rep language ("may have
-      been hit — free inspection" vs forbidden "you have damage / file a claim").
-- [ ] **(B3)** Counsel confirms NC (and any expansion state) roofing-solicitation rules are satisfied.
+- [ ] **(T2/B1)** Scripted, trained rep language ("may have been hit — free inspection" vs forbidden "you have
+      damage / file a claim"); claims-safe UI copy locked in the implementation brief.
+- [ ] **(B3)** Product owner confirms NC (and any expansion state) roofing-solicitation posture is understood.
 - [ ] **(T3/I1)** Confirm rep route uses `requireAuthApi()`, cron route uses `CRON_SECRET`; verification agent +
       `security-review` assert unauth → 401. Do not inherit the Roof Radar `getUser()` pattern.
 - [ ] **(T1/C1)** *If Phase 2 is in scope:* choose the contouring host (recommend GitHub Action + GDAL container
@@ -394,7 +394,7 @@ Tick these before code; the **bold** ones are hard blockers.
 - [ ] (A2) Empty state says "no *recorded* hail"; Phase 1 points not dressed up as swaths.
 - [ ] (A3) Warning polygons labeled "active warning, not confirmed damage."
 - [ ] (A5) "Homes in path" reworded ("your pins in this area") or dropped for v1.
-- [ ] (B2) NOAA public-domain status verified with counsel; attribution line added; NWS `User-Agent` set; no
+- [ ] (B2) NOAA public-domain status noted; attribution line added; NWS `User-Agent` set; no
       ArcGIS/third-party layer until license + coverage confirmed.
 
 **Engineering hygiene:**

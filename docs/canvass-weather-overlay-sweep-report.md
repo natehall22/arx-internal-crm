@@ -38,4 +38,4 @@ The build brief (§7.1) uses the **final saturated ramp** (teal `#2DD4BF`, indig
 **Note C — `weather_cache` vs `weather_swaths`.** Naming is consistent: `weather_cache` = Phase 1 SPC points / NWS snapshots; `weather_swaths` = Phase 2 MRMS MESH. The trial creates **neither** (no tables). Consistent.
 
 ## Overall verdict
-The package is internally consistent after the one fix, every code reference checks out, and the build brief is self-contained. **Ready to hand to Cursor for the Phase 1 trial.** The only true gate remaining is counsel sign-off on claims-safe copy + legal review (validate ramp on a real Android) — neither blocks writing code.
+The package is internally consistent after the one fix, every code reference checks out, and the build brief is self-contained. **Ready to hand to Cursor for the Phase 1 trial.** Before prod flag ON: preview field QA (claims-safe copy + color ramp on a real Android in sunlight) — neither blocks writing code.

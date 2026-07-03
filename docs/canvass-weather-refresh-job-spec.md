@@ -255,6 +255,19 @@ All new, no changes to existing tables. Migrations must be additive/nullable. Bo
 - **Ship order:** Phase 1 (SPC + NWS snapshot into `weather_cache`) with the overlay; Phase 2 (MESH swaths worker → `weather_swaths`) later, no front-end rework.
 - **Verification before merge:** confirm 401 on a no-secret call, 503 when `CRON_SECRET` unset, idempotent re-run produces no duplicate rows, and that a simulated upstream failure leaves prior rows intact.
 
+### 8.1 Prod enable checklist (canonical: `canvass-weather-overlay-phase2-verification.md`)
+
+Before setting `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY=true` in Vercel Production:
+
+1. Migration applied; reconcile `supabase_migrations` history if you use `supabase db push`.
+2. GitHub + Vercel env: `CRON_SECRET`, `WEATHER_SWATHS_INGEST_URL`, `WEATHER_FOOTPRINT_N/S/E/W`; GitHub var `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY=true` for the MRMS Action.
+3. Vercel plan allows the 4th cron; `CRON_SECRET` and footprint vars set in Preview + Production.
+4. `npm run build` green.
+5. MRMS swath backfill run (e.g. `gh workflow run weather-mrms-ingest.yml -f backfill_days=730`).
+6. Preview field QA: layers render, wider-window hint works, color ramp legible on a cheap Android outdoors.
+7. Claims-safe copy verified in UI ("est.", "recorded", "may have been impacted"; never assert damage or instruct claims).
+8. Flip prod flag only after 1–7.
+
 ---
 
 ## 9. Open questions for the product owner

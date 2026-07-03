@@ -14,12 +14,12 @@ This brief has been QA'd against the live codebase. The architecture (separate `
 
 **Must decide BEFORE building (two items only):**
 
-1. **Claims-safe / legal copy (BLOCKER for launch, not for code).** Every magnitude shown to a rep or homeowner must read as an *estimate* and must never assert damage or instruct a claim. Approved wording for the trial UI: *"This area may have been impacted — free inspection"* and *"est. up to 1.5″ hail · May 14."* Forbidden: *"you have damage," "your roof is damaged," "file a claim."* This shapes the bottom-sheet copy you write in this trial, so the wording must be locked before you write that copy. **Recommendation to verify with counsel** before reps use it in the field; you may build the UI with the approved strings as placeholders.
+1. **Claims-safe copy (required for launch, not for code).** Every magnitude shown to a rep or homeowner must read as an *estimate* and must never assert damage or instruct a claim. Approved wording for the trial UI: *"This area may have been impacted — free inspection"* and *"est. up to 1.5″ hail · May 14."* Forbidden: *"you have damage," "your roof is damaged," "file a claim."* Lock these strings before writing bottom-sheet copy; build the UI with them as placeholders.
 2. **Auth requirement (BLOCKER, code-enforced).** The new rep-facing route MUST use `requireAuthApi()` from `lib/auth.ts`. The existing Roof Radar routes use raw `supabase.auth.getUser()` — **do not copy that pattern.** Verification must prove an unauthenticated request returns 401.
 
 **Explicitly out of scope for the trial (do not build):** MRMS MESH GRIB2 → contour pipeline; the daily refresh cron is *optional* pre-warm only (see §8); a `weather_swaths` / `weather_cache` table is **not** created in the trial; no anti-cherry-picking / knock-volume UI (the product owner is not worried about it — monitor knock volume later if desired, but it adds zero build steps here).
 
-> **Every numeric threshold, color, opacity, time window, freshness value, and legal/compliance statement in this brief is a recommendation to verify, not an established fact.** They are sensible defaults chosen to ship a trial; confirm with the product owner / counsel before treating any as final.
+> **Every numeric threshold, color, opacity, time window, freshness value, and legal/compliance statement in this brief is a recommendation to verify, not an established fact.** They are sensible defaults chosen to ship a trial; confirm with the product owner before treating any as final.
 
 ---
 
@@ -182,7 +182,7 @@ Sunlight legibility is the #1 field risk. Translucent pastels vanish on a bright
 ### 7.3 Bottom sheet — claims-safe per-home storm block
 The sheet is the **existing** `LeadModal` knock/disposition sheet. Add a **single collapsed one-line banner** at the top of the sheet body, only when a layer is active, e.g. **`⛈ est. golf-ball hail · May 14 ▸`** — tap to expand. Keep it ONE line by default so it never pushes the **disposition chips** below the fold; the disposition chips remain the dominant, top-most action. No new required step in the knock flow.
 
-Expanded content (claims-safe; verify wording with counsel):
+Expanded content (claims-safe):
 - Headline magnitude at this location, **always prefixed "est."**: *"est. 1.5″ hail"* / *"est. 68 mph wind."* If the pin is outside any feature: muted *"No recorded hail at this address — data is incomplete."*
 - Event date (historical) or *"Active warning until 4:15 PM"* (live warning). A home inside *only* a warning polygon (no SPC report) shows *"In an active storm warning — no confirmed or estimated hail yet,"* not a magnitude.
 - A one-tap **talk-track hook** (claims-safe): *"Your street may have been impacted by hail on May 14 — we're offering free roof inspections in the area."*
