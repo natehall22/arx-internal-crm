@@ -63,6 +63,7 @@ type ExteriorMeasureClientProps = {
   backHref: string
   backLabel: string
   printHref: string
+  roofMeasureHref?: string | null
   title?: string
 }
 
@@ -168,7 +169,7 @@ function Field({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ExteriorMeasureClient({
-  subject, apiBase, photoApiBase, backHref, backLabel, printHref, title = 'Exterior Measure',
+  subject, apiBase, photoApiBase, backHref, backLabel, printHref, roofMeasureHref, title = 'Exterior Measure',
 }: ExteriorMeasureClientProps) {
   const [loading, setLoading]       = useState(true)
   const [saving, setSaving]         = useState(false)
@@ -421,11 +422,19 @@ export default function ExteriorMeasureClient({
           <h1 className="text-2xl font-bold text-gray-950">{title}</h1>
           <p className="text-sm text-gray-500">{customerName}{addressText ? ` · ${addressText}` : ''}</p>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <button
             type="button" onClick={() => void saveMeasure()} disabled={saving || loading}
             className="min-h-[44px] rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >{saving ? 'Saving…' : 'Save'}</button>
+          {roofMeasureHref && (
+            <Link
+              href={roofMeasureHref}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+            >
+              Measure Roof
+            </Link>
+          )}
           <Link href={printHref}
             className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
           >Export</Link>
@@ -846,12 +855,14 @@ export default function ExteriorMeasureClient({
                       <p className="mt-0.5 text-xs text-amber-700">
                         The roof tool traces facets on a satellite image and calculates pitch-adjusted area.
                       </p>
-                      <Link
-                        href="/tools/roof-measure"
-                        className="mt-2 inline-flex items-center gap-1 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800"
-                      >
-                        Open roof measure tool →
-                      </Link>
+                      {roofMeasureHref && (
+                        <Link
+                          href={roofMeasureHref}
+                          className="mt-2 inline-flex items-center gap-1 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800"
+                        >
+                          Open roof measure tool →
+                        </Link>
+                      )}
                     </div>
                   )}
                 </div>

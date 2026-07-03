@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { resolveJobMeasureContext } from '@/lib/exterior-measure-api'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import ExteriorMeasureClient from './ExteriorMeasureClient'
 
@@ -24,6 +25,11 @@ export default async function ExteriorMeasurePage({ params }: { params: { id: st
 
   if (!job) notFound()
 
+  const measureContext = await resolveJobMeasureContext(admin, profile.org_id, params.id)
+  const roofMeasureHref = measureContext?.opportunityId
+    ? `/tools/roof-measure?opportunity_id=${measureContext.opportunityId}&address=${encodeURIComponent(job.address_text || '')}`
+    : null
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -34,6 +40,7 @@ export default async function ExteriorMeasurePage({ params }: { params: { id: st
         backHref={`/ops/jobs/${params.id}`}
         backLabel="Back to job"
         printHref={`/ops/jobs/${params.id}/measure/print`}
+        roofMeasureHref={roofMeasureHref}
       />
     </div>
   )

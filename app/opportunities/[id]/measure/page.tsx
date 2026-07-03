@@ -34,6 +34,7 @@ export default async function OpportunityMeasurePage({ params }: { params: { id:
         backHref={`/opportunities/${params.id}`}
         backLabel="Back to opportunity"
         printHref={`/opportunities/${params.id}/measure/print`}
+        roofMeasureHref={`/tools/roof-measure?opportunity_id=${params.id}&address=${encodeURIComponent(opportunity.address_text || '')}`}
       />
     </div>
   )
