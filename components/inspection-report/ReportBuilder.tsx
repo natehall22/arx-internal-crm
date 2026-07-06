@@ -557,13 +557,41 @@ export default function ReportBuilder(props: Props) {
       lastPdfBytesRef.current = bytes
 
       setBusy('Saving PDF to the CRM…')
+      // Register/finalize are tiny JSON calls at the END of a long build — a transient
+      // network blip or a one-off auth-validation hiccup must not cost the rep the whole
+      // build. Retry briefly, then surface the server's real error (status + body)
+      // instead of a generic string.
+      const postStage = async (body: Record<string, unknown>): Promise<Response> => {
+        let last: Response | null = null
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (attempt) await new Promise((r) => setTimeout(r, attempt * 1500))
+          try {
+            const res = await fetch(`/api/inspection-reports/${props.reportId}/pdf`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            })
+            if (res.ok) return res
+            last = res
+            // 4xx (other than auth/timeout/rate-limit) won't change on retry
+            if (res.status < 500 && ![401, 408, 429].includes(res.status)) break
+          } catch {
+            last = null // network error — retry
+          }
+        }
+        if (last) {
+          const serverMsg = (await last.json().catch(() => null))?.error
+          throw new Error(
+            `${serverMsg || 'Request failed'} (HTTP ${last.status})` +
+              (last.status === 401
+                ? ' — your session may have expired. Refresh the page and hit Build PDF again; your photos and edits are saved.'
+                : '')
+          )
+        }
+        throw new Error('Network error — check your connection and hit Build PDF again; your photos and edits are saved.')
+      }
       const slug = reportSlug(d)
-      const reg = await fetch(`/api/inspection-reports/${props.reportId}/pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage: 'register', slug }),
-      })
-      if (!reg.ok) throw new Error('Could not register PDF upload')
+      const reg = await postStage({ stage: 'register', slug })
       const { bucket, path, token } = await reg.json()
       const { error: upErr } = await supabase.storage
         .from(bucket)
@@ -571,12 +599,7 @@ export default function ReportBuilder(props: Props) {
           contentType: 'application/pdf',
         })
       if (upErr) throw new Error(upErr.message)
-      const fin = await fetch(`/api/inspection-reports/${props.reportId}/pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage: 'finalize', path, photo_count: embeddedCount }),
-      })
-      if (!fin.ok) throw new Error('Could not finalize PDF')
+      await postStage({ stage: 'finalize', path, photo_count: embeddedCount })
       setPdfInfo({ generatedAt: new Date().toISOString(), sizeBytes: bytes.length })
       setBusy(null)
 
