@@ -349,6 +349,222 @@ function drawSummary(page: PDFPage, doc: ReportDoc, pageNum: number, fonts: Font
   }
 }
 
+// ---------------------------------------------------------------------------
+// Homeowner's Guide (two appended pages, static claims-safe copy).
+//
+// Deliberately brand-neutral on materials — installer quality over shingle brand —
+// and every red flag is one ARX itself passes (verifiable local presence, written
+// scope, no deposit games). NC-specific rights copy (deductible + 3-day cancel on
+// claim denial) mirrors NC Gen. Stat. Ch. 75 Art. 8; keep register consistent with
+// the claims-safe rules used elsewhere (no promises about coverage outcomes).
+// ---------------------------------------------------------------------------
+
+const GUIDE_HEADER = "HOMEOWNER'S GUIDE"
+
+const GUIDE_QUESTIONS: { q: string; sub: string }[] = [
+  {
+    q: 'Are you licensed and insured - and can I see proof?',
+    sub: 'Ask for current general liability and workers’ compensation certificates before any work begins.',
+  },
+  {
+    q: 'Do you have a local address and local references?',
+    sub: 'A company with a real local presence will still be here for warranty service years from now.',
+  },
+  {
+    q: 'Exactly what is included in your scope of work - and what is not?',
+    sub: 'Everything in writing: tear-off, underlayment, flashings, ventilation, cleanup, and disposal.',
+  },
+  {
+    q: 'What materials, by product name, will be installed?',
+    sub: '“Architectural shingles” is not a product name. The full system - underlayment, drip edge, ventilation - should be itemized.',
+  },
+  {
+    q: 'Who supervises the crew, and who do I call during the build?',
+    sub: 'One accountable point of contact, from tear-off through final walkthrough.',
+  },
+  {
+    q: 'How are hidden decking repairs found, priced, and approved?',
+    sub: 'Rotten decking is only visible after tear-off. Repair pricing should be agreed in writing before the job starts.',
+  },
+  {
+    q: 'What workmanship warranty do you provide - separate from the shingle warranty?',
+    sub: 'Materials and installation are two different warranties. Get both in writing.',
+  },
+  {
+    q: 'Who pulls the permit and schedules inspections?',
+    sub: 'The contractor should. Being asked to pull your own permit shifts liability onto you.',
+  },
+]
+
+const GUIDE_SYSTEM: { name: string; desc: string }[] = [
+  { name: 'Roof decking', desc: 'the structural wood base everything else is fastened to.' },
+  { name: 'Underlayment', desc: 'a secondary water barrier across the entire deck.' },
+  { name: 'Drip edge', desc: 'directs runoff into the gutters and away from the fascia.' },
+  { name: 'Shingles', desc: 'the visible first line of defense against the elements.' },
+  { name: 'Ventilation', desc: 'lets attic heat and moisture escape; protects shingles from below.' },
+  { name: 'Ridge cap', desc: 'seals and protects the roof peak.' },
+]
+
+const GUIDE_SYSTEM_CLOSER = 'Each layer matters - your written scope of work should name every one.'
+
+const GUIDE_INSTALLER_BOX = {
+  title: 'THE INSTALLER MATTERS MORE THAN THE SHINGLE BRAND',
+  body:
+    'Every major shingle manufacturer makes a quality product. Most roof problems come from installation - flashing, fastening, ventilation, underlayment - not the brand on the wrapper. Judge the company and its installation standards, not the logo on the shingle.',
+}
+
+const GUIDE_SHINGLE_TYPES: { label: string; body: string }[] = [
+  {
+    label: '3-Tab',
+    body:
+      'A single flat layer with notched tabs. The budget option: lighter, lower wind ratings, shorter warranties, and many manufacturers are phasing them out. Usually only worth it on a property you don’t plan to keep long.',
+  },
+  {
+    label: 'Architectural (dimensional)',
+    body:
+      'Two or more bonded layers. Thicker, better wind performance, longer warranties, and a dimensional look. This is today’s standard - the right choice for most homes.',
+  },
+]
+
+const GUIDE_CLASS_BOX = {
+  title: 'IMPACT RATINGS: CLASS 1 TO CLASS 4',
+  body:
+    'Shingles are also rated for hail impact resistance (UL 2218), from Class 1 up to Class 4, the most resistant. Class 4 costs meaningfully more. Some insurers discount premiums for it - but some also attach cosmetic-damage exclusions to Class 4 roofs, which can limit future hail claims. In our experience, Class 3 is the sweet spot: solid impact resistance without the Class 4 price or the fine print. Either way, a quality architectural shingle installed correctly matters more than the rating - ask for the math before paying for any upgrade.',
+}
+
+const GUIDE_RED_FLAGS: string[] = [
+  'Can’t produce a verifiable license, proof of insurance, or a local address.',
+  'Offers to pay, waive, or “absorb” your insurance deductible - this is illegal in North Carolina.',
+  'Guarantees your insurance claim will be approved. Only your carrier decides coverage.',
+  'Demands a large cash deposit before work begins.',
+  'Bids dramatically lower than everyone else - a lowball bid often grows through change orders.',
+  'Has no written scope of work, or names no specific products.',
+  'Won’t leave the estimate and paperwork with you to review on your own time.',
+]
+
+const GUIDE_RIGHTS_BOX = {
+  title: 'IF YOUR PROJECT INVOLVES AN INSURANCE CLAIM',
+  body:
+    'Your adjuster - not your contractor - decides what your policy covers. Your deductible is yours to pay: by law, a contractor may not pay or waive it for you. If your claim is denied, North Carolina law gives you the right to cancel a storm-repair contract within three business days of the denial notice. Keep copies of everything: reports, estimates, and photos.',
+}
+
+const GUIDE_FINAL =
+  'An informed homeowner is difficult to take advantage of. Compare complete scopes of work - not just the bottom line - and choose the company you trust to still be here in ten years.'
+
+function drawGuideTitle(page: PDFPage, title: string, fonts: Fonts): number {
+  const dark = rgb(0.17, 0.17, 0.16)
+  const y = 692
+  page.drawText(S(title), { x: 54, y, size: 22, font: fonts.reg, color: dark })
+  const tw = fonts.reg.widthOfTextAtSize(S(title), 22)
+  page.drawRectangle({ x: 54, y: y - 10, width: Math.min(tw, 340), height: 2.5, color: C.gold })
+  return y - 40
+}
+
+/** Cream box with gold accent bar (same visual language as the summary request box). */
+function drawGuideBox(page: PDFPage, top: number, title: string, body: string, fonts: Fonts): number {
+  const dark = rgb(0.17, 0.17, 0.16)
+  const maxW = 504
+  const innerW = maxW - 48
+  const lines = wrapText(body, fonts.reg, 9.5, innerW)
+  const h = 14 + 20 + lines.length * 13 + 12
+  const bottom = top - h
+  page.drawRectangle({ x: 54, y: bottom, width: maxW, height: h, color: C.creamfill })
+  page.drawRectangle({ x: 54, y: bottom, width: 5, height: h, color: C.gold })
+  let yy = top - 22
+  page.drawText(S(title), { x: 78, y: yy, size: 11, font: fonts.bold, color: dark })
+  yy -= 18
+  for (const ln of lines) {
+    page.drawText(S(ln), { x: 78, y: yy, size: 9.5, font: fonts.reg, color: C.body })
+    yy -= 13
+  }
+  return bottom
+}
+
+function drawGuidePage1(page: PDFPage, doc: ReportDoc, pageNum: number, fonts: Fonts) {
+  const dark = rgb(0.17, 0.17, 0.16)
+  page.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: C.white })
+  drawInnerHeader(page, doc, GUIDE_HEADER, fonts)
+  drawInnerFooter(page, doc, pageNum, fonts)
+  let y = drawGuideTitle(page, 'Choosing Your Roofer', fonts)
+  const intro =
+    'A new roof is a major investment. Whoever you choose to work with - ARX included - a reputable roofing company should be able to answer every question below in writing. Take your time, and ask.'
+  for (const ln of wrapText(intro, fonts.obl, 9.5, 504)) {
+    page.drawText(S(ln), { x: 54, y, size: 9.5, font: fonts.obl, color: C.body })
+    y -= 13
+  }
+  y -= 10
+  GUIDE_QUESTIONS.forEach((item, i) => {
+    // checkbox + numbered question
+    page.drawRectangle({ x: 54, y: y - 2, width: 11, height: 11, borderColor: C.gold, borderWidth: 1.2 })
+    const qLines = wrapText(`${i + 1}.  ${item.q}`, fonts.bold, 10.5, 480)
+    for (const ln of qLines) {
+      page.drawText(S(ln), { x: 74, y, size: 10.5, font: fonts.bold, color: dark })
+      y -= 14
+    }
+    for (const ln of wrapText(item.sub, fonts.reg, 9, 480)) {
+      page.drawText(S(ln), { x: 74, y, size: 9, font: fonts.reg, color: C.body })
+      y -= 12
+    }
+    y -= 9
+  })
+  y -= 4
+  y = drawGuideBox(page, y, GUIDE_INSTALLER_BOX.title, GUIDE_INSTALLER_BOX.body, fonts) - 24
+  page.drawText(S('Your roof is a system - not just shingles:'), { x: 54, y, size: 10.5, font: fonts.bold, color: dark })
+  y -= 17
+  const DESC_X = 180
+  for (const c of GUIDE_SYSTEM) {
+    page.drawText(S(c.name), { x: 54, y, size: 9.5, font: fonts.bold, color: C.gold })
+    const descLines = wrapText(c.desc, fonts.reg, 9.5, 558 - DESC_X)
+    for (const ln of descLines) {
+      page.drawText(S(ln), { x: DESC_X, y, size: 9.5, font: fonts.reg, color: C.body })
+      y -= 12.5
+    }
+    y -= 4.5
+  }
+  y -= 4
+  drawCentered(page, GUIDE_SYSTEM_CLOSER, y, fonts.obl, 9.5, dark)
+}
+
+function drawGuidePage2(page: PDFPage, doc: ReportDoc, pageNum: number, fonts: Fonts) {
+  const dark = rgb(0.17, 0.17, 0.16)
+  page.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: C.white })
+  drawInnerHeader(page, doc, GUIDE_HEADER, fonts)
+  drawInnerFooter(page, doc, pageNum, fonts)
+  let y = drawGuideTitle(page, 'Know What You’re Buying', fonts)
+  page.drawText(S('Shingle types, in plain terms:'), { x: 54, y, size: 10.5, font: fonts.bold, color: dark })
+  y -= 18
+  for (const t of GUIDE_SHINGLE_TYPES) {
+    page.drawText(S(t.label), { x: 54, y, size: 10, font: fonts.bold, color: C.gold })
+    y -= 13
+    for (const ln of wrapText(t.body, fonts.reg, 9.5, 504)) {
+      page.drawText(S(ln), { x: 54, y, size: 9.5, font: fonts.reg, color: C.body })
+      y -= 12.5
+    }
+    y -= 8
+  }
+  y -= 2
+  y = drawGuideBox(page, y, GUIDE_CLASS_BOX.title, GUIDE_CLASS_BOX.body, fonts) - 24
+  page.drawText(S('Proceed with caution if a contractor:'), { x: 54, y, size: 10.5, font: fonts.bold, color: dark })
+  y -= 18
+  for (const flag of GUIDE_RED_FLAGS) {
+    // x-mark bullet
+    page.drawText('x', { x: 57, y: y - 0.5, size: 10, font: fonts.bold, color: HEX('B03A2E') })
+    for (const ln of wrapText(flag, fonts.reg, 9.5, 480)) {
+      page.drawText(S(ln), { x: 74, y, size: 9.5, font: fonts.reg, color: C.body })
+      y -= 12.5
+    }
+    y -= 5.5
+  }
+  y -= 6
+  y = drawGuideBox(page, y, GUIDE_RIGHTS_BOX.title, GUIDE_RIGHTS_BOX.body, fonts) - 24
+  page.drawRectangle({ x: 274, y: y + 8, width: 64, height: 2.5, color: C.gold })
+  y -= 10
+  for (const ln of wrapText(GUIDE_FINAL, fonts.obl, 10, 420)) {
+    drawCentered(page, ln, y, fonts.obl, 10, dark)
+    y -= 14
+  }
+}
+
 /** Ordered photo ids in the final document (section order, hero excluded). */
 export function orderedPhotoIds(doc: ReportDoc, hasPhoto: (id: string) => boolean): string[] {
   const ids: string[] = []
@@ -433,6 +649,16 @@ export async function buildReportPdf(opts: BuildPdfOptions): Promise<Uint8Array>
       const pg = doc.addPage([PW, PH])
       drawPhotoPage(pg, rdoc, img, s, globalIndex, total, rdoc.captions[pid] || '', pageNo, fonts)
     }
+  }
+
+  // Homeowner's Guide appendix — defaults ON; older docs without `guide` include it too.
+  if (rdoc.guide?.include !== false) {
+    const g1 = doc.addPage([PW, PH])
+    pageNo++
+    drawGuidePage1(g1, rdoc, pageNo, fonts)
+    const g2 = doc.addPage([PW, PH])
+    pageNo++
+    drawGuidePage2(g2, rdoc, pageNo, fonts)
   }
   return await doc.save()
 }

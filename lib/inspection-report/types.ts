@@ -43,6 +43,11 @@ export interface ReportSummary {
   requestItems: ReportRequestItem[]
 }
 
+export interface ReportGuide {
+  /** Append the two-page Homeowner's Guide (choosing a roofer / red flags & rights) to the PDF. */
+  include: boolean
+}
+
 export interface ReportSection {
   id: string
   dividerTitle: string
@@ -57,6 +62,8 @@ export interface ReportDoc {
   footerLine: string
   cover: ReportCover
   summary: ReportSummary
+  /** Optional on older docs; normalizeReportDoc always fills it (default: included). */
+  guide?: ReportGuide
   sections: ReportSection[]
   /** photoId -> caption. Photo bytes/dimensions live in inspection_report_photos + storage. */
   captions: Record<string, string>
@@ -155,6 +162,7 @@ export function seedReportDoc(prefill: SeedPrefill = {}): ReportDoc {
         },
       ],
     },
+    guide: { include: true },
     sections: [
       { id: uid(), dividerTitle: 'HAIL IMPACTS', dividerSubtitle: 'Documented & Measured', headerLabel: 'HAIL IMPACTS — DOCUMENTED & MEASURED', photoIds: [] },
       { id: uid(), dividerTitle: 'WIND', dividerSubtitle: 'Linear Creasing', headerLabel: 'WIND — LINEAR CREASING', photoIds: [] },
@@ -199,6 +207,8 @@ export function normalizeReportDoc(raw: unknown, prefill: SeedPrefill = {}): Rep
           requestItems: Array.isArray(o.summary.requestItems) ? o.summary.requestItems : seed.summary.requestItems,
         }
       : seed.summary,
+    // Additive field: older docs (no `guide`) default to included, matching seed behavior.
+    guide: { include: o.guide ? o.guide.include !== false : true },
     sections: o.sections.map((s) => ({
       id: s?.id || uid(),
       dividerTitle: s?.dividerTitle ?? '',

@@ -1048,6 +1048,29 @@ export default function ReportBuilder(props: Props) {
             </div>
           ) : null}
         </div>
+
+        {/* homeowner's guide (two static pages appended to the PDF) */}
+        <div className="rounded-xl bg-white" style={{ border: `1px solid ${LINE}` }}>
+          <div className="flex w-full items-center justify-between px-4 py-3">
+            <span className="text-sm font-bold" style={{ color: DARKTEXT }}>
+              Homeowner&apos;s guide {doc.guide?.include !== false ? '— included ✓' : '— off'}
+            </span>
+            <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: DARKTEXT }}>
+              <input
+                type="checkbox"
+                checked={doc.guide?.include !== false}
+                onChange={(e) => updateDoc((d) => ({ ...d, guide: { include: e.target.checked } }))}
+                className="h-5 w-5"
+              />
+              Include
+            </label>
+          </div>
+          <div className="px-4 pb-3 text-xs" style={{ color: '#8a8576' }}>
+            Two educational pages at the end of the PDF: questions to ask any roofer, shingle types
+            &amp; impact ratings, red flags, and NC homeowner rights. Turn off for carrier-facing
+            reinspection packets.
+          </div>
+        </div>
       </main>
 
       {/* bottom action bar */}
