@@ -140,7 +140,9 @@ function drawLogo(page: PDFPage, x: number, y: number, w: number, h: number, fon
 }
 
 function coverFitDraw(page: PDFPage, img: PDFImage, x: number, y: number, w: number, h: number) {
-  // scale-to-cover the band, then mask overflow above with charcoal so it stays a clean band
+  // scale-to-cover the band, then mask overflow above AND below with charcoal so it stays
+  // a clean band. A 4:3 drone hero scales ~459pt tall in the 270pt band — without the
+  // bottom mask it bled ~95pt past the gold divider into the charcoal content area.
   const scale = Math.max(w / img.width, h / img.height)
   const dw = img.width * scale
   const dh = img.height * scale
@@ -148,6 +150,7 @@ function coverFitDraw(page: PDFPage, img: PDFImage, x: number, y: number, w: num
   const dy = y + (h - dh) / 2
   page.drawImage(img, { x: dx, y: dy, width: dw, height: dh })
   if (y + h < PH) page.drawRectangle({ x: 0, y: y + h, width: PW, height: PH - (y + h), color: C.charcoal })
+  if (dy < y) page.drawRectangle({ x: 0, y: 0, width: PW, height: y, color: C.charcoal })
 }
 
 function drawInnerHeader(page: PDFPage, doc: ReportDoc, headerLabel: string, fonts: Fonts) {
