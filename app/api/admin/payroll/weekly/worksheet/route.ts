@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { classifyWeeklyPayrollJob } from '@/lib/weekly-payroll/eligibility'
-import { fundingRequiredTotal } from '@/lib/weekly-payroll/commission-base'
 import { hasResolvableCompPlanForUserOnDate } from '@/lib/payroll-export'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 
@@ -104,20 +103,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const [{ data: states }, { data: payments }, { data: cos }, { data: costLines }] = await Promise.all([
+    const [{ data: states }, { data: payments }, { data: costLines }] = await Promise.all([
       jobIds.length
         ? supabase.from('job_payroll_state').select('*').in('job_id', jobIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
       jobIds.length
         ? supabase.from('job_payments').select('job_id, amount_cents, funding_status').in('job_id', jobIds)
         : Promise.resolve({ data: [] as { job_id: string; amount_cents: number; funding_status: string }[] }),
-      projectIds.length
-        ? supabase
-            .from('job_change_orders')
-            .select('project_id, updated_total, is_commissionable')
-            .eq('org_id', orgId)
-            .in('project_id', projectIds)
-        : Promise.resolve({ data: [] as { project_id: string; updated_total: number; is_commissionable: boolean }[] }),
       jobIds.length
         ? supabase.from('job_cost_lines').select('job_id, approved, deduct_from_commission_base').in('job_id', jobIds)
         : Promise.resolve({ data: [] as { job_id: string; approved: boolean; deduct_from_commission_base: boolean }[] }),
@@ -146,16 +138,6 @@ export async function GET(request: NextRequest) {
       collectedByJob.set(p.job_id, (collectedByJob.get(p.job_id) || 0) + p.amount_cents)
     }
 
-    const coByProject = new Map<string, { signedTotal: number; commissionableTotal: number }>()
-    for (const co of cos || []) {
-      const cur = coByProject.get(co.project_id) || { signedTotal: 0, commissionableTotal: 0 }
-      cur.signedTotal += Number(co.updated_total) || 0
-      if (co.is_commissionable !== false) {
-        cur.commissionableTotal += Number(co.updated_total) || 0
-      }
-      coByProject.set(co.project_id, cur)
-    }
-
     const costLinesByJob = new Map<string, { job_id: string; approved: boolean; deduct_from_commission_base: boolean }[]>()
     for (const line of costLines || []) {
       const list = costLinesByJob.get(line.job_id) || []
@@ -180,14 +162,10 @@ export async function GET(request: NextRequest) {
           ? new Date(job.completed_at)
           : null
 
+      // sale_amount is kept in sync with the latest signed change order (see applyChangeOrderToJob),
+      // so it's already the current contract total — no need to add change orders on top here.
       const sale = Number(job.sale_amount) || 0
-      const co = job.project_id ? coByProject.get(job.project_id) : undefined
-      const signedCo = co?.signedTotal ?? 0
-      const requiredDollars = fundingRequiredTotal({
-        originalContractTotal: sale,
-        signedChangeOrderTotal: signedCo,
-      })
-      const requiredCents = Math.round(requiredDollars * 100)
+      const requiredCents = Math.round(sale * 100)
       const collected = collectedByJob.get(job.id) || 0
       const funded =
         requiredCents <= 0 ||

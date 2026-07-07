@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
+import { applyChangeOrderToJob } from '@/lib/change-orders/apply-change-order-to-job'
 import nodemailer from 'nodemailer'
 import crypto from 'crypto'
 
@@ -31,7 +32,10 @@ export async function POST(request: NextRequest) {
       customerEmail,
       projectAddress,
       signingMode,
+      isCommissionable,
     } = body
+
+    const commissionable = isCommissionable !== false
 
     const isSendToCustomer = signingMode === 'send_to_customer'
 
@@ -140,6 +144,7 @@ export async function POST(request: NextRequest) {
         original_contract_id: originalContractId || null,
         original_contract_date: originalContractDate || null,
         payment_method: paymentMethod || null,
+        is_commissionable: commissionable,
         created_by: profile.id,
       })
       .select('id')
@@ -182,17 +187,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update project's sale amount if there's a linked production job
-    if (jobId) {
-      const { error: jobUpdateError } = await supabase
-        .from('production_jobs')
-        .update({ sale_amount: updatedTotal })
-        .eq('id', jobId)
+    // Sync the job's sale amount + commission base now, only for COs that are signed immediately.
+    // Remote (send_to_customer) COs aren't binding yet — that sync happens in /api/change-orders/sign
+    // once the customer actually signs, so an unsigned CO can't move payroll numbers.
+    if (jobId && !isSendToCustomer) {
+      const { error: jobUpdateError } = await applyChangeOrderToJob(supabase, {
+        orgId: profile.org_id,
+        jobId,
+        originalAmount: Number(originalAmount) || 0,
+        updatedTotal: Number(updatedTotal) || 0,
+        isCommissionable: commissionable,
+      })
 
       if (jobUpdateError) {
-        console.error('[Change Order] Error updating job sale_amount:', jobUpdateError)
+        console.error('[Change Order] Error syncing job financials:', jobUpdateError)
       } else {
-        console.log('[Change Order] Updated job sale_amount to:', updatedTotal)
+        console.log('[Change Order] Synced job sale_amount/commission base to:', updatedTotal)
       }
     }
 

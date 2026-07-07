@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
+import { applyChangeOrderToJob } from '@/lib/change-orders/apply-change-order-to-job'
 import nodemailer from 'nodemailer'
 
 function getAdminClient() {
@@ -56,6 +57,19 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error('[Change Order Sign] update error:', updateError)
       return NextResponse.json({ error: 'Failed to sign change order' }, { status: 500 })
+    }
+
+    if (changeOrder.job_id) {
+      const { error: jobSyncError } = await applyChangeOrderToJob(supabase, {
+        orgId: changeOrder.org_id,
+        jobId: changeOrder.job_id,
+        originalAmount: Number(changeOrder.original_amount) || 0,
+        updatedTotal: Number(changeOrder.updated_total) || 0,
+        isCommissionable: changeOrder.is_commissionable !== false,
+      })
+      if (jobSyncError) {
+        console.error('[Change Order Sign] job sync error:', jobSyncError)
+      }
     }
 
     let pdfUrl: string | null = null
