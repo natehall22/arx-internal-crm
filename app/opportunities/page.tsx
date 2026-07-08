@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -15,6 +15,7 @@ import {
   buildOpportunityListQuery,
   EMPTY_OPPORTUNITY_LIST_FILTERS,
   filtersFromSearchParams,
+  type OpportunityListFilters,
 } from '@/lib/opportunity-list-filters'
 import {
   getInspectionOutcomeDisplay,
@@ -70,7 +71,18 @@ export default function OpportunitiesPage() {
   )
 
   const filters = useMemo(() => filtersFromSearchParams(searchParams), [searchParams])
+  const [searchInput, setSearchInput] = useState(filters.q)
   const activeView = searchParams.get('view') === 'inside_sales' ? 'inside_sales' : 'all'
+
+  useEffect(() => {
+    setSearchInput(filters.q)
+  }, [filters.q])
+
+  const activeFilters = useMemo(
+    () => ({ ...filters, q: searchInput }),
+    [filters, searchInput]
+  )
+  const deferredFilters = useDeferredValue(activeFilters)
 
   const outcomeLookup = useMemo(() => {
     const map = new Map<string, InspectionOutcomeConfigRow>()
@@ -193,16 +205,34 @@ export default function OpportunitiesPage() {
     }
   }, [activeView, canViewInsideSalesTab, insideSalesAccessChecked, pathname, router, searchParams])
 
+  const pushFiltersToUrl = useCallback(
+    (nextFilters: OpportunityListFilters) => {
+      const query = buildOpportunityListQuery(nextFilters)
+      const next = query ? new URLSearchParams(query) : new URLSearchParams()
+      if (activeView === 'inside_sales') next.set('view', 'inside_sales')
+      router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
+    },
+    [activeView, pathname, router]
+  )
+
+  useEffect(() => {
+    if (searchInput === filters.q) return
+    const timer = setTimeout(() => {
+      pushFiltersToUrl({ ...filters, q: searchInput })
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput, filters, pushFiltersToUrl])
+
   const filteredOpportunities = useMemo(
-    () => applyOpportunityListFilters(opportunities, filters),
-    [opportunities, filters]
+    () => applyOpportunityListFilters(opportunities, deferredFilters),
+    [opportunities, deferredFilters]
   )
 
   const filteredInsideSalesItems = useMemo(() => {
-    const query = filters.q.trim().toLowerCase()
-    const status = filters.status.trim().toLowerCase()
-    const projectType = filters.project_type.trim().toLowerCase()
-    const queueTypeRaw = filters.inspection_outcome.trim().toLowerCase()
+    const query = deferredFilters.q.trim().toLowerCase()
+    const status = deferredFilters.status.trim().toLowerCase()
+    const projectType = deferredFilters.project_type.trim().toLowerCase()
+    const queueTypeRaw = deferredFilters.inspection_outcome.trim().toLowerCase()
     const queueType =
       queueTypeRaw === 'insurance' ? 'handoff' : queueTypeRaw
 
@@ -232,21 +262,15 @@ export default function OpportunitiesPage() {
 
       return true
     })
-  }, [filters, insideSalesItems])
+  }, [deferredFilters, insideSalesItems])
 
-  const setFilter = (key: 'q' | 'status' | 'inspection_outcome' | 'project_type', value: string) => {
-    const nextFilters = { ...filters, [key]: value }
-    const query = buildOpportunityListQuery(nextFilters)
-    const next = query ? new URLSearchParams(query) : new URLSearchParams()
-    if (activeView === 'inside_sales') next.set('view', 'inside_sales')
-    router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
+  const setFilter = (key: 'status' | 'inspection_outcome' | 'project_type', value: string) => {
+    pushFiltersToUrl({ ...filters, [key]: value, q: searchInput })
   }
 
   const clearFilters = () => {
-    const query = buildOpportunityListQuery(EMPTY_OPPORTUNITY_LIST_FILTERS)
-    const next = query ? new URLSearchParams(query) : new URLSearchParams()
-    if (activeView === 'inside_sales') next.set('view', 'inside_sales')
-    router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false })
+    setSearchInput('')
+    pushFiltersToUrl(EMPTY_OPPORTUNITY_LIST_FILTERS)
   }
 
   const setView = (view: 'all' | 'inside_sales') => {
@@ -260,17 +284,17 @@ export default function OpportunitiesPage() {
   }
 
   const hasActiveFilters =
-    filters.q || filters.status || filters.inspection_outcome || filters.project_type
-  const detailQueryString = buildOpportunityListQuery(filters, { queue: '1' })
+    activeFilters.q || activeFilters.status || activeFilters.inspection_outcome || activeFilters.project_type
+  const detailQueryString = buildOpportunityListQuery(activeFilters, { queue: '1' })
   const insideSalesDetailQueryString = useMemo(() => {
     const next = new URLSearchParams()
     next.set('view', 'inside_sales')
-    if (filters.q) next.set('q', filters.q)
-    if (filters.status) next.set('status', filters.status)
-    if (filters.inspection_outcome) next.set('inspection_outcome', filters.inspection_outcome)
-    if (filters.project_type) next.set('project_type', filters.project_type)
+    if (activeFilters.q) next.set('q', activeFilters.q)
+    if (activeFilters.status) next.set('status', activeFilters.status)
+    if (activeFilters.inspection_outcome) next.set('inspection_outcome', activeFilters.inspection_outcome)
+    if (activeFilters.project_type) next.set('project_type', activeFilters.project_type)
     return next.toString()
-  }, [filters])
+  }, [activeFilters])
   const insideSalesCounts = {
     total: insideSalesItems.length,
     readyToCall: insideSalesItems.filter((item) => item.callableNow).length,
@@ -340,8 +364,8 @@ export default function OpportunitiesPage() {
               <input
                 type="text"
                 placeholder={activeView === 'inside_sales' ? 'Name, phone, address...' : 'Name, address...'}
-                value={filters.q}
-                onChange={(e) => setFilter('q', e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
