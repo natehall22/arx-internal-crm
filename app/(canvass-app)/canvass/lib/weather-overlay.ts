@@ -126,22 +126,22 @@ function hailBucket(magnitude: number): StyleBucket {
   // stroke made swaths read as "transparent" on phones (field-verified Jul 2026).
   if (magnitude >= 2.5) {
     // tennis ball+ — darkest, heaviest edge: the "go here first" band
-    return { fill: '#7F1D6F', fillOpacity: 0.42, stroke: '#4A0E40', strokeOpacity: 1, strokeWeight: 4 }
+    return { fill: '#7F1D6F', fillOpacity: 0.52, stroke: '#4A0E40', strokeOpacity: 1, strokeWeight: 4 }
   }
   if (magnitude >= 1.75) {
     // golf ball+ — deep red
-    return { fill: '#B91C1C', fillOpacity: 0.42, stroke: '#7F1D1D', strokeOpacity: 1, strokeWeight: 3.75 }
+    return { fill: '#B91C1C', fillOpacity: 0.52, stroke: '#7F1D1D', strokeOpacity: 1, strokeWeight: 3.75 }
   }
   if (magnitude >= 1.25) {
     // half-dollar → golf ball — orange-red
-    return { fill: '#EA580C', fillOpacity: 0.4, stroke: '#9A3412', strokeOpacity: 0.95, strokeWeight: 3.5 }
+    return { fill: '#EA580C', fillOpacity: 0.5, stroke: '#9A3412', strokeOpacity: 0.95, strokeWeight: 3.5 }
   }
   if (magnitude >= 1.0) {
     // quarter → half-dollar — orange (the ~1" functional-damage line)
-    return { fill: '#F59E0B', fillOpacity: 0.38, stroke: '#B45309', strokeOpacity: 0.95, strokeWeight: 3.25 }
+    return { fill: '#F59E0B', fillOpacity: 0.48, stroke: '#B45309', strokeOpacity: 0.95, strokeWeight: 3.25 }
   }
   // penny → quarter — amber-yellow, kept warm so it doesn't read as foliage
-  return { fill: '#FACC15', fillOpacity: 0.36, stroke: '#A16207', strokeOpacity: 0.95, strokeWeight: 3 }
+  return { fill: '#FACC15', fillOpacity: 0.48, stroke: '#A16207', strokeOpacity: 1, strokeWeight: 3.5 }
 }
 
 function windBucket(magnitude: number): StyleBucket {
@@ -213,7 +213,7 @@ export function weatherFeatureStyle(feature: { getProperty: (key: string) => unk
  * hail swaths, so "darker = worse" holds everywhere and survives colorblindness
  * and sunlit screens. Never gray: gray dies on satellite imagery.
  */
-function reportDotFill(layer: string, magnitude: number, damage: boolean) {
+export function reportDotFill(layer: string, magnitude: number, damage: boolean) {
   if (layer === 'wind') {
     if (damage || magnitude <= 0) return '#EA580C' // damage report (no measured speed)
     if (magnitude >= 70) return '#B91C1C'
@@ -223,6 +223,19 @@ function reportDotFill(layer: string, magnitude: number, damage: boolean) {
   if (magnitude >= 1.75) return '#B91C1C'
   if (magnitude >= 1.0) return '#EA580C'
   return '#F59E0B'
+}
+
+/** Ground radius for report markers — Data-layer SVG symbols fail to paint on iOS Safari. */
+export function reportMarkerRadiusMeters(layer: string, magnitude: number, damage: boolean): number {
+  if (layer === 'wind' && (damage || magnitude <= 0)) return 55
+  if (layer === 'hail') {
+    if (magnitude >= 1.75) return 50
+    if (magnitude >= 1.0) return 45
+    return 40
+  }
+  if (magnitude >= 70) return 50
+  if (magnitude >= 58) return 45
+  return 40
 }
 
 /** Storm report dots: size + darkness convey severity (distinct from canvass pins). */
@@ -248,11 +261,13 @@ function reportDotScale(layer: string, magnitude: number, damage: boolean) {
  */
 export const WIND_IMPACT_HALO = {
   fill: '#F97316',
-  fillOpacity: 0.16,
-  stroke: '#F97316',
-  strokeOpacity: 0.5,
-  strokeWeight: 1.5,
-  radiusMeters: 600,
+  // 0.16 was invisible on iPhone satellite imagery (field-verified Jul 2026) — wind
+  // has no polygon swaths, so this halo IS the "impact area" read reps expect.
+  fillOpacity: 0.34,
+  stroke: '#EA580C',
+  strokeOpacity: 0.95,
+  strokeWeight: 3.5,
+  radiusMeters: 750,
   /** Hard cap on halo circles per paint — keeps a dense metro viewport smooth. */
   maxCircles: 150,
 }
