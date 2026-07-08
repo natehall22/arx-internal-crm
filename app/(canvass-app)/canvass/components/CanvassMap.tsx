@@ -313,6 +313,40 @@ export default function CanvassMap({
     features.forEach((feature) => data.remove(feature))
   }, [clearWeatherHalos])
 
+  /** iOS Safari sometimes ignores `map` in the Circle constructor — attach explicitly. */
+  const createWeatherCircle = useCallback((options: Record<string, unknown>, map: any) => {
+    try {
+      const circle = new google.maps.Circle(options)
+      circle.setMap(map)
+      return circle
+    } catch {
+      try {
+        return new google.maps.Circle({ ...options, map })
+      } catch {
+        return null
+      }
+    }
+  }, [])
+
+  const weatherGraphicsMissing = useCallback((collection: WeatherFeatureCollection) => {
+    const features = collection.features ?? []
+    const reportFeatures = features.filter((f) => f.properties?.kind === 'report')
+    const nonReportFeatures = features.filter((f) => f.properties?.kind !== 'report')
+    if (reportFeatures.length > 0 && weatherHaloCirclesRef.current.length === 0) {
+      return true
+    }
+    if (nonReportFeatures.length > 0) {
+      const data = weatherDataRef.current
+      if (!data) return true
+      let onMap = 0
+      data.forEach(() => {
+        onMap += 1
+      })
+      if (onMap === 0) return true
+    }
+    return false
+  }, [])
+
   // Must run after map init — the old useEffect ran before mapInstanceRef existed
   // (declaration order), so weatherDataRef stayed null while fetch+strip succeeded.
   const ensureWeatherDataLayer = useCallback(() => {
@@ -346,13 +380,15 @@ export default function CanvassMap({
   const paintWeatherCollection = useCallback(
     (collection: WeatherFeatureCollection) => {
       const map = mapInstanceRef.current
-      if (!map) return
+      if (!map || typeof google === 'undefined' || !google.maps?.Circle) return
+      const features = collection?.features
+      if (!Array.isArray(features)) return
       try {
         clearWeatherFeatures()
         // Storm report dots use google.maps.Circle — Data-layer SVG symbols often
         // fail to paint on iOS Safari (field-verified Jul 2026). Swaths/warnings
         // stay on the Data layer as polygons.
-        for (const feature of collection.features) {
+        for (const feature of features) {
           const props = feature.properties
           const kind = props?.kind
 
@@ -369,29 +405,25 @@ export default function CanvassMap({
               windReportGetsHalo(magnitude, damage) &&
               weatherHaloCirclesRef.current.length < WIND_IMPACT_HALO.maxCircles
             ) {
-              try {
-                weatherHaloCirclesRef.current.push(
-                  new google.maps.Circle({
-                    map,
-                    center: { lat, lng },
-                    radius: WIND_IMPACT_HALO.radiusMeters,
-                    fillColor: WIND_IMPACT_HALO.fill,
-                    fillOpacity: WIND_IMPACT_HALO.fillOpacity,
-                    strokeColor: WIND_IMPACT_HALO.stroke,
-                    strokeOpacity: WIND_IMPACT_HALO.strokeOpacity,
-                    strokeWeight: WIND_IMPACT_HALO.strokeWeight,
-                    clickable: false,
-                    zIndex: 1,
-                  }),
-                )
-              } catch {
-                // drop halo, still paint the dot
-              }
+              const halo = createWeatherCircle(
+                {
+                  center: { lat, lng },
+                  radius: WIND_IMPACT_HALO.radiusMeters,
+                  fillColor: WIND_IMPACT_HALO.fill,
+                  fillOpacity: WIND_IMPACT_HALO.fillOpacity,
+                  strokeColor: WIND_IMPACT_HALO.stroke,
+                  strokeOpacity: WIND_IMPACT_HALO.strokeOpacity,
+                  strokeWeight: WIND_IMPACT_HALO.strokeWeight,
+                  clickable: false,
+                  zIndex: 1,
+                },
+                map,
+              )
+              if (halo) weatherHaloCirclesRef.current.push(halo)
             }
 
-            try {
-              const dot = new google.maps.Circle({
-                map,
+            const dot = createWeatherCircle(
+              {
                 center: { lat, lng },
                 radius: reportMarkerRadiusMeters(layer, magnitude, damage),
                 fillColor: reportDotFill(layer, magnitude, damage),
@@ -401,11 +433,12 @@ export default function CanvassMap({
                 strokeWeight: 3,
                 clickable: true,
                 zIndex: 3,
-              })
+              },
+              map,
+            )
+            if (dot) {
               dot.addListener('click', () => onStormPeekRef.current?.(lat, lng))
               weatherHaloCirclesRef.current.push(dot)
-            } catch {
-              // drop this report marker
             }
             continue
           }
@@ -423,8 +456,19 @@ export default function CanvassMap({
         clearWeatherFeatures()
       }
     },
-    [applyWeatherDataStyle, clearWeatherFeatures, ensureWeatherDataLayer],
+    [applyWeatherDataStyle, clearWeatherFeatures, createWeatherCircle, ensureWeatherDataLayer],
   )
+
+  const ensureWeatherGraphicsVisible = useCallback(() => {
+    if (!weatherOverlayEnabledRef.current || !mapInstanceRef.current) return
+    const layer = weatherLayerRef.current
+    if (layer === 'off') return
+    const cached = weatherLastGoodRef.current
+    if (!cached || cached.layer !== layer) return
+    if (weatherGraphicsMissing(cached.collection)) {
+      paintWeatherCollection(cached.collection)
+    }
+  }, [paintWeatherCollection, weatherGraphicsMissing])
 
   const publishWeatherContext = useCallback(
     (layer: Exclude<WeatherLayer, 'off'>, offline: boolean) => {
@@ -511,7 +555,7 @@ export default function CanvassMap({
 
   const fetchWeatherForLayer = useCallback(
     async (layer: Exclude<WeatherLayer, 'off'>) => {
-      if (!weatherOverlayEnabled || !mapInstanceRef.current) return
+      if (!weatherOverlayEnabledRef.current || !mapInstanceRef.current) return
 
       const finish = (offline: boolean) => {
         publishWeatherContext(layer, offline)
@@ -537,7 +581,17 @@ export default function CanvassMap({
       }
 
       const bounds = mapInstanceRef.current.getBounds()
-      if (!bounds) return
+      if (!bounds) {
+        // Bounds can be null before the first idle on iOS — still paint cache so
+        // the strip+graphics stay in sync, then let the idle listener fetch bounds.
+        const cached = weatherLastGoodRef.current
+        if (cached && cached.layer === layer) {
+          paintWeatherCollection(cached.collection)
+          updateWeatherStrip(layer, cached.collection, false)
+          finish(false)
+        }
+        return
+      }
       const ne = bounds.getNorthEast()
       const sw = bounds.getSouthWest()
 
@@ -558,6 +612,7 @@ export default function CanvassMap({
         // Re-paint even on dedupe — the first fetch may have landed before the map
         // (or Data layer) existed, updating the strip but skipping graphics.
         paintWeatherCollection(weatherLastGoodRef.current.collection)
+        ensureWeatherGraphicsVisible()
         return
       }
 
@@ -618,6 +673,7 @@ export default function CanvassMap({
           refreshedAt: payload.refreshedAt || new Date().toISOString(),
         }
         paintWeatherCollection(payload)
+        ensureWeatherGraphicsVisible()
 
         const primarySummary = summarizeViewport(layer, payload.features, mapCenterPoint())
         if (primarySummary.empty && effectiveWindowDays < widestAllowedWindowDays) {
@@ -663,6 +719,7 @@ export default function CanvassMap({
         const cached = weatherLastGoodRef.current
         if (cached && cached.layer === layer) {
           paintWeatherCollection(cached.collection)
+          ensureWeatherGraphicsVisible()
           updateWeatherStrip(layer, cached.collection, !navigator.onLine)
           finish(!navigator.onLine)
         } else {
@@ -685,11 +742,11 @@ export default function CanvassMap({
     [
       clearWeatherFeatures,
       effectiveWindowDays,
+      ensureWeatherGraphicsVisible,
       mapCenterPoint,
       paintWeatherCollection,
       publishWeatherContext,
       updateWeatherStrip,
-      weatherOverlayEnabled,
       weatherTimeWindowDays,
       widestAllowedWindowDays,
     ],
@@ -701,6 +758,8 @@ export default function CanvassMap({
   ensureWeatherDataLayerRef.current = ensureWeatherDataLayer
   const paintWeatherCollectionRef = useRef(paintWeatherCollection)
   paintWeatherCollectionRef.current = paintWeatherCollection
+  const ensureWeatherGraphicsVisibleRef = useRef(ensureWeatherGraphicsVisible)
+  ensureWeatherGraphicsVisibleRef.current = ensureWeatherGraphicsVisible
 
   const handleWeatherLayerSelect = useCallback(
     (nextLayer: WeatherLayer) => {
@@ -709,6 +768,9 @@ export default function CanvassMap({
         window.clearTimeout(weatherIdleTimerRef.current)
         weatherIdleTimerRef.current = null
       }
+      // Sync before setState — idle listeners and map init read this ref immediately;
+      // a useEffect-only update let them see 'off' right after WIND/HAIL was tapped.
+      weatherLayerRef.current = nextLayer
       setWeatherLayer(nextLayer)
       if (nextLayer === 'off') {
         weatherFetchKeyRef.current = null
@@ -1022,13 +1084,17 @@ export default function CanvassMap({
       clickableIcons: false,
     } as google.maps.MapOptions)
 
-    // Data layer for swaths/warnings + repaint any fetch that raced ahead of map init.
+    // Data layer for swaths/warnings + repaint/fetch any overlay work that raced map init.
     if (weatherOverlayEnabledRef.current) {
       ensureWeatherDataLayerRef.current()
-      const cached = weatherLastGoodRef.current
       const activeLayer = weatherLayerRef.current
-      if (cached && activeLayer !== 'off' && cached.layer === activeLayer) {
-        paintWeatherCollectionRef.current(cached.collection)
+      if (activeLayer !== 'off') {
+        const cached = weatherLastGoodRef.current
+        if (cached && cached.layer === activeLayer) {
+          paintWeatherCollectionRef.current(cached.collection)
+          ensureWeatherGraphicsVisibleRef.current()
+        }
+        void fetchWeatherForLayerRef.current(activeLayer)
       }
     }
 
@@ -1069,6 +1135,7 @@ export default function CanvassMap({
         weatherIdleTimerRef.current = null
         const currentLayer = weatherLayerRef.current
         if (currentLayer === 'off') return
+        ensureWeatherGraphicsVisibleRef.current()
         void fetchWeatherForLayerRef.current(currentLayer)
       }, 700)
     })
