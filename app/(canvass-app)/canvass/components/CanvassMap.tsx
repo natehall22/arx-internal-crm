@@ -312,10 +312,40 @@ export default function CanvassMap({
     features.forEach((feature) => data.remove(feature))
   }, [clearWeatherHalos])
 
+  // Must run after map init — the old useEffect ran before mapInstanceRef existed
+  // (declaration order), so weatherDataRef stayed null while fetch+strip succeeded.
+  const ensureWeatherDataLayer = useCallback(() => {
+    if (!weatherOverlayEnabledRef.current) return null
+    const map = mapInstanceRef.current
+    if (!map) return null
+    if (!weatherDataRef.current) {
+      weatherDataRef.current = new google.maps.Data({ map })
+      weatherDataRef.current.setStyle(applyWeatherDataStyle)
+      weatherDataRef.current.addListener(
+        'click',
+        (e: {
+          latLng?: { lat: () => number; lng: () => number }
+          stop?: () => void
+        }) => {
+          if (
+            !weatherOverlayEnabledRef.current ||
+            weatherLayerRef.current === 'off' ||
+            !e.latLng
+          ) {
+            return
+          }
+          e.stop?.()
+          onStormPeekRef.current?.(e.latLng.lat(), e.latLng.lng())
+        },
+      )
+    }
+    return weatherDataRef.current
+  }, [applyWeatherDataStyle])
+
   const paintWeatherCollection = useCallback(
     (collection: WeatherFeatureCollection) => {
-      const data = weatherDataRef.current
-      if (!data) return
+      const map = mapInstanceRef.current
+      if (!map) return
       try {
         clearWeatherFeatures()
         // Storm report dots use google.maps.Circle — Data-layer SVG symbols often
@@ -341,7 +371,7 @@ export default function CanvassMap({
               try {
                 weatherHaloCirclesRef.current.push(
                   new google.maps.Circle({
-                    map: mapInstanceRef.current,
+                    map,
                     center: { lat, lng },
                     radius: WIND_IMPACT_HALO.radiusMeters,
                     fillColor: WIND_IMPACT_HALO.fill,
@@ -360,7 +390,7 @@ export default function CanvassMap({
 
             try {
               const dot = new google.maps.Circle({
-                map: mapInstanceRef.current,
+                map,
                 center: { lat, lng },
                 radius: reportMarkerRadiusMeters(layer, magnitude, damage),
                 fillColor: reportDotFill(layer, magnitude, damage),
@@ -379,18 +409,20 @@ export default function CanvassMap({
             continue
           }
 
+          const data = ensureWeatherDataLayer()
+          if (!data) continue
           try {
             data.addGeoJson({ type: 'FeatureCollection', features: [feature] })
           } catch {
             // drop this one feature, keep going
           }
         }
-        data.setStyle(applyWeatherDataStyle)
+        weatherDataRef.current?.setStyle(applyWeatherDataStyle)
       } catch {
         clearWeatherFeatures()
       }
     },
-    [applyWeatherDataStyle, clearWeatherFeatures],
+    [applyWeatherDataStyle, clearWeatherFeatures, ensureWeatherDataLayer],
   )
 
   const publishWeatherContext = useCallback(
@@ -522,6 +554,9 @@ export default function CanvassMap({
         weatherFetchKeyRef.current === fetchKey &&
         weatherLastGoodRef.current?.layer === layer
       ) {
+        // Re-paint even on dedupe — the first fetch may have landed before the map
+        // (or Data layer) existed, updating the strip but skipping graphics.
+        paintWeatherCollection(weatherLastGoodRef.current.collection)
         return
       }
 
@@ -661,6 +696,10 @@ export default function CanvassMap({
   // Latest fetcher for the map 'idle' listener (bound once at map init).
   const fetchWeatherForLayerRef = useRef(fetchWeatherForLayer)
   fetchWeatherForLayerRef.current = fetchWeatherForLayer
+  const ensureWeatherDataLayerRef = useRef(ensureWeatherDataLayer)
+  ensureWeatherDataLayerRef.current = ensureWeatherDataLayer
+  const paintWeatherCollectionRef = useRef(paintWeatherCollection)
+  paintWeatherCollectionRef.current = paintWeatherCollection
 
   const handleWeatherLayerSelect = useCallback(
     (nextLayer: WeatherLayer) => {
@@ -717,25 +756,6 @@ export default function CanvassMap({
       void fetchWeatherForLayer(weatherLayer)
     }
   }, [weatherWindowDays, weatherLayer, weatherOverlayEnabled, fetchWeatherForLayer])
-
-  useEffect(() => {
-    if (!weatherOverlayEnabled || !mapLoaded || !mapInstanceRef.current || weatherDataRef.current) {
-      return
-    }
-    weatherDataRef.current = new google.maps.Data({ map: mapInstanceRef.current })
-    weatherDataRef.current.setStyle(applyWeatherDataStyle)
-    weatherDataRef.current.addListener('click', (e: { latLng?: { lat: () => number; lng: () => number }; stop?: () => void }) => {
-      if (
-        !weatherOverlayEnabledRef.current ||
-        weatherLayerRef.current === 'off' ||
-        !e.latLng
-      ) {
-        return
-      }
-      e.stop?.()
-      onStormPeekRef.current?.(e.latLng.lat(), e.latLng.lng())
-    })
-  }, [applyWeatherDataStyle, mapLoaded, weatherOverlayEnabled])
 
   useEffect(() => {
     return () => {
@@ -988,6 +1008,16 @@ export default function CanvassMap({
       minZoom: 10,
       clickableIcons: false,
     } as google.maps.MapOptions)
+
+    // Data layer for swaths/warnings + repaint any fetch that raced ahead of map init.
+    if (weatherOverlayEnabledRef.current) {
+      ensureWeatherDataLayerRef.current()
+      const cached = weatherLastGoodRef.current
+      const activeLayer = weatherLayerRef.current
+      if (cached && activeLayer !== 'off' && cached.layer === activeLayer) {
+        paintWeatherCollectionRef.current(cached.collection)
+      }
+    }
 
     // Click listener (ref so we don't recreate the map when the parent passes a new callback each render)
     mapInstanceRef.current.addListener('click', (e: any) => {
