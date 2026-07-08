@@ -70,8 +70,14 @@ async function fetchParcelFeatures(
 ): Promise<{ features: RoofAgeResponse['features']; exceededLimit: boolean } | null> {
   const arcgisUrl = process.env.CANVASS_PARCEL_ARCGIS_URL || DEFAULT_ARCGIS_URL
   const yearField = process.env.CANVASS_PARCEL_YEAR_FIELD || 'structyear'
+  const currentYear = new Date().getFullYear()
+  const maxYearBuilt = currentYear - MIN_ROOF_AGE_YEARS
+  // Pre-filter at ArcGIS so dense street viewports stay under the 1500-record
+  // transfer cap. Live Jul 2026: Mecklenburg bbox 35.26–35.28/-80.84–-80.80 hit
+  // exceededTransferLimit with where=1=1 (1499 parcels) but not with year filter.
+  const where = `${yearField} >= 1800 AND ${yearField} <= ${maxYearBuilt}`
   const params = new URLSearchParams({
-    where: '1=1',
+    where,
     geometry: JSON.stringify({
       xmin: bbox.w,
       ymin: bbox.s,
@@ -104,7 +110,6 @@ async function fetchParcelFeatures(
 
   const exceededLimit = Boolean(data.exceededTransferLimit)
 
-  const currentYear = new Date().getFullYear()
   type ArcGisFeature = {
     attributes?: Record<string, unknown>
     geometry?: { rings?: number[][][] }
