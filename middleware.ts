@@ -1,4 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server'
+import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
+import {
+  isExpired,
+  isExpiringSoon,
+  refreshSupabaseSession,
+  writeSessionCookies,
+} from '@/lib/supabase/session-refresh'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -34,46 +41,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-
-  if (!supabaseUrl) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
     return NextResponse.next()
   }
 
-  // Get project ref for cookie name
-  const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
-  const cookieName = `sb-${projectRef}-auth-token`
-
-  // Try to get the auth cookie (might be single or chunked)
-  let sessionData: { access_token?: string; expires_at?: number } | null = null
-  
-  const singleCookie = request.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      sessionData = JSON.parse(singleCookie.value)
-    } catch {
-      // Failed to parse
-    }
-  }
-
-  // Try chunked cookies if single didn't work
-  if (!sessionData) {
-    const chunks: string[] = []
-    let i = 0
-    while (true) {
-      const chunk = request.cookies.get(`${cookieName}.${i}`)
-      if (!chunk?.value) break
-      chunks.push(chunk.value)
-      i++
-    }
-    if (chunks.length > 0) {
-      try {
-        sessionData = JSON.parse(chunks.join(''))
-      } catch {
-        // Failed to parse
-      }
-    }
-  }
+  const sessionData = getSupabaseSessionFromCookieStore(request.cookies)
 
   // If no session cookie found, redirect to login
   if (!sessionData?.access_token) {
@@ -83,18 +55,33 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Check if token is expired based on exp claim
-  if (sessionData.expires_at) {
-    const expiresAt = sessionData.expires_at * 1000 // Convert to ms
-    if (Date.now() > expiresAt) {
-      const loginUrl = new URL(request.url)
-      loginUrl.pathname = '/login'
-      loginUrl.searchParams.set('next', pathname)
-      return NextResponse.redirect(loginUrl)
+  // If the access token is expired or about to expire, silently refresh it
+  // using the stored refresh token instead of kicking the user to /login.
+  if (isExpiringSoon(sessionData.expires_at) && sessionData.refresh_token) {
+    const refreshed = await refreshSupabaseSession(sessionData.refresh_token)
+    if (refreshed) {
+      const res = NextResponse.next()
+      writeSessionCookies(
+        res,
+        request.cookies.getAll().map((c) => c.name),
+        refreshed,
+        request.url.startsWith('https')
+      )
+      return res
     }
+    // Refresh failed. If the token still has time left (e.g. transient
+    // network error during the pre-expiry buffer), let the request through
+    // and retry on the next one. Only redirect once it's truly dead.
   }
 
-  // User has a session cookie - let them through
+  if (isExpired(sessionData.expires_at)) {
+    const loginUrl = new URL(request.url)
+    loginUrl.pathname = '/login'
+    loginUrl.searchParams.set('next', pathname)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // User has a valid session cookie - let them through
   return NextResponse.next()
 }
 

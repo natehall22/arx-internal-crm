@@ -24,6 +24,14 @@ import {
   type WeatherWindowDays,
   DEFAULT_WEATHER_WINDOW_DAYS,
 } from '../lib/weather-overlay'
+import {
+  MIN_ROOF_AGE_ZOOM,
+  ROOF_AGE_LEGEND,
+  readStoredRoofAgeOn,
+  roofAgeFeatureStyle,
+  storeRoofAgeOn,
+  type RoofAgeFeatureCollection,
+} from '../lib/roof-age-overlay'
 
 export type { WeatherContext }
 
@@ -68,6 +76,8 @@ interface Props {
   weatherOverlayEnabled?: boolean
   weatherTimeWindowDays?: number
   onWeatherContextChange?: (context: WeatherContext | null) => void
+  /** Roof-age parcel layer (county year-built data) — flag-gated like weather */
+  roofAgeEnabled?: boolean
 }
 
 // Default pin colors (fallback if no admin settings)
@@ -199,6 +209,7 @@ export default function CanvassMap({
   assignedTerritories,
   weatherOverlayEnabled = false,
   weatherTimeWindowDays = 730,
+  roofAgeEnabled = false,
   onWeatherContextChange,
 }: Props) {
   // Keep latest handlers without re-running marker sync / re-binding map listeners every render.
@@ -371,9 +382,14 @@ export default function CanvassMap({
     [],
   )
 
+  const mapCenterPoint = useCallback(() => {
+    const center = mapInstanceRef.current?.getCenter()
+    return center ? { lat: center.lat(), lng: center.lng() } : undefined
+  }, [])
+
   const updateWeatherStrip = useCallback(
     (layer: Exclude<WeatherLayer, 'off'>, collection: WeatherFeatureCollection, offline: boolean) => {
-      const summary = summarizeViewport(layer, collection.features)
+      const summary = summarizeViewport(layer, collection.features, mapCenterPoint())
       if (offline && collection.features.length > 0) {
         const refreshedAt = weatherLastGoodRef.current?.refreshedAt
         const dateLabel = refreshedAt
@@ -399,7 +415,7 @@ export default function CanvassMap({
       setWeatherStripDegraded(false)
       setWeatherStripWiderHint(false)
     },
-    [],
+    [mapCenterPoint],
   )
 
   // Window options the org cap allows (default cap 730 shows all three). Options
@@ -539,7 +555,7 @@ export default function CanvassMap({
         }
         paintWeatherCollection(payload)
 
-        const primarySummary = summarizeViewport(layer, payload.features)
+        const primarySummary = summarizeViewport(layer, payload.features, mapCenterPoint())
         if (primarySummary.empty && effectiveWindowDays < widestAllowedWindowDays) {
           // Lightweight wider-window probe: only when the selected window is empty
           // but older recorded storms may still exist within the org-allowed cap.
@@ -555,7 +571,7 @@ export default function CanvassMap({
               const widerPayload = (await widerResponse.json()) as WeatherFeatureCollection
               if (
                 !widerPayload.degraded &&
-                !summarizeViewport(layer, widerPayload.features).empty
+                !summarizeViewport(layer, widerPayload.features, mapCenterPoint()).empty
               ) {
                 setWeatherStripText(
                   widerWindowHintText(effectiveWindowDays, widestAllowedWindowDays, layer),
@@ -605,6 +621,7 @@ export default function CanvassMap({
     [
       clearWeatherFeatures,
       effectiveWindowDays,
+      mapCenterPoint,
       paintWeatherCollection,
       publishWeatherContext,
       updateWeatherStrip,
@@ -697,6 +714,157 @@ export default function CanvassMap({
       weatherAbortRef.current?.abort()
       if (weatherIdleTimerRef.current) {
         window.clearTimeout(weatherIdleTimerRef.current)
+      }
+    }
+  }, [])
+
+  // ---- Roof-age parcel layer (county year-built data) ----
+  const roofAgeEnabledRef = useRef(roofAgeEnabled)
+  roofAgeEnabledRef.current = roofAgeEnabled
+  const [roofAgeOn, setRoofAgeOn] = useState(() => readStoredRoofAgeOn())
+  const roofAgeOnRef = useRef(roofAgeOn)
+  const [roofAgeZoomHint, setRoofAgeZoomHint] = useState(false)
+  // County didn't publish year-built for this area (e.g. Cabarrus) — honest empty, not a bug.
+  const [roofAgeNoData, setRoofAgeNoData] = useState(false)
+  const [roofAgeLoadError, setRoofAgeLoadError] = useState(false)
+  const roofAgeDataRef = useRef<any>(null)
+  const roofAgeAbortRef = useRef<AbortController | null>(null)
+  const roofAgeFetchKeyRef = useRef<string | null>(null)
+  const roofAgeIdleTimerRef = useRef<number | null>(null)
+
+  const clearRoofAgeFeatures = useCallback(() => {
+    const data = roofAgeDataRef.current
+    if (!data) return
+    const features: any[] = []
+    data.forEach((feature: any) => features.push(feature))
+    features.forEach((feature) => data.remove(feature))
+  }, [])
+
+  const fetchRoofAge = useCallback(async () => {
+    if (!roofAgeEnabledRef.current || !roofAgeOnRef.current || !mapInstanceRef.current) return
+    const zoom = mapInstanceRef.current.getZoom()
+    if (zoom == null || zoom < MIN_ROOF_AGE_ZOOM) {
+      // Too far out for parcel dots — clear and show the "zoom in" hint on the pill.
+      roofAgeFetchKeyRef.current = null
+      clearRoofAgeFeatures()
+      setRoofAgeZoomHint(true)
+      setRoofAgeNoData(false)
+      setRoofAgeLoadError(false)
+      return
+    }
+    setRoofAgeZoomHint(false)
+    const bounds = mapInstanceRef.current.getBounds()
+    if (!bounds) return
+    const ne = bounds.getNorthEast()
+    const sw = bounds.getSouthWest()
+    const fetchKey = [
+      ne.lat().toFixed(3),
+      ne.lng().toFixed(3),
+      sw.lat().toFixed(3),
+      sw.lng().toFixed(3),
+    ].join('|')
+    if (roofAgeFetchKeyRef.current === fetchKey) return
+
+    roofAgeAbortRef.current?.abort()
+    const controller = new AbortController()
+    roofAgeAbortRef.current = controller
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000)
+    try {
+      const params = new URLSearchParams({
+        n: String(ne.lat()),
+        s: String(sw.lat()),
+        e: String(ne.lng()),
+        w: String(sw.lng()),
+      })
+      const response = await fetch(`/api/canvass/roof-age?${params.toString()}`, {
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new Error('roof-age fetch failed')
+      const payload = (await response.json()) as RoofAgeFeatureCollection
+      if (controller.signal.aborted) return
+      if (payload.degraded) {
+        // Match weather overlay: clear stale viewport data and surface retry on next idle.
+        roofAgeFetchKeyRef.current = null
+        clearRoofAgeFeatures()
+        setRoofAgeNoData(false)
+        setRoofAgeLoadError(true)
+        return
+      }
+      // Rep may have zoomed out or panned while the request was in flight.
+      if (!roofAgeEnabledRef.current || !roofAgeOnRef.current) return
+      const liveZoom = mapInstanceRef.current?.getZoom()
+      if (liveZoom == null || liveZoom < MIN_ROOF_AGE_ZOOM) return
+      const liveBounds = mapInstanceRef.current?.getBounds()
+      if (!liveBounds) return
+      const liveNe = liveBounds.getNorthEast()
+      const liveSw = liveBounds.getSouthWest()
+      const liveKey = [
+        liveNe.lat().toFixed(3),
+        liveNe.lng().toFixed(3),
+        liveSw.lat().toFixed(3),
+        liveSw.lng().toFixed(3),
+      ].join('|')
+      if (liveKey !== fetchKey) return
+
+      roofAgeFetchKeyRef.current = fetchKey
+      const data = roofAgeDataRef.current
+      if (!data) return
+      clearRoofAgeFeatures()
+      // One at a time so a single malformed point can't blank the layer.
+      for (const feature of payload.features) {
+        try {
+          data.addGeoJson({ type: 'FeatureCollection', features: [feature] })
+        } catch {
+          // drop this one feature, keep going
+        }
+      }
+      setRoofAgeNoData(payload.features.length === 0)
+      setRoofAgeLoadError(false)
+    } catch {
+      if (controller.signal.aborted) return
+      // Fail quiet (offline, timeout) — clear stale dots so reps don't knock off-map.
+      roofAgeFetchKeyRef.current = null
+      clearRoofAgeFeatures()
+      setRoofAgeNoData(false)
+      setRoofAgeLoadError(true)
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
+  }, [clearRoofAgeFeatures])
+  const fetchRoofAgeRef = useRef(fetchRoofAge)
+  fetchRoofAgeRef.current = fetchRoofAge
+
+  const handleRoofAgeToggle = useCallback(() => {
+    const next = !roofAgeOnRef.current
+    roofAgeOnRef.current = next
+    setRoofAgeOn(next)
+    storeRoofAgeOn(next)
+    if (next) {
+      void fetchRoofAgeRef.current()
+    } else {
+      roofAgeAbortRef.current?.abort()
+      roofAgeFetchKeyRef.current = null
+      clearRoofAgeFeatures()
+      setRoofAgeZoomHint(false)
+      setRoofAgeNoData(false)
+      setRoofAgeLoadError(false)
+    }
+  }, [clearRoofAgeFeatures])
+
+  useEffect(() => {
+    if (!roofAgeEnabled || !mapLoaded || !mapInstanceRef.current || roofAgeDataRef.current) {
+      return
+    }
+    roofAgeDataRef.current = new google.maps.Data({ map: mapInstanceRef.current })
+    roofAgeDataRef.current.setStyle(roofAgeFeatureStyle)
+    if (roofAgeOnRef.current) void fetchRoofAgeRef.current()
+  }, [mapLoaded, roofAgeEnabled])
+
+  useEffect(() => {
+    return () => {
+      roofAgeAbortRef.current?.abort()
+      if (roofAgeIdleTimerRef.current) {
+        window.clearTimeout(roofAgeIdleTimerRef.current)
       }
     }
   }, [])
@@ -813,6 +981,16 @@ export default function CanvassMap({
         const currentLayer = weatherLayerRef.current
         if (currentLayer === 'off') return
         void fetchWeatherForLayerRef.current(currentLayer)
+      }, 700)
+    })
+
+    // Roof-age layer follows the viewport the same way (debounced idle refetch).
+    mapInstanceRef.current.addListener('idle', () => {
+      if (!roofAgeEnabledRef.current || !roofAgeOnRef.current) return
+      if (roofAgeIdleTimerRef.current) window.clearTimeout(roofAgeIdleTimerRef.current)
+      roofAgeIdleTimerRef.current = window.setTimeout(() => {
+        roofAgeIdleTimerRef.current = null
+        void fetchRoofAgeRef.current()
       }, 700)
     })
 
@@ -1420,6 +1598,81 @@ export default function CanvassMap({
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Roof-age parcel layer control */}
+        {roofAgeEnabled && (
+          <div className="flex flex-col gap-1.5 items-start">
+            {roofAgeOn ? (
+              <>
+                <div className="bg-white rounded-full shadow-lg flex items-center h-12 pl-1 pr-1">
+                  <div className="flex items-center gap-1.5 h-10 pl-2 pr-1.5">
+                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                      />
+                    </svg>
+                    <span className="text-xs font-bold uppercase tracking-wide text-[#2c2c2a]">
+                      Roof age
+                    </span>
+                    {roofAgeZoomHint ? (
+                      <span className="text-[11px] font-semibold text-gray-500">· zoom in</span>
+                    ) : roofAgeLoadError ? (
+                      <span className="text-[11px] font-semibold text-gray-500">· couldn&apos;t load</span>
+                    ) : roofAgeNoData ? (
+                      <span className="text-[11px] font-semibold text-gray-500">· no data here</span>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRoofAgeToggle}
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-gray-500 active:bg-gray-100"
+                    aria-label="Turn roof age layer off"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                {!roofAgeZoomHint && (
+                  <div className="bg-white rounded-xl shadow-lg px-3 py-2 space-y-1 text-[11px] leading-tight text-[#2c2c2a]">
+                    {ROOF_AGE_LEGEND.map((item) => (
+                      <div key={item.label} className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-[2px] flex-shrink-0"
+                          style={{
+                            backgroundColor: item.fill,
+                            boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 1.5px #FFFFFF',
+                          }}
+                        />
+                        <span>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleRoofAgeToggle}
+                className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+                title="Roof age"
+                aria-label="Show roof age layer"
+              >
+                <svg className="w-6 h-6 text-[#2c2c2a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
                   />
                 </svg>
               </button>

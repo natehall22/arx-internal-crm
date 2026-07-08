@@ -120,24 +120,28 @@ function hailBucket(magnitude: number): StyleBucket {
   // sunlit screen even when hue discrimination fails. Warm hues sit far from the
   // green/blue of satellite imagery so swaths stay visible over rooftops & grass.
   // Stroke weight escalates with severity as a second, colorblind-proof channel.
+  // Strokes are HEAVY (3px+) on purpose: MESH swath cells are ~1km, so at field
+  // zoom (16–18) the boundary line is often the ONLY perceivable part of the
+  // polygon — the fill covers the whole screen as a uniform tint. A hairline
+  // stroke made swaths read as "transparent" on phones (field-verified Jul 2026).
   if (magnitude >= 2.5) {
     // tennis ball+ — darkest, heaviest edge: the "go here first" band
-    return { fill: '#7F1D6F', fillOpacity: 0.42, stroke: '#4A0E40', strokeOpacity: 0.95, strokeWeight: 2.5 }
+    return { fill: '#7F1D6F', fillOpacity: 0.42, stroke: '#4A0E40', strokeOpacity: 1, strokeWeight: 4 }
   }
   if (magnitude >= 1.75) {
     // golf ball+ — deep red
-    return { fill: '#B91C1C', fillOpacity: 0.42, stroke: '#7F1D1D', strokeOpacity: 0.95, strokeWeight: 2.25 }
+    return { fill: '#B91C1C', fillOpacity: 0.42, stroke: '#7F1D1D', strokeOpacity: 1, strokeWeight: 3.75 }
   }
   if (magnitude >= 1.25) {
     // half-dollar → golf ball — orange-red
-    return { fill: '#EA580C', fillOpacity: 0.4, stroke: '#9A3412', strokeOpacity: 0.9, strokeWeight: 2 }
+    return { fill: '#EA580C', fillOpacity: 0.4, stroke: '#9A3412', strokeOpacity: 0.95, strokeWeight: 3.5 }
   }
   if (magnitude >= 1.0) {
     // quarter → half-dollar — orange (the ~1" functional-damage line)
-    return { fill: '#F59E0B', fillOpacity: 0.38, stroke: '#B45309', strokeOpacity: 0.9, strokeWeight: 1.75 }
+    return { fill: '#F59E0B', fillOpacity: 0.38, stroke: '#B45309', strokeOpacity: 0.95, strokeWeight: 3.25 }
   }
   // penny → quarter — amber-yellow, kept warm so it doesn't read as foliage
-  return { fill: '#FACC15', fillOpacity: 0.36, stroke: '#A16207', strokeOpacity: 0.85, strokeWeight: 1.5 }
+  return { fill: '#FACC15', fillOpacity: 0.36, stroke: '#A16207', strokeOpacity: 0.95, strokeWeight: 3 }
 }
 
 function windBucket(magnitude: number): StyleBucket {
@@ -339,6 +343,10 @@ function hailSizeLabel(inches: number) {
 export function summarizeViewport(
   layer: Exclude<WeatherLayer, 'off'>,
   features: WeatherFeature[],
+  /** Map center — when it sits INSIDE a swath the strip says so explicitly. At
+   * field zoom a swath fills the whole viewport as a uniform tint with no edge
+   * in view, so the strip is the only way the rep can tell they're standing in it. */
+  center?: { lat: number; lng: number },
 ): { text: string; empty: boolean; offline?: boolean; dateLabel?: string } {
   const warnings = features.filter((f) => f.properties.kind === 'warning')
   if (warnings.length > 0) {
@@ -363,6 +371,31 @@ export function summarizeViewport(
     }))
 
   if (layer === 'hail') {
+    if (center) {
+      const containing = features
+        .filter(
+          (f) =>
+            f.properties.kind === 'swath' &&
+            geometryContainsPoint(f.geometry, center.lat, center.lng),
+        )
+        .map((f) => ({
+          magnitude: Number(f.properties.magnitude || 0),
+          date: String(f.properties.date || ''),
+        }))
+        .filter((s) => s.magnitude > 0)
+      if (containing.length) {
+        const worst = containing.reduce(
+          (best, s) => (s.magnitude > best.magnitude ? s : best),
+          containing[0],
+        )
+        const dateLabel = formatShortDate(worst.date)
+        return {
+          text: `Inside est. ${worst.magnitude.toFixed(1)}″ hail swath · ${dateLabel}`,
+          empty: false,
+          dateLabel,
+        }
+      }
+    }
     const swaths = features
       .filter((f) => f.properties.kind === 'swath')
       .map((f) => ({

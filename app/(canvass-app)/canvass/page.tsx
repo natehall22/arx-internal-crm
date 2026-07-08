@@ -102,6 +102,7 @@ export default function CanvassPage() {
   const [weatherContext, setWeatherContext] = useState<WeatherContext | null>(null)
   const [peekLocation, setPeekLocation] = useState<{ lat: number; lng: number } | null>(null)
   const weatherOverlayEnabled = process.env.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY === 'true'
+  const roofAgeEnabled = process.env.NEXT_PUBLIC_CANVASS_ROOF_AGE === 'true'
 
   const peekSummary = useMemo(() => {
     if (!peekLocation) return null
@@ -666,6 +667,7 @@ export default function CanvassPage() {
             assignedTerritories={assignedTerritories}
             weatherOverlayEnabled={weatherOverlayEnabled}
             onWeatherContextChange={setWeatherContext}
+            roofAgeEnabled={roofAgeEnabled}
           />
         ) : (
           <div className="h-full overflow-y-auto p-4 pb-24">

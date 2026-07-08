@@ -293,18 +293,6 @@ export default async function AdminPage() {
       ),
     },
     {
-      title: 'RoofRadar',
-      description: 'Field lead intelligence with listing, roof age, storm exposure, and route-export signals',
-      href: '/admin/roofradar',
-      accent: 'orange',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 11.5a2.5 2.5 0 115 0c0 2-2.5 4.5-2.5 4.5S12 13.5 12 11.5z" />
-        </svg>
-      ),
-    },
-    {
       title: 'Print Kit',
       description: 'Door drop kit, appointment cards, and field marketing print tools',
       href: '/admin/print-kit',

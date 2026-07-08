@@ -4,12 +4,16 @@
  */
 export function getSupabaseSessionFromCookieStore(cookieStore: {
   getAll: () => { name: string; value: string }[]
-}): { access_token?: string } | null {
+}): { access_token?: string; refresh_token?: string; expires_at?: number } | null {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
   const cookieName = `sb-${projectRef}-auth-token`
 
-  let sessionData: { access_token?: string } | null = null
+  let sessionData: {
+    access_token?: string
+    refresh_token?: string
+    expires_at?: number
+  } | null = null
   const allCookies = cookieStore.getAll()
   const singleCookie = allCookies.find((c) => c.name === cookieName)
 

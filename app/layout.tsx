@@ -4,6 +4,7 @@ import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import AppointmentFeedbackPrompt from '@/components/AppointmentFeedbackPrompt'
 import SetterFeedbackPrompt from '@/components/SetterFeedbackPrompt'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
+import SessionKeepalive from '@/components/SessionKeepalive'
 
 export const metadata: Metadata = {
   title: 'ARX Internal CRM',
@@ -47,6 +48,7 @@ export default function RootLayout({
       <body className="overscroll-none">
         {children}
         <ServiceWorkerRegistration />
+        <SessionKeepalive />
         <AppointmentFeedbackPrompt />
         <SetterFeedbackPrompt />
         <AIAssistantWrapper context={{ type: 'general' }} />
