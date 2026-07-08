@@ -73,7 +73,7 @@ interface TeamMemberStat {
   efficiency: string
 }
 
-type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all'
+type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all' | 'custom'
 
 interface AttachedSale {
   id: string
@@ -274,7 +274,7 @@ function AttachedSalesTracker({ timeFrame }: { timeFrame: TimeFrame }) {
 }
 
 /** Dashboard goal fields in settings are weekly; scale for day/month/quarter/year views. */
-function scaledGoalFromWeekly(weeklyGoal: number, tf: TimeFrame): number {
+function scaledGoalFromWeekly(weeklyGoal: number, tf: TimeFrame, customDays?: number): number {
   const w = Math.max(0, Number(weeklyGoal) || 0)
   const atLeast1 = (n: number) => (n < 1 ? 1 : Math.round(n))
   switch (tf) {
@@ -292,9 +292,28 @@ function scaledGoalFromWeekly(weeklyGoal: number, tf: TimeFrame): number {
     case 'year':
     case 'all':
       return atLeast1(w * 52)
+    case 'custom':
+      return atLeast1(w * ((customDays && customDays > 0 ? customDays : 7) / 7))
     default:
       return atLeast1(w)
   }
+}
+
+/** Local-calendar-day count between two 'YYYY-MM-DD' strings, inclusive of both ends. */
+function daysBetweenInclusive(startDateStr: string, endDateStr: string): number {
+  const [sy, sm, sd] = startDateStr.split('-').map(Number)
+  const [ey, em, ed] = endDateStr.split('-').map(Number)
+  const start = Date.UTC(sy, (sm || 1) - 1, sd || 1)
+  const end = Date.UTC(ey, (em || 1) - 1, ed || 1)
+  return Math.abs(Math.round((end - start) / 86400000)) + 1
+}
+
+function formatShortDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 interface DashboardClientProps {
@@ -504,6 +523,8 @@ export default function DashboardClient({
   const [customReports, setCustomReports] = useState<any[]>([])
   const [reportData, setReportData] = useState<Record<string, any[]>>({})
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('week')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
   const [filteredSetterStats, setFilteredSetterStats] = useState<TeamMemberStat[]>(setterTeamStats)
   const [filteredCloserStats, setFilteredCloserStats] = useState<TeamMemberStat[]>(closerTeamStats)
   const [teamMemberCount, setTeamMemberCount] = useState(
@@ -591,6 +612,9 @@ export default function DashboardClient({
 
   const loadTeamStatsForTimeFrame = useCallback(
     async (options?: { showLoadingIndicators?: boolean }) => {
+      if (timeFrame === 'custom' && (!customStartDate || !customEndDate)) {
+        return // wait for the user to pick both ends of the custom range
+      }
       const showLoading = options?.showLoadingIndicators !== false
       if (showLoading) {
         setLoadingStats(true)
@@ -598,9 +622,13 @@ export default function DashboardClient({
       }
       try {
         const tfParam = encodeURIComponent(timeFrame)
+        const rangeParams =
+          timeFrame === 'custom'
+            ? `&startDate=${encodeURIComponent(customStartDate)}&endDate=${encodeURIComponent(customEndDate)}`
+            : ''
         const [teamRes, personalRes] = await Promise.all([
-          fetch(`/api/dashboard/team-stats?timeframe=${tfParam}`),
-          fetch(`/api/dashboard/personal-stats?timeframe=${tfParam}`),
+          fetch(`/api/dashboard/team-stats?timeframe=${tfParam}${rangeParams}`),
+          fetch(`/api/dashboard/personal-stats?timeframe=${tfParam}${rangeParams}`),
         ])
         if (teamRes.ok) {
           const data = await teamRes.json()
@@ -638,10 +666,13 @@ export default function DashboardClient({
         }
       }
     },
-    [timeFrame]
+    [timeFrame, customStartDate, customEndDate]
   )
 
   useEffect(() => {
+    if (timeFrame === 'custom' && (!customStartDate || !customEndDate)) {
+      return // wait for the user to pick both ends of the custom range
+    }
     const isFirstFetch = initialTimeframeFetchRef.current
     if (isFirstFetch) {
       initialTimeframeFetchRef.current = false
@@ -650,7 +681,10 @@ export default function DashboardClient({
       return
     }
     void loadTeamStatsForTimeFrame({ showLoadingIndicators: true })
-  }, [timeFrame, loadTeamStatsForTimeFrame])
+  }, [timeFrame, customStartDate, customEndDate, loadTeamStatsForTimeFrame])
+
+  const customRangeDays =
+    customStartDate && customEndDate ? daysBetweenInclusive(customStartDate, customEndDate) : 0
 
   const timeFrameLabel: Record<TimeFrame, string> = {
     today: 'today',
@@ -662,6 +696,10 @@ export default function DashboardClient({
     quarter: 'this quarter',
     year: 'this year',
     all: 'all time',
+    custom:
+      customStartDate && customEndDate
+        ? `${formatShortDate(customStartDate)} – ${formatShortDate(customEndDate)}`
+        : 'custom range',
   }
 
   /** Progress bars track the same period as the KPI cards (personal-stats API). Goals are weekly in settings, scaled to the selected range. */
@@ -672,22 +710,22 @@ export default function DashboardClient({
     return {
       doors_knocked: {
         current: personalStats.doorsKnocked,
-        goal: scaledGoalFromWeekly(g.doors_knocked ?? 100, tf),
+        goal: scaledGoalFromWeekly(g.doors_knocked ?? 100, tf, customRangeDays),
       },
       contacts: {
         current: personalStats.contacts,
-        goal: scaledGoalFromWeekly(weeklyContactGoal, tf),
+        goal: scaledGoalFromWeekly(weeklyContactGoal, tf, customRangeDays),
       },
       inspections: {
         current: personalStats.inspectionsSet,
-        goal: scaledGoalFromWeekly(g.inspections ?? 20, tf),
+        goal: scaledGoalFromWeekly(g.inspections ?? 20, tf, customRangeDays),
       },
       sales: {
         current: personalStats.sales,
-        goal: scaledGoalFromWeekly(g.sales ?? 5, tf),
+        goal: scaledGoalFromWeekly(g.sales ?? 5, tf, customRangeDays),
       },
     }
-  }, [personalStats, timeFrame, settings])
+  }, [personalStats, timeFrame, settings, customRangeDays])
 
   const isManager =
     profile.role === 'admin' ||
@@ -1015,7 +1053,7 @@ export default function DashboardClient({
               </a>
             )}
           </div>
-          <div className="flex items-center gap-3 self-start sm:self-auto">
+          <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
             <select
               value={timeFrame}
               onChange={(e) => setTimeFrame(e.target.value as TimeFrame)}
@@ -1030,7 +1068,29 @@ export default function DashboardClient({
               <option value="quarter">This Quarter</option>
               <option value="year">This Year</option>
               <option value="all">All Time</option>
+              <option value="custom">Custom Range</option>
             </select>
+            {timeFrame === 'custom' && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={customStartDate}
+                  max={customEndDate || undefined}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  aria-label="Custom range start date"
+                  className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                />
+                <span className="text-gray-400 text-sm">to</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  min={customStartDate || undefined}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  aria-label="Custom range end date"
+                  className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            )}
             {(profile.role === 'admin' || profile.role === 'regional_manager') && (
               <Link
                 href="/admin/dashboard-settings"

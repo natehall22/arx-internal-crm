@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import { getDateRangeForTimeFrame, getCustomDateRange } from '@/lib/date-ranges'
 import {
   getSitOutcomeNormalizedIdSet,
   type InspectionOutcomeConfigRow,
@@ -32,7 +32,12 @@ export async function GET(request: NextRequest) {
     const supabase = createServiceClient()
 
     const timeframe = request.nextUrl.searchParams.get('timeframe') || 'week'
-    const { start, end } = getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
+    const customStartDate = request.nextUrl.searchParams.get('startDate')
+    const customEndDate = request.nextUrl.searchParams.get('endDate')
+    const { start, end } =
+      timeframe === 'custom' && customStartDate && customEndDate
+        ? getCustomDateRange(customStartDate, customEndDate, TIMEZONE)
+        : getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
 
     const isSetter = isSetterLikeRole(profile.role)
     const orgWideKpis = isDashboardPersonalKpiOrgWide(profile.role)

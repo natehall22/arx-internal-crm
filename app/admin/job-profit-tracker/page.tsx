@@ -68,6 +68,12 @@ function moneyValue(value: number | string | null | undefined): number {
   return 0
 }
 
+function hasMoneyValue(value: number | string | null | undefined): boolean {
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (typeof value === 'string') return value.trim() !== '' && Number.isFinite(Number(value))
+  return false
+}
+
 function formatMoney(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -311,10 +317,12 @@ export default async function AdminJobProfitTrackerPage({
     const misc = costLines
       .filter((line) => !['material', 'labor', 'subcontractor'].includes(String(line.cost_type || '')))
       .reduce((sum, line) => sum + moneyValue(line.amount), 0)
-    const materials = materialOrdersByJob.has(job.id)
-      ? materialOrdersByJob.get(job.id) || 0
-      : moneyValue(job.material_cost) || materialLines
-    const labor = moneyValue(job.labor_cost) || laborLines
+    const materials = hasMoneyValue(job.material_cost)
+      ? moneyValue(job.material_cost)
+      : materialOrdersByJob.has(job.id)
+        ? materialOrdersByJob.get(job.id) || 0
+        : materialLines
+    const labor = hasMoneyValue(job.labor_cost) ? moneyValue(job.labor_cost) : laborLines
     const totalExpenses = materials + labor + misc
     const setterCommission = commissionableAmount * 0.05
     const closerCommission = commissionableAmount * 0.07

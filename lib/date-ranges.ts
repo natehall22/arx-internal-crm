@@ -144,6 +144,33 @@ export function getDateRangeForTimeFrame(
 }
 
 /**
+ * Get a date range from explicit start/end calendar dates (e.g. 'YYYY-MM-DD' from a
+ * date input), inclusive of the end date. Used for the dashboard's "Custom Range" picker.
+ */
+export function getCustomDateRange(
+  startDateStr: string,
+  endDateStr: string,
+  timezone: string = DEFAULT_TIMEZONE
+): DateRange {
+  const parseLocalDate = (s: string): Date => {
+    const [y, m, d] = s.split('-').map(Number)
+    return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0)
+  }
+
+  // Swap if the end date is before the start date so the range is never empty/inverted.
+  const [earlier, later] =
+    startDateStr <= endDateStr ? [startDateStr, endDateStr] : [endDateStr, startDateStr]
+
+  const startLocal = startOfDay(parseLocalDate(earlier))
+  const endLocal = addDays(startOfDay(parseLocalDate(later)), 1) // exclusive end = day after the selected end date
+
+  return {
+    start: fromZonedTime(startLocal, timezone),
+    end: fromZonedTime(endLocal, timezone),
+  }
+}
+
+/**
  * Get date range with debug information included in the return value.
  */
 export function getDateRangeWithDebug(

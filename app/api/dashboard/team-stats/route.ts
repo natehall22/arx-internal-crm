@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getDateRangeForTimeFrame, getDateRangeWithDebug } from '@/lib/date-ranges'
+import { getDateRangeForTimeFrame, getDateRangeWithDebug, getCustomDateRange } from '@/lib/date-ranges'
 import {
   getSitOutcomeNormalizedIdSet,
   type InspectionOutcomeConfigRow,
@@ -138,10 +138,15 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('timeframe') || 'week'
+    const customStartDate = searchParams.get('startDate')
+    const customEndDate = searchParams.get('endDate')
     const debug = searchParams.get('debug') === '1'
-    const dateRange = debug 
-      ? getDateRangeWithDebug(timeframe, TIMEZONE)
-      : getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
+    const dateRange =
+      timeframe === 'custom' && customStartDate && customEndDate
+        ? getCustomDateRange(customStartDate, customEndDate, TIMEZONE)
+        : debug
+          ? getDateRangeWithDebug(timeframe, TIMEZONE)
+          : getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
     const { start, end } = dateRange
     
     // Debug logging for date range issues
