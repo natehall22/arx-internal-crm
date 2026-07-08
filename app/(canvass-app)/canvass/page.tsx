@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { matchesCanvassDispositionFilter } from '@/lib/canvass-pin-filter'
 import { CanvassTerritoriesEditor } from '@/components/canvass-territories/CanvassTerritoriesEditor'
@@ -171,12 +171,44 @@ export default function CanvassPage() {
     }
   }, [])
 
+  const swReloadGuard = useRef(false)
+
   useEffect(() => {
     loadData()
 
-    // Register service worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/canvass-sw.js').catch(console.error)
+    if (!('serviceWorker' in navigator)) return
+
+    const onControllerChange = () => {
+      if (swReloadGuard.current) return
+      swReloadGuard.current = true
+      window.location.reload()
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
+
+    navigator.serviceWorker.register('/canvass-sw.js').then((registration) => {
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing
+        if (!newWorker) return
+
+        newWorker.addEventListener('statechange', () => {
+          if (
+            newWorker.state === 'installed' &&
+            navigator.serviceWorker.controller &&
+            registration.waiting
+          ) {
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+          }
+        })
+      })
+
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+      }
+    }).catch(console.error)
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
     }
   }, [])
 

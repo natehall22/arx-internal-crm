@@ -5,6 +5,11 @@ import { useEffect } from 'react'
 export default function ServiceWorkerRegistration() {
   useEffect(() => {
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+      // Canvass registers its own SW; dual registration lets sw.js cache stale chunks
+      if (window.location.pathname.startsWith('/canvass')) {
+        return
+      }
+
       const registerServiceWorker = async () => {
         try {
           const registration = await navigator.serviceWorker.register('/sw.js')

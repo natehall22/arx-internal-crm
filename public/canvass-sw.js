@@ -1,4 +1,4 @@
-const CACHE_NAME = 'canvass-v1';
+const CACHE_NAME = 'canvass-v2';
 const OFFLINE_URL = '/canvass/offline';
 
 // Assets to cache immediately on install
@@ -74,6 +74,12 @@ self.addEventListener('fetch', (event) => {
           });
         })
     );
+    return;
+  }
+
+  // Hashed Next.js chunks — always network (Vercel CDN); never cache-first
+  if (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/_next/image/')) {
+    event.respondWith(fetch(request));
     return;
   }
 
@@ -154,6 +160,13 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'Canvass', options)
   );
+});
+
+// Listen for skip-waiting from the canvass page after deploy
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Notification click handler

@@ -1,7 +1,7 @@
 // ARX CRM Service Worker - Offline Support for Canvassing
-const CACHE_NAME = 'arx-crm-v1'
-const STATIC_CACHE = 'arx-static-v1'
-const MAP_TILE_CACHE = 'arx-map-tiles-v1'
+const CACHE_NAME = 'arx-crm-v2'
+const STATIC_CACHE = 'arx-static-v2'
+const MAP_TILE_CACHE = 'arx-map-tiles-v2'
 
 // Static assets to cache immediately
 const STATIC_ASSETS = [
@@ -89,6 +89,12 @@ self.addEventListener('fetch', (event) => {
     return
   }
   
+  // Hashed Next.js chunks — always network (Vercel CDN); never cache-first
+  if (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/_next/image/')) {
+    event.respondWith(fetch(event.request))
+    return
+  }
+
   // Handle page navigation - network first with cache fallback
   if (event.request.mode === 'navigate') {
     event.respondWith(
