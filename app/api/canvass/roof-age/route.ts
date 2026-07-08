@@ -37,6 +37,8 @@ const DEFAULT_ARCGIS_URL =
 
 type Bbox = { n: number; s: number; e: number; w: number }
 
+type RoofAgeEmptyReason = 'county_gaps' | 'all_too_new' | 'no_parcels'
+
 type RoofAgeResponse = {
   type: 'FeatureCollection'
   features: Array<{
@@ -45,6 +47,8 @@ type RoofAgeResponse = {
     properties: { yearBuilt: number; roofAge: number }
   }>
   degraded?: boolean
+  emptyReason?: RoofAgeEmptyReason
+  county?: string
 }
 
 const responseCache = new Map<string, { expiresAt: number; body: RoofAgeResponse }>()
@@ -149,6 +153,62 @@ async function fetchParcelFeatures(
   return { features: out, exceededLimit }
 }
 
+/** When the year-filtered pull is empty, sample raw parcels to explain why. */
+async function diagnoseEmptyBbox(
+  bbox: Bbox,
+): Promise<{ emptyReason: RoofAgeEmptyReason; county?: string }> {
+  const arcgisUrl = process.env.CANVASS_PARCEL_ARCGIS_URL || DEFAULT_ARCGIS_URL
+  const yearField = process.env.CANVASS_PARCEL_YEAR_FIELD || 'structyear'
+  const currentYear = new Date().getFullYear()
+  const params = new URLSearchParams({
+    where: '1=1',
+    geometry: JSON.stringify({
+      xmin: bbox.w,
+      ymin: bbox.s,
+      xmax: bbox.e,
+      ymax: bbox.n,
+      spatialReference: { wkid: 4326 },
+    }),
+    geometryType: 'esriGeometryEnvelope',
+    inSR: '4326',
+    outSR: '4326',
+    spatialRel: 'esriSpatialRelIntersects',
+    outFields: `cntyname,${yearField}`,
+    returnGeometry: 'false',
+    resultRecordCount: '25',
+    f: 'json',
+  })
+
+  const res = await fetch(`${arcgisUrl}?${params.toString()}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  })
+  if (!res.ok) return { emptyReason: 'no_parcels' }
+  const data = await res.json().catch(() => null)
+  if (!data || data.error || !Array.isArray(data.features) || data.features.length === 0) {
+    return { emptyReason: 'no_parcels' }
+  }
+
+  const county =
+    String(data.features[0]?.attributes?.cntyname ?? '').trim() || undefined
+  let hasValidYear = false
+  let hasKnockWorthyAge = false
+
+  for (const raw of data.features) {
+    const yearBuilt = Number(String(raw.attributes?.[yearField] ?? '').trim())
+    if (!Number.isFinite(yearBuilt) || yearBuilt < 1800 || yearBuilt > currentYear) continue
+    hasValidYear = true
+    if (currentYear - yearBuilt >= MIN_ROOF_AGE_YEARS) {
+      hasKnockWorthyAge = true
+      break
+    }
+  }
+
+  if (!hasValidYear) return { emptyReason: 'county_gaps', county }
+  if (!hasKnockWorthyAge) return { emptyReason: 'all_too_new', county }
+  return { emptyReason: 'no_parcels', county }
+}
+
 export async function GET(request: NextRequest) {
   try {
     await requireAuthApi()
@@ -179,6 +239,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ type: 'FeatureCollection', features: [], degraded: true })
     }
     const body: RoofAgeResponse = { type: 'FeatureCollection', features: result.features }
+    if (result.features.length === 0) {
+      const diagnosis = await diagnoseEmptyBbox(bbox)
+      body.emptyReason = diagnosis.emptyReason
+      if (diagnosis.county) body.county = diagnosis.county
+    }
     if (responseCache.size > 300) {
       const now = Date.now()
       responseCache.forEach((val, key) => {

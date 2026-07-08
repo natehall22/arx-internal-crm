@@ -16,10 +16,17 @@ export type RoofAgeFeature = {
   }
 }
 
+/** Why a successful fetch returned zero knock-worthy markers. */
+export type RoofAgeEmptyReason = 'county_gaps' | 'all_too_new' | 'no_parcels'
+
 export type RoofAgeFeatureCollection = {
   type: 'FeatureCollection'
   features: RoofAgeFeature[]
   degraded?: boolean
+  /** Set when features is empty and the provider responded normally. */
+  emptyReason?: RoofAgeEmptyReason
+  /** County name from NC OneMap when emptyReason is county_gaps. */
+  county?: string
 }
 
 /** Parcels only render at street zoom — a whole-town pull would be thousands of dots. */

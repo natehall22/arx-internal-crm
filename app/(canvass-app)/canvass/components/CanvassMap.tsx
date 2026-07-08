@@ -36,6 +36,7 @@ import {
   roofAgeMarkerRadiusMeters,
   storeRoofAgeOn,
   type RoofAgeFeatureCollection,
+  type RoofAgeEmptyReason,
 } from '../lib/roof-age-overlay'
 
 export type { WeatherContext }
@@ -774,6 +775,8 @@ export default function CanvassMap({
   const [roofAgeZoomHint, setRoofAgeZoomHint] = useState(false)
   // County didn't publish year-built for this area (e.g. Cabarrus) — honest empty, not a bug.
   const [roofAgeNoData, setRoofAgeNoData] = useState(false)
+  const [roofAgeEmptyReason, setRoofAgeEmptyReason] = useState<RoofAgeEmptyReason | null>(null)
+  const [roofAgeEmptyCounty, setRoofAgeEmptyCounty] = useState<string | null>(null)
   const [roofAgeLoadError, setRoofAgeLoadError] = useState(false)
   // google.maps.Circle markers — Data-layer SVG symbols fail on iOS Safari (Jul 2026).
   const roofAgeCirclesRef = useRef<any[]>([])
@@ -828,6 +831,8 @@ export default function CanvassMap({
       clearRoofAgeCircles()
       setRoofAgeZoomHint(true)
       setRoofAgeNoData(false)
+      setRoofAgeEmptyReason(null)
+      setRoofAgeEmptyCounty(null)
       setRoofAgeLoadError(false)
       return
     }
@@ -866,6 +871,8 @@ export default function CanvassMap({
         roofAgeFetchKeyRef.current = null
         clearRoofAgeCircles()
         setRoofAgeNoData(false)
+        setRoofAgeEmptyReason(null)
+        setRoofAgeEmptyCounty(null)
         setRoofAgeLoadError(true)
         return
       }
@@ -888,6 +895,8 @@ export default function CanvassMap({
       roofAgeFetchKeyRef.current = fetchKey
       paintRoofAgeCollection(payload)
       setRoofAgeNoData(payload.features.length === 0)
+      setRoofAgeEmptyReason(payload.features.length === 0 ? payload.emptyReason ?? null : null)
+      setRoofAgeEmptyCounty(payload.features.length === 0 ? payload.county ?? null : null)
       setRoofAgeLoadError(false)
     } catch {
       if (controller.signal.aborted) return
@@ -895,6 +904,8 @@ export default function CanvassMap({
       roofAgeFetchKeyRef.current = null
       clearRoofAgeCircles()
       setRoofAgeNoData(false)
+      setRoofAgeEmptyReason(null)
+      setRoofAgeEmptyCounty(null)
       setRoofAgeLoadError(true)
     } finally {
       window.clearTimeout(timeoutId)
@@ -916,6 +927,8 @@ export default function CanvassMap({
       clearRoofAgeCircles()
       setRoofAgeZoomHint(false)
       setRoofAgeNoData(false)
+      setRoofAgeEmptyReason(null)
+      setRoofAgeEmptyCounty(null)
       setRoofAgeLoadError(false)
     }
   }, [clearRoofAgeCircles])
@@ -1704,7 +1717,13 @@ export default function CanvassMap({
                     ) : roofAgeLoadError ? (
                       <span className="text-[11px] font-semibold text-gray-500">· couldn&apos;t load</span>
                     ) : roofAgeNoData ? (
-                      <span className="text-[11px] font-semibold text-gray-500">· no data here</span>
+                      <span className="text-[11px] font-semibold text-gray-500">
+                        {roofAgeEmptyReason === 'county_gaps'
+                          ? `· no year-built data${roofAgeEmptyCounty ? ` (${roofAgeEmptyCounty})` : ''}`
+                          : roofAgeEmptyReason === 'all_too_new'
+                            ? '· all homes ≤10 yrs'
+                            : '· no data here'}
+                      </span>
                     ) : null}
                   </div>
                   <button
