@@ -25,6 +25,7 @@ import {
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
+import { countsAsInspectionSet } from '@/lib/inspection-set-metrics'
 import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
@@ -211,7 +212,7 @@ export default async function DashboardPage() {
   // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
   const { data: allAppointments } = await supabase
     .from('scheduled_appointments')
-    .select('id, canvasser_user_id, closer_user_id, lead_id, created_at')
+    .select('id, canvasser_user_id, closer_user_id, lead_id, created_at, appointment_type, status')
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())
@@ -381,8 +382,8 @@ export default async function DashboardPage() {
         const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
 
         // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
-        const memberAppointments = (allAppointments || []).filter(a =>
-          a.canvasser_user_id === member.id
+        const memberAppointments = (allAppointments || []).filter(
+          (a) => a.canvasser_user_id === member.id && countsAsInspectionSet(a)
         )
         const inspectionsSet = memberAppointments.length
         const inspectionsReceived = (allAppointments || []).filter(
@@ -468,8 +469,12 @@ export default async function DashboardPage() {
   
   // Inspections set - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
   // Filter by user role for non-admins
-  const thisWeekAppointments = (allAppointments || []).filter(a => 
-    isAdmin || a.canvasser_user_id === profile.id || teamMemberIds.includes(a.canvasser_user_id || '')
+  const thisWeekAppointments = (allAppointments || []).filter(
+    (a) =>
+      countsAsInspectionSet(a) &&
+      (isAdmin ||
+        a.canvasser_user_id === profile.id ||
+        teamMemberIds.includes(a.canvasser_user_id || ''))
   )
   const inspectionsSet = thisWeekAppointments.length
   

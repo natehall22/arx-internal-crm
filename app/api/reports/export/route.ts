@@ -12,6 +12,7 @@ import {
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { countsAsInspectionSet } from '@/lib/inspection-set-metrics'
 import { canExportReportsFromPermissionNames } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -117,7 +118,11 @@ type ExportOppRow = {
 
 type ExportProjectRow = { status?: string | null }
 
-type ExportApptRow = { canvasser_user_id?: string | null }
+type ExportApptRow = {
+  canvasser_user_id?: string | null
+  appointment_type?: string | null
+  status?: string | null
+}
 
 type ExportTeamRow = { id: string; name?: string | null; region_id?: string | null }
 
@@ -204,7 +209,10 @@ export async function GET(request: NextRequest) {
         endIso,
       ),
       withDateColumn(
-        supabase.from('scheduled_appointments').select('id, canvasser_user_id').eq('org_id', profile.org_id),
+        supabase
+          .from('scheduled_appointments')
+          .select('id, canvasser_user_id, appointment_type, status')
+          .eq('org_id', profile.org_id),
         'created_at',
         startIso,
         endIso,
@@ -223,7 +231,7 @@ export async function GET(request: NextRequest) {
     const users = (usersRes.data || []) as ExportUserRow[]
     const leads = (leadsRes.data || []) as CanvassMetricsLeadRow[]
     const opps = (oppsRes.data || []) as ExportOppRow[]
-    const appointments = (appointmentsRes.data || []) as ExportApptRow[]
+    const appointments = ((appointmentsRes.data || []) as ExportApptRow[]).filter(countsAsInspectionSet)
     const projects = (projectsRes.data || []) as ExportProjectRow[]
     const regions = (regionsRes.data || []) as ExportRegionRow[]
     const teams = (teamsRes.data || []) as ExportTeamRow[]

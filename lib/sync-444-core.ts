@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import {
+  countsAsInspectionSet,
+  INSPECTION_SET_APPOINTMENT_TYPE_OR,
+} from '@/lib/inspection-set-metrics'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,6 +37,8 @@ type LeadRow = {
 type AppointmentRow = {
   canvasser_user_id: string | null
   created_at: string
+  appointment_type?: string | null
+  status?: string | null
 }
 
 type PayrollPeriodRow = {
@@ -134,6 +140,7 @@ function countAppointments(
   const start = new Date(startsAt).getTime()
   const end = new Date(endsAt).getTime()
   return appointments.filter((a) => {
+    if (!countsAsInspectionSet(a)) return false
     const ts = new Date(a.created_at).getTime()
     return ts >= start && ts < end  // exclusive end — matches stored exclusive boundary
   }).length
@@ -162,7 +169,7 @@ export function computeEnrollmentCounts(
 
   const appointmentsByUser = new Map<string, AppointmentRow[]>()
   for (const a of appointments) {
-    if (!a.canvasser_user_id) continue
+    if (!a.canvasser_user_id || !countsAsInspectionSet(a)) continue
     const arr = appointmentsByUser.get(a.canvasser_user_id) ?? []
     arr.push(a)
     appointmentsByUser.set(a.canvasser_user_id, arr)
@@ -206,10 +213,12 @@ export async function fetchEnrollmentCounts(
       .lt('created_at', rangeEnd),    // exclusive end — matches stored exclusive boundary
     admin
       .from('scheduled_appointments')
-      .select('canvasser_user_id, created_at')
+      .select('canvasser_user_id, created_at, appointment_type, status')
       .eq('org_id', orgId)
       .gte('created_at', rangeStart)
-      .lt('created_at', rangeEnd),    // exclusive end
+      .lt('created_at', rangeEnd) // exclusive end
+      .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+      .neq('status', 'cancelled'),
   ])
 
   if (leadsResult.error) throw new Error(leadsResult.error.message)

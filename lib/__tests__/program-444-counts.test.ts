@@ -1,4 +1,5 @@
 import { computeEnrollmentCounts, type CountableEnrollment } from '@/lib/sync-444-core'
+import { countsAsInspectionSet } from '@/lib/inspection-set-metrics'
 
 // Fixtures use real America/New_York week boundaries:
 //   Week 1: Sun 2026-06-07 00:00 ET (04:00Z) → Sun 2026-06-14 00:00 ET (exclusive)
@@ -17,6 +18,8 @@ type LeadFixture = {
 type AppointmentFixture = {
   canvasser_user_id: string | null
   created_at: string
+  appointment_type?: string | null
+  status?: string | null
 }
 
 // ── Reference implementation ───────────────────────────────────────────────────
@@ -41,6 +44,9 @@ function refCount<T>(
   const e = new Date(end).getTime()
   return rows.filter((row) => {
     if (getUser(row) !== userId) return false
+    if ('appointment_type' in (row as object) || 'status' in (row as object)) {
+      if (!countsAsInspectionSet(row as AppointmentFixture)) return false
+    }
     const ts = new Date(getTs(row)).getTime()
     return ts >= s && ts < e
   }).length
@@ -121,6 +127,26 @@ describe('computeEnrollmentCounts', () => {
     const appointments: AppointmentFixture[] = [
       { canvasser_user_id: null, created_at: '2026-06-09T18:00:00.000Z' },
       { canvasser_user_id: 'rep-1', created_at: '2026-06-09T19:00:00.000Z' },
+    ]
+    const counts = computeEnrollmentCounts([enrollment], [], appointments).get('enr-1')
+    expect(counts?.week1_inspections).toBe(1)
+  })
+
+  it('excludes close appointments and cancelled reschedule orphans', () => {
+    const appointments: AppointmentFixture[] = [
+      { canvasser_user_id: 'rep-1', created_at: '2026-06-09T18:00:00.000Z' },
+      {
+        canvasser_user_id: 'rep-1',
+        created_at: '2026-06-09T19:00:00.000Z',
+        appointment_type: 'close',
+        status: 'scheduled',
+      },
+      {
+        canvasser_user_id: 'rep-1',
+        created_at: '2026-06-09T20:00:00.000Z',
+        appointment_type: 'inspection',
+        status: 'cancelled',
+      },
     ]
     const counts = computeEnrollmentCounts([enrollment], [], appointments).get('enr-1')
     expect(counts?.week1_inspections).toBe(1)

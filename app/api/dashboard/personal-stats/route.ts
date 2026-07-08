@@ -13,6 +13,9 @@ import {
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
 import {
+  INSPECTION_SET_APPOINTMENT_TYPE_OR,
+} from '@/lib/inspection-set-metrics'
+import {
   getAttributedSaleAgreements,
   getContactDispositionIdSet,
   SALE_AGREEMENT_TYPES,
@@ -60,6 +63,8 @@ export async function GET(request: NextRequest) {
       .eq('org_id', pOrg)
       .gte('created_at', pStart)
       .lt('created_at', pEnd)
+      .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+      .neq('status', 'cancelled')
     if (!orgWideKpis) inspectionsCountQuery = inspectionsCountQuery.eq('canvasser_user_id', profile.id)
 
     let efficiencyCountQuery = supabase

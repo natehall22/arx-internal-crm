@@ -5,6 +5,7 @@ import { formatReward } from '@/lib/incentive-metrics'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { countClosedSalesForBadgeAward } from '@/lib/sisu-monthly-closed-sales'
 import { syncOrgEnrollments } from '@/lib/sync-444-core'
+import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import type { SpiffProgram, SpiffTriggerMetric } from '@/lib/types/incentive'
 
 export const dynamic = 'force-dynamic'
@@ -131,9 +132,12 @@ async function countInspections(
     .eq('canvasser_user_id', userId)
     .gte('created_at', startsAt)
     .lte('created_at', endsAt)
+    .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
 
   if (completedOnly) {
     query = query.eq('status', 'completed')
+  } else {
+    query = query.neq('status', 'cancelled')
   }
 
   const { count, error } = await query
@@ -448,6 +452,8 @@ export async function POST(request: NextRequest) {
             .select('id', { count: 'exact', head: true })
             .eq('org_id', userProfile.org_id)
             .eq('canvasser_user_id', userId)
+            .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+            .neq('status', 'cancelled')
           hasEverSetInspection = inspErr ? null : (count ?? 0) > 0
         }
 

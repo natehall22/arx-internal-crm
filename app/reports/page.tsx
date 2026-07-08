@@ -22,6 +22,7 @@ import {
 } from '@/lib/sales-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 
 type ReportMetrics = {
   doorsKnocked: number
@@ -284,8 +285,10 @@ export default function ReportsPage() {
       withDateColumn(
         supabase
           .from('scheduled_appointments')
-          .select('id, canvasser_user_id, created_at')
-          .eq('org_id', orgId),
+          .select('id, canvasser_user_id, created_at, appointment_type, status')
+          .eq('org_id', orgId)
+          .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+          .neq('status', 'cancelled'),
         'created_at',
         dateStart,
         dateEnd,
@@ -310,7 +313,11 @@ export default function ReportsPage() {
     const signedSales = getAttributedInstallationSales(
       signedContractsRes.data as InstallationSaleContractRow[] | null
     )
-    const appointments = (appointmentsRes.data || []) as { canvasser_user_id?: string | null }[]
+    const appointments = (appointmentsRes.data || []) as {
+      canvasser_user_id?: string | null
+      appointment_type?: string | null
+      status?: string | null
+    }[]
     const projects = (projectsRes.data || []) as ReportProjectRow[]
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
       outcomesRes?.outcomes as InspectionOutcomeConfigRow[] | undefined
@@ -330,9 +337,11 @@ export default function ReportsPage() {
     const scopedSignedSales = scopedUserIds
       ? signedSales.filter((s) => includesScopedUser(s, scopedUserIds))
       : signedSales
-    const scopedAppointments = scopedUserIds
-      ? appointments.filter((a) => scopedUserIds.has(a.canvasser_user_id || ''))
-      : appointments
+    const scopedAppointments = (
+      scopedUserIds
+        ? appointments.filter((a) => scopedUserIds.has(a.canvasser_user_id || ''))
+        : appointments
+    ).filter(countsAsInspectionSet)
     const scopedProjects = scopedUserIds
       ? projects.filter((p) => scopedUserIds.has(p.owner_user_id || ''))
       : projects
@@ -449,9 +458,11 @@ export default function ReportsPage() {
         const { data: regionAppointments } = await withDateColumn(
           supabase
             .from('scheduled_appointments')
-            .select('id, canvasser_user_id')
+            .select('id, canvasser_user_id, appointment_type, status')
             .eq('org_id', orgId)
-            .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none']),
+            .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
+            .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+            .neq('status', 'cancelled'),
           'created_at',
           dateStart,
           dateEnd,
@@ -555,9 +566,11 @@ export default function ReportsPage() {
         const { data: teamAppointments } = await withDateColumn(
           supabase
             .from('scheduled_appointments')
-            .select('id, canvasser_user_id')
+            .select('id, canvasser_user_id, appointment_type, status')
             .eq('org_id', orgId)
-            .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none']),
+            .in('canvasser_user_id', userIds.length > 0 ? userIds : ['none'])
+            .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+            .neq('status', 'cancelled'),
           'created_at',
           dateStart,
           dateEnd,
@@ -648,9 +661,11 @@ export default function ReportsPage() {
         const { data: userAppointments } = await withDateColumn(
           supabase
             .from('scheduled_appointments')
-            .select('id, canvasser_user_id')
+            .select('id, canvasser_user_id, appointment_type, status')
             .eq('org_id', orgId)
-            .eq('canvasser_user_id', user.id),
+            .eq('canvasser_user_id', user.id)
+            .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+            .neq('status', 'cancelled'),
           'created_at',
           dateStart,
           dateEnd,

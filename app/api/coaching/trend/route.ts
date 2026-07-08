@@ -12,6 +12,7 @@ import {
   SALE_AGREEMENT_TYPES,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
+import { countsAsInspectionSet } from '@/lib/inspection-set-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -225,7 +226,7 @@ export async function GET(request: NextRequest) {
     const [apptRes, sitRes, saleRes] = await Promise.all([
       supabase
         .from('scheduled_appointments')
-        .select('id, canvasser_user_id, created_at')
+        .select('id, canvasser_user_id, created_at, appointment_type, status')
         .eq('org_id', profile.org_id)
         .in('canvasser_user_id', memberIds)
         .gte('created_at', overallStart.toISOString())
@@ -266,7 +267,10 @@ export async function GET(request: NextRequest) {
         }
 
         const sets = allAppts.filter(
-          a => a.canvasser_user_id === member.id && inBucket(a.created_at)
+          (a) =>
+            a.canvasser_user_id === member.id &&
+            inBucket(a.created_at) &&
+            countsAsInspectionSet(a)
         ).length
 
         const sits = allSitRows.filter(o => {

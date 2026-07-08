@@ -17,6 +17,7 @@ import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { SALE_AGREEMENT_TYPES, isCanvassDoorLead } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import type {
   SpiffProgram,
   SpiffAchievement,
@@ -49,6 +50,8 @@ export default async function IncentivesPage() {
     .eq('canvasser_user_id', profile.id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())
+    .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+    .neq('status', 'cancelled')
 
   const inspectionsSet = weekAppointments?.length ?? 0
 

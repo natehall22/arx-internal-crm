@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getEasternPaceFactor, getEasternTodayIso } from '@/lib/eastern-datetime'
+import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -317,7 +318,9 @@ export async function GET(req: NextRequest) {
       .select('canvasser_user_id')
       .eq('org_id', authResult.orgId)
       .gte('created_at', weekRange.startsAt)
-      .lt('created_at', weekRange.endsAt),  // exclusive end
+      .lt('created_at', weekRange.endsAt) // exclusive end
+      .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+      .neq('status', 'cancelled'),
     admin
       .from('program_444_enrollments')
       .select('user_id, week1_starts_at, week1_ends_at, week2_starts_at, week2_ends_at, week1_qualified, week2_qualified')

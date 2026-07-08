@@ -10,6 +10,7 @@ import {
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { countsAsInspectionSet } from '@/lib/inspection-set-metrics'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
@@ -207,7 +208,7 @@ export async function GET(request: NextRequest) {
 
     let appointmentsQuery = supabase
       .from('scheduled_appointments')
-      .select('id, canvasser_user_id, closer_user_id, lead_id, created_at, status')
+      .select('id, canvasser_user_id, closer_user_id, lead_id, created_at, status, appointment_type')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
@@ -265,7 +266,10 @@ export async function GET(request: NextRequest) {
       ).length
 
       // APPOINTMENTS (inspections set by this user)
-      const memberAppointments = appointments?.filter(a => a.canvasser_user_id === member.id) || []
+      const memberAppointments =
+        appointments?.filter(
+          (a) => a.canvasser_user_id === member.id && countsAsInspectionSet(a)
+        ) || []
       const inspectionsSet = memberAppointments.length
 
       // Calculate bonus doors/contacts
