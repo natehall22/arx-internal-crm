@@ -1,5 +1,5 @@
 /**
- * Roof-age overlay: county parcel year-built rendered as small colored squares
+ * Roof-age overlay: county parcel year-built rendered as small colored markers
  * on the canvass map. The one signal storm data can't give a rep — which houses
  * are old enough to be worth knocking even without a fresh swath overhead.
  *
@@ -49,33 +49,23 @@ export function roofAgeBucket(age: number): RoofAgeBucket | null {
 }
 
 /**
- * Square markers so roof age can never be confused with the circular storm-report
- * dots. White halo ring for contrast on satellite imagery (same convention as
- * storm dots — flat/gray markers die on rooftops-and-grass imagery).
- * Path is centered on the origin so no anchor is needed.
+ * Ground radius for roof-age markers — google.maps.Circle overlays (same fix as
+ * storm-report dots in weather-overlay.ts). Data-layer SVG point symbols fail
+ * to paint on iOS Safari (field-verified Jul 2026).
  */
-export const ROOF_AGE_SQUARE_PATH = 'M -1 -1 L 1 -1 L 1 1 L -1 1 Z'
-
-export function roofAgeFeatureStyle(feature: { getProperty: (key: string) => unknown }) {
-  const age = Number(feature.getProperty('roofAge') || 0)
-  const bucket = roofAgeBucket(age)
-  if (!bucket) return { visible: false }
-  return {
-    icon: {
-      path: ROOF_AGE_SQUARE_PATH,
-      scale: age >= 20 ? 5.5 : 4.5,
-      fillColor: bucket.fill,
-      fillOpacity: 1,
-      strokeColor: '#FFFFFF',
-      strokeOpacity: 1,
-      strokeWeight: 1.5,
-    },
-    clickable: false,
-    // Above swaths/warnings (zIndex 1), below storm-report dots (3) and canvass
-    // pins — knock state stays the top-priority signal.
-    zIndex: 2,
-  }
+export function roofAgeMarkerRadiusMeters(age: number): number {
+  return age >= 20 ? 55 : 48
 }
+
+/** White stroke ring for contrast on satellite imagery (matches storm dots). */
+export const ROOF_AGE_MARKER_STROKE = {
+  strokeColor: '#FFFFFF',
+  strokeOpacity: 1,
+  strokeWeight: 3,
+} as const
+
+/** Above swaths/warnings (1), below storm-report dots (3) and canvass pins. */
+export const ROOF_AGE_MARKER_Z_INDEX = 2
 
 const ROOF_AGE_STORAGE_KEY = 'canvass-roof-age-on'
 

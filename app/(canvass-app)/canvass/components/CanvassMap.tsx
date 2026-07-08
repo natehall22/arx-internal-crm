@@ -29,8 +29,11 @@ import {
 import {
   MIN_ROOF_AGE_ZOOM,
   ROOF_AGE_LEGEND,
+  ROOF_AGE_MARKER_STROKE,
+  ROOF_AGE_MARKER_Z_INDEX,
   readStoredRoofAgeOn,
-  roofAgeFeatureStyle,
+  roofAgeBucket,
+  roofAgeMarkerRadiusMeters,
   storeRoofAgeOn,
   type RoofAgeFeatureCollection,
 } from '../lib/roof-age-overlay'
@@ -752,18 +755,49 @@ export default function CanvassMap({
   // County didn't publish year-built for this area (e.g. Cabarrus) — honest empty, not a bug.
   const [roofAgeNoData, setRoofAgeNoData] = useState(false)
   const [roofAgeLoadError, setRoofAgeLoadError] = useState(false)
-  const roofAgeDataRef = useRef<any>(null)
+  // google.maps.Circle markers — Data-layer SVG symbols fail on iOS Safari (Jul 2026).
+  const roofAgeCirclesRef = useRef<any[]>([])
   const roofAgeAbortRef = useRef<AbortController | null>(null)
   const roofAgeFetchKeyRef = useRef<string | null>(null)
   const roofAgeIdleTimerRef = useRef<number | null>(null)
 
-  const clearRoofAgeFeatures = useCallback(() => {
-    const data = roofAgeDataRef.current
-    if (!data) return
-    const features: any[] = []
-    data.forEach((feature: any) => features.push(feature))
-    features.forEach((feature) => data.remove(feature))
+  const clearRoofAgeCircles = useCallback(() => {
+    roofAgeCirclesRef.current.forEach((circle) => circle.setMap(null))
+    roofAgeCirclesRef.current = []
   }, [])
+
+  const paintRoofAgeCollection = useCallback(
+    (collection: RoofAgeFeatureCollection) => {
+      clearRoofAgeCircles()
+      const map = mapInstanceRef.current
+      if (!map) return
+      for (const feature of collection.features) {
+        if (feature.geometry?.type !== 'Point') continue
+        const [lng, lat] = feature.geometry.coordinates as [number, number]
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+        const age = Number(feature.properties?.roofAge || 0)
+        const bucket = roofAgeBucket(age)
+        if (!bucket) continue
+        try {
+          roofAgeCirclesRef.current.push(
+            new google.maps.Circle({
+              map,
+              center: { lat, lng },
+              radius: roofAgeMarkerRadiusMeters(age),
+              fillColor: bucket.fill,
+              fillOpacity: 1,
+              ...ROOF_AGE_MARKER_STROKE,
+              clickable: false,
+              zIndex: ROOF_AGE_MARKER_Z_INDEX,
+            }),
+          )
+        } catch {
+          // drop this marker, keep going
+        }
+      }
+    },
+    [clearRoofAgeCircles],
+  )
 
   const fetchRoofAge = useCallback(async () => {
     if (!roofAgeEnabledRef.current || !roofAgeOnRef.current || !mapInstanceRef.current) return
@@ -771,7 +805,7 @@ export default function CanvassMap({
     if (zoom == null || zoom < MIN_ROOF_AGE_ZOOM) {
       // Too far out for parcel dots — clear and show the "zoom in" hint on the pill.
       roofAgeFetchKeyRef.current = null
-      clearRoofAgeFeatures()
+      clearRoofAgeCircles()
       setRoofAgeZoomHint(true)
       setRoofAgeNoData(false)
       setRoofAgeLoadError(false)
@@ -810,7 +844,7 @@ export default function CanvassMap({
       if (payload.degraded) {
         // Match weather overlay: clear stale viewport data and surface retry on next idle.
         roofAgeFetchKeyRef.current = null
-        clearRoofAgeFeatures()
+        clearRoofAgeCircles()
         setRoofAgeNoData(false)
         setRoofAgeLoadError(true)
         return
@@ -832,30 +866,20 @@ export default function CanvassMap({
       if (liveKey !== fetchKey) return
 
       roofAgeFetchKeyRef.current = fetchKey
-      const data = roofAgeDataRef.current
-      if (!data) return
-      clearRoofAgeFeatures()
-      // One at a time so a single malformed point can't blank the layer.
-      for (const feature of payload.features) {
-        try {
-          data.addGeoJson({ type: 'FeatureCollection', features: [feature] })
-        } catch {
-          // drop this one feature, keep going
-        }
-      }
+      paintRoofAgeCollection(payload)
       setRoofAgeNoData(payload.features.length === 0)
       setRoofAgeLoadError(false)
     } catch {
       if (controller.signal.aborted) return
       // Fail quiet (offline, timeout) — clear stale dots so reps don't knock off-map.
       roofAgeFetchKeyRef.current = null
-      clearRoofAgeFeatures()
+      clearRoofAgeCircles()
       setRoofAgeNoData(false)
       setRoofAgeLoadError(true)
     } finally {
       window.clearTimeout(timeoutId)
     }
-  }, [clearRoofAgeFeatures])
+  }, [clearRoofAgeCircles, paintRoofAgeCollection])
   const fetchRoofAgeRef = useRef(fetchRoofAge)
   fetchRoofAgeRef.current = fetchRoofAge
 
@@ -869,19 +893,15 @@ export default function CanvassMap({
     } else {
       roofAgeAbortRef.current?.abort()
       roofAgeFetchKeyRef.current = null
-      clearRoofAgeFeatures()
+      clearRoofAgeCircles()
       setRoofAgeZoomHint(false)
       setRoofAgeNoData(false)
       setRoofAgeLoadError(false)
     }
-  }, [clearRoofAgeFeatures])
+  }, [clearRoofAgeCircles])
 
   useEffect(() => {
-    if (!roofAgeEnabled || !mapLoaded || !mapInstanceRef.current || roofAgeDataRef.current) {
-      return
-    }
-    roofAgeDataRef.current = new google.maps.Data({ map: mapInstanceRef.current })
-    roofAgeDataRef.current.setStyle(roofAgeFeatureStyle)
+    if (!roofAgeEnabled || !mapLoaded || !mapInstanceRef.current) return
     if (roofAgeOnRef.current) void fetchRoofAgeRef.current()
   }, [mapLoaded, roofAgeEnabled])
 
@@ -891,8 +911,9 @@ export default function CanvassMap({
       if (roofAgeIdleTimerRef.current) {
         window.clearTimeout(roofAgeIdleTimerRef.current)
       }
+      clearRoofAgeCircles()
     }
-  }, [])
+  }, [clearRoofAgeCircles])
 
   // Load Google Maps script with marker clusterer
   useEffect(() => {
