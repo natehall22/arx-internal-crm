@@ -321,6 +321,57 @@ function geometryContainsPoint(geometry: GeoJSON.Geometry | null, lat: number, l
   return false
 }
 
+const METERS_PER_MILE = 1609.344
+
+/** Nearest halo-worthy wind report within WIND_IMPACT_HALO.radiusMeters of a
+ * point, or null. Wind has no polygon geometry to test containment against —
+ * halos are circles around report points, so "inside" is a distance check. */
+function nearestWindImpact(
+  features: WeatherFeature[],
+  lat: number,
+  lng: number,
+): { magnitude: number; damage: boolean; date: string } | null {
+  let best: { magnitude: number; damage: boolean; date: string; distanceMeters: number } | null = null
+  for (const f of features) {
+    if (f.properties.kind !== 'report' || f.properties.layer !== 'wind') continue
+    if (f.geometry?.type !== 'Point') continue
+    const magnitude = Number(f.properties.magnitude || 0)
+    const damage = Boolean(f.properties.damage)
+    if (!windReportGetsHalo(magnitude, damage)) continue
+    const [reportLng, reportLat] = f.geometry.coordinates as [number, number]
+    const distanceMeters = distanceMiles(lat, lng, reportLat, reportLng) * METERS_PER_MILE
+    if (distanceMeters > WIND_IMPACT_HALO.radiusMeters) continue
+    if (!best || distanceMeters < best.distanceMeters) {
+      best = { magnitude, damage, date: String(f.properties.date || ''), distanceMeters }
+    }
+  }
+  return best
+}
+
+/** Worst (largest-magnitude) hail swath containing a point, or null. Shared by
+ * the viewport strip and the pin peek so they can never disagree about whether
+ * a location is "inside" a swath. */
+function worstContainingSwath(
+  features: WeatherFeature[],
+  lat: number,
+  lng: number,
+): { magnitude: number; date: string } | null {
+  const containing = features
+    .filter(
+      (f) =>
+        f.properties.kind === 'swath' &&
+        f.geometry &&
+        geometryContainsPoint(f.geometry, lat, lng),
+    )
+    .map((f) => ({
+      magnitude: Number(f.properties.magnitude || 0),
+      date: String(f.properties.date || ''),
+    }))
+    .filter((s) => s.magnitude > 0)
+  if (!containing.length) return null
+  return containing.reduce((best, s) => (s.magnitude > best.magnitude ? s : best), containing[0])
+}
+
 export type PinStormSummary = {
   kind: 'report' | 'warning' | 'none'
   magnitude?: number
@@ -387,22 +438,8 @@ export function summarizeViewport(
 
   if (layer === 'hail') {
     if (center) {
-      const containing = features
-        .filter(
-          (f) =>
-            f.properties.kind === 'swath' &&
-            geometryContainsPoint(f.geometry, center.lat, center.lng),
-        )
-        .map((f) => ({
-          magnitude: Number(f.properties.magnitude || 0),
-          date: String(f.properties.date || ''),
-        }))
-        .filter((s) => s.magnitude > 0)
-      if (containing.length) {
-        const worst = containing.reduce(
-          (best, s) => (s.magnitude > best.magnitude ? s : best),
-          containing[0],
-        )
+      const worst = worstContainingSwath(features, center.lat, center.lng)
+      if (worst) {
         const dateLabel = formatShortDate(worst.date)
         return {
           text: `Inside est. ${worst.magnitude.toFixed(1)}″ hail swath · ${dateLabel}`,
@@ -434,6 +471,17 @@ export function summarizeViewport(
   }
 
   // wind: measured gusts (mph) plus wind-damage reports (TSTM 'D' + non-TSTM 'O', no speed)
+  if (center) {
+    const impact = nearestWindImpact(features, center.lat, center.lng)
+    if (impact) {
+      const dateLabel = formatShortDate(impact.date)
+      const text =
+        impact.damage || impact.magnitude <= 0
+          ? `Inside est. wind-damage impact area · ${dateLabel}`
+          : `Inside est. ${Math.round(impact.magnitude)} mph wind impact area · ${dateLabel}`
+      return { text, empty: false, dateLabel }
+    }
+  }
   const gusts = allReports.filter((r) => !r.damage && r.magnitude > 0)
   const damageReports = allReports.filter((r) => r.damage || r.magnitude <= 0)
 
@@ -496,29 +544,7 @@ export function lookupPinStorm(
       ? nearbyReports.reduce((best, r) => (r.distance < best.distance ? r : best), nearbyReports[0])
       : null
 
-  const containingSwaths =
-    layer === 'hail'
-      ? features
-          .filter(
-            (f) =>
-              f.properties.kind === 'swath' &&
-              f.geometry &&
-              geometryContainsPoint(f.geometry, lat, lng),
-          )
-          .map((f) => ({
-            magnitude: Number(f.properties.magnitude || 0),
-            date: String(f.properties.date || ''),
-          }))
-          .filter((s) => s.magnitude > 0)
-      : []
-
-  const bestSwath =
-    containingSwaths.length > 0
-      ? containingSwaths.reduce(
-          (best, s) => (s.magnitude > best.magnitude ? s : best),
-          containingSwaths[0],
-        )
-      : null
+  const bestSwath = layer === 'hail' ? worstContainingSwath(features, lat, lng) : null
 
   const inWarning = warnings.length > 0
   const hasNearbyReport = closestReport != null && closestReport.distance <= 8

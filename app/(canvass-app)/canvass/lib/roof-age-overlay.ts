@@ -61,14 +61,17 @@ export function roofAgeBucket(age: number): RoofAgeBucket | null {
  * to paint on iOS Safari (field-verified Jul 2026).
  */
 export function roofAgeMarkerRadiusMeters(age: number): number {
-  return age >= 20 ? 55 : 48
+  // Per-house dot, not an area halo: ~1/3 of a small urban lot's width. At 55m
+  // the circles buried downtown Concord entirely (verified against live parcel
+  // data 2026-07-08); 9m reads as one dot per rooftop at zoom 16–18.
+  return age >= 20 ? 9 : 7
 }
 
 /** White stroke ring for contrast on satellite imagery (matches storm dots). */
 export const ROOF_AGE_MARKER_STROKE = {
   strokeColor: '#FFFFFF',
   strokeOpacity: 1,
-  strokeWeight: 3,
+  strokeWeight: 2,
 } as const
 
 /** Above swaths/warnings (1), below storm-report dots (3) and canvass pins. */
