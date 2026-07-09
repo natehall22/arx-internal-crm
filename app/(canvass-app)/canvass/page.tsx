@@ -33,6 +33,8 @@ type MapBounds = any
 
 export type CanvassPin = {
   id: string
+  /** Stable client UUID for offline-sync idempotency (set when pin is first queued). */
+  client_lead_id?: string
   lat: number
   lng: number
   homeowner_name?: string
@@ -136,7 +138,7 @@ export default function CanvassPage() {
   ])
   
   const { position, error: geoError, requestPermission } = useGeolocation()
-  const { pendingLeads, addLead, syncLeads, isOnline } = useOfflineStore()
+  const { pendingLeads, addLead, syncLeads, isOnline, isSyncing } = useOfflineStore()
   
   const { 
     pins: viewportPins, 
@@ -220,12 +222,13 @@ export default function CanvassPage() {
     }
   }, [loading, profile, workAreasParam, router])
 
-  // Sync pending leads when online
+  // Sync pending leads when online; wait until prior pass finishes so partial
+  // failures retry when isSyncing clears (without overlapping loops).
   useEffect(() => {
-    if (isOnline && pendingLeads.length > 0) {
+    if (isOnline && pendingLeads.length > 0 && !isSyncing) {
       syncLeads()
     }
-  }, [isOnline, pendingLeads.length])
+  }, [isOnline, pendingLeads.length, isSyncing])
 
   const loadData = async () => {
     try {
@@ -487,6 +490,7 @@ export default function CanvassPage() {
       // Create new pin
       const newPin: CanvassPin = {
         id: `offline_${Date.now()}`,
+        client_lead_id: crypto.randomUUID(),
         lat: newPinLocation.lat,
         lng: newPinLocation.lng,
         homeowner_name: leadData.homeowner_name,
@@ -518,6 +522,7 @@ export default function CanvassPage() {
               canvass_disposition: leadData.disposition,
               canvass_notes: leadData.notes,
               source: 'canvass',
+              client_lead_id: newPin.client_lead_id,
               // Scheduling fields
               schedule_inspection: leadData.schedule_inspection,
               closer_user_id: leadData.closer_user_id,
@@ -670,7 +675,7 @@ export default function CanvassPage() {
             </p>
           </div>
         </div>
-        <SyncStatus pendingCount={pendingLeads.length} isOnline={isOnline} />
+        <SyncStatus pendingCount={pendingLeads.length} isOnline={isOnline} isSyncing={isSyncing} />
       </header>
 
       {/* Main Content */}

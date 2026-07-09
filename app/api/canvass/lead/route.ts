@@ -530,10 +530,15 @@ export async function POST(request: Request) {
     }
 
     let leadRow: any = null
-    /** True when this request created a new lead row (not an update). Used to roll back on scheduling failure. */
-    const isNewLeadCreate = !leadId
+    /** True when this request inserted a new lead row (not update or client-id dedupe reuse). */
+    let insertedNewLeadThisRequest = false
     /** True only when we inserted a new opportunities row in this request (not reused existing). */
     let opportunityInsertedThisRequest = false
+
+    const clientLeadId =
+      typeof body.client_lead_id === 'string' && body.client_lead_id.trim()
+        ? body.client_lead_id.trim()
+        : null
 
     if (leadId) {
       const { data: existingLead } = await supabase
@@ -593,6 +598,29 @@ export async function POST(request: Request) {
       }
       leadRow = updatedLead
     } else {
+      if (clientLeadId) {
+        const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+        const { data: existingByClientId } = await supabase
+          .from('leads')
+          .select('*')
+          .eq('org_id', profile.org_id)
+          .eq('owner_user_id', profile.id)
+          .eq('client_lead_id', clientLeadId)
+          .gte('created_at', dedupeSince)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (existingByClientId) {
+          leadRow = existingByClientId
+          console.log('Reusing existing lead for client_lead_id dedupe:', {
+            client_lead_id: clientLeadId,
+            lead_id: existingByClientId.id,
+          })
+        }
+      }
+
+      if (!leadRow) {
       // Lead owner is always the setter (person who knocked the door)
       // Closer is tracked separately in closer_user_id
       const { data: createdLead, error: createError } = await supabase
@@ -602,6 +630,7 @@ export async function POST(request: Request) {
           status: scheduleInspection ? 'inspection' : 'new',
           source: body.source || 'door_to_door',
           ...leadPayload,
+          client_lead_id: clientLeadId,
           rep_lat,
           rep_lng,
           rep_geo_accuracy,
@@ -613,11 +642,41 @@ export async function POST(request: Request) {
         .single()
 
       if (createError) {
-        console.error('Lead creation error:', createError)
-        return NextResponse.json({ error: `Failed to create lead: ${createError.message}` }, { status: 400 })
+        // Unique-violation on client_lead_id means a concurrent request for the same
+        // retry won the race and already inserted this lead — the pre-insert dedupe
+        // check above is query-then-insert and has a narrow TOCTOU window on its own.
+        // Reuse the winner's row instead of failing this request.
+        if (createError.code === '23505' && clientLeadId) {
+          const { data: raceWinner } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('org_id', profile.org_id)
+            .eq('owner_user_id', profile.id)
+            .eq('client_lead_id', clientLeadId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (raceWinner) {
+            leadRow = raceWinner
+            console.log('Reusing lead created by concurrent request (unique-violation race):', {
+              client_lead_id: clientLeadId,
+              lead_id: raceWinner.id,
+            })
+          } else {
+            console.error('Lead creation error (unique-violation, no row found on re-query):', createError)
+            return NextResponse.json({ error: `Failed to create lead: ${createError.message}` }, { status: 400 })
+          }
+        } else {
+          console.error('Lead creation error:', createError)
+          return NextResponse.json({ error: `Failed to create lead: ${createError.message}` }, { status: 400 })
+        }
+      } else {
+        leadRow = createdLead
+        insertedNewLeadThisRequest = true
+        console.log('Created lead:', { id: leadRow?.id, lat: leadRow?.lat, lng: leadRow?.lng, disposition: leadRow?.canvass_disposition })
       }
-      leadRow = createdLead
-      console.log('Created lead:', { id: leadRow?.id, lat: leadRow?.lat, lng: leadRow?.lng, disposition: leadRow?.canvass_disposition })
+      }
     }
 
     if (!leadRow) {
@@ -635,7 +694,7 @@ export async function POST(request: Request) {
         })
         leadRow = { ...leadRow, lat: mapPin.lat, lng: mapPin.lng }
       } catch (pinError) {
-        if (isNewLeadCreate && leadRow?.id) {
+        if (insertedNewLeadThisRequest && leadRow?.id) {
           await supabase.from('leads').delete().eq('id', leadRow.id).eq('org_id', profile.org_id)
           console.log('Rolled back new lead after map pin failure:', leadRow.id)
         }
@@ -791,7 +850,7 @@ export async function POST(request: Request) {
     // Do not allow "scheduled" inspections without an assigned closer (round-robin failure, empty queue, etc.).
     if (scheduleInspection && inspectionScheduledFor && !closerUserId) {
       // Lead was already inserted; without rollback the user retries and gets duplicate Sheryl Blacks.
-      if (isNewLeadCreate && leadRow?.id) {
+      if (insertedNewLeadThisRequest && leadRow?.id) {
         await supabase.from('leads').delete().eq('id', leadRow.id).eq('org_id', profile.org_id)
         console.log('Rolled back new lead after NO_CLOSER_ASSIGNED:', leadRow.id)
       }
@@ -868,7 +927,7 @@ export async function POST(request: Request) {
         )
 
         if (!availabilityCheck.available) {
-          if (isNewLeadCreate && leadRow?.id) {
+          if (insertedNewLeadThisRequest && leadRow?.id) {
             if (opportunityInsertedThisRequest && opportunityId) {
               await supabase.from('opportunities').delete().eq('id', opportunityId).eq('org_id', profile.org_id)
             }
@@ -934,7 +993,7 @@ export async function POST(request: Request) {
               reason: apptError.message,
             })
           } else {
-            if (isNewLeadCreate && leadRow?.id) {
+            if (insertedNewLeadThisRequest && leadRow?.id) {
               if (opportunityInsertedThisRequest && opportunityId) {
                 await supabase.from('opportunities').delete().eq('id', opportunityId).eq('org_id', profile.org_id)
               }

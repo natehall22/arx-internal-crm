@@ -3,9 +3,10 @@
 interface Props {
   pendingCount: number
   isOnline: boolean
+  isSyncing?: boolean
 }
 
-export default function SyncStatus({ pendingCount, isOnline }: Props) {
+export default function SyncStatus({ pendingCount, isOnline, isSyncing = false }: Props) {
   if (isOnline && pendingCount === 0) {
     return (
       <div className="flex items-center gap-1.5 text-indigo-200">
@@ -22,6 +23,18 @@ export default function SyncStatus({ pendingCount, isOnline }: Props) {
         <span className="text-xs">Offline</span>
         {pendingCount > 0 && (
           <span className="text-xs">({pendingCount} pending)</span>
+        )}
+      </div>
+    )
+  }
+
+  if (!isSyncing) {
+    return (
+      <div className="flex items-center gap-1.5 text-yellow-300">
+        <span className="w-2 h-2 bg-yellow-400 rounded-full"></span>
+        <span className="text-xs">Pending sync</span>
+        {pendingCount > 0 && (
+          <span className="text-xs">({pendingCount})</span>
         )}
       </div>
     )
