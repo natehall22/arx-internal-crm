@@ -147,7 +147,7 @@ async function fetchSignedContracts(
 ) {
   const { data, error } = await supabase
     .from('order_form_contracts')
-    .select('id, opportunity_id, lead_id, customer_signed_at, project_cost, agreement_type, status')
+    .select('id, opportunity_id, customer_signed_at, project_cost, agreement_type, status')
     .eq('org_id', orgId)
     .in('agreement_type', SALE_AGREEMENT_TYPES)
     .eq('status', 'completed')
@@ -229,7 +229,8 @@ async function resolveLeadIdsFromOpportunities(
 
 function buildChannelRows(
   sets: { lead_id: string | null; opportunity_id: string | null }[],
-  sales: { lead_id: string | null; opportunity_id: string | null; project_cost: number | string | null }[],
+  // order_form_contracts has no lead_id column — resolved via opportunity_id only.
+  sales: { opportunity_id: string | null; project_cost: number | string | null }[],
   leadMap: Map<string, { source: string | null; channel: string | null; canvass_disposition: string | null }>,
   oppLeadMap: Map<string, string | null>
 ): ChannelRow[] {
@@ -257,7 +258,7 @@ function buildChannelRows(
   }
 
   for (const sale of sales) {
-    const lead = leadFor(sale.lead_id, sale.opportunity_id)
+    const lead = leadFor(null, sale.opportunity_id)
     const channel = resolveLeadChannel(lead || {})
     const row = rows[index(channel)]
     row.sales += 1
@@ -404,7 +405,7 @@ export async function buildScorecardPayload(
 
   const leadIds = new Set<string>()
   for (const set of sets) if (set.lead_id) leadIds.add(set.lead_id)
-  for (const c of contracts) if (c.lead_id) leadIds.add(c.lead_id)
+  // order_form_contracts has no lead_id column — sales resolve to a lead only via opportunity_id below.
 
   const oppIds = new Set<string>()
   for (const set of sets) if (set.opportunity_id) oppIds.add(set.opportunity_id)
