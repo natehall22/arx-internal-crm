@@ -6,6 +6,7 @@ import {
   EMAIL_BLAST_ROLE_OPTIONS,
   getOrgEmailBlastSettings,
   mergeOrgSettingsWithEmailBlasts,
+  normalizeOrgEmailBlastSettings,
   MORNING_UPDATE_CONFIG_ROLES,
 } from '@/lib/admin-email-blasts'
 
@@ -83,7 +84,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: orgError.message }, { status: 400 })
     }
 
-    const settings = getOrgEmailBlastSettings(body?.settings)
+    const settings = normalizeOrgEmailBlastSettings(body?.settings)
     const existingSettings = getOrgEmailBlastSettings(org?.settings || {})
     const canConfigureMorningUpdate = MORNING_UPDATE_CONFIG_ROLES.has(profile.role as 'owner' | 'admin')
     const mergedBlastSettings = canConfigureMorningUpdate

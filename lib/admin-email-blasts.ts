@@ -131,6 +131,16 @@ export function getDefaultOrgEmailBlastSettings(): OrgEmailBlastSettings {
   return JSON.parse(JSON.stringify(DEFAULT_EMAIL_BLAST_SETTINGS)) as OrgEmailBlastSettings
 }
 
+export function normalizeOrgEmailBlastSettings(raw: unknown): OrgEmailBlastSettings {
+  const rawObj = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+
+  return {
+    sale: normalizeConfig(rawObj.sale, DEFAULT_EMAIL_BLAST_SETTINGS.sale),
+    job_payment: normalizeConfig(rawObj.job_payment, DEFAULT_EMAIL_BLAST_SETTINGS.job_payment),
+    morning_update: normalizeMorningUpdateConfig(rawObj.morning_update, DEFAULT_EMAIL_BLAST_SETTINGS.morning_update),
+  }
+}
+
 export function getOrgEmailBlastSettings(settings: unknown): OrgEmailBlastSettings {
   const notificationSettings =
     settings && typeof settings === 'object'
@@ -140,15 +150,8 @@ export function getOrgEmailBlastSettings(settings: unknown): OrgEmailBlastSettin
     notificationSettings && typeof notificationSettings === 'object'
       ? (notificationSettings as Record<string, unknown>).email_blasts
       : null
-  const raw = emailBlasts && typeof emailBlasts === 'object'
-    ? emailBlasts as Record<string, unknown>
-    : {}
 
-  return {
-    sale: normalizeConfig(raw.sale, DEFAULT_EMAIL_BLAST_SETTINGS.sale),
-    job_payment: normalizeConfig(raw.job_payment, DEFAULT_EMAIL_BLAST_SETTINGS.job_payment),
-    morning_update: normalizeMorningUpdateConfig(raw.morning_update, DEFAULT_EMAIL_BLAST_SETTINGS.morning_update),
-  }
+  return normalizeOrgEmailBlastSettings(emailBlasts)
 }
 
 export function mergeOrgSettingsWithEmailBlasts(
