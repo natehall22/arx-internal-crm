@@ -102,7 +102,7 @@ export default function ReportBuilder(props: Props) {
   const [sentTo, setSentTo] = useState<string | null>(props.lastSentTo)
   const [sendOpen, setSendOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-  const [coverOpen, setCoverOpen] = useState(false)
+  const [coverOpen, setCoverOpen] = useState(true)
   const [summaryOpen, setSummaryOpen] = useState(false)
 
   // ---- refs for async flows ----
@@ -877,7 +877,12 @@ export default function ReportBuilder(props: Props) {
             className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-bold"
             style={{ color: DARKTEXT }}
           >
-            <span>Cover page {coverOpen ? '' : '— prefilled ✓'}</span>
+            <span>
+              Cover page
+              {doc.cover.subtitle.trim()
+                ? ` — ${doc.cover.subtitle.trim().slice(0, 48)}${doc.cover.subtitle.trim().length > 48 ? '…' : ''}`
+                : ' — no subtitle'}
+            </span>
             <span>{coverOpen ? '▴' : '▾'}</span>
           </button>
           {coverOpen ? (
@@ -891,12 +896,13 @@ export default function ReportBuilder(props: Props) {
                   style={{ ...input16, borderColor: LINE, color: DARKTEXT }}
                 />
               </Field>
-              <Field label="Subtitle">
+              <Field label="Subtitle (shown on cover PDF — leave blank to hide)">
                 <input
                   value={doc.cover.subtitle}
                   onChange={(e) => updateDoc((d) => ({ ...d, cover: { ...d.cover, subtitle: e.target.value } }))}
                   className="w-full rounded-md border p-2"
                   style={{ ...input16, borderColor: LINE, color: DARKTEXT }}
+                  placeholder="e.g. Professional Roof Inspection"
                 />
               </Field>
               <Field label="Property address (page headers)">
@@ -993,6 +999,28 @@ export default function ReportBuilder(props: Props) {
                 />
                 Include summary page in PDF
               </label>
+              <Field label="Page title (main heading)">
+                <input
+                  value={doc.summary.title}
+                  onChange={(e) =>
+                    updateDoc((d) => ({ ...d, summary: { ...d.summary, title: e.target.value } }))
+                  }
+                  className="w-full rounded-md border p-2"
+                  style={{ ...input16, borderColor: LINE, color: DARKTEXT }}
+                  placeholder="Summary & Basis for Inspection"
+                />
+              </Field>
+              <Field label="Page header (top bar on PDF)">
+                <input
+                  value={doc.summary.headerLabel}
+                  onChange={(e) =>
+                    updateDoc((d) => ({ ...d, summary: { ...d.summary, headerLabel: e.target.value } }))
+                  }
+                  className="w-full rounded-md border p-2"
+                  style={{ ...input16, borderColor: LINE, color: DARKTEXT }}
+                  placeholder="SUMMARY & BASIS FOR INSPECTION"
+                />
+              </Field>
               {doc.summary.blocks.map((b) => (
                 <div key={b.id} className="rounded-lg border p-2" style={{ borderColor: LINE }}>
                   <input
@@ -1030,6 +1058,17 @@ export default function ReportBuilder(props: Props) {
               <div className="text-xs font-bold uppercase" style={{ color: '#8a8576' }}>
                 Request box
               </div>
+              <Field label="Request box title">
+                <input
+                  value={doc.summary.requestTitle}
+                  onChange={(e) =>
+                    updateDoc((d) => ({ ...d, summary: { ...d.summary, requestTitle: e.target.value } }))
+                  }
+                  className="w-full rounded-md border p-2"
+                  style={{ ...input16, borderColor: LINE, color: DARKTEXT }}
+                  placeholder="Request"
+                />
+              </Field>
               {doc.summary.requestItems.map((it) => (
                 <div key={it.id} className="rounded-lg border p-2" style={{ borderColor: LINE }}>
                   <input

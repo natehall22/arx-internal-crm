@@ -88,6 +88,9 @@ const DEFAULT_FOOTER =
   'ARX Roofing & Exteriors  |  Charlotte / Kannapolis, NC  |  (360) 485-9413  |  arxroofing.com'
 const DEFAULT_FOOTER_CONTACT = 'arxroofing.com   |   (360) 485-9413   |   info@arxroofing.com'
 
+/** Legacy seed subtitle — cleared on normalize so the cover does not show reinspection boilerplate. */
+const LEGACY_COVER_SUBTITLE = 'Supplemental Inspection & Request for Reinspection'
+
 const uid = () => Math.random().toString(36).slice(2, 10)
 
 export interface SeedPrefill {
@@ -105,11 +108,11 @@ export function seedReportDoc(prefill: SeedPrefill = {}): ReportDoc {
     cover: {
       heroPhotoId: null,
       title: 'ROOF DAMAGE\nDOCUMENTATION',
-      subtitle: 'Supplemental Inspection & Request for Reinspection',
+      subtitle: '',
       infoFields: [
         { id: uid(), label: 'Property Owner', value: prefill.ownerName || '' },
         { id: uid(), label: 'Property Address', value: prefill.address || '' },
-        { id: uid(), label: 'Reinspection Date', value: '' },
+        { id: uid(), label: 'Inspection Date', value: '' },
         { id: uid(), label: 'Prepared By', value: prefill.preparedBy || '' },
         { id: uid(), label: 'Insurance Carrier', value: '' },
         { id: uid(), label: 'Date of Loss', value: '' },
@@ -119,8 +122,8 @@ export function seedReportDoc(prefill: SeedPrefill = {}): ReportDoc {
     },
     summary: {
       include: true,
-      headerLabel: 'SUMMARY & BASIS FOR REINSPECTION',
-      title: 'Summary & Basis for Reinspection',
+      headerLabel: 'SUMMARY & BASIS FOR INSPECTION',
+      title: 'Summary & Basis for Inspection',
       blocks: [
         {
           id: uid(),
@@ -192,8 +195,16 @@ export function normalizeReportDoc(raw: unknown, prefill: SeedPrefill = {}): Rep
     cover: {
       heroPhotoId: o.cover.heroPhotoId ?? null,
       title: o.cover.title ?? seed.cover.title,
-      subtitle: o.cover.subtitle ?? seed.cover.subtitle,
-      infoFields: Array.isArray(o.cover.infoFields) ? o.cover.infoFields : seed.cover.infoFields,
+      subtitle:
+        (o.cover.subtitle ?? seed.cover.subtitle) === LEGACY_COVER_SUBTITLE
+          ? ''
+          : (o.cover.subtitle ?? seed.cover.subtitle),
+      infoFields: (Array.isArray(o.cover.infoFields) ? o.cover.infoFields : seed.cover.infoFields).map(
+        (f) => ({
+          ...f,
+          label: f.label === 'Reinspection Date' ? 'Inspection Date' : f.label,
+        })
+      ),
       note: o.cover.note ?? seed.cover.note,
       footerContact: o.cover.footerContact ?? seed.cover.footerContact,
     },
