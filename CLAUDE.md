@@ -37,6 +37,7 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
 - All schema changes must be nullable/additive — system is live and in daily use
 - `bonus_status` enum: `pending_approval | approved | rejected | paid`
 - `manager_user_id` self-referential FK for org hierarchy traversal
+- **Mandatory change review — no exceptions for size or type:** every code change gets a proactive bug-bot review + full collateral-impact sweep (edge/fringe cases, other features touching the same tables/routes/flags) before it ships, then `/code-review` and `/security-review`. Do this without being asked.
 
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.

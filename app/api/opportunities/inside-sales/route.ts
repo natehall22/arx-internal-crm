@@ -9,6 +9,7 @@ import {
   type InspectionOutcomeConfigRow,
   getInspectionOutcomeConfig,
   mergeOrgInspectionOutcomesWithDefaults,
+  normalizeInspectionOutcomeId,
 } from '@/lib/inspection-outcomes'
 import {
   canViewInsideSalesFollowUp,
@@ -19,6 +20,12 @@ import {
   getCloseOutcomeConfig,
   normalizeCloseOutcomeRows,
 } from '@/lib/close-outcomes'
+import {
+  comparePriority,
+  getQueuePriority,
+  getQueueStory,
+  type HandoffContext,
+} from '@/lib/inside-sales-priority'
 
 export const dynamic = 'force-dynamic'
 
@@ -111,7 +118,13 @@ const BASE_OPPORTUNITY_SELECT_FIELDS = [
   'updated_at',
 ]
 
-const OPTIONAL_OPPORTUNITY_SELECT_FIELDS = ['pipeline_stage', 'follow_up_at', 'assigned_user_id', 'knockback_reason']
+const OPTIONAL_OPPORTUNITY_SELECT_FIELDS = [
+  'pipeline_stage',
+  'follow_up_at',
+  'assigned_user_id',
+  'knockback_reason',
+  'handoff_context',
+]
 
 function isMissingColumnError(error: any) {
   return error?.code === '42703' || String(error?.message || '').includes('does not exist')
@@ -223,6 +236,7 @@ export async function GET(request: NextRequest) {
       follow_up_at: opportunity.follow_up_at ?? null,
       assigned_user_id: opportunity.assigned_user_id ?? null,
       knockback_reason: opportunity.knockback_reason ?? null,
+      handoff_context: opportunity.handoff_context ?? null,
     }))
     const opportunityIds = rawOpportunities.map((opportunity: any) => opportunity.id)
     const leadIds = rawOpportunities.map((opportunity: any) => opportunity.lead_id).filter(Boolean)
@@ -337,6 +351,9 @@ export async function GET(request: NextRequest) {
           inspection_notes: opportunity.inspection_notes,
           follow_up_at: opportunity.follow_up_at,
           created_at: opportunity.created_at,
+          inspection_outcome: opportunity.inspection_outcome ?? null,
+          inspection_outcome_at: opportunity.inspection_outcome_at ?? null,
+          handoff_context: opportunity.handoff_context ?? null,
           customerName: lead?.homeowner_name || customer?.name || 'Unknown Customer',
           customerPhone: lead?.phone || customer?.phone || null,
           closerUserId: lead?.closer_user_id || null,
@@ -400,39 +417,83 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const nowMs = Date.now()
     const items = queueItems
-      .map((item: any) => ({
-        id: item.id,
-        status: item.status,
-        address_text: item.address_text,
-        project_type: item.project_type,
-        inspection_notes: item.inspection_notes,
-        follow_up_at: item.follow_up_at,
-        created_at: item.created_at ?? null,
-        customerName: item.customerName,
-        customerPhone: item.customerPhone,
-        followUpKind: item.followUpKind,
-        followUpOutcomeLabel: item.followUpOutcomeLabel,
-        followUpStatus: item.followUpStatus,
-        callableNow: item.callableNow,
-        eligibleAtIso: item.eligibleAtIso,
-        adminHandoffDelayDays: item.adminHandoffDelayDays,
-        knockback_reason: item.knockback_reason ?? null,
-        assignedToName: item.assigned_user_id
-          ? userNameMap.get(item.assigned_user_id) || 'Assigned'
-          : null,
-        closerName: item.closerUserId ? userNameMap.get(item.closerUserId) || null : null,
-        activities: activityMap.get(item.id) || [],
-      }))
-      .sort((a: any, b: any) => {
-        if (a.callableNow !== b.callableNow) return a.callableNow ? -1 : 1
-        const ae = a.eligibleAtIso ? new Date(a.eligibleAtIso).getTime() : Number.POSITIVE_INFINITY
-        const be = b.eligibleAtIso ? new Date(b.eligibleAtIso).getTime() : Number.POSITIVE_INFINITY
-        if (ae !== be) return ae - be
-        const af = a.follow_up_at ? new Date(a.follow_up_at).getTime() : Number.POSITIVE_INFINITY
-        const bf = b.follow_up_at ? new Date(b.follow_up_at).getTime() : Number.POSITIVE_INFINITY
-        return af - bf
+      .map((item: any) => {
+        const activities = activityMap.get(item.id) || []
+        const attempts = activities.filter(
+          (activity: any) => activity.type === 'call' || activity.type === 'text'
+        )
+        // activities are ordered created_at desc, so the first attempt is the latest.
+        const lastAttempt = attempts[0] || null
+        const enteredQueueAt = item.inspection_outcome_at || item.created_at || null
+        const handoffContext = (item.handoff_context as HandoffContext | null) ?? null
+        const { story, objective } = getQueueStory({
+          followUpKind: item.followUpKind,
+          outcomeId: normalizeInspectionOutcomeId(item.inspection_outcome) || null,
+          outcomeLabel: item.followUpOutcomeLabel,
+          knockbackReason: item.knockback_reason ?? null,
+          enteredQueueAt,
+          handoffContext,
+        })
+        const priority = getQueuePriority(
+          {
+            followUpKind: item.followUpKind,
+            callableNow: item.callableNow,
+            followUpAt: item.follow_up_at,
+            eligibleAtIso: item.eligibleAtIso,
+            enteredQueueAt,
+            attemptCount: attempts.length,
+            lastAttemptAt: lastAttempt?.created_at ?? null,
+          },
+          nowMs
+        )
+        const followUpMs = item.follow_up_at ? new Date(item.follow_up_at).getTime() : NaN
+        const overdueDays =
+          Number.isFinite(followUpMs) && followUpMs < nowMs
+            ? Math.floor((nowMs - followUpMs) / (24 * 60 * 60 * 1000))
+            : null
+        const enteredMs = enteredQueueAt ? new Date(enteredQueueAt).getTime() : NaN
+        const daysInQueue = Number.isFinite(enteredMs)
+          ? Math.max(0, Math.floor((nowMs - enteredMs) / (24 * 60 * 60 * 1000)))
+          : null
+
+        return {
+          id: item.id,
+          status: item.status,
+          address_text: item.address_text,
+          project_type: item.project_type,
+          inspection_notes: item.inspection_notes,
+          follow_up_at: item.follow_up_at,
+          created_at: item.created_at ?? null,
+          customerName: item.customerName,
+          customerPhone: item.customerPhone,
+          followUpKind: item.followUpKind,
+          followUpOutcomeLabel: item.followUpOutcomeLabel,
+          followUpStatus: item.followUpStatus,
+          callableNow: item.callableNow,
+          eligibleAtIso: item.eligibleAtIso,
+          adminHandoffDelayDays: item.adminHandoffDelayDays,
+          knockback_reason: item.knockback_reason ?? null,
+          assignedToName: item.assigned_user_id
+            ? userNameMap.get(item.assigned_user_id) || 'Assigned'
+            : null,
+          closerName: item.closerUserId ? userNameMap.get(item.closerUserId) || null : null,
+          activities,
+          story,
+          objective,
+          handoffContext,
+          attemptCount: attempts.length,
+          lastAttemptAt: lastAttempt?.created_at ?? null,
+          lastAttemptSummary: lastAttempt?.body ?? null,
+          daysInQueue,
+          overdueDays,
+          priorityTier: priority.tier,
+          _priority: priority,
+        }
       })
+      .sort((a: any, b: any) => comparePriority(a._priority, b._priority))
+      .map(({ _priority, ...item }: any) => item)
 
     const readyCount = items.filter((item: any) => item.callableNow).length
 
@@ -451,6 +512,13 @@ export async function GET(request: NextRequest) {
           didntSit: items.filter((item: any) => item.followUpKind === 'didnt_sit').length,
           handoff: items.filter((item: any) => item.followUpKind === 'handoff').length,
           knockback: items.filter((item: any) => item.followUpKind === 'knockback').length,
+          dueNow: items.filter((item: any) => item.priorityTier === 1).length,
+          neverAttempted: items.filter(
+            (item: any) => item.callableNow && item.attemptCount === 0
+          ).length,
+          overdue: items.filter(
+            (item: any) => typeof item.overdueDays === 'number' && item.overdueDays > 0
+          ).length,
         },
       },
       {

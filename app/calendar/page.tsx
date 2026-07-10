@@ -90,11 +90,14 @@ function appointmentKindLabel(appointmentType: string | null | undefined): strin
   const t = appointmentType || 'inspection'
   if (t === 'close') return 'Close'
   if (t === 'insurance_follow_up') return 'Follow-up'
+  if (t === 'insurance_call') return 'Inside Sales Call'
   return 'Inspection'
 }
 
 function appointmentNeedsCloser(apt: Appointment): boolean {
   if (apt._calendarSource === 'close_only') return false
+  // Inside-sales calls are phone calls worked from the queue, not field visits needing a rep.
+  if (apt.appointment_type === 'insurance_call') return false
   return !apt.closer_user_id && apt.status !== 'cancelled'
 }
 
@@ -606,6 +609,7 @@ export default function CalendarPage() {
     const t = type || 'inspection'
     if (t === 'close') return 'bg-emerald-500'
     if (t === 'insurance_follow_up') return 'bg-orange-400'
+    if (t === 'insurance_call') return 'bg-purple-500'
     return 'bg-indigo-500'
   }
 

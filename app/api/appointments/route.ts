@@ -1,4 +1,5 @@
 import { resolveCanReassignAppointment } from '@/lib/permissions'
+import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, team_id, region_id, custom_role_id')
+      .select('org_id, role, team_id, region_id, custom_role_id, custom_role:custom_roles(name, display_name)')
       .eq('id', user.id)
       .single()
 
@@ -70,9 +71,22 @@ export async function GET(request: NextRequest) {
       `)
       .eq('org_id', profile.org_id)
 
-    // Filter based on role - reps only see their own; scheduling managers see all
+    // Filter based on role - reps only see their own; scheduling managers see all.
+    // Inside-sales users additionally see insurance_call rows (their calendar — calls have no closer).
     if (!canReassign) {
-      query = query.or(`closer_user_id.eq.${user.id},canvasser_user_id.eq.${user.id}`)
+      const customRole = Array.isArray((profile as any).custom_role)
+        ? (profile as any).custom_role[0]
+        : (profile as any).custom_role
+      const insideSales = isInsideSalesRoleLike({
+        role: profile.role,
+        customRoleName: customRole?.name || null,
+        customRoleDisplayName: customRole?.display_name || null,
+      })
+      query = query.or(
+        insideSales
+          ? `closer_user_id.eq.${user.id},canvasser_user_id.eq.${user.id},appointment_type.eq.insurance_call`
+          : `closer_user_id.eq.${user.id},canvasser_user_id.eq.${user.id}`
+      )
     }
 
     // Apply time filters

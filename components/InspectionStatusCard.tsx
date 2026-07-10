@@ -357,10 +357,10 @@ export default function InspectionStatusCard({
 
           {showInsuranceGracePeriod && (
             <div className="px-6 py-4 border-t bg-violet-50/80">
-              <h3 className="text-sm font-semibold text-violet-900 mb-1">Insurance follow-up grace period</h3>
+              <h3 className="text-sm font-semibold text-violet-900 mb-1">Insurance follow-up</h3>
               <p className="text-xs text-violet-800">
-                Submit this and you can keep working the lead for up to 7 days. If it is still unresolved after
-                that, it moves into the inside sales queue.
+                Book the inside sales call with the customer on Appointments → Feedback (date and time required).
+                If you submit here without a booked call, inside sales receives the lead after 1 business day.
               </p>
             </div>
           )}

@@ -50,6 +50,12 @@ type InsideSalesItem = {
   assignedToName: string | null
   closerName: string | null
   activities: InsideSalesActivity[]
+  story?: string
+  objective?: string
+  attemptCount?: number
+  lastAttemptAt?: string | null
+  daysInQueue?: number | null
+  overdueDays?: number | null
 }
 
 export default function OpportunitiesPage() {
@@ -521,7 +527,11 @@ export default function OpportunitiesPage() {
                               {kindLabel}
                               <span className="font-normal opacity-90"> · {statusPretty}</span>
                             </span>
-                            {item.callableNow ? (
+                            {item.callableNow && typeof item.overdueDays === 'number' && item.overdueDays > 0 ? (
+                              <span className="rounded-full bg-red-600 px-2.5 py-1 text-xs font-bold text-white">
+                                Overdue {item.overdueDays} day{item.overdueDays === 1 ? '' : 's'}
+                              </span>
+                            ) : item.callableNow ? (
                               <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
                                 Ready for calls
                               </span>
@@ -543,6 +553,26 @@ export default function OpportunitiesPage() {
                           </div>
                           <h2 className="mt-3 text-lg font-semibold text-gray-900">{item.customerName}</h2>
                           <p className="mt-1 text-sm text-gray-600">{item.address_text || 'No address'}</p>
+                          {item.story && (
+                            <p className="mt-2 text-sm text-gray-800">
+                              {item.story}{' '}
+                              {item.objective && (
+                                <span className="font-semibold text-gray-900">→ {item.objective}</span>
+                              )}
+                            </p>
+                          )}
+                          <p className="mt-1 text-xs font-medium text-gray-500">
+                            {[
+                              typeof item.attemptCount === 'number'
+                                ? item.attemptCount === 0
+                                  ? 'Never called'
+                                  : `${item.attemptCount} attempt${item.attemptCount === 1 ? '' : 's'}`
+                                : null,
+                              typeof item.daysInQueue === 'number' ? `in queue ${item.daysInQueue}d` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </p>
                         </div>
                         <div className="grid gap-3 text-sm sm:grid-cols-2 lg:min-w-[320px]">
                           <div>
@@ -572,20 +602,26 @@ export default function OpportunitiesPage() {
                             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
                               When to call
                             </p>
-                            <p className="mt-1 font-medium text-gray-900">
-                              {!item.callableNow && item.eligibleAtIso
-                                ? `Opens ${new Date(item.eligibleAtIso).toLocaleString(undefined, {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                  })}`
-                                : item.follow_up_at
-                                  ? new Date(item.follow_up_at).toLocaleString()
-                                  : item.adminHandoffDelayDays != null
-                                    ? `${item.adminHandoffDelayDays}-day admin wait from inspection`
-                                    : '—'}
-                            </p>
+                            {typeof item.overdueDays === 'number' && item.overdueDays > 0 ? (
+                              <p className="mt-1 font-semibold text-red-700">
+                                Overdue by {item.overdueDays} day{item.overdueDays === 1 ? '' : 's'}
+                              </p>
+                            ) : (
+                              <p className="mt-1 font-medium text-gray-900">
+                                {!item.callableNow && item.eligibleAtIso
+                                  ? `Opens ${new Date(item.eligibleAtIso).toLocaleString(undefined, {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: 'numeric',
+                                      minute: '2-digit',
+                                    })}`
+                                  : item.follow_up_at
+                                    ? new Date(item.follow_up_at).toLocaleString()
+                                    : item.adminHandoffDelayDays != null
+                                      ? `${item.adminHandoffDelayDays}-day admin wait from inspection`
+                                      : 'Now'}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </div>

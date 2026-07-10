@@ -6,6 +6,7 @@ import Link from 'next/link'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import { FEEDBACK_PROMPT_DISPLAY_TIMEZONE } from '@/lib/scheduling-prompt'
 import { EASTERN_TZ, easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
+import { suggestedNextAttemptDays, type HandoffContext } from '@/lib/inside-sales-priority'
 import { formatInTimeZone } from 'date-fns-tz'
 
 type ActivityRow = {
@@ -13,6 +14,7 @@ type ActivityRow = {
   type: string
   body: string | null
   created_at: string
+  users?: { full_name?: string | null } | { full_name?: string | null }[] | null
 }
 
 type QueueItem = {
@@ -20,40 +22,51 @@ type QueueItem = {
   customerName: string
   customerPhone: string | null
   address_text: string | null
+  inspection_notes: string | null
   follow_up_at: string | null
   created_at: string | null
   followUpKind: 'didnt_sit' | 'handoff' | 'knockback'
+  followUpOutcomeLabel: string | null
   knockback_reason: string | null
   closerName: string | null
+  assignedToName: string | null
   callableNow: boolean
+  eligibleAtIso: string | null
+  story: string
+  objective: string
+  handoffContext: HandoffContext | null
+  attemptCount: number
+  lastAttemptAt: string | null
+  lastAttemptSummary: string | null
+  daysInQueue: number | null
+  overdueDays: number | null
+  priorityTier: number
   activities: ActivityRow[]
 }
 
-type TabId = 'insurance' | 'followup' | 'didnt_sit'
+type QueueCounts = {
+  total: number
+  readyToCall: number
+  didntSit: number
+  handoff: number
+  knockback: number
+  dueNow: number
+  neverAttempted: number
+  overdue: number
+}
+
+type TabId = 'up_next' | 'insurance' | 'didnt_sit' | 'knockback'
 
 const ET = FEEDBACK_PROMPT_DISPLAY_TIMEZONE
 
-const INSURANCE_CALL_RESULTS = ['No Answer', 'Left Voicemail', 'Spoke with them', 'Wrong number']
+const CALL_RESULTS = ['No Answer', 'Left Voicemail', 'Spoke with them', 'Wrong number']
 const KNOCKBACK_CALL_RESULTS = ['No Answer', 'Left Voicemail', 'Spoke with them', 'Not Interested']
 
-const KNOCKBACK_LABELS: Record<string, string> = {
-  credit_fail: 'CREDIT FAIL',
-  not_ready: 'NOT READY',
-  price_objection: 'PRICE OBJECTION',
-}
-
-function lastContactAt(activities: ActivityRow[]): string | null {
-  const contactActivities = activities
-    .filter((a) => a.type === 'call' || a.type === 'text')
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  return contactActivities[0]?.created_at ?? null
-}
-
-function daysSince(iso: string | null): number | null {
-  if (!iso) return null
-  const ms = Date.now() - new Date(iso).getTime()
-  if (!Number.isFinite(ms)) return null
-  return Math.floor(ms / (24 * 60 * 60 * 1000))
+const CALL_WINDOW_LABELS: Record<string, string> = {
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+  anytime: 'Anytime',
 }
 
 function formatEtShort(iso: string): string {
@@ -64,15 +77,29 @@ function formatEtShort(iso: string): string {
   })
 }
 
-function relativeOverdueLabel(followUpAt: string): string {
-  const diffMs = Date.now() - new Date(followUpAt).getTime()
-  if (diffMs <= 0) return formatEtShort(followUpAt)
-  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000))
-  if (days >= 28) {
-    const months = Math.max(1, Math.round(days / 30))
-    return `${months} month${months === 1 ? '' : 's'} ago`
-  }
-  return `${days} day${days === 1 ? '' : 's'} ago`
+function formatEtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    timeZone: ET,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function daysAgoLabel(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000))
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  return `${days} days ago`
+}
+
+function addDaysEtDatetimeLocal(days: number): string {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  // Default retry time: 10:00 ET
+  const ymd = formatInTimeZone(d, ET, 'yyyy-MM-dd')
+  return `${ymd}T10:00`
 }
 
 function addCalendarMonthsIso(months: number): string {
@@ -93,44 +120,44 @@ async function copyToClipboard(text: string) {
   }
 }
 
-// Priority queue sort for insurance and didn't-sit tabs:
-// 1. Items with a future follow_up_at sink to the bottom (ordered soonest-to-resurface first)
-// 2. Never-contacted items float to top (oldest created_at first)
-// 3. Previously contacted items (no future follow-up) sorted oldest-last-contact first
-function sortQueueItems(list: QueueItem[]): QueueItem[] {
-  const now = Date.now()
-  return [...list].sort((a, b) => {
-    const aFollowUpMs = a.follow_up_at ? new Date(a.follow_up_at).getTime() : null
-    const bFollowUpMs = b.follow_up_at ? new Date(b.follow_up_at).getTime() : null
-    const aFuture = aFollowUpMs !== null && aFollowUpMs > now
-    const bFuture = bFollowUpMs !== null && bFollowUpMs > now
-
-    if (aFuture && !bFuture) return 1
-    if (!aFuture && bFuture) return -1
-    if (aFuture && bFuture) return aFollowUpMs! - bFollowUpMs!
-
-    const aContact = lastContactAt(a.activities)
-    const bContact = lastContactAt(b.activities)
-    if (!aContact && !bContact) {
-      return new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
-    }
-    if (!aContact) return -1
-    if (!bContact) return 1
-    return new Date(aContact).getTime() - new Date(bContact).getTime()
-  })
+function handoffChips(ctx: HandoffContext | null): string[] {
+  if (!ctx) return []
+  const chips: string[] = []
+  if (ctx.claim_filed === 'yes') {
+    chips.push(
+      `Claim filed${ctx.insurance_carrier ? ` — ${ctx.insurance_carrier}` : ''}${ctx.claim_number ? ` #${ctx.claim_number}` : ''}`
+    )
+  } else if (ctx.claim_filed === 'no') {
+    chips.push('Claim NOT filed')
+  } else if (ctx.claim_filed === 'customer_filing') {
+    chips.push('Customer filing claim')
+  }
+  if (ctx.adjuster_meeting_at) chips.push(`Adjuster: ${formatEtDateTime(ctx.adjuster_meeting_at)}`)
+  if (ctx.decision_maker) chips.push(`Ask for: ${ctx.decision_maker}`)
+  if (ctx.best_call_window && CALL_WINDOW_LABELS[ctx.best_call_window]) {
+    chips.push(`Best time: ${CALL_WINDOW_LABELS[ctx.best_call_window]}`)
+  }
+  return chips
 }
 
 export default function InsideSalesPage() {
   const [items, setItems] = useState<QueueItem[]>([])
+  const [counts, setCounts] = useState<QueueCounts | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<TabId>('insurance')
+  const [activeTab, setActiveTab] = useState<TabId>('up_next')
+  // Inside-sales reps get the one-lead conveyor as the whole page; managers get the list.
+  const [viewerIsRep, setViewerIsRep] = useState(false)
+  const [workMode, setWorkMode] = useState(false)
+  const [workIndex, setWorkIndex] = useState(0)
+  const [sessionLogged, setSessionLogged] = useState(0)
   const [modalItem, setModalItem] = useState<QueueItem | null>(null)
   const [modalMode, setModalMode] = useState<'log' | 'reschedule' | null>(null)
   const [callResult, setCallResult] = useState('')
   const [spokeWith, setSpokeWith] = useState('')
   const [note, setNote] = useState('')
   const [nextFollowUp, setNextFollowUp] = useState('')
+  const [nextFollowUpTouched, setNextFollowUpTouched] = useState(false)
   const [scheduleItem, setScheduleItem] = useState<QueueItem | null>(null)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [scheduleUsers, setScheduleUsers] = useState<Array<{ id: string; full_name: string; has_calendar?: boolean }>>([])
@@ -159,6 +186,8 @@ export default function InsideSalesPage() {
       }
       const data = await res.json()
       setItems(Array.isArray(data.items) ? data.items : [])
+      setCounts(data.counts || null)
+      setViewerIsRep(Boolean(data.canSelfAssign))
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load queue')
@@ -174,44 +203,53 @@ export default function InsideSalesPage() {
     return () => clearInterval(interval)
   }, [loadQueue])
 
+  // Server order IS the call order — filter per tab, never re-sort.
+  const upNextItems = useMemo(
+    () => items.filter((item) => item.callableNow),
+    [items]
+  )
   const insuranceItems = useMemo(
-    () => sortQueueItems(items.filter((item) => item.followUpKind === 'handoff')),
+    () => items.filter((item) => item.followUpKind === 'handoff'),
     [items]
   )
-
   const didntSitItems = useMemo(
-    () => sortQueueItems(items.filter((item) => item.followUpKind === 'didnt_sit')),
+    () => items.filter((item) => item.followUpKind === 'didnt_sit'),
+    [items]
+  )
+  const knockbackItems = useMemo(
+    () => items.filter((item) => item.followUpKind === 'knockback'),
     [items]
   )
 
-  const knockbackItems = useMemo(() => items.filter((item) => item.followUpKind === 'knockback'), [items])
+  const loggedToday = useMemo(() => {
+    const todayEt = formatInTimeZone(new Date(), ET, 'yyyy-MM-dd')
+    let n = 0
+    for (const item of items) {
+      for (const activity of item.activities) {
+        if (
+          (activity.type === 'call' || activity.type === 'text') &&
+          formatInTimeZone(new Date(activity.created_at), ET, 'yyyy-MM-dd') === todayEt
+        ) {
+          n += 1
+        }
+      }
+    }
+    return n
+  }, [items])
 
-  const nowMs = Date.now()
-  const knockbackDue = useMemo(
-    () =>
-      knockbackItems.filter((item) => {
-        if (!item.follow_up_at) return false
-        return new Date(item.follow_up_at).getTime() <= nowMs
-      }),
-    [knockbackItems, nowMs]
-  )
-  const knockbackUpcoming = useMemo(
-    () =>
-      knockbackItems.filter((item) => {
-        if (!item.follow_up_at) return false
-        return new Date(item.follow_up_at).getTime() > nowMs
-      }),
-    [knockbackItems, nowMs]
-  )
-  const knockbackNoDate = useMemo(
-    () => knockbackItems.filter((item) => !item.follow_up_at),
-    [knockbackItems]
-  )
+  const workQueue = upNextItems
+  const conveyorActive = viewerIsRep || workMode
+  const workItem = conveyorActive
+    ? workQueue[Math.min(workIndex, Math.max(workQueue.length - 1, 0))] ?? null
+    : null
+  const nextScheduled = useMemo(() => {
+    const now = Date.now()
+    return items
+      .filter((item) => item.follow_up_at && new Date(item.follow_up_at).getTime() > now)
+      .sort((a, b) => new Date(a.follow_up_at!).getTime() - new Date(b.follow_up_at!).getTime())[0]
+  }, [items])
 
-  async function postAction(
-    opportunityId: string,
-    payload: Record<string, unknown>
-  ) {
+  async function postAction(opportunityId: string, payload: Record<string, unknown>) {
     const res = await fetch(`/api/opportunities/${opportunityId}/inside-sales-follow-up`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -231,6 +269,7 @@ export default function InsideSalesPage() {
     setSpokeWith('')
     setNote('')
     setNextFollowUp('')
+    setNextFollowUpTouched(false)
     setActionError(null)
   }
 
@@ -240,22 +279,28 @@ export default function InsideSalesPage() {
     setActionError(null)
   }
 
+  function pickCallResult(result: string) {
+    setCallResult(result)
+    if (!nextFollowUpTouched) {
+      const days = suggestedNextAttemptDays(result)
+      setNextFollowUp(days !== null ? addDaysEtDatetimeLocal(days) : '')
+    }
+  }
+
   function handleModalSubmit() {
     if (!modalItem) return
     if (modalMode === 'log' && !callResult) {
-      setActionError('Please select an outcome.')
+      setActionError('Pick an outcome.')
       return
     }
     if (modalMode === 'reschedule' && !nextFollowUp) {
-      setActionError('Please select a follow-up date.')
+      setActionError('Pick a follow-up date.')
       return
     }
 
     startTransition(async () => {
       try {
-        const followUpIso = nextFollowUp
-          ? easternDatetimeLocalToUtcIso(nextFollowUp)
-          : null
+        const followUpIso = nextFollowUp ? easternDatetimeLocalToUtcIso(nextFollowUp) : null
         await postAction(modalItem.id, {
           action: 'log_call',
           result: modalMode === 'reschedule' ? 'Follow-up rescheduled' : callResult,
@@ -264,6 +309,7 @@ export default function InsideSalesPage() {
           next_follow_up_at: followUpIso || undefined,
           next_follow_up_timezone: EASTERN_TZ,
         })
+        if (modalMode === 'log') setSessionLogged((n) => n + 1)
         closeModal()
         await loadQueue()
       } catch (err) {
@@ -333,196 +379,332 @@ export default function InsideSalesPage() {
     setTimeout(() => setCopiedPhone(null), 2000)
   }
 
-  function renderPhone(phone: string | null) {
+  function renderPhone(phone: string | null, large = false) {
     if (!phone) return <span className="text-gray-400 text-sm">No phone</span>
     return (
       <button
         type="button"
         onClick={() => handleCopyPhone(phone)}
-        className="text-sm font-medium text-indigo-700 hover:text-indigo-900 hover:underline"
-        title="Tap to copy"
+        className={`font-semibold text-indigo-700 hover:text-indigo-900 hover:underline ${
+          large ? 'text-2xl tracking-wide' : 'text-sm'
+        }`}
+        title="Tap to copy for the dialer"
       >
         {copiedPhone === phone ? 'Copied!' : phone}
       </button>
     )
   }
 
-  function renderLastContactBadge(item: QueueItem) {
-    const contactAt = lastContactAt(item.activities)
-    const days = contactAt ? daysSince(contactAt) : daysSince(item.created_at)
-    const isStale = days !== null && days > 7
-    const noContactEver = !contactAt
-
-    if (contactAt) {
+  function kindChip(item: QueueItem) {
+    if (item.followUpKind === 'knockback') {
+      const reason = (item.knockback_reason || 'knockback').replace(/_/g, ' ')
       return (
-        <span className={`text-sm font-medium ${isStale ? 'text-red-600' : 'text-gray-700'}`}>
-          Last Contact: {days === 0 ? 'Today' : `${days} day${days === 1 ? '' : 's'} ago`}
-          {isStale ? ' 🔴' : ''}
+        <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-bold uppercase text-orange-900">
+          {reason}
         </span>
       )
     }
-
+    if (item.followUpKind === 'didnt_sit') {
+      return (
+        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold uppercase text-amber-900">
+          Didn&apos;t sit
+        </span>
+      )
+    }
     return (
-      <span className={`text-sm font-medium ${noContactEver && isStale ? 'text-red-600' : 'text-gray-500'}`}>
-        Last Contact: Never{noContactEver && isStale ? ' 🔴' : ''}
+      <span className="rounded-full bg-cyan-100 px-2.5 py-0.5 text-xs font-bold uppercase text-cyan-900">
+        {item.followUpOutcomeLabel || 'Handoff'}
       </span>
     )
   }
 
-  function renderInsuranceRow(item: QueueItem) {
+  function urgencyBadge(item: QueueItem) {
+    if (!item.callableNow) {
+      return (
+        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+          {item.eligibleAtIso ? `Opens ${formatEtDateTime(item.eligibleAtIso)}` : 'Waiting on rep'}
+        </span>
+      )
+    }
+    if (typeof item.overdueDays === 'number' && item.overdueDays > 0) {
+      return (
+        <span className="rounded-full bg-red-600 px-2.5 py-0.5 text-xs font-bold text-white">
+          OVERDUE {item.overdueDays} day{item.overdueDays === 1 ? '' : 's'}
+        </span>
+      )
+    }
+    if (item.priorityTier === 1) {
+      return (
+        <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-800">
+          DUE NOW{item.follow_up_at ? ` — ${formatEtDateTime(item.follow_up_at)}` : ''}
+        </span>
+      )
+    }
+    if (item.follow_up_at && new Date(item.follow_up_at).getTime() > Date.now()) {
+      return (
+        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+          Scheduled {formatEtDateTime(item.follow_up_at)}
+        </span>
+      )
+    }
+    if (item.attemptCount === 0 && item.priorityTier === 2) {
+      return (
+        <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-900">
+          NEW — call first
+        </span>
+      )
+    }
     return (
-      <div key={item.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <h3 className="font-semibold text-gray-900">{item.customerName}</h3>
-              {renderPhone(item.customerPhone)}
-            </div>
-            <p className="mt-1 text-sm text-gray-600">{item.address_text || 'No address'}</p>
-            <div className="mt-2 flex flex-wrap items-center gap-3">
-              {renderLastContactBadge(item)}
-              {item.follow_up_at && (
-                <span className="text-sm text-gray-600">
-                  Next Follow-up: {formatEtShort(item.follow_up_at)}
-                </span>
-              )}
-            </div>
-            {item.closerName && (
-              <p className="mt-1 text-sm text-gray-500">Closer: {item.closerName}</p>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => openLogModal(item)}
-              className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200"
-            >
-              Log Contact
-            </button>
-            <button
-              type="button"
-              onClick={() => openScheduleBack(item)}
-              className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-200"
-            >
-              Schedule Back
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction(item, 'mark_lost')}
-              disabled={isPending}
-              className="rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-200 disabled:opacity-50"
-            >
-              Mark Lost
-            </button>
-          </div>
+      <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+        Ready to call
+      </span>
+    )
+  }
+
+  function factLine(item: QueueItem) {
+    const facts: string[] = []
+    facts.push(
+      item.attemptCount === 0
+        ? 'Never called'
+        : `${item.attemptCount} attempt${item.attemptCount === 1 ? '' : 's'}`
+    )
+    if (item.lastAttemptAt) facts.push(`last ${daysAgoLabel(item.lastAttemptAt)}`)
+    if (typeof item.daysInQueue === 'number') facts.push(`in queue ${item.daysInQueue}d`)
+    if (item.closerName) facts.push(`closer ${item.closerName}`)
+    return facts.join(' · ')
+  }
+
+  function renderCardBody(item: QueueItem, large = false) {
+    const chips = handoffChips(item.handoffContext)
+    return (
+      <>
+        <div className="flex flex-wrap items-center gap-2">
+          {kindChip(item)}
+          {urgencyBadge(item)}
         </div>
+        <div className={`mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 ${large ? 'mt-4' : ''}`}>
+          <h3 className={`font-bold text-gray-900 ${large ? 'text-2xl' : 'text-base'}`}>{item.customerName}</h3>
+          {renderPhone(item.customerPhone, large)}
+        </div>
+        <p className="mt-0.5 text-sm text-gray-600">{item.address_text || 'No address'}</p>
+        <p className={`mt-2 text-gray-800 ${large ? 'text-base' : 'text-sm'}`}>
+          {item.story}{' '}
+          <span className="font-semibold text-gray-900">→ {item.objective}</span>
+        </p>
+        <p className="mt-1 text-xs font-medium text-gray-500">{factLine(item)}</p>
+        {chips.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {chips.map((chip) => (
+              <span
+                key={chip}
+                className="rounded-md bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-900 border border-purple-200"
+              >
+                {chip}
+              </span>
+            ))}
+          </div>
+        )}
+        {item.handoffContext?.context_line && (
+          <p className="mt-2 rounded-md bg-gray-50 border border-gray-200 px-2 py-1.5 text-sm text-gray-800">
+            Rep said: {item.handoffContext.context_line}
+          </p>
+        )}
+        {item.inspection_notes && (
+          <p className={`mt-2 text-sm text-gray-600 ${large ? '' : 'line-clamp-2'}`}>
+            Closer notes: {item.inspection_notes}
+          </p>
+        )}
+        {item.lastAttemptSummary && (
+          <p className="mt-1 text-xs text-gray-500 truncate">Last: {item.lastAttemptSummary}</p>
+        )}
+      </>
+    )
+  }
+
+  function renderActions(item: QueueItem) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => openLogModal(item)}
+          className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-700"
+        >
+          Log Call
+        </button>
+        {item.followUpKind !== 'knockback' && (
+          <button
+            type="button"
+            onClick={() => openScheduleBack(item)}
+            className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-200"
+          >
+            Schedule Back
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => openLogModal(item, 'reschedule')}
+          className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200"
+        >
+          Reschedule
+        </button>
+        <button
+          type="button"
+          onClick={() => handleQuickAction(item, 'mark_unresponsive')}
+          disabled={isPending}
+          className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
+        >
+          Unresponsive
+        </button>
+        <button
+          type="button"
+          onClick={() => handleQuickAction(item, 'mark_lost')}
+          disabled={isPending}
+          className="rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-200 disabled:opacity-50"
+        >
+          Lost
+        </button>
+        <Link
+          href={`/opportunities/${item.id}`}
+          className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
+        >
+          Full record →
+        </Link>
       </div>
     )
   }
 
-  function renderKnockbackRow(item: QueueItem) {
-    const isOverdue = item.follow_up_at && new Date(item.follow_up_at).getTime() <= nowMs
-    const contactAt = lastContactAt(item.activities)
-    const contactDays = contactAt ? daysSince(contactAt) : null
-    const reasonLabel = item.knockback_reason
-      ? KNOCKBACK_LABELS[item.knockback_reason] || item.knockback_reason.replace(/_/g, ' ').toUpperCase()
-      : 'KNOCKBACK'
-
+  function renderRow(item: QueueItem) {
     return (
       <div key={item.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold text-gray-900">{item.customerName}</h3>
-            {renderPhone(item.customerPhone)}
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">
-              {reasonLabel}
-            </span>
-          </div>
-          <p className="text-sm text-gray-600">{item.address_text || 'No address'}</p>
-          <div className="flex flex-wrap gap-4 text-sm">
-            {item.follow_up_at ? (
-              <span className={isOverdue ? 'font-medium text-red-600' : 'text-gray-700'}>
-                Due: {isOverdue ? `${relativeOverdueLabel(item.follow_up_at)} 🔴` : formatEtShort(item.follow_up_at)}
-              </span>
-            ) : (
-              <span className="text-gray-500">Due: Not set</span>
-            )}
-            {contactAt && contactDays !== null && (
-              <span className="text-gray-600">
-                Last contact: {contactDays === 0 ? 'Today' : `${contactDays} day${contactDays === 1 ? '' : 's'} ago`}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => openLogModal(item)}
-              className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200"
-            >
-              Log Call
-            </button>
-            <button
-              type="button"
-              onClick={() => openLogModal(item, 'reschedule')}
-              className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200"
-            >
-              Reschedule
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction(item, 'mark_unresponsive')}
-              disabled={isPending}
-              className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
-            >
-              Mark Unresponsive
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction(item, 'mark_lost')}
-              disabled={isPending}
-              className="rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-200 disabled:opacity-50"
-            >
-              Mark Lost
-            </button>
-            <Link
-              href={`/opportunities/${item.id}`}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
-            >
-              Full record →
-            </Link>
-          </div>
+          {renderCardBody(item)}
+          {renderActions(item)}
         </div>
       </div>
     )
   }
 
-  function renderKnockbackSection(title: string, sectionItems: QueueItem[], badge?: number) {
-    if (sectionItems.length === 0) return null
+  const tabDefs: Array<{ id: TabId; label: string; count: number; alert?: number }> = [
+    { id: 'up_next', label: 'Up Next', count: upNextItems.length, alert: counts?.dueNow || 0 },
+    { id: 'insurance', label: 'Insurance', count: insuranceItems.length },
+    { id: 'didnt_sit', label: "Didn't Sit", count: didntSitItems.length },
+    { id: 'knockback', label: 'Knockbacks', count: knockbackItems.length },
+  ]
+
+  const tabItems: Record<TabId, QueueItem[]> = {
+    up_next: upNextItems,
+    insurance: insuranceItems,
+    didnt_sit: didntSitItems,
+    knockback: knockbackItems,
+  }
+
+  const callResults = modalItem?.followUpKind === 'knockback' ? KNOCKBACK_CALL_RESULTS : CALL_RESULTS
+
+  // Inside-sales rep: one lead at a time — the queue decides, the rep dials.
+  if (viewerIsRep) {
     return (
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
-          {title}
-          {badge != null && badge > 0 && (
-            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">{badge}</span>
+      <div className="min-h-screen bg-gray-50">
+        <Nav />
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Next Call</h1>
+            <p className="text-sm font-medium text-gray-600">
+              {upNextItems.length} to call · {loggedToday} logged today
+            </p>
+          </div>
+
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 text-sm">{error}</div>
           )}
-        </h3>
-        {sectionItems.map(renderKnockbackRow)}
+          {actionError && !modalItem && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 text-sm">
+              {actionError}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Loading…</div>
+          ) : workItem ? (
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+              {renderCardBody(workItem, true)}
+              <div className="mt-5 border-t pt-4">{renderActions(workItem)}</div>
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setWorkIndex((i) => Math.min(i + 1, Math.max(workQueue.length - 1, 0)))}
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
+                >
+                  Skip →
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border bg-white p-8 text-center text-gray-700">
+              <p className="text-lg font-semibold">Nothing to call right now. 🎉</p>
+              {nextScheduled?.follow_up_at && (
+                <p className="mt-2 text-sm text-gray-500">
+                  Next scheduled call: {formatEtDateTime(nextScheduled.follow_up_at)} — {nextScheduled.customerName}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {modalItem && renderLogModal()}
+
+        <CloseScheduleModal
+          open={scheduleModalOpen}
+          onClose={() => setScheduleModalOpen(false)}
+          onConfirm={handleScheduleConfirm}
+          closeDurationMinutes={inspectionDuration}
+          users={scheduleUsers}
+          teams={scheduleTeams}
+        />
       </div>
     )
   }
-
-  const isKnockbackTab = activeTab === 'followup'
-  const callResults = isKnockbackTab || modalItem?.followUpKind === 'knockback'
-    ? KNOCKBACK_CALL_RESULTS
-    : INSURANCE_CALL_RESULTS
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Inside Sales</h1>
-          <p className="text-gray-500 mt-1 text-sm">Insurance hopper and follow-up queue</p>
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Inside Sales</h1>
+            <p className="text-gray-500 mt-1 text-sm">Calls are ordered for you — start at the top.</p>
+          </div>
+          {upNextItems.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setWorkIndex(0)
+                setSessionLogged(0)
+                setWorkMode(true)
+              }}
+              className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
+            >
+              ▶ Start Calling ({upNextItems.length})
+            </button>
+          )}
+        </div>
+
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-red-800">Due / overdue</p>
+            <p className="mt-1 text-2xl font-bold text-red-950">{counts?.dueNow ?? 0}</p>
+          </div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Never called</p>
+            <p className="mt-1 text-2xl font-bold text-emerald-950">{counts?.neverAttempted ?? 0}</p>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-white p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ready now</p>
+            <p className="mt-1 text-2xl font-bold text-gray-900">{counts?.readyToCall ?? 0}</p>
+          </div>
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Logged today</p>
+            <p className="mt-1 text-2xl font-bold text-indigo-950">{loggedToday}</p>
+          </div>
         </div>
 
         {error && (
@@ -532,73 +714,92 @@ export default function InsideSalesPage() {
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 text-sm">{actionError}</div>
         )}
 
-        <div className="mb-6 flex gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('insurance')}
-            className={`rounded-full px-4 py-2 text-sm font-medium ${
-              activeTab === 'insurance' ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
-            }`}
-          >
-            Insurance ({insuranceItems.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('didnt_sit')}
-            className={`rounded-full px-4 py-2 text-sm font-medium ${
-              activeTab === 'didnt_sit' ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
-            }`}
-          >
-            Didn&apos;t Sit ({didntSitItems.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('followup')}
-            className={`rounded-full px-4 py-2 text-sm font-medium flex items-center gap-2 ${
-              activeTab === 'followup' ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
-            }`}
-          >
-            Follow-up Queue ({knockbackItems.length})
-            {knockbackDue.length > 0 && (
-              <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
-                {knockbackDue.length}
-              </span>
-            )}
-          </button>
+        <div className="mb-6 flex flex-wrap gap-2">
+          {tabDefs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`rounded-full px-4 py-2 text-sm font-medium flex items-center gap-2 ${
+                activeTab === tab.id ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
+              }`}
+            >
+              {tab.label} ({tab.count})
+              {tab.alert && tab.alert > 0 ? (
+                <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">{tab.alert}</span>
+              ) : null}
+            </button>
+          ))}
         </div>
 
         {loading ? (
           <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Loading queue…</div>
-        ) : activeTab === 'didnt_sit' ? (
-          didntSitItems.length > 0 ? (
-            <div className="space-y-4">{didntSitItems.map(renderInsuranceRow)}</div>
-          ) : (
-            <div className="rounded-xl border bg-white p-8 text-center text-gray-600">
-              No didn&apos;t-sit leads in the queue.
-            </div>
-          )
-        ) : activeTab === 'insurance' ? (
-          insuranceItems.length > 0 ? (
-            <div className="space-y-4">{insuranceItems.map(renderInsuranceRow)}</div>
-          ) : (
-            <div className="rounded-xl border bg-white p-8 text-center text-gray-600">
-              No insurance leads in the queue. Great work! 🎉
-            </div>
-          )
-        ) : knockbackItems.length > 0 ? (
-          <div className="space-y-8">
-            {renderKnockbackSection('Due Today / Overdue', knockbackDue, knockbackDue.length)}
-            {renderKnockbackSection('Upcoming', knockbackUpcoming)}
-            {renderKnockbackSection('No date set', knockbackNoDate)}
-          </div>
+        ) : tabItems[activeTab].length > 0 ? (
+          <div className="space-y-4">{tabItems[activeTab].map(renderRow)}</div>
         ) : (
           <div className="rounded-xl border bg-white p-8 text-center text-gray-600">
-            No follow-up leads yet. They appear here when closers mark a deal as a knockback.
+            {activeTab === 'up_next'
+              ? 'Nothing to call right now. Great work! 🎉'
+              : 'No leads in this queue.'}
           </div>
         )}
       </div>
 
-      {modalItem && (
+      {/* Work mode: one lead at a time, ordered by the engine */}
+      {workMode && (
+        <div className="fixed inset-0 z-40 bg-gray-900/95 overflow-y-auto">
+          <div className="mx-auto max-w-2xl px-4 py-8">
+            <div className="mb-4 flex items-center justify-between text-white">
+              <p className="text-sm font-semibold">
+                Call session · {Math.min(workIndex + 1, workQueue.length)} of {workQueue.length} · logged {sessionLogged}
+              </p>
+              <button
+                type="button"
+                onClick={() => setWorkMode(false)}
+                className="rounded-lg border border-white/30 px-3 py-1.5 text-sm font-medium hover:bg-white/10"
+              >
+                Exit
+              </button>
+            </div>
+            {workItem ? (
+              <div className="rounded-2xl bg-white p-6 shadow-2xl">
+                {renderCardBody(workItem, true)}
+                <div className="mt-5 border-t pt-4">{renderActions(workItem)}</div>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setWorkIndex((i) => Math.min(i + 1, Math.max(workQueue.length - 1, 0)))}
+                    className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
+                  >
+                    Skip →
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-white p-8 text-center text-gray-700">
+                Queue cleared. Nothing left to call. 🎉
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {modalItem && renderLogModal()}
+
+      <CloseScheduleModal
+        open={scheduleModalOpen}
+        onClose={() => setScheduleModalOpen(false)}
+        onConfirm={handleScheduleConfirm}
+        closeDurationMinutes={inspectionDuration}
+        users={scheduleUsers}
+        teams={scheduleTeams}
+      />
+    </div>
+  )
+
+  function renderLogModal() {
+    if (!modalItem) return null
+    return (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" onClick={closeModal} />
           <div className="relative w-full max-w-md rounded-xl bg-white shadow-xl p-5 max-h-[90vh] overflow-y-auto">
@@ -609,22 +810,26 @@ export default function InsideSalesPage() {
             {modalMode === 'log' && (
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Outcome</label>
-                <select
-                  value={callResult}
-                  onChange={(e) => setCallResult(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                >
-                  <option value="">Select outcome</option>
+                <div className="grid grid-cols-2 gap-2">
                   {callResults.map((r) => (
-                    <option key={r} value={r}>
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => pickCallResult(r)}
+                      className={`rounded-lg border px-3 py-2.5 text-sm font-medium ${
+                        callResult === r
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
                       {r}
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
             )}
 
-            {modalMode === 'log' && (
+            {modalMode === 'log' && callResult === 'Spoke with them' && (
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Spoke with (optional)</label>
                 <input
@@ -649,7 +854,7 @@ export default function InsideSalesPage() {
 
             <div className="mt-3">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Next follow-up <span className="text-gray-400 font-normal">(ET)</span>
+                Next follow-up <span className="text-gray-400 font-normal">(ET{modalMode === 'log' ? ', auto-suggested' : ''})</span>
               </label>
               {modalItem.followUpKind === 'knockback' && (
                 <div className="mb-2 flex flex-wrap gap-2">
@@ -657,7 +862,10 @@ export default function InsideSalesPage() {
                     <button
                       key={mo}
                       type="button"
-                      onClick={() => setNextFollowUp(isoToEtDatetimeLocalInput(addCalendarMonthsIso(mo)))}
+                      onClick={() => {
+                        setNextFollowUp(isoToEtDatetimeLocalInput(addCalendarMonthsIso(mo)))
+                        setNextFollowUpTouched(true)
+                      }}
                       className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-amber-400"
                     >
                       +{mo} months
@@ -668,7 +876,10 @@ export default function InsideSalesPage() {
               <input
                 type="datetime-local"
                 value={nextFollowUp}
-                onChange={(e) => setNextFollowUp(e.target.value)}
+                onChange={(e) => {
+                  setNextFollowUp(e.target.value)
+                  setNextFollowUpTouched(true)
+                }}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
@@ -689,21 +900,11 @@ export default function InsideSalesPage() {
                 disabled={isPending}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isPending ? 'Saving…' : 'Submit'}
+                {isPending ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      <CloseScheduleModal
-        open={scheduleModalOpen}
-        onClose={() => setScheduleModalOpen(false)}
-        onConfirm={handleScheduleConfirm}
-        closeDurationMinutes={inspectionDuration}
-        users={scheduleUsers}
-        teams={scheduleTeams}
-      />
-    </div>
-  )
+    )
+  }
 }

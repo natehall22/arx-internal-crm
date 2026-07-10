@@ -12,6 +12,31 @@ import {
   sortActiveOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { easternDatetimeLocalToUtcIso, getEasternTodayIso, EASTERN_TZ } from '@/lib/eastern-datetime'
+
+function addDaysToEasternDateIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().slice(0, 10)
+}
+
+function getEasternWeekdayForDateIso(iso: string): number {
+  const weekday = new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
+    timeZone: EASTERN_TZ,
+    weekday: 'short',
+  })
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday)
+}
+
+/** Tomorrow in ET, skipping Sunday — default suggestion for the inside-sales insurance call. */
+function defaultInsuranceCallDate(): string {
+  let next = addDaysToEasternDateIso(getEasternTodayIso(), 1)
+  if (getEasternWeekdayForDateIso(next) === 0) {
+    next = addDaysToEasternDateIso(next, 1)
+  }
+  return next
+}
 
 function isRescheduledOutcomeId(id: string | null): boolean {
   return normalizeInspectionOutcomeId(id) === 'rescheduled'
@@ -70,6 +95,17 @@ export default function AppointmentFeedbackPage() {
   const [showReschedule, setShowReschedule] = useState(false)
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
+
+  // Inside-sales handoff state (insurance call booking + structured context for the call center)
+  const [insuranceCallDate, setInsuranceCallDate] = useState(() => defaultInsuranceCallDate())
+  const [insuranceCallTime, setInsuranceCallTime] = useState('10:00')
+  const [claimFiled, setClaimFiled] = useState('')
+  const [insuranceCarrier, setInsuranceCarrier] = useState('')
+  const [claimNumber, setClaimNumber] = useState('')
+  const [adjusterMeeting, setAdjusterMeeting] = useState('')
+  const [decisionMaker, setDecisionMaker] = useState('')
+  const [bestCallWindow, setBestCallWindow] = useState('')
+  const [contextLine, setContextLine] = useState('')
   
   const [schedulingUsers, setSchedulingUsers] = useState<
     Array<{ id: string; full_name: string; has_calendar?: boolean }>
@@ -219,6 +255,16 @@ export default function AppointmentFeedbackPage() {
       return
     }
 
+    if (isInsuranceFollowUpOutcomeId(outcome) && (!insuranceCallDate || !insuranceCallTime)) {
+      setError('Pick the insurance call date and time')
+      return
+    }
+
+    if (isInsuranceFollowUpOutcomeId(outcome) && !claimFiled) {
+      setError('Select whether the claim was filed')
+      return
+    }
+
     if (isRescheduledOutcomeId(outcome) && (!rescheduleDate || !rescheduleTime)) {
       setError('Please select a new date and time for the reschedule')
       return
@@ -226,6 +272,19 @@ export default function AppointmentFeedbackPage() {
 
     setSubmitting(true)
     setError(null)
+
+    const handoffContext: Record<string, string> = {}
+    if (claimFiled) handoffContext.claim_filed = claimFiled
+    if (insuranceCarrier.trim()) handoffContext.insurance_carrier = insuranceCarrier.trim()
+    if (claimNumber.trim()) handoffContext.claim_number = claimNumber.trim()
+    if (adjusterMeeting) {
+      const adjusterIso = easternDatetimeLocalToUtcIso(adjusterMeeting)
+      if (adjusterIso) handoffContext.adjuster_meeting_at = adjusterIso
+    }
+    if (decisionMaker.trim()) handoffContext.decision_maker = decisionMaker.trim()
+    if (bestCallWindow) handoffContext.best_call_window = bestCallWindow
+    if (contextLine.trim()) handoffContext.context_line = contextLine.trim()
+    const handoffContextPayload = Object.keys(handoffContext).length > 0 ? handoffContext : undefined
 
     try {
       if (isRescheduledOutcomeId(outcome)) {
@@ -282,6 +341,12 @@ export default function AppointmentFeedbackPage() {
         setCloseVisitDebrief({ opportunityId: statusData.opportunity_id })
         return
       } else if (outcome && isInsuranceFollowUpOutcomeId(outcome)) {
+        const insuranceCallIso = easternDatetimeLocalToUtcIso(
+          `${insuranceCallDate}T${insuranceCallTime}`
+        )
+        if (!insuranceCallIso) {
+          throw new Error('Could not parse the insurance call date and time. Check the fields and try again.')
+        }
         const response = await fetch('/api/inspections/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -291,6 +356,8 @@ export default function AppointmentFeedbackPage() {
             outcome,
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
+            insurance_call_at: insuranceCallIso,
+            handoff_context: handoffContextPayload,
           }),
         })
 
@@ -312,6 +379,7 @@ export default function AppointmentFeedbackPage() {
             outcome: outcome,
             notes: feedbackNotes,
             setter_feedback: feedbackNotes,
+            handoff_context: handoffContextPayload,
           }),
         })
 
@@ -555,14 +623,129 @@ export default function AppointmentFeedbackPage() {
           )}
 
           {isInsuranceFollowUpOutcomeId(outcome) && (
-            <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
-              <h3 className="font-medium text-purple-800 mb-2">Insurance follow-up grace period</h3>
-              <p className="text-sm text-purple-700">
-                You can keep working this insurance lead for up to 7 days. If it is still not resolved after that,
-                it moves into the inside sales queue.
-              </p>
+            <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200 space-y-4">
+              <h3 className="font-medium text-purple-900">Insurance call (book it with the customer now)</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Call date</label>
+                  <input
+                    type="date"
+                    value={insuranceCallDate}
+                    onChange={(e) => setInsuranceCallDate(e.target.value)}
+                    min={getEasternTodayIso()}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Call time (ET)</label>
+                  <input
+                    type="time"
+                    value={insuranceCallTime}
+                    onChange={(e) => setInsuranceCallTime(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Claim filed?</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'yes', label: 'Yes' },
+                    { value: 'no', label: 'No' },
+                    { value: 'customer_filing', label: 'Customer filing' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setClaimFiled(opt.value)}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium ${
+                        claimFiled === opt.value
+                          ? 'border-purple-500 bg-purple-100 text-purple-900'
+                          : 'border-gray-300 bg-white text-gray-700'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Insurance company</label>
+                  <input
+                    type="text"
+                    value={insuranceCarrier}
+                    onChange={(e) => setInsuranceCarrier(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Claim #</label>
+                  <input
+                    type="text"
+                    value={claimNumber}
+                    onChange={(e) => setClaimNumber(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Adjuster meeting (if known, ET)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={adjusterMeeting}
+                  onChange={(e) => setAdjusterMeeting(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                />
+              </div>
             </div>
           )}
+
+          {outcome &&
+            !isInsuranceFollowUpOutcomeId(outcome) &&
+            !isRescheduledOutcomeId(outcome) &&
+            selectedOutcomeRow?.inside_sales_handoff_enabled === true && (
+              <div className="mb-6 p-4 bg-cyan-50 rounded-lg border border-cyan-200 space-y-4">
+                <h3 className="font-medium text-cyan-900">For the call center</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Best time to call</label>
+                    <select
+                      value={bestCallWindow}
+                      onChange={(e) => setBestCallWindow(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base bg-white"
+                    >
+                      <option value="">—</option>
+                      <option value="morning">Morning</option>
+                      <option value="afternoon">Afternoon</option>
+                      <option value="evening">Evening</option>
+                      <option value="anytime">Anytime</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Ask for</label>
+                    <input
+                      type="text"
+                      value={decisionMaker}
+                      onChange={(e) => setDecisionMaker(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">What you told the customer</label>
+                  <input
+                    type="text"
+                    value={contextLine}
+                    onChange={(e) => setContextLine(e.target.value)}
+                    maxLength={200}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+              </div>
+            )}
 
           {showMovingToCloseNote && (
             <div className="mb-6 p-4 bg-emerald-50 rounded-lg border border-emerald-200 text-sm text-emerald-900">

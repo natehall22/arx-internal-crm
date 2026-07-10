@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
+  DIDNT_SIT_PIPELINE_PREFIX,
   getInsideSalesCallability,
   getInsideSalesFollowUpKind,
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+  hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
+  KNOCKBACK_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
+import {
+  RETIRE_MIN_ATTEMPTS,
+  RETIRE_QUIET_DAYS,
+  shouldAutoRetire,
+} from '@/lib/inside-sales-priority'
 import {
   getInspectionOutcomeConfig,
   mergeOrgInspectionOutcomesWithDefaults,
@@ -73,6 +81,7 @@ export async function GET(request: NextRequest) {
     }
 
     const overdueOpportunities: any[] = []
+    const retireCandidates: any[] = []
 
     for (const rawOpportunity of rawCandidates) {
       const opportunity = withEffectiveInspectionFields(
@@ -97,15 +106,27 @@ export async function GET(request: NextRequest) {
         orgSettings?.inspection_outcomes
       )
       const pipelineStage = String(opportunity.pipeline_stage || '').trim().toLowerCase()
-      if (
+      const alreadyInInsideSalesQueue =
         pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
         pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)
-      ) {
-        continue
-      }
 
       const followUpKind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeRows)
       const callability = getInsideSalesCallability(opportunity, inspectionOutcomeRows)
+
+      // Only retire leads already in the inside-sales queue — not rep-working rows due for promotion.
+      if (
+        followUpKind &&
+        callability?.callableNow &&
+        hasActiveInsideSalesFollowUp(opportunity, inspectionOutcomeRows) &&
+        alreadyInInsideSalesQueue
+      ) {
+        retireCandidates.push({ ...opportunity, followUpKind })
+      }
+
+      if (alreadyInInsideSalesQueue) {
+        continue
+      }
+
       if (followUpKind !== 'handoff' || !callability?.callableNow) {
         continue
       }
@@ -119,11 +140,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    if (overdueOpportunities.length === 0) {
-      return NextResponse.json({ promoted: 0, message: 'Nothing to promote' })
-    }
-
     let promoted = 0
+    const promotedIds = new Set<string>()
 
     for (const opportunity of overdueOpportunities) {
       const { data: newerInspectionAppointment } = await admin
@@ -163,6 +181,7 @@ export async function GET(request: NextRequest) {
       }
 
       promoted += 1
+      promotedIds.add(opportunity.id)
 
       await admin.from('activities').insert({
         org_id: opportunity.org_id,
@@ -229,8 +248,78 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`promote-insurance-follow-ups: promoted ${promoted} opportunities`)
-    return NextResponse.json({ promoted })
+    // Auto-retire: 6+ logged attempts, quiet for 7+ days, no future follow-up → unresponsive.
+    // Never touches never-attempted leads.
+    let retired = 0
+    if (retireCandidates.length > 0) {
+      const retireIds = retireCandidates.map((opportunity: any) => opportunity.id)
+      const attemptsByOpportunityId = new Map<string, { count: number; lastAt: string | null }>()
+      const { data: attemptRows } = await admin
+        .from('activities')
+        .select('opportunity_id, type, created_at')
+        .in('opportunity_id', retireIds)
+        .in('type', ['call', 'text'])
+        .order('created_at', { ascending: false })
+
+      for (const row of attemptRows || []) {
+        if (!row.opportunity_id) continue
+        const current = attemptsByOpportunityId.get(row.opportunity_id)
+        if (current) {
+          current.count += 1
+        } else {
+          attemptsByOpportunityId.set(row.opportunity_id, { count: 1, lastAt: row.created_at })
+        }
+      }
+
+      const RETIRED_STAGE_BY_KIND: Record<string, string> = {
+        didnt_sit: `${DIDNT_SIT_PIPELINE_PREFIX}_unresponsive`,
+        handoff: `${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_unresponsive`,
+        knockback: `${KNOCKBACK_PIPELINE_PREFIX}_unresponsive`,
+      }
+
+      for (const opportunity of retireCandidates) {
+        if (promotedIds.has(opportunity.id)) continue
+
+        const attempts = attemptsByOpportunityId.get(opportunity.id)
+        if (
+          !attempts ||
+          !shouldAutoRetire({
+            attemptCount: attempts.count,
+            lastAttemptAt: attempts.lastAt,
+            followUpAt: opportunity.follow_up_at ?? null,
+          })
+        ) {
+          continue
+        }
+
+        const retiredStage = RETIRED_STAGE_BY_KIND[opportunity.followUpKind]
+        if (!retiredStage) continue
+
+        const { error: retireError } = await admin
+          .from('opportunities')
+          .update({ pipeline_stage: retiredStage, follow_up_at: null })
+          .eq('id', opportunity.id)
+          .eq('org_id', opportunity.org_id)
+
+        if (retireError) {
+          console.error('promote-insurance-follow-ups: retire error', opportunity.id, retireError)
+          continue
+        }
+
+        retired += 1
+        await admin.from('activities').insert({
+          org_id: opportunity.org_id,
+          opportunity_id: opportunity.id,
+          lead_id: opportunity.lead_id,
+          user_id: null,
+          type: 'status_change',
+          body: `Auto-marked unresponsive: ${attempts.count} contact attempts with no response, none in the last ${RETIRE_QUIET_DAYS} days (threshold ${RETIRE_MIN_ATTEMPTS}).`,
+        })
+      }
+    }
+
+    console.log(`promote-insurance-follow-ups: promoted ${promoted}, retired ${retired}`)
+    return NextResponse.json({ promoted, retired })
   } catch (err) {
     console.error('promote-insurance-follow-ups: unexpected error', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

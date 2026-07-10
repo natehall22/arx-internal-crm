@@ -12,6 +12,7 @@ import {
 } from '@/lib/org-appointment-types'
 import { materializeSaleFromInspectionOutcome } from '@/lib/opportunity-sale-pipeline'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
+import { resolveCanReassignAppointment } from '@/lib/permissions'
 import {
   DEFAULT_INSPECTION_OUTCOMES,
   getInspectionOutcomeConfig,
@@ -24,6 +25,7 @@ import {
   DIDNT_SIT_PIPELINE_PREFIX,
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+  isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
@@ -43,6 +45,35 @@ function getAdminClient() {
 
 function followUpAtFromDelayDays(delayDays: number): string {
   return new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000).toISOString()
+}
+
+const HANDOFF_CONTEXT_TEXT_KEYS = [
+  'claim_number',
+  'insurance_carrier',
+  'decision_maker',
+  'context_line',
+] as const
+const CLAIM_FILED_VALUES = new Set(['yes', 'no', 'customer_filing'])
+const CALL_WINDOW_VALUES = new Set(['morning', 'afternoon', 'evening', 'anytime'])
+
+/** Whitelist + trim the structured rep→inside-sales handoff fields; null when nothing usable. */
+function sanitizeHandoffContext(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const source = raw as Record<string, unknown>
+  const out: Record<string, string> = {}
+  for (const key of HANDOFF_CONTEXT_TEXT_KEYS) {
+    const value = source[key]
+    if (typeof value === 'string' && value.trim()) out[key] = value.trim().slice(0, 500)
+  }
+  const claimFiled = String(source.claim_filed || '').trim().toLowerCase()
+  if (CLAIM_FILED_VALUES.has(claimFiled)) out.claim_filed = claimFiled
+  const callWindow = String(source.best_call_window || '').trim().toLowerCase()
+  if (CALL_WINDOW_VALUES.has(callWindow)) out.best_call_window = callWindow
+  const adjusterAt = source.adjuster_meeting_at
+  if (typeof adjusterAt === 'string' && Number.isFinite(new Date(adjusterAt).getTime())) {
+    out.adjuster_meeting_at = new Date(adjusterAt).toISOString()
+  }
+  return Object.keys(out).length > 0 ? out : null
 }
 
 async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
@@ -179,14 +210,16 @@ export async function POST(request: NextRequest) {
 
     const supabase = getAdminClient()
     const body = await request.json()
-    const { 
-      appointment_id, 
+    const {
+      appointment_id,
       lead_id: directLeadId,
-      outcome, 
-      notes, 
+      outcome,
+      notes,
       setter_feedback,
       schedule_follow_up,
       follow_up_date,
+      insurance_call_at,
+      handoff_context,
     } = body as {
       appointment_id?: string
       lead_id?: string
@@ -195,11 +228,20 @@ export async function POST(request: NextRequest) {
       setter_feedback?: string
       schedule_follow_up?: boolean
       follow_up_date?: string
+      /** UTC ISO time the rep booked for the inside-sales insurance call */
+      insurance_call_at?: string
+      handoff_context?: Record<string, unknown>
     }
+
+    const sanitizedHandoffContext = sanitizeHandoffContext(handoff_context)
+    const insuranceCallAtMs = insurance_call_at ? new Date(insurance_call_at).getTime() : NaN
+    const insuranceCallAtIso = Number.isFinite(insuranceCallAtMs)
+      ? new Date(insuranceCallAtMs).toISOString()
+      : null
 
     let { data: profile } = await supabase
       .from('users')
-      .select('org_id, full_name')
+      .select('org_id, full_name, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
@@ -248,10 +290,14 @@ export async function POST(request: NextRequest) {
           },
           { onConflict: 'id' }
         )
-        .select('org_id, full_name')
+        .select('org_id, full_name, role, custom_role_id')
         .single()
 
-      profile = recoveredProfile || { org_id: derivedOrgId, full_name: fallbackName }
+      profile = recoveredProfile || { org_id: derivedOrgId, full_name: fallbackName, role: 'rep', custom_role_id: null }
+    }
+
+    if (!profile?.org_id) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
     if ((!appointment_id && !directLeadId) || !outcome) {
@@ -323,7 +369,13 @@ export async function POST(request: NextRequest) {
         }
       } else {
         appointment = appointmentData
+        if (appointment.org_id !== profile.org_id) {
+          return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
+        }
         lead = firstEmbeddedRow(appointmentData.leads)
+        if (lead?.org_id && lead.org_id !== profile.org_id) {
+          return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+        }
         opportunity = firstEmbeddedRow(appointmentData.opportunities)
       }
     } else if (directLeadId) {
@@ -419,6 +471,31 @@ export async function POST(request: NextRequest) {
 
     const assignedCloserId = appointment?.closer_user_id || user.id
     const outcomeAt = new Date().toISOString()
+
+    if (isInsuranceOutcome && insuranceCallAtIso) {
+      if (!appointment_id || !appointment) {
+        return NextResponse.json(
+          { error: 'appointment_id is required to book an inside-sales insurance call' },
+          { status: 400 }
+        )
+      }
+      const isAssignedCloser = appointment.closer_user_id === user.id
+      const isCanvasser = appointment.canvasser_user_id === user.id
+      const isLeadOwner = lead?.owner_user_id === user.id
+      if (!isAssignedCloser && !isCanvasser && !isLeadOwner) {
+        const canReassign = await resolveCanReassignAppointment(supabase, {
+          role: profile.role || 'rep',
+          custom_role_id: profile.custom_role_id ?? null,
+        })
+        if (!canReassign) {
+          return NextResponse.json(
+            { error: 'Only the assigned closer, setter, or a scheduling manager can book the insurance call' },
+            { status: 403 }
+          )
+        }
+      }
+    }
+
     let opportunityId = appointment?.opportunity_id || opportunity?.id || null
     let createdOpportunity = null
     
@@ -478,16 +555,25 @@ export async function POST(request: NextRequest) {
           inspection_notes: notes || null,
           job_source: isInsuranceOutcome ? 'insurance' : 'retail',
           insurance_stage: isInsuranceOutcome ? 'contingency_signed' : null,
-          pipeline_stage: delayedInsideSalesHandoffEnabled
-            ? (insideSalesHandoffConfig.delayDays || 0) > 0
-              ? REP_WORKING_HANDOFF_PIPELINE_PREFIX
-              : HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
-            : routesToDidntSitQueue
-              ? DIDNT_SIT_PIPELINE_PREFIX
-              : null,
-          follow_up_at: delayedInsideSalesHandoffEnabled
-            ? followUpAtFromDelayDays(insideSalesHandoffConfig.delayDays || 0)
-            : null,
+          handoff_context: sanitizedHandoffContext,
+          // A rep-scheduled insurance call sends the lead straight to inside sales at that time —
+          // no rep-working grace period.
+          pipeline_stage:
+            isInsuranceOutcome && insuranceCallAtIso
+              ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
+              : delayedInsideSalesHandoffEnabled
+                ? (insideSalesHandoffConfig.delayDays || 0) > 0
+                  ? REP_WORKING_HANDOFF_PIPELINE_PREFIX
+                  : HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
+                : routesToDidntSitQueue
+                  ? DIDNT_SIT_PIPELINE_PREFIX
+                  : null,
+          follow_up_at:
+            isInsuranceOutcome && insuranceCallAtIso
+              ? insuranceCallAtIso
+              : delayedInsideSalesHandoffEnabled
+                ? followUpAtFromDelayDays(insideSalesHandoffConfig.delayDays || 0)
+                : null,
         })
         .select()
         .single()
@@ -527,7 +613,16 @@ export async function POST(request: NextRequest) {
       } else if (outcome === 'moving_to_close' || delayedInsideSalesHandoffEnabled) {
         opportunityUpdate.status = 'in_progress'
       }
-      if (delayedInsideSalesHandoffEnabled) {
+      if (sanitizedHandoffContext) {
+        opportunityUpdate.handoff_context = sanitizedHandoffContext
+      }
+      if (isInsuranceOutcome && insuranceCallAtIso) {
+        // Rep booked the inside-sales call: skip rep-working grace, call opens at the booked time.
+        opportunityUpdate.pipeline_stage = HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
+        opportunityUpdate.follow_up_at = insuranceCallAtIso
+        opportunityUpdate.job_source = 'insurance'
+        opportunityUpdate.insurance_stage = 'contingency_signed'
+      } else if (delayedInsideSalesHandoffEnabled) {
         const delayDays = insideSalesHandoffConfig.delayDays || 0
         opportunityUpdate.pipeline_stage =
           delayDays > 0 ? REP_WORKING_HANDOFF_PIPELINE_PREFIX : HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
@@ -889,6 +984,131 @@ export async function POST(request: NextRequest) {
         .from('pending_status_prompts')
         .update({ completed: true })
         .eq('appointment_id', appointment_id)
+    }
+
+    // Rep booked the inside-sales insurance call: put it on the inside-sales calendar + notify.
+    if (isInsuranceOutcome && insuranceCallAtIso) {
+      let existingInsuranceCallQuery = supabase
+        .from('scheduled_appointments')
+        .select('id')
+        .eq('org_id', profile.org_id)
+        .eq('lead_id', leadId)
+        .eq('appointment_type', 'insurance_call')
+        .eq('status', 'scheduled')
+
+      if (opportunityId) {
+        existingInsuranceCallQuery = existingInsuranceCallQuery.eq('opportunity_id', opportunityId)
+      } else {
+        existingInsuranceCallQuery = existingInsuranceCallQuery.is('opportunity_id', null)
+      }
+
+      const { data: existingInsuranceCall } = await existingInsuranceCallQuery.maybeSingle()
+
+      let insuranceCallAppointmentId = existingInsuranceCall?.id || null
+
+      if (existingInsuranceCall?.id) {
+        const { error: updateInsuranceCallError } = await supabase
+          .from('scheduled_appointments')
+          .update({
+            scheduled_for: insuranceCallAtIso,
+            notes: [
+              `Inside-sales insurance call booked by ${profile.full_name || 'the closer'} at the inspection.`,
+              sanitizedHandoffContext?.context_line ? `Context: ${sanitizedHandoffContext.context_line}` : null,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          })
+          .eq('id', existingInsuranceCall.id)
+          .eq('org_id', profile.org_id)
+
+        if (updateInsuranceCallError) {
+          console.error('Failed to update insurance-call appointment:', updateInsuranceCallError)
+          return NextResponse.json(
+            { error: 'Failed to schedule inside-sales insurance call on the calendar' },
+            { status: 500 }
+          )
+        }
+      } else {
+        const { data: insuranceCallAppointment, error: insuranceCallError } = await supabase
+          .from('scheduled_appointments')
+          .insert({
+            org_id: profile.org_id,
+            lead_id: leadId,
+            opportunity_id: opportunityId || null,
+            closer_user_id: null,
+            canvasser_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
+            scheduled_for: insuranceCallAtIso,
+            duration_minutes: 15,
+            address_text: appointment?.address_text || lead?.address_text || null,
+            status: 'scheduled',
+            notes: [
+              `Inside-sales insurance call booked by ${profile.full_name || 'the closer'} at the inspection.`,
+              sanitizedHandoffContext?.context_line ? `Context: ${sanitizedHandoffContext.context_line}` : null,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            appointment_type: 'insurance_call',
+          })
+          .select('id')
+          .single()
+
+        if (insuranceCallError || !insuranceCallAppointment?.id) {
+          console.error('Failed to create insurance-call appointment:', insuranceCallError)
+          return NextResponse.json(
+            { error: 'Failed to schedule inside-sales insurance call on the calendar' },
+            { status: 500 }
+          )
+        }
+        insuranceCallAppointmentId = insuranceCallAppointment.id
+      }
+
+      const { data: orgUsers } = await supabase
+        .from('users')
+        .select('id, role, active, custom_roles(name, display_name)')
+        .eq('org_id', profile.org_id)
+        .eq('active', true)
+
+      const insideSalesRecipients = (orgUsers || []).filter((candidate: any) => {
+        const customRole = firstEmbeddedRow<any>(candidate.custom_roles)
+        return isInsideSalesRoleLike({
+          role: candidate.role,
+          customRoleName: customRole?.name || null,
+          customRoleDisplayName: customRole?.display_name || null,
+        })
+      })
+
+      if (insideSalesRecipients.length > 0) {
+        const whenLabel = new Date(insuranceCallAtIso).toLocaleString('en-US', {
+          timeZone: 'America/New_York',
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        })
+        await supabase.from('notifications').insert(
+          insideSalesRecipients.map((recipient: any) => ({
+            org_id: profile.org_id,
+            recipient_user_id: recipient.id,
+            actor_user_id: user.id,
+            type: 'inside_sales_follow_up',
+            title: `Insurance call booked: ${customerName}`,
+            body: [
+              `Customer: ${customerName}`,
+              customerAddress ? `Address: ${customerAddress}` : null,
+              lead?.phone ? `Phone: ${lead.phone}` : null,
+              `Call time: ${whenLabel} ET (booked with the customer at the inspection)`,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            data: {
+              opportunity_id: opportunityId,
+              lead_id: leadId,
+              queue_type: 'insurance_follow_up',
+              pipeline_stage: HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+              appointment_id: insuranceCallAppointmentId,
+              scheduled_for: insuranceCallAtIso,
+            },
+          }))
+        )
+      }
     }
 
     // Schedule follow-up if requested
