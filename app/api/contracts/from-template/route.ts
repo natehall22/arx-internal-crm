@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { isBarredFromSalesDocApis } from '@/lib/permissions'
 import { createClient } from '@/lib/supabase/server'
 import { randomUUID } from 'crypto'
 
 export async function POST(request: Request) {
   const { profile } = await requireAuthApi()
+
+  if (isBarredFromSalesDocApis(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const supabase = createClient()
   const formData = await request.formData()
   const projectId = String(formData.get('project_id') ?? '')

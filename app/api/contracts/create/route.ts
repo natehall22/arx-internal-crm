@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { isBarredFromSalesDocApis } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
 import nodemailer from 'nodemailer'
 
 export async function POST(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
+
+    if (isBarredFromSalesDocApis(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const supabase = createServiceClient()
     const body = await request.json()
 

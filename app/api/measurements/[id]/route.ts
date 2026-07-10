@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
+import { isBarredFromSalesDocApis } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,6 +56,10 @@ export async function DELETE(
       authContext = await requireAuthApi()
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    if (isBarredFromSalesDocApis(authContext.profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const adminClient = createServiceClient()

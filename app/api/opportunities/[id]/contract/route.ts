@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
+import { isBarredFromSalesDocApis } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +27,11 @@ export async function POST(
     }
 
     const profile = authContext.profile
+
+    if (isBarredFromSalesDocApis(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const adminClient = getAdminClient()
     const opportunityId = params.id
 

@@ -404,13 +404,39 @@ export function canAccessProjectsFromPermissionNames(input: {
   return input.permissionNames.has('projects:view') || input.permissionNames.has('projects:edit')
 }
 
+const APPOINTMENT_SETTING_ROLE_SLUGS = new Set([
+  'setter',
+  'canvasser',
+  'inside_sales',
+  'inside sales',
+  'call_center',
+  'call center',
+])
+
+/**
+ * Appointment-setting base roles: setters, canvassers, and call-center/inside-sales workers
+ * (including custom-role users whose base role is setter/canvasser). These roles set and work
+ * appointments — they never own contracts, design docs, or roof measurements.
+ */
+export function isAppointmentSettingRole(role: string | null | undefined): boolean {
+  return APPOINTMENT_SETTING_ROLE_SLUGS.has(String(role || '').toLowerCase())
+}
+
 /**
  * Setter/canvass/inside-sales roles never get the Projects nav area or routes, even if someone
  * grants `projects:*` on their user — avoids elevating appointment-setting roles into production.
  */
 export function isBarredFromProjectsUi(role: string | null | undefined): boolean {
-  const r = String(role || '').toLowerCase()
-  return r === 'setter' || r === 'canvasser' || r === 'inside_sales' || r === 'inside sales' || r === 'call_center' || r === 'call center'
+  return isAppointmentSettingRole(role)
+}
+
+/**
+ * Appointment-setting roles may not create/upload/delete contracts, design PDFs, or roof
+ * measurements — closer/ops territory. Server-side companion to hiding those sections on the
+ * opportunity detail page for inside-sales viewers.
+ */
+export function isBarredFromSalesDocApis(role: string | null | undefined): boolean {
+  return isAppointmentSettingRole(role)
 }
 
 /** Only admin-level users may see every project in the org. */

@@ -80,6 +80,29 @@ export default async function OpportunityDetailPage({
     notFound()
   }
 
+  let viewerCustomRole: { name: string | null; display_name: string | null } | null = null
+  if (profile.custom_role_id) {
+    const { data: customRoleData } = await supabase
+      .from('custom_roles')
+      .select('name, display_name')
+      .eq('id', profile.custom_role_id)
+      .maybeSingle()
+    viewerCustomRole = customRoleData
+  }
+
+  const { permissionNames: viewerPermissionNames } = await resolveEffectivePermissionNames(
+    supabase,
+    authUser.id,
+    { role: profile.role, custom_role_id: profile.custom_role_id }
+  )
+
+  const insideSalesAccessInput = {
+    role: profile.role,
+    customRoleName: viewerCustomRole?.name || null,
+    customRoleDisplayName: viewerCustomRole?.display_name || null,
+    permissionNames: viewerPermissionNames,
+  }
+
   // Closer on opportunities: display from linked lead (source of truth for assigned rep)
   const leadRow = opportunity.leads
     ? Array.isArray(opportunity.leads)
@@ -94,7 +117,14 @@ export default async function OpportunityDetailPage({
 
   const repLikeRoles = ['rep', 'sales_rep', 'closer'] as const
   const setterLikeRoles = ['setter', 'canvasser'] as const
-  if (setterLikeRoles.includes(profile.role as (typeof setterLikeRoles)[number])) {
+  const isSetterLikeViewer = setterLikeRoles.includes(
+    profile.role as (typeof setterLikeRoles)[number]
+  )
+  // Setter-like base roles are gated below once queue state is known — call-center workers on a
+  // permission-based Inside Sales custom role (e.g. base role 'setter'/'canvasser' + call_center_rep)
+  // may open records in their working scope; everyone else setter-like gets notFound().
+  const isInsideSalesViewer = isSetterLikeViewer && isInsideSalesRoleLike(insideSalesAccessInput)
+  if (isSetterLikeViewer && !isInsideSalesViewer) {
     notFound()
   }
 
@@ -138,29 +168,6 @@ export default async function OpportunityDetailPage({
     assignedInsideSalesName = assigneeRow?.full_name ?? null
   }
 
-  let viewerCustomRole: { name: string | null; display_name: string | null } | null = null
-  if (profile.custom_role_id) {
-    const { data: customRoleData } = await supabase
-      .from('custom_roles')
-      .select('name, display_name')
-      .eq('id', profile.custom_role_id)
-      .maybeSingle()
-    viewerCustomRole = customRoleData
-  }
-
-  const { permissionNames: viewerPermissionNames } = await resolveEffectivePermissionNames(
-    supabase,
-    authUser.id,
-    { role: profile.role, custom_role_id: profile.custom_role_id }
-  )
-
-  const insideSalesAccessInput = {
-    role: profile.role,
-    customRoleName: viewerCustomRole?.name || null,
-    customRoleDisplayName: viewerCustomRole?.display_name || null,
-    permissionNames: viewerPermissionNames,
-  }
-
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
   const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
 
@@ -194,6 +201,22 @@ export default async function OpportunityDetailPage({
     opportunityForInspectionUi,
     inspectionOutcomeSettings
   )
+
+  // Inside-sales viewers (setter-like base role + call-center custom role) may only open records
+  // in their working scope: an active queue item (the conveyor serves unassigned org-wide items),
+  // a record they own or are assigned, or an inbound-channel lead (mirrors /api/leads scoping).
+  // Everything else 404s — queue access must not become org-wide opportunity browsing.
+  if (isSetterLikeViewer) {
+    const insideSalesRecordInScope =
+      hasInsideSalesFollowUp ||
+      opportunity.owner_user_id === profile.id ||
+      opportunity.assigned_user_id === profile.id ||
+      leadRow?.channel === 'inbound'
+    if (!insideSalesRecordInScope) {
+      notFound()
+    }
+  }
+
   const insideSalesFollowUpKind = getInsideSalesFollowUpKind(
     opportunityForInspectionUi,
     inspectionOutcomeSettings
@@ -1031,7 +1054,9 @@ export default async function OpportunityDetailPage({
           )}
         </div>
 
-        {/* Roof Measurements Section */}
+        {/* Roof Measurements + Design — hidden for inside-sales viewers (closer/ops territory) */}
+        {!isSetterLikeViewer && (
+        <>
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Roof Measurements</h2>
@@ -1153,6 +1178,8 @@ export default async function OpportunityDetailPage({
           )}
           <DesignPdfUpload opportunityId={params.id} />
         </div>
+        </>
+        )}
 
         {/* Proposals Section */}
         <div id="proposals-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
@@ -1233,7 +1260,9 @@ export default async function OpportunityDetailPage({
           )}
         </div>
 
-        {/* Contract Section */}
+        {/* Contract Section — hidden for inside-sales viewers */}
+        {!isSetterLikeViewer && (
+        <>
         <div id="contract-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Contract</h2>
@@ -1280,6 +1309,8 @@ export default async function OpportunityDetailPage({
         {/* Only show manual contract upload if no completed order form contract exists */}
         {!(orderFormContracts && orderFormContracts.some((c: any) => c.status === 'completed')) && (
           <ContractUpload opportunityId={params.id} />
+        )}
+        </>
         )}
 
         <div id="close-section" className="scroll-mt-20">
