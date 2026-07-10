@@ -26,6 +26,14 @@ export type DisplayMaterialsOrderItem = MaterialsOrderItem & {
   overrideNote: string | null
 }
 
+/** Fired on window after a materials-order override save so header brief can refresh. */
+export const MATERIAL_ORDER_UPDATED_EVENT = 'arx:material-order-updated'
+
+export function dispatchMaterialOrderUpdated(jobId: string): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(MATERIAL_ORDER_UPDATED_EVENT, { detail: { jobId } }))
+}
+
 export function applyMaterialOrderOverrides(
   items: MaterialsOrderItem[],
   overrides: JobMaterialOrderOverrideRow[]

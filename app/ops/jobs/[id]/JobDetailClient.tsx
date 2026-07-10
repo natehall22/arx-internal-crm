@@ -17,7 +17,8 @@ import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
-import JobSoldScopeSummary, { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
+import JobRoofingBrief from '@/components/ops/JobRoofingBrief'
+import { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
 import MaterialsOrderCard from '@/components/ops/MaterialsOrderCard'
 import FinalPhotosCard from '@/components/ops/FinalPhotosCard'
 import type { MaterialsCoverageOverrides } from '@/lib/materials-coverage-overrides'
@@ -1480,11 +1481,14 @@ export default function JobDetailClient({
                     <p className="text-gray-500 mt-1 text-sm">No address</p>
                   )}
 
-                  {job.sold_scope ? (
-                    <JobSoldScopeSummary
+                  {job.job_type === 'roofing' && job.sold_scope ? (
+                    <JobRoofingBrief
                       scope={job.sold_scope}
-                      showSquareMetrics={job.job_type === 'roofing'}
-                      variant="header"
+                      jobId={job.id}
+                      project={job.project}
+                      specialInstructions={job.special_instructions}
+                      materialsNotes={job.materials_notes}
+                      coverageOverrides={materialsCoverageOverrides ?? null}
                     />
                   ) : null}
 
@@ -1692,13 +1696,6 @@ export default function JobDetailClient({
 
             {/* MATERIALS TAB */}
             <div id="materials-section" className={mobileTab !== 'materials' ? 'hidden lg:block' : undefined}>
-              {job.sold_scope ? (
-                <JobSoldScopeSummary
-                  scope={job.sold_scope}
-                  showSquareMetrics={job.job_type === 'roofing'}
-                  variant="materials"
-                />
-              ) : null}
               {job.sold_scope && job.job_type === 'roofing' ? (
                 <MaterialsOrderCard
                   scope={job.sold_scope}

@@ -6,6 +6,7 @@ import { buildMaterialsOrderList } from '@/lib/materials-order-list'
 import type { MaterialsCoverageOverrides } from '@/lib/materials-coverage-overrides'
 import {
   applyMaterialOrderOverrides,
+  dispatchMaterialOrderUpdated,
   type DisplayMaterialsOrderItem,
   type JobMaterialOrderOverrideRow,
 } from '@/lib/materials-order-overrides'
@@ -95,6 +96,7 @@ export default function MaterialsOrderCard({
         const next = prev.filter((o) => o.item_key !== itemKey)
         return [...next, row]
       })
+      dispatchMaterialOrderUpdated(jobId)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to save override')
     } finally {
