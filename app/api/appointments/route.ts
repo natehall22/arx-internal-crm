@@ -1,5 +1,6 @@
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -62,6 +63,11 @@ export async function GET(request: NextRequest) {
     const filter = searchParams.get('filter') || 'upcoming'
     const canReassign = await resolveCanReassignAppointment(adminClient, profile)
 
+    const { permissionNames } = await resolveEffectivePermissionNames(adminClient, user.id, {
+      role: profile.role,
+      custom_role_id: profile.custom_role_id,
+    })
+
     // Build query
     let query = adminClient
       .from('scheduled_appointments')
@@ -81,6 +87,7 @@ export async function GET(request: NextRequest) {
         role: profile.role,
         customRoleName: customRole?.name || null,
         customRoleDisplayName: customRole?.display_name || null,
+        permissionNames,
       })
       query = query.or(
         insideSales

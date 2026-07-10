@@ -34,6 +34,7 @@ import {
   hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import {
   mapLatestInspectionByLeadId,
@@ -147,6 +148,19 @@ export default async function OpportunityDetailPage({
     viewerCustomRole = customRoleData
   }
 
+  const { permissionNames: viewerPermissionNames } = await resolveEffectivePermissionNames(
+    supabase,
+    authUser.id,
+    { role: profile.role, custom_role_id: profile.custom_role_id }
+  )
+
+  const insideSalesAccessInput = {
+    role: profile.role,
+    customRoleName: viewerCustomRole?.name || null,
+    customRoleDisplayName: viewerCustomRole?.display_name || null,
+    permissionNames: viewerPermissionNames,
+  }
+
   const customerName = leadRow?.homeowner_name || opportunity.customers?.name || 'Unknown Customer'
   const customerPhone = leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || null
 
@@ -189,17 +203,9 @@ export default async function OpportunityDetailPage({
     inspectionOutcomeSettings
   )
   const canViewInsideSalesQueue = hasInsideSalesFollowUp
-    ? canViewInsideSalesFollowUp({
-        role: profile.role,
-        customRoleName: viewerCustomRole?.name || null,
-        customRoleDisplayName: viewerCustomRole?.display_name || null,
-      })
+    ? canViewInsideSalesFollowUp(insideSalesAccessInput)
     : false
-  const canSelfAssignInsideSalesDetail = isInsideSalesRoleLike({
-    role: profile.role,
-    customRoleName: viewerCustomRole?.name || null,
-    customRoleDisplayName: viewerCustomRole?.display_name || null,
-  })
+  const canSelfAssignInsideSalesDetail = isInsideSalesRoleLike(insideSalesAccessInput)
   const handoffGraceDeadlineLabel =
     hasRepWorkingHandoffGrace && opportunity.follow_up_at
       ? new Date(opportunity.follow_up_at).toLocaleString()

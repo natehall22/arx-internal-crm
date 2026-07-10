@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import {
+  hasInsideSalesQueuePermissionGrant,
+  INSIDE_SALES_PRESET_DISPLAY_PRIORITY,
+} from '@/lib/inside-sales-follow-up'
 
 type Permission = {
   id: string
@@ -38,6 +42,7 @@ const colorOptions = [
   { value: 'indigo', label: 'Indigo', bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-300' },
   { value: 'purple', label: 'Purple', bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300' },
   { value: 'pink', label: 'Pink', bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-300' },
+  { value: 'teal', label: 'Teal', bg: 'bg-teal-100', text: 'text-teal-700', border: 'border-teal-300' },
 ]
 
 const roleOptions = [
@@ -100,6 +105,25 @@ export default function PresetsPage() {
 
   const permsByCategory = getPermissionsByCategory()
 
+  const sortPresetPermissionsForDisplay = (preset: PermissionPreset) => {
+    const rows = [...preset.preset_permissions]
+    const isInsideSalesPreset = preset.name.trim().toLowerCase() === 'inside sales'
+    rows.sort((a, b) => {
+      const aName = a.permissions?.name || ''
+      const bName = b.permissions?.name || ''
+      const aPriority = INSIDE_SALES_PRESET_DISPLAY_PRIORITY[aName] ?? 1000
+      const bPriority = INSIDE_SALES_PRESET_DISPLAY_PRIORITY[bName] ?? 1000
+      if (aPriority !== bPriority) return aPriority - bPriority
+      return (a.permissions?.display_name || aName).localeCompare(b.permissions?.display_name || bName)
+    })
+    return { rows, isInsideSalesPreset }
+  }
+
+  const getPresetPermissionNames = (preset: PermissionPreset) =>
+    preset.preset_permissions
+      .map((pp) => pp.permissions?.name)
+      .filter((name): name is string => Boolean(name))
+
   const openCreateModal = () => {
     setEditingPreset(null)
     setFormName('')
@@ -119,7 +143,13 @@ export default function PresetsPage() {
     setFormBaseRole(preset.base_role)
     setFormColor(preset.color)
     setFormPermissions(new Set(preset.preset_permissions.map(pp => pp.permission_id)))
-    setExpandedCategories(new Set())
+    const expanded = new Set<string>()
+    if (preset.name.trim().toLowerCase() === 'inside sales') {
+      expanded.add('Leads')
+      expanded.add('Opportunities')
+      expanded.add('Scheduling')
+    }
+    setExpandedCategories(expanded)
     setError(null)
     setShowModal(true)
   }
@@ -298,6 +328,11 @@ export default function PresetsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {presets.map((preset) => {
               const colorClasses = getColorClasses(preset.color)
+              const { rows: displayPermissions, isInsideSalesPreset } = sortPresetPermissionsForDisplay(preset)
+              const presetPermissionNames = getPresetPermissionNames(preset)
+              const hasQueueAccess = hasInsideSalesQueuePermissionGrant(presetPermissionNames)
+              const visibleTags = displayPermissions.slice(0, 8)
+              const hiddenCount = Math.max(0, displayPermissions.length - visibleTags.length)
               return (
                 <div key={preset.id} className={`bg-white rounded-xl shadow-sm border-2 ${colorClasses.border} overflow-hidden`}>
                   <div className={`px-4 py-3 ${colorClasses.bg} border-b ${colorClasses.border}`}>
@@ -326,7 +361,17 @@ export default function PresetsPage() {
                     <div className="mb-4">
                       <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Permissions</p>
                       <div className="flex flex-wrap gap-1">
-                        {preset.preset_permissions.slice(0, 6).map((pp) => (
+                        {isInsideSalesPreset && hasQueueAccess && (
+                          <span className="px-2 py-0.5 bg-teal-100 text-teal-800 text-xs rounded font-medium">
+                            Inside Sales Queue
+                          </span>
+                        )}
+                        {isInsideSalesPreset && !hasQueueAccess && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-xs rounded font-medium">
+                            Missing queue access
+                          </span>
+                        )}
+                        {visibleTags.map((pp) => (
                           <span
                             key={pp.permission_id}
                             className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded"
@@ -334,12 +379,17 @@ export default function PresetsPage() {
                             {pp.permissions?.display_name}
                           </span>
                         ))}
-                        {preset.preset_permissions.length > 6 && (
+                        {hiddenCount > 0 && (
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">
-                            +{preset.preset_permissions.length - 6} more
+                            +{hiddenCount} more
                           </span>
                         )}
                       </div>
+                      {isInsideSalesPreset && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          Queue access requires <strong>View Opportunities</strong> + <strong>Claim Inbound Leads</strong>.
+                        </p>
+                      )}
                     </div>
 
                     {/* Actions */}
@@ -475,9 +525,16 @@ export default function PresetsPage() {
 
                 {/* Permissions */}
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-4">
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">
                     Permissions ({formPermissions.size} selected)
                   </h3>
+                  {(formName.trim().toLowerCase() === 'inside sales' || editingPreset?.name.trim().toLowerCase() === 'inside sales') && (
+                    <div className="mb-4 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-900">
+                      <strong>Inside Sales checklist:</strong> include <em>View Leads</em>, <em>Claim Inbound Leads</em>, and{' '}
+                      <em>View Opportunities</em> so reps can open <code className="text-xs">/leads</code>, the Inside Sales
+                      conveyor, and the Opportunities → Inside Sales tab.
+                    </div>
+                  )}
                   
                   <div className="space-y-2 border rounded-lg max-h-96 overflow-y-auto">
                     {Object.entries(permsByCategory).map(([category, perms]) => {

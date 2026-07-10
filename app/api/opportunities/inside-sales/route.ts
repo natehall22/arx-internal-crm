@@ -16,6 +16,7 @@ import {
   getInsideSalesQueueState,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import {
   getCloseOutcomeConfig,
   normalizeCloseOutcomeRows,
@@ -183,7 +184,7 @@ export async function GET(request: NextRequest) {
     const adminClient = getAdminClient()
     const { data: profile } = await adminClient
       .from('users')
-      .select('id, org_id, role, custom_role:custom_roles(name, display_name)')
+      .select('id, org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
       .eq('id', user.id)
       .single()
 
@@ -195,13 +196,19 @@ export async function GET(request: NextRequest) {
       ? (profile as any).custom_role[0]
       : (profile as any).custom_role
 
-    if (
-      !canViewInsideSalesFollowUp({
-        role: profile.role,
-        customRoleName: customRole?.name || null,
-        customRoleDisplayName: customRole?.display_name || null,
-      })
-    ) {
+    const { permissionNames } = await resolveEffectivePermissionNames(adminClient, user.id, {
+      role: profile.role,
+      custom_role_id: profile.custom_role_id,
+    })
+
+    const insideSalesAccessInput = {
+      role: profile.role,
+      customRoleName: customRole?.name || null,
+      customRoleDisplayName: customRole?.display_name || null,
+      permissionNames,
+    }
+
+    if (!canViewInsideSalesFollowUp(insideSalesAccessInput)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -500,11 +507,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         canView: true,
-        canSelfAssign: isInsideSalesRoleLike({
-          role: profile.role,
-          customRoleName: customRole?.name || null,
-          customRoleDisplayName: customRole?.display_name || null,
-        }),
+        canSelfAssign: isInsideSalesRoleLike(insideSalesAccessInput),
         items,
         counts: {
           total: items.length,

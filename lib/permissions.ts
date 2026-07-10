@@ -1034,7 +1034,26 @@ export const allPermissions: Array<{
   { name: 'leads:edit', displayName: 'Edit Leads', description: 'Modify lead information', category: 'Leads' },
   { name: 'leads:delete', displayName: 'Delete Leads', description: 'Remove lead records', category: 'Leads' },
   { name: 'leads:assign', displayName: 'Assign Leads', description: 'Assign leads to other users', category: 'Leads' },
-  
+  {
+    name: 'leads:view_inbound',
+    displayName: 'View Inbound Leads',
+    description: 'See inbound leads from website, ads, and other marketing channels',
+    category: 'Leads',
+  },
+  {
+    name: 'leads:manage_inbound',
+    displayName: 'Manage Inbound Leads',
+    description: 'Assign and manage the inbound lead queue (managers/regional — not inside sales reps)',
+    category: 'Leads',
+  },
+  {
+    name: 'leads:claim_inbound',
+    displayName: 'Claim Inbound Leads',
+    description:
+      'Claim inbound leads you are working. With View Opportunities, also grants Inside Sales queue access (/inside-sales and Opportunities → Inside Sales tab).',
+    category: 'Leads',
+  },
+
   // Opportunities
   { name: 'opportunities:view', displayName: 'View Opportunities', description: 'Access opportunity records', category: 'Opportunities' },
   { name: 'opportunities:edit', displayName: 'Edit Opportunities', description: 'Modify opportunity information', category: 'Opportunities' },

@@ -285,6 +285,7 @@ export default function Nav() {
         role: userRole,
         customRoleName,
         customRoleDisplayName,
+        permissionNames: effectivePermissionNames,
       })
     }
     if (item.href === '/projects') {

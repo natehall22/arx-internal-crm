@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { isInsideSalesRoleLike, shouldScopeLeadsToInsideSalesWorker } from '@/lib/inside-sales-follow-up'
 
 export const dynamic = 'force-dynamic'
 
@@ -149,13 +151,46 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, team_id')
+      .select('org_id, role, team_id, custom_role_id, custom_role:custom_roles(name, display_name)')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
+
+    const customRole = Array.isArray((profile as { custom_role?: unknown }).custom_role)
+      ? (profile as { custom_role: Array<{ name?: string; display_name?: string }> }).custom_role[0]
+      : (profile as { custom_role?: { name?: string; display_name?: string } | null }).custom_role
+
+    const { fullAccess, permissionNames } = await resolveEffectivePermissionNames(adminClient, user.id, {
+      role: profile.role,
+      custom_role_id: profile.custom_role_id,
+    })
+
+    const canViewLeads =
+      fullAccess ||
+      ['leads:view', 'leads:create', 'leads:edit', 'leads:view_inbound', 'leads:manage_inbound', 'leads:claim_inbound'].some(
+        (permission) => effectiveHasPermission({ fullAccess, permissionNames }, permission)
+      )
+
+    if (!canViewLeads) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const insideSalesAccessInput = {
+      role: profile.role,
+      customRoleName: customRole?.name || null,
+      customRoleDisplayName: customRole?.display_name || null,
+      permissionNames,
+    }
+
+    const insideSalesScoped = shouldScopeLeadsToInsideSalesWorker(insideSalesAccessInput)
+    const canViewInboundLeads =
+      fullAccess ||
+      effectiveHasPermission({ fullAccess, permissionNames }, 'leads:view_inbound') ||
+      effectiveHasPermission({ fullAccess, permissionNames }, 'leads:manage_inbound') ||
+      effectiveHasPermission({ fullAccess, permissionNames }, 'leads:claim_inbound')
 
     // Parse query parameters for pagination and filtering
     const { searchParams } = new URL(request.url)
@@ -170,6 +205,20 @@ export async function GET(request: NextRequest) {
 
     // Role-based filtering - setters/canvassers only see their own leads
     const isRep = ['rep', 'sales_rep', 'canvasser', 'setter'].includes(profile.role)
+
+    let assignedInsideSalesLeadIds: string[] = []
+    if (insideSalesScoped) {
+      const { data: assignedOpps } = await adminClient
+        .from('opportunities')
+        .select('lead_id')
+        .eq('org_id', profile.org_id)
+        .eq('assigned_user_id', user.id)
+        .not('lead_id', 'is', null)
+
+      assignedInsideSalesLeadIds = (assignedOpps || [])
+        .map((row: { lead_id: string | null }) => row.lead_id)
+        .filter((leadId): leadId is string => Boolean(leadId))
+    }
 
     // First, get all lead IDs that have opportunities (for door_to_door filtering)
     const { data: opportunities } = await adminClient
@@ -198,7 +247,16 @@ export async function GET(request: NextRequest) {
       let q = query
 
       // Role-based filtering
-      if (isRep) {
+      if (insideSalesScoped) {
+        const visibilityFilters = [`owner_user_id.eq.${user.id}`]
+        if (assignedInsideSalesLeadIds.length > 0) {
+          visibilityFilters.push(`id.in.(${assignedInsideSalesLeadIds.join(',')})`)
+        }
+        if (canViewInboundLeads) {
+          visibilityFilters.push('channel.eq.inbound')
+        }
+        q = q.or(visibilityFilters.join(','))
+      } else if (isRep) {
         q = q.eq('owner_user_id', user.id)
       }
 

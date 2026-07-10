@@ -11,6 +11,46 @@ type RoleLike = {
   role?: string | null
   customRoleName?: string | null
   customRoleDisplayName?: string | null
+  /** Effective permission names (custom role, legacy matrix, or user_permissions grants). */
+  permissionNames?: Iterable<string> | null
+}
+
+/**
+ * Default permission bundle for the system "Inside Sales" preset (Admin → Presets).
+ * Queue access is granted by {@link hasInsideSalesQueuePermissionGrant} — no separate permission name.
+ */
+export const INSIDE_SALES_PRESET_PERMISSION_NAMES = [
+  'leads:view',
+  'leads:create',
+  'leads:edit',
+  'leads:view_inbound',
+  'leads:claim_inbound',
+  'opportunities:view',
+  'opportunities:edit',
+  'scheduling:view',
+  'scheduling:create',
+] as const
+
+/** Sort weight for preset card tags — surfaces queue-critical permissions first. */
+export const INSIDE_SALES_PRESET_DISPLAY_PRIORITY: Record<string, number> = {
+  'leads:view': 10,
+  'leads:claim_inbound': 20,
+  'leads:view_inbound': 30,
+  'opportunities:view': 40,
+  'opportunities:edit': 50,
+  'scheduling:view': 60,
+  'scheduling:create': 70,
+  'leads:create': 80,
+  'leads:edit': 90,
+}
+
+/**
+ * Permission signature for the default "Inside Sales" preset (inbound claim + opportunities).
+ * Regional/ops roles use `leads:manage_inbound`, not `leads:claim_inbound`.
+ */
+export function hasInsideSalesQueuePermissionGrant(permissionNames: Iterable<string>): boolean {
+  const names = new Set(permissionNames)
+  return names.has('opportunities:view') && names.has('leads:claim_inbound')
 }
 
 type OpportunityLike = {
@@ -210,14 +250,30 @@ function repWorkingHandoffQueueEligible(
 
 export function isInsideSalesRoleLike(roleLike: RoleLike) {
   const role = normalize(roleLike.role)
-  if (role === 'inside_sales' || role === 'inside sales') return true
+  // Managers always use the list/manager UI — never the one-lead rep conveyor.
+  if (MANAGER_ROLES.has(role)) return false
+
+  if (role === 'inside_sales' || role === 'inside sales' || role === 'call_center') return true
 
   const haystacks = [
     normalize(roleLike.customRoleName),
     normalize(roleLike.customRoleDisplayName),
   ]
 
-  return haystacks.some((value) => value.includes('inside sales') || value.includes('inside_sales'))
+  if (haystacks.some((value) => value.includes('inside sales') || value.includes('inside_sales'))) {
+    return true
+  }
+
+  if (roleLike.permissionNames && hasInsideSalesQueuePermissionGrant(roleLike.permissionNames)) {
+    return true
+  }
+
+  return false
+}
+
+/** Narrow /api/leads list to owned + queue-assigned + inbound rows for call-center workers. */
+export function shouldScopeLeadsToInsideSalesWorker(roleLike: RoleLike): boolean {
+  return isInsideSalesRoleLike(roleLike)
 }
 
 export function canViewInsideSalesFollowUp(roleLike: RoleLike) {

@@ -1,43 +1,61 @@
 import { requireAuth } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { createServiceClient } from '@/lib/supabase/service'
+import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import LeadsClient from './LeadsClient'
 
+const LEADS_PAGE_PERMISSIONS = [
+  'leads:view',
+  'leads:create',
+  'leads:edit',
+  'leads:delete',
+  'leads:assign',
+  'leads:view_inbound',
+  'leads:manage_inbound',
+  'leads:claim_inbound',
+] as const
+
 export default async function LeadsPage() {
   const { profile, authUser: user } = await requireAuth()
-  const supabase = createClient()
+  const admin = createServiceClient()
 
-  // Check if user has inbound lead permissions
-  const { data: inboundPermission } = await supabase
-    .from('user_permissions')
-    .select('id, permissions!inner(name)')
-    .eq('user_id', user.id)
-    .eq('permissions.name', 'leads:view_inbound')
-    .maybeSingle()
+  const { fullAccess, permissionNames } = await resolveEffectivePermissionNames(admin, user.id, {
+    role: profile.role,
+    custom_role_id: profile.custom_role_id,
+  })
 
-  const canViewInbound = 
-    ['admin', 'regional_manager', 'operations'].includes(profile.role) || 
-    !!inboundPermission
+  const canAccessLeads =
+    fullAccess ||
+    LEADS_PAGE_PERMISSIONS.some((permission) => effectiveHasPermission({ fullAccess, permissionNames }, permission))
 
-  // Get campaigns for filtering
-  const { data: campaigns } = await supabase
+  if (!canAccessLeads) {
+    redirect('/dashboard')
+  }
+
+  const canViewInbound =
+    fullAccess ||
+    ['admin', 'regional_manager', 'operations'].includes(profile.role) ||
+    effectiveHasPermission({ fullAccess, permissionNames }, 'leads:view_inbound') ||
+    effectiveHasPermission({ fullAccess, permissionNames }, 'leads:manage_inbound') ||
+    effectiveHasPermission({ fullAccess, permissionNames }, 'leads:claim_inbound')
+
+  const { data: campaigns } = await admin
     .from('campaigns')
     .select('id, name')
     .eq('org_id', profile.org_id)
     .eq('is_active', true)
     .order('name')
 
-  // Get lead sources for filtering
-  const { data: leadSources } = await supabase
+  const { data: leadSources } = await admin
     .from('lead_sources')
     .select('id, name')
     .eq('org_id', profile.org_id)
     .order('name')
 
-  // Get users for filtering (if manager+)
   let users: { id: string; full_name: string }[] = []
   if (['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
-    const { data: usersData } = await supabase
+    const { data: usersData } = await admin
       .from('users')
       .select('id, full_name')
       .eq('org_id', profile.org_id)
@@ -49,7 +67,7 @@ export default async function LeadsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
-      <LeadsClient 
+      <LeadsClient
         profile={profile}
         canViewInbound={canViewInbound}
         campaigns={campaigns || []}

@@ -15,6 +15,7 @@ import {
   KNOCKBACK_PIPELINE_PREFIX,
   pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
   fetchOrgAppointmentTypesFromTable,
@@ -259,7 +260,7 @@ export async function POST(
 
     const { data: profile } = await admin
       .from('users')
-      .select('id, org_id, role, full_name, custom_role:custom_roles(name, display_name)')
+      .select('id, org_id, role, full_name, custom_role_id, custom_role:custom_roles(name, display_name)')
       .eq('id', user.id)
       .single()
 
@@ -271,13 +272,19 @@ export async function POST(
       ? (profile as any).custom_role[0]
       : (profile as any).custom_role
 
-    if (
-      !canViewInsideSalesFollowUp({
-        role: profile.role,
-        customRoleName: profileCustomRole?.name || null,
-        customRoleDisplayName: profileCustomRole?.display_name || null,
-      })
-    ) {
+    const { permissionNames } = await resolveEffectivePermissionNames(admin, user.id, {
+      role: profile.role,
+      custom_role_id: profile.custom_role_id,
+    })
+
+    const insideSalesAccessInput = {
+      role: profile.role,
+      customRoleName: profileCustomRole?.name || null,
+      customRoleDisplayName: profileCustomRole?.display_name || null,
+      permissionNames,
+    }
+
+    if (!canViewInsideSalesFollowUp(insideSalesAccessInput)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -631,11 +638,7 @@ export async function POST(
     }
 
     if (action === 'claim_self') {
-      if (!isInsideSalesRoleLike({
-        role: profile.role,
-        customRoleName: profileCustomRole?.name || null,
-        customRoleDisplayName: profileCustomRole?.display_name || null,
-      })) {
+      if (!isInsideSalesRoleLike(insideSalesAccessInput)) {
         return NextResponse.json({ error: 'Only inside sales users can self-assign follow-ups' }, { status: 403 })
       }
       activityType = 'status_change'

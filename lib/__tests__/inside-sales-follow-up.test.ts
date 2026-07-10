@@ -11,7 +11,84 @@ import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   KNOCKBACK_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+  canViewInsideSalesFollowUp,
+  isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
+
+describe('inside sales access identity', () => {
+  it('recognizes legacy inside_sales and call_center roles', () => {
+    expect(isInsideSalesRoleLike({ role: 'inside_sales' })).toBe(true)
+    expect(isInsideSalesRoleLike({ role: 'call_center' })).toBe(true)
+    expect(canViewInsideSalesFollowUp({ role: 'sales_rep' })).toBe(false)
+  })
+
+  it('recognizes custom roles labeled Inside Sales', () => {
+    expect(
+      isInsideSalesRoleLike({
+        role: 'sales_rep',
+        customRoleDisplayName: 'Inside Sales (Call Center)',
+      })
+    ).toBe(true)
+  })
+
+  it('recognizes Inside Sales permission preset grants without custom role', () => {
+    const presetPerms = new Set(['opportunities:view', 'opportunities:edit', 'leads:claim_inbound', 'scheduling:create'])
+    expect(
+      isInsideSalesRoleLike({
+        role: 'sales_rep',
+        permissionNames: presetPerms,
+      })
+    ).toBe(true)
+    expect(
+      canViewInsideSalesFollowUp({
+        role: 'sales_rep',
+        permissionNames: presetPerms,
+      })
+    ).toBe(true)
+  })
+
+  it('does not treat regional managers with manage_inbound as inside sales reps', () => {
+    expect(
+      isInsideSalesRoleLike({
+        role: 'regional_manager',
+        permissionNames: new Set(['opportunities:view', 'leads:manage_inbound', 'leads:view_inbound']),
+      })
+    ).toBe(false)
+  })
+
+  it('does not give managers rep conveyor access via claim_inbound grants', () => {
+    expect(
+      isInsideSalesRoleLike({
+        role: 'sales_manager',
+        permissionNames: new Set(['opportunities:view', 'leads:claim_inbound']),
+      })
+    ).toBe(false)
+    expect(
+      canViewInsideSalesFollowUp({
+        role: 'sales_manager',
+        permissionNames: new Set(['opportunities:view', 'leads:claim_inbound']),
+      })
+    ).toBe(true)
+  })
+
+  it('does not scope managers to inside-sales lead visibility', () => {
+    const { shouldScopeLeadsToInsideSalesWorker } = require('@/lib/inside-sales-follow-up')
+    expect(
+      shouldScopeLeadsToInsideSalesWorker({
+        role: 'regional_manager',
+        permissionNames: new Set(['opportunities:view', 'leads:claim_inbound']),
+      })
+    ).toBe(false)
+  })
+
+  it('documents the default Inside Sales preset permission bundle', () => {
+    const { INSIDE_SALES_PRESET_PERMISSION_NAMES, hasInsideSalesQueuePermissionGrant } = require('@/lib/inside-sales-follow-up')
+    expect(INSIDE_SALES_PRESET_PERMISSION_NAMES).toEqual(
+      expect.arrayContaining(['leads:view', 'leads:claim_inbound', 'opportunities:view'])
+    )
+    expect(hasInsideSalesQueuePermissionGrant(INSIDE_SALES_PRESET_PERMISSION_NAMES)).toBe(true)
+  })
+})
 
 describe('inside sales follow-up queue visibility', () => {
   beforeEach(() => {
