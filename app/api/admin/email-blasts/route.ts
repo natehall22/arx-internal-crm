@@ -6,6 +6,7 @@ import {
   EMAIL_BLAST_ROLE_OPTIONS,
   getOrgEmailBlastSettings,
   mergeOrgSettingsWithEmailBlasts,
+  MORNING_UPDATE_CONFIG_ROLES,
 } from '@/lib/admin-email-blasts'
 
 const ADMIN_EMAIL_BLAST_ROLES = new Set([
@@ -83,7 +84,15 @@ export async function PUT(request: Request) {
     }
 
     const settings = getOrgEmailBlastSettings(body?.settings)
-    const mergedSettings = mergeOrgSettingsWithEmailBlasts(org?.settings || {}, settings)
+    const existingSettings = getOrgEmailBlastSettings(org?.settings || {})
+    const canConfigureMorningUpdate = MORNING_UPDATE_CONFIG_ROLES.has(profile.role as 'owner' | 'admin')
+    const mergedBlastSettings = canConfigureMorningUpdate
+      ? settings
+      : {
+          ...settings,
+          morning_update: existingSettings.morning_update,
+        }
+    const mergedSettings = mergeOrgSettingsWithEmailBlasts(org?.settings || {}, mergedBlastSettings)
 
     const { error: updateError } = await supabase
       .from('orgs')
@@ -94,7 +103,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: updateError.message }, { status: 400 })
     }
 
-    return NextResponse.json({ success: true, settings })
+    return NextResponse.json({ success: true, settings: mergedBlastSettings })
   } catch (error: any) {
     console.error('PUT /api/admin/email-blasts error:', error)
     return NextResponse.json({ error: error?.message || 'Failed to save email blast settings' }, { status: 500 })

@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getRoleDisplayName } from '@/lib/permissions'
 import type { UserRole } from '@/lib/types/database'
 
-export type EmailBlastType = 'sale' | 'job_payment'
+export type EmailBlastType = 'sale' | 'job_payment' | 'morning_update'
 
 export type EmailBlastConfig = {
   enabled: boolean
@@ -17,6 +17,11 @@ export type EmailBlastDefinition = {
   title: string
   description: string
 }
+
+/** Owner morning update may only be delivered to these roles (server-enforced). */
+const MORNING_UPDATE_RECIPIENT_ROLES = new Set<UserRole>(['owner', 'admin'])
+
+export const MORNING_UPDATE_CONFIG_ROLES = new Set<UserRole>(['owner', 'admin'])
 
 const ROLE_OPTIONS: UserRole[] = [
   'owner',
@@ -48,6 +53,12 @@ export const EMAIL_BLAST_DEFINITIONS: EmailBlastDefinition[] = [
     title: 'Payment / Funding Email',
     description: 'Sent when a job payment is recorded, including paid-in-full updates.',
   },
+  {
+    id: 'morning_update',
+    title: 'Owner Morning Update',
+    description:
+      'Daily summary email at 5:30am ET (Mon–Sat) with doors, inspections, sales, and revenue totals.',
+  },
 ]
 
 const DEFAULT_EMAIL_BLAST_SETTINGS: OrgEmailBlastSettings = {
@@ -70,6 +81,11 @@ const DEFAULT_EMAIL_BLAST_SETTINGS: OrgEmailBlastSettings = {
   job_payment: {
     enabled: true,
     role_targets: ['admin', 'operations'],
+    user_targets: [],
+  },
+  morning_update: {
+    enabled: false,
+    role_targets: ['owner'],
     user_targets: [],
   },
 }
@@ -101,6 +117,16 @@ function normalizeConfig(value: unknown, fallback: EmailBlastConfig): EmailBlast
   }
 }
 
+function normalizeMorningUpdateConfig(value: unknown, fallback: EmailBlastConfig): EmailBlastConfig {
+  const normalized = normalizeConfig(value, fallback)
+  return {
+    ...normalized,
+    role_targets: normalized.role_targets.filter((role) =>
+      MORNING_UPDATE_RECIPIENT_ROLES.has(role as UserRole)
+    ),
+  }
+}
+
 export function getDefaultOrgEmailBlastSettings(): OrgEmailBlastSettings {
   return JSON.parse(JSON.stringify(DEFAULT_EMAIL_BLAST_SETTINGS)) as OrgEmailBlastSettings
 }
@@ -121,6 +147,7 @@ export function getOrgEmailBlastSettings(settings: unknown): OrgEmailBlastSettin
   return {
     sale: normalizeConfig(raw.sale, DEFAULT_EMAIL_BLAST_SETTINGS.sale),
     job_payment: normalizeConfig(raw.job_payment, DEFAULT_EMAIL_BLAST_SETTINGS.job_payment),
+    morning_update: normalizeMorningUpdateConfig(raw.morning_update, DEFAULT_EMAIL_BLAST_SETTINGS.morning_update),
   }
 }
 
@@ -172,7 +199,11 @@ export async function resolveEmailBlastRecipients(
     .filter((user) => {
       const email = typeof user.email === 'string' ? user.email.trim() : ''
       if (!email.includes('@')) return false
-      return config.user_targets.includes(user.id) || config.role_targets.includes(String(user.role || ''))
+      const role = String(user.role || '')
+      if (params.blastType === 'morning_update' && !MORNING_UPDATE_RECIPIENT_ROLES.has(role as UserRole)) {
+        return false
+      }
+      return config.user_targets.includes(user.id) || config.role_targets.includes(role)
     })
     .map((user) => ({
       id: user.id as string,

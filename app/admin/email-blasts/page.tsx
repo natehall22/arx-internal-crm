@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
 
-type EmailBlastType = 'sale' | 'job_payment'
+type EmailBlastType = 'sale' | 'job_payment' | 'morning_update'
 
 type EmailBlastConfig = {
   enabled: boolean
@@ -40,6 +40,7 @@ export default function EmailBlastsPage() {
   const [settings, setSettings] = useState<EmailBlastSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [sendingTest, setSendingTest] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -126,6 +127,32 @@ export default function EmailBlastsPage() {
     }
   }
 
+  const sendMorningUpdateTest = async () => {
+    setSendingTest(true)
+    setMessage(null)
+
+    try {
+      const response = await fetch('/api/admin/email-blasts/morning-update/test', {
+        method: 'POST',
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send test email')
+      }
+
+      setMessage({
+        type: 'success',
+        text: `Test morning update sent to ${data.to || 'your email'}`,
+      })
+    } catch (error: unknown) {
+      const text = error instanceof Error ? error.message : 'Failed to send test email'
+      setMessage({ type: 'error', text })
+    } finally {
+      setSendingTest(false)
+    }
+  }
+
   const recipientCounts = useMemo(() => {
     if (!settings) return {} as Record<EmailBlastType, number>
 
@@ -155,7 +182,7 @@ export default function EmailBlastsPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Email Blasts</h1>
               <p className="text-gray-600 mt-1">
-                Control who gets sale and payment or funding-style admin emails. Scheduling and calendar emails are not changed here.
+                Control who gets sale, payment, and owner morning update emails. Scheduling and calendar emails are not changed here.
               </p>
             </div>
             <button
@@ -185,6 +212,14 @@ export default function EmailBlastsPage() {
             {definitions.map((definition) => {
               const config = settings[definition.id]
               const selectedUsers = users.filter((user) => config.user_targets.includes(user.id))
+              const roleOptionsForBlast =
+                definition.id === 'morning_update'
+                  ? roleOptions.filter((option) => option.role === 'owner' || option.role === 'admin')
+                  : roleOptions
+              const userOptionsForBlast =
+                definition.id === 'morning_update'
+                  ? users.filter((user) => user.role === 'owner' || user.role === 'admin')
+                  : users
 
               return (
                 <section key={definition.id} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -204,15 +239,27 @@ export default function EmailBlastsPage() {
                       </p>
                     </div>
 
-                    <label className="inline-flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={config.enabled}
-                        onChange={(e) => updateConfig(definition.id, (current) => ({ ...current, enabled: e.target.checked }))}
-                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      Enable this blast
-                    </label>
+                    <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                      <label className="inline-flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={config.enabled}
+                          onChange={(e) => updateConfig(definition.id, (current) => ({ ...current, enabled: e.target.checked }))}
+                          className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        Enable this blast
+                      </label>
+                      {definition.id === 'morning_update' && (
+                        <button
+                          type="button"
+                          onClick={sendMorningUpdateTest}
+                          disabled={loading || sendingTest}
+                          className="inline-flex items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                        >
+                          {sendingTest ? 'Sending test…' : 'Send test to my email'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -220,7 +267,7 @@ export default function EmailBlastsPage() {
                       <h3 className="text-sm font-semibold text-gray-900">Levels</h3>
                       <p className="mt-1 text-sm text-gray-500">Choose the roles that should always receive this email.</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {roleOptions.map((option) => (
+                        {roleOptionsForBlast.map((option) => (
                           <label
                             key={`${definition.id}-${option.role}`}
                             className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700"
@@ -241,7 +288,7 @@ export default function EmailBlastsPage() {
                       <h3 className="text-sm font-semibold text-gray-900">Specific People</h3>
                       <p className="mt-1 text-sm text-gray-500">Add or remove named recipients without changing role-wide coverage.</p>
                       <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-                        {users.map((user) => (
+                        {userOptionsForBlast.map((user) => (
                           <label
                             key={`${definition.id}-${user.id}`}
                             className="flex items-start gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700"
