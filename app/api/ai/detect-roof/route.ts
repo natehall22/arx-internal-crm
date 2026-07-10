@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { createServiceClient } from '@/lib/supabase/service'
 import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
 import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
 import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
@@ -1281,7 +1283,11 @@ Rules:
 
 export async function POST(request: Request) {
   try {
-    await requireAuthApi()
+    const authContext = await requireAuthApi()
+    const admin = createServiceClient()
+    if (await resolveSalesDocAccessBarred(admin, authContext.authUser.id, authContext.profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const body = await request.json().catch(() => ({}))
     const {

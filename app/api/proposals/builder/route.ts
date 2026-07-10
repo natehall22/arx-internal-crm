@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { computeFinancedContractTotal } from '@/lib/financing'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -188,12 +189,16 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const searchParams = request.nextUrl.searchParams
@@ -436,12 +441,16 @@ export async function POST(request: NextRequest) {
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await request.json()
@@ -589,12 +598,16 @@ export async function PUT(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await request.json()

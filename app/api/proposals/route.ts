@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -83,12 +84,16 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Build query

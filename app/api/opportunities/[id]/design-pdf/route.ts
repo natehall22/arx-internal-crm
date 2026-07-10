@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { isBarredFromSalesDocApis } from '@/lib/permissions'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
 const BUCKET = 'files'
@@ -19,13 +19,12 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { profile } = await requireAuthApi()
+    const { authUser, profile } = await requireAuthApi()
+    const admin = createServiceClient()
 
-    if (isBarredFromSalesDocApis(profile.role)) {
+    if (await resolveSalesDocAccessBarred(admin, authUser.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-
-    const admin = createServiceClient()
 
     const { data: opportunity, error: oppErr } = await admin
       .from('opportunities')

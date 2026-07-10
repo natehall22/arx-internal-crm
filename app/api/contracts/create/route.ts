@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { isBarredFromSalesDocApis } from '@/lib/permissions'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import nodemailer from 'nodemailer'
 
 export async function POST(request: NextRequest) {
   try {
-    const { profile } = await requireAuthApi()
+    const { authUser, profile } = await requireAuthApi()
 
-    if (isBarredFromSalesDocApis(profile.role)) {
+    if (await resolveSalesDocAccessBarred(createServiceClient(), authUser.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

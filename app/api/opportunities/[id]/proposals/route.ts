@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +38,10 @@ export async function GET(
       { role: profile.role, custom_role_id: profile.custom_role_id ?? null }
     )
     if (!effectiveHasPermission(effective, 'opportunities:view')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, authContext.authUser.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

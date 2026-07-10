@@ -1,5 +1,6 @@
 import React from 'react'
 import { requireAuthApi } from '@/lib/auth'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse } from 'next/server'
@@ -10,7 +11,11 @@ export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const { profile } = await requireAuthApi()
+  const { authUser, profile } = await requireAuthApi()
+  const admin = createServiceClient()
+  if (await resolveSalesDocAccessBarred(admin, authUser.id, profile)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
   const supabase = createClient()
   const serviceSupabase = createServiceClient()
 

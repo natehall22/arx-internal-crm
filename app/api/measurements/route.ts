@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
-import { isBarredFromSalesDocApis } from '@/lib/permissions'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { isConfirmedPitchSource } from '@/lib/roof-measure-solar-pitch'
 
 export const dynamic = 'force-dynamic'
@@ -18,6 +18,10 @@ export async function GET(request: NextRequest) {
 
     const adminClient = createServiceClient()
     const profile = authContext.profile
+
+    if (await resolveSalesDocAccessBarred(adminClient, authContext.authUser.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const searchParams = request.nextUrl.searchParams
     const opportunityId = searchParams.get('opportunity_id')
@@ -68,7 +72,7 @@ export async function POST(request: NextRequest) {
     const adminClient = createServiceClient()
     const profile = authContext.profile
 
-    if (isBarredFromSalesDocApis(profile.role)) {
+    if (await resolveSalesDocAccessBarred(adminClient, authContext.authUser.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

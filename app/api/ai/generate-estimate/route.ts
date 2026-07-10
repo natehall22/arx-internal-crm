@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
 type RoofSection = {
@@ -234,8 +235,11 @@ function deterministicFallbackLines(math: ReturnType<typeof deterministicMath>, 
 
 export async function POST(request: Request) {
   try {
-    const { profile } = await requireAuthApi()
+    const { authUser, profile } = await requireAuthApi()
     const supabase = createServiceClient()
+    if (await resolveSalesDocAccessBarred(supabase, authUser.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const body = await request.json().catch(() => ({}))
     const { opportunityId, roofSections, config } = body as {

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { isInsideSalesRoleLike } from './inside-sales-follow-up'
 import type { UserRole, CustomRoleWithPermissions, UserWithCustomRole } from './types/database'
 
 import { isOrgSuperuserRoleSlug } from './org-role-constants'
@@ -264,8 +265,6 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'leads:view', 'leads:create', 'leads:edit',
     'leads:view_inbound', 'leads:claim_inbound',
     'opportunities:view', 'opportunities:edit',
-    'proposals:view', 'proposals:create', 'proposals:edit', 'proposals:send',
-    'contracts:view',
     'reports:view_own',
     'campaigns:view',
     'teams:view',
@@ -430,13 +429,50 @@ export function isBarredFromProjectsUi(role: string | null | undefined): boolean
   return isAppointmentSettingRole(role)
 }
 
+/** Role + custom-role context for sales-doc UI/API gating (proposals, contracts, roof measure). */
+export type SalesDocAccessInput = {
+  role?: string | null
+  customRoleName?: string | null
+  customRoleDisplayName?: string | null
+  permissionNames?: Iterable<string> | null
+}
+
 /**
- * Appointment-setting roles may not create/upload/delete contracts, design PDFs, or roof
- * measurements — closer/ops territory. Server-side companion to hiding those sections on the
- * opportunity detail page for inside-sales viewers.
+ * Appointment-setting and inside-sales workers may not see pricing, proposals, contracts,
+ * design PDFs, or roof measurements — closer/ops territory. Accepts a legacy role slug
+ * (appointment-setting matrix only) or full role-like input (includes custom Inside Sales roles).
+ */
+export function isBarredFromSalesDocAccess(
+  input: string | SalesDocAccessInput | null | undefined
+): boolean {
+  if (!input) return false
+  if (typeof input === 'string') {
+    return isAppointmentSettingRole(input)
+  }
+  if (isAppointmentSettingRole(input.role)) return true
+  return isInsideSalesRoleLike(input)
+}
+
+/**
+ * @deprecated Prefer {@link isBarredFromSalesDocAccess} with role-like input when custom roles apply.
  */
 export function isBarredFromSalesDocApis(role: string | null | undefined): boolean {
-  return isAppointmentSettingRole(role)
+  return isBarredFromSalesDocAccess(role)
+}
+
+/**
+ * Setter/canvass/inside-sales/call-center roles never get `/tools/roof-measure` routes, even if
+ * org settings enable the measure tool — appointment-setting workers set appointments, not roof scope.
+ */
+export function isBarredFromRoofMeasureAccess(
+  input: string | SalesDocAccessInput | null | undefined
+): boolean {
+  return isBarredFromSalesDocAccess(input)
+}
+
+/** @deprecated Prefer {@link isBarredFromRoofMeasureAccess} with role-like input when custom roles apply. */
+export function isBarredFromRoofMeasureUi(role: string | null | undefined): boolean {
+  return isBarredFromRoofMeasureAccess(role)
 }
 
 /** Only admin-level users may see every project in the org. */

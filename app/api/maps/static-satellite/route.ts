@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { createServiceClient } from '@/lib/supabase/service'
 import {
   clampVisionAlignStaticZoom,
   computeStaticLogicalSize,
@@ -15,7 +17,11 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: NextRequest) {
   try {
-    await requireAuthApi()
+    const authContext = await requireAuthApi()
+    const admin = createServiceClient()
+    if (await resolveSalesDocAccessBarred(admin, authContext.authUser.id, authContext.profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     const { searchParams } = new URL(request.url)
     const lat = Number(searchParams.get('lat'))
     const lng = Number(searchParams.get('lng'))

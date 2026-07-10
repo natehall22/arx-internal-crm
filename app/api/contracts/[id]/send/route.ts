@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import nodemailer from 'nodemailer'
 
@@ -7,7 +9,11 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const { profile } = await requireAuthApi()
+  const { authUser, profile } = await requireAuthApi()
+  const admin = createServiceClient()
+  if (await resolveSalesDocAccessBarred(admin, authUser.id, profile)) {
+    return NextResponse.redirect(new URL('/dashboard', request.url), { status: 303 })
+  }
   const supabase = createClient()
   const formData = await request.formData()
   const email = String(formData.get('email') ?? '')

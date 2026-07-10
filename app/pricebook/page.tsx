@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import { redirect } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { isBarredFromSalesDocAccess } from '@/lib/permissions'
 
 export default async function PricebookPage() {
   const { profile, authUser: user } = await requireAuth()
@@ -11,6 +12,27 @@ export default async function PricebookPage() {
   const admin = createServiceClient()
   
   const pricebookPermissions = await resolveEffectivePermissionNames(admin, user.id, profile)
+  let customRoleName: string | null = null
+  let customRoleDisplayName: string | null = null
+  if (profile.custom_role_id) {
+    const { data: customRole } = await admin
+      .from('custom_roles')
+      .select('name, display_name')
+      .eq('id', profile.custom_role_id)
+      .maybeSingle()
+    customRoleName = customRole?.name ?? null
+    customRoleDisplayName = customRole?.display_name ?? null
+  }
+  if (
+    isBarredFromSalesDocAccess({
+      role: profile.role,
+      customRoleName,
+      customRoleDisplayName,
+      permissionNames: pricebookPermissions.permissionNames,
+    })
+  ) {
+    redirect('/dashboard')
+  }
   if (
     !pricebookPermissions.fullAccess &&
     !pricebookPermissions.permissionNames.has('pricebook:view') &&

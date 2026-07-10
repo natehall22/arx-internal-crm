@@ -12,6 +12,7 @@ import {
   canAccessReports,
   canAccessReportsFromPermissionNames,
   isBarredFromProjectsUi,
+  isBarredFromSalesDocAccess,
   isOrgSuperuserRoleSlug,
 } from '@/lib/permissions'
 import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
@@ -240,6 +241,12 @@ export default function Nav() {
   const hasSalesDashboardInNav = userRole ? userRole !== 'operations' : true // Ops-only skips sales tab while loading defaults permissive like before
   const canSeeOpsDashboard = canAccessOpsDashboardFromPermissionNames(navPermInput)
   const canSeeJobBoardNav = canAccessJobBoardFromPermissionNames(navPermInput)
+  const isSalesDocBarredNav = isBarredFromSalesDocAccess({
+    role: userRole,
+    customRoleName,
+    customRoleDisplayName,
+    permissionNames: effectivePermissionNames,
+  })
 
   // Define nav items with role restrictions
   // Include legacy roles (manager, rep) for backwards compatibility
@@ -292,6 +299,9 @@ export default function Nav() {
       if (isBarredFromProjectsUi(userRole)) return false
     }
     if (item.href === '/opportunities' && (userRole === 'setter' || userRole === 'canvasser')) {
+      return false
+    }
+    if (item.href === '/pricebook' && isSalesDocBarredNav) {
       return false
     }
 

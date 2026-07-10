@@ -35,7 +35,7 @@ import {
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { isOrgSuperuserRoleSlug, isBarredFromSalesDocAccess } from '@/lib/permissions'
 import {
   mapLatestInspectionByLeadId,
   mapLatestInspectionByOpportunityId,
@@ -123,8 +123,9 @@ export default async function OpportunityDetailPage({
   // Setter-like base roles are gated below once queue state is known — call-center workers on a
   // permission-based Inside Sales custom role (e.g. base role 'setter'/'canvasser' + call_center_rep)
   // may open records in their working scope; everyone else setter-like gets notFound().
-  const isInsideSalesViewer = isSetterLikeViewer && isInsideSalesRoleLike(insideSalesAccessInput)
-  if (isSetterLikeViewer && !isInsideSalesViewer) {
+  const isInsideSalesWorker = isInsideSalesRoleLike(insideSalesAccessInput)
+  const isSalesDocBarredViewer = isBarredFromSalesDocAccess(insideSalesAccessInput)
+  if (isSetterLikeViewer && !isInsideSalesWorker) {
     notFound()
   }
 
@@ -202,11 +203,10 @@ export default async function OpportunityDetailPage({
     inspectionOutcomeSettings
   )
 
-  // Inside-sales viewers (setter-like base role + call-center custom role) may only open records
-  // in their working scope: an active queue item (the conveyor serves unassigned org-wide items),
-  // a record they own or are assigned, or an inbound-channel lead (mirrors /api/leads scoping).
-  // Everything else 404s — queue access must not become org-wide opportunity browsing.
-  if (isSetterLikeViewer) {
+  // Inside-sales workers may only open records in their working scope: an active queue item
+  // (the conveyor serves unassigned org-wide items), a record they own or are assigned, or an
+  // inbound-channel lead (mirrors /api/leads scoping). Everything else 404s.
+  if (isInsideSalesWorker) {
     const insideSalesRecordInScope =
       hasInsideSalesFollowUp ||
       opportunity.owner_user_id === profile.id ||
@@ -270,19 +270,55 @@ export default async function OpportunityDetailPage({
       ).data?.signedUrl
     : null
 
-  // Fetch proposals for this opportunity
-  const { data: proposals } = await supabase
-    .from('proposals')
-    .select('id, proposal_number, title, status, total, created_at, created_by')
-    .eq('opportunity_id', params.id)
-    .order('created_at', { ascending: false })
+  // Pricing/sales-doc data — skip fetches for inside-sales workers (not rendered; avoids SSR leakage)
+  let proposals: any[] | null = null
+  let measurements: any[] | null = null
+  let acceptedProposal: {
+    id: string
+    total: number | null
+    financed_contract_total: number | null
+    financing_lender_name: string | null
+    scope_of_work: string | null
+  } | null = null
+  let orderFormContracts: any[] | null = null
 
-  // Fetch roof measurements for this opportunity
-  const { data: measurements } = await supabase
-    .from('roof_measurements')
-    .select('id, source, status, total_area_sqft, total_squares, predominant_pitch, facet_count, created_at')
-    .eq('opportunity_id', params.id)
-    .order('created_at', { ascending: false })
+  if (!isSalesDocBarredViewer) {
+    const [{ data: proposalRows }, { data: measurementRows }, { data: acceptedRow }] = await Promise.all([
+      supabase
+        .from('proposals')
+        .select('id, proposal_number, title, status, total, created_at, created_by')
+        .eq('opportunity_id', params.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('roof_measurements')
+        .select('id, source, status, total_area_sqft, total_squares, predominant_pitch, facet_count, created_at')
+        .eq('opportunity_id', params.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('proposals')
+        .select('id, total, financed_contract_total, financing_lender_name, scope_of_work')
+        .eq('opportunity_id', params.id)
+        .eq('status', 'accepted')
+        .order('accepted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
+    proposals = proposalRows
+    measurements = measurementRows
+    acceptedProposal = acceptedRow
+
+    try {
+      const { data } = await supabase
+        .from('order_form_contracts')
+        .select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type')
+        .eq('opportunity_id', params.id)
+        .order('created_at', { ascending: false })
+      orderFormContracts = data
+    } catch (e) {
+      // Table may not exist yet - migration not run
+      console.log('order_form_contracts table not available')
+    }
+  }
 
   // Latest customer-facing roof report (photo documentation PDF) — photo count joined
   // so this stays a single round trip on a hot page
@@ -298,30 +334,6 @@ export default async function OpportunityDetailPage({
     .maybeSingle()
   const inspectionReportPhotoCount =
     (inspectionReport?.inspection_report_photos as { count: number }[] | undefined)?.[0]?.count ?? 0
-
-  // Fetch accepted proposal for contract creation
-  const { data: acceptedProposal } = await supabase
-    .from('proposals')
-    .select('id, total, financed_contract_total, financing_lender_name, scope_of_work')
-    .eq('opportunity_id', params.id)
-    .eq('status', 'accepted')
-    .order('accepted_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  // Fetch existing order form contracts (wrapped in try-catch in case table doesn't exist yet)
-  let orderFormContracts: any[] | null = null
-  try {
-    const { data } = await supabase
-      .from('order_form_contracts')
-      .select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type')
-      .eq('opportunity_id', params.id)
-      .order('created_at', { ascending: false })
-    orderFormContracts = data
-  } catch (e) {
-    // Table may not exist yet - migration not run
-    console.log('order_form_contracts table not available')
-  }
 
   // Org settings (measure tool + inspection outcomes for inside-sales eligibility)
   const measureToolEnabled = orgSettings?.settings?.measure_tool_enabled !== false // Default to enabled
@@ -637,7 +649,7 @@ export default async function OpportunityDetailPage({
       secondaryLabel: 'Open calendar',
       showMarkLost: true,
     }
-  } else {
+  } else if (!isSalesDocBarredViewer) {
     // Inspection ran — determine where we are in the proposal → close → contract flow
     if (!proposals || proposals.length === 0) {
       // Step 2 — need a proposal to bring to the close
@@ -804,7 +816,7 @@ export default async function OpportunityDetailPage({
                   Measure Exterior
                 </Link>
               )}
-              {measureToolEnabled && (
+              {measureToolEnabled && !isSalesDocBarredViewer && (
                 <Link
                   href={`/tools/roof-measure?opportunity_id=${params.id}&address=${encodeURIComponent(opportunity.address_text || '')}`}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
@@ -1055,7 +1067,7 @@ export default async function OpportunityDetailPage({
         </div>
 
         {/* Roof Measurements + Design — hidden for inside-sales viewers (closer/ops territory) */}
-        {!isSetterLikeViewer && (
+        {!isSalesDocBarredViewer && (
         <>
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -1181,7 +1193,8 @@ export default async function OpportunityDetailPage({
         </>
         )}
 
-        {/* Proposals Section */}
+        {/* Proposals Section — hidden for inside-sales viewers (pricing is closer territory) */}
+        {!isSalesDocBarredViewer && (
         <div id="proposals-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Proposals</h2>
@@ -1259,9 +1272,10 @@ export default async function OpportunityDetailPage({
             </div>
           )}
         </div>
+        )}
 
         {/* Contract Section — hidden for inside-sales viewers */}
-        {!isSetterLikeViewer && (
+        {!isSalesDocBarredViewer && (
         <>
         <div id="contract-section" className="scroll-mt-20 bg-white shadow rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { PROPOSAL_DELETE_PRIVILEGED_ROLES } from '@/lib/proposal-delete-access'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -106,12 +107,16 @@ export async function GET(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Get proposal with creator info
@@ -209,12 +214,16 @@ export async function PATCH(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const rawBody = await request.json()
@@ -446,12 +455,16 @@ export async function DELETE(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
+    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Check if proposal exists and belongs to this org
