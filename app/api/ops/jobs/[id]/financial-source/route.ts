@@ -11,6 +11,94 @@ function normalizeMoney(value: number | null | undefined): number {
   return Math.round((Number(value) || 0) * 100) / 100
 }
 
+type DealerFeeLineSnapshot = {
+  id: string
+  amount: number
+  status: string
+  deleted_at: string | null
+  notes: string | null
+  cost_type: string
+}
+
+const DEALER_FEE_DESCRIPTION = 'Lender / dealer fee'
+
+async function loadDealerFeeSnapshot(
+  adminClient: ReturnType<typeof createServiceClient>,
+  orgId: string,
+  jobId: string
+): Promise<DealerFeeLineSnapshot[]> {
+  const { data, error } = await adminClient
+    .from('job_cost_lines')
+    .select('id, amount, status, deleted_at, notes, cost_type')
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .eq('description', DEALER_FEE_DESCRIPTION)
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    amount: Number(row.amount) || 0,
+    status: row.status,
+    deleted_at: row.deleted_at,
+    notes: row.notes,
+    cost_type: row.cost_type,
+  }))
+}
+
+async function restoreDealerFeeSnapshot(
+  adminClient: ReturnType<typeof createServiceClient>,
+  snapshot: DealerFeeLineSnapshot[],
+  snapshotIds: Set<string>,
+  orgId: string,
+  jobId: string
+) {
+  for (const row of snapshot) {
+    const { error } = await adminClient
+      .from('job_cost_lines')
+      .update({
+        amount: row.amount,
+        status: row.status,
+        deleted_at: row.deleted_at,
+        notes: row.notes,
+        cost_type: row.cost_type,
+      })
+      .eq('id', row.id)
+    if (error) {
+      console.error('[Financial Source] Dealer fee cost-line restore failed:', error)
+      throw error
+    }
+  }
+
+  const { data: activeRows, error: activeError } = await adminClient
+    .from('job_cost_lines')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .eq('description', DEALER_FEE_DESCRIPTION)
+    .is('deleted_at', null)
+
+  if (activeError) {
+    throw activeError
+  }
+
+  const orphanIds = (activeRows ?? []).map((row) => row.id).filter((id) => !snapshotIds.has(id))
+  if (orphanIds.length > 0) {
+    const { error: archiveError } = await adminClient
+      .from('job_cost_lines')
+      .update({
+        status: 'archived',
+        deleted_at: new Date().toISOString(),
+      })
+      .in('id', orphanIds)
+    if (archiveError) {
+      throw archiveError
+    }
+  }
+}
+
 async function syncDealerFeeCostLine(args: {
   adminClient: ReturnType<typeof createServiceClient>
   orgId: string
@@ -19,39 +107,47 @@ async function syncDealerFeeCostLine(args: {
   dealerFeeAmount: number | null
 }) {
   const amount = normalizeMoney(args.dealerFeeAmount)
-  const description = 'Lender / dealer fee'
-  const { data: existing, error: lookupError } = await args.adminClient
+  const description = DEALER_FEE_DESCRIPTION
+  const { data: existingRows, error: lookupError } = await args.adminClient
     .from('job_cost_lines')
     .select('id, amount, deleted_at')
     .eq('org_id', args.orgId)
     .eq('job_id', args.jobId)
     .eq('description', description)
     .is('deleted_at', null)
-    .maybeSingle()
 
   if (lookupError) {
     console.error('[Financial Source] Dealer fee cost-line lookup failed:', lookupError)
     throw lookupError
   }
 
-  if (amount <= 0) {
-    if (existing?.id) {
-      const { error: archiveError } = await args.adminClient
-        .from('job_cost_lines')
-        .update({
-          status: 'archived',
-          deleted_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id)
-      if (archiveError) {
-        console.error('[Financial Source] Dealer fee cost-line archive failed:', archiveError)
-        throw archiveError
-      }
+  const rows = existingRows ?? []
+  const archiveIds = async (ids: string[]) => {
+    if (ids.length === 0) return
+    const { error: archiveError } = await args.adminClient
+      .from('job_cost_lines')
+      .update({
+        status: 'archived',
+        deleted_at: new Date().toISOString(),
+      })
+      .in('id', ids)
+    if (archiveError) {
+      console.error('[Financial Source] Dealer fee cost-line archive failed:', archiveError)
+      throw archiveError
     }
+  }
+
+  if (amount <= 0) {
+    await archiveIds(rows.map((row) => row.id))
     return
   }
 
-  if (existing?.id) {
+  const [primary, ...duplicates] = rows
+  if (duplicates.length > 0) {
+    await archiveIds(duplicates.map((row) => row.id))
+  }
+
+  if (primary?.id) {
     const { error: updateError } = await args.adminClient
       .from('job_cost_lines')
       .update({
@@ -61,7 +157,7 @@ async function syncDealerFeeCostLine(args: {
         deleted_at: null,
         notes: 'Financing lender/dealer fee synced from job financial source.',
       })
-      .eq('id', existing.id)
+      .eq('id', primary.id)
     if (updateError) {
       console.error('[Financial Source] Dealer fee cost-line update failed:', updateError)
       throw updateError
@@ -85,6 +181,35 @@ async function syncDealerFeeCostLine(args: {
   if (insertError) {
     console.error('[Financial Source] Dealer fee cost-line insert failed:', insertError)
     throw insertError
+  }
+}
+
+function isMissingPaymentMethodColumn(error: { message?: string; code?: string } | null): boolean {
+  const msg = String(error?.message || '').toLowerCase()
+  return (
+    msg.includes('payment_method') &&
+    (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('could not find'))
+  )
+}
+
+async function updateProjectPaymentMethod(
+  adminClient: ReturnType<typeof createServiceClient>,
+  args: { projectId: string; orgId: string; paymentMethod: string | null }
+): Promise<void> {
+  const { error } = await adminClient
+    .from('projects')
+    .update({ payment_method: args.paymentMethod })
+    .eq('id', args.projectId)
+    .eq('org_id', args.orgId)
+
+  if (error) {
+    if (isMissingPaymentMethodColumn(error)) {
+      console.warn(
+        '[Financial Source] projects.payment_method column missing; job saved without project payment_method sync'
+      )
+      return
+    }
+    throw error
   }
 }
 
@@ -162,9 +287,25 @@ export async function PATCH(
       )
     }
 
+    const dealerFeeSnapshot = await loadDealerFeeSnapshot(adminClient, profile.org_id, job.id)
+    const dealerFeeSnapshotIds = new Set(dealerFeeSnapshot.map((row) => row.id))
+    const activeDealerFeeFromCostLine =
+      dealerFeeSnapshot
+        .filter((row) => row.deleted_at == null && normalizeMoney(row.amount) > 0)
+        .map((row) => normalizeMoney(row.amount))[0] ?? null
+
     const isFinance = paymentMethod === 'finance'
-    let nextDealerFeeAmount = isFinance ? normalizeMoney(proposal?.dealer_fee_amount) : null
-    const nextDealerFeePercent = isFinance ? normalizeMoney(proposal?.dealer_fee_percent) : null
+    const existingDealerFeeAmount =
+      job.dealer_fee_amount != null && normalizeMoney(job.dealer_fee_amount) > 0
+        ? normalizeMoney(job.dealer_fee_amount)
+        : activeDealerFeeFromCostLine
+    const existingDealerFeePercent =
+      job.dealer_fee_percent != null && normalizeMoney(job.dealer_fee_percent) > 0
+        ? normalizeMoney(job.dealer_fee_percent)
+        : null
+
+    let nextDealerFeeAmount = isFinance ? normalizeMoney(proposal?.dealer_fee_amount) : existingDealerFeeAmount
+    let nextDealerFeePercent = isFinance ? normalizeMoney(proposal?.dealer_fee_percent) : existingDealerFeePercent
     if (
       isFinance &&
       proposal &&
@@ -187,9 +328,11 @@ export async function PATCH(
       nextPreTaxSubtotal != null
         ? nextPreTaxSubtotal
         : (job.sale_amount != null ? normalizeMoney(job.sale_amount) : null)
+    // Cash/other: comp base uses full pre-tax total — dealer fee stays on job for COGS but not commission math.
+    const dealerFeeForCompBase = isFinance ? nextDealerFeeAmount : null
     const nextCommissionBase =
       fallbackBase != null
-        ? commissionCompBaseFromPreTaxAndDealerFee(fallbackBase, nextDealerFeeAmount)
+        ? commissionCompBaseFromPreTaxAndDealerFee(fallbackBase, dealerFeeForCompBase)
         : null
 
     // Intentionally do not write accepted_proposal_id here — that stays the signed IA / job-packet anchor;
@@ -197,8 +340,8 @@ export async function PATCH(
     const updateData: Record<string, unknown> = {
       linked_proposal_id: proposalId,
       financing_program_id: isFinance ? (proposal?.financing_program_id ?? null) : null,
-      dealer_fee_percent: isFinance ? nextDealerFeePercent : null,
-      dealer_fee_amount: isFinance ? nextDealerFeeAmount : null,
+      dealer_fee_percent: nextDealerFeePercent,
+      dealer_fee_amount: nextDealerFeeAmount,
       commission_pre_tax_subtotal: nextPreTaxSubtotal,
       commission_comp_base: nextCommissionBase,
     }
@@ -226,24 +369,31 @@ export async function PATCH(
 
     try {
       if (job.project_id) {
-        const { error: updateProjectError } = await adminClient
-          .from('projects')
-          .update({ payment_method: paymentMethod })
-          .eq('id', job.project_id)
-          .eq('org_id', profile.org_id)
-
-        if (updateProjectError) {
-          throw updateProjectError
-        }
+        await updateProjectPaymentMethod(adminClient, {
+          projectId: job.project_id,
+          orgId: profile.org_id,
+          paymentMethod,
+        })
       }
 
-      await syncDealerFeeCostLine({
-        adminClient,
-        orgId: profile.org_id,
-        jobId: job.id,
-        userId: authUser.id,
-        dealerFeeAmount: nextDealerFeeAmount,
-      })
+      const nextFee = normalizeMoney(nextDealerFeeAmount)
+      const existingFee = normalizeMoney(existingDealerFeeAmount)
+      const activeCostLineFee = normalizeMoney(activeDealerFeeFromCostLine)
+      // Cash: skip only when fee is unchanged AND an active cost line already matches (or no fee to sync).
+      const skipDealerFeeCostLineSync =
+        !isFinance &&
+        nextFee === existingFee &&
+        (nextFee <= 0 || (activeCostLineFee > 0 && activeCostLineFee === nextFee))
+
+      if (!skipDealerFeeCostLineSync) {
+        await syncDealerFeeCostLine({
+          adminClient,
+          orgId: profile.org_id,
+          jobId: job.id,
+          userId: authUser.id,
+          dealerFeeAmount: nextDealerFeeAmount,
+        })
+      }
     } catch (followUpError) {
       console.error('[Financial Source] Follow-up sync failed, attempting rollback:', followUpError)
 
@@ -254,11 +404,23 @@ export async function PATCH(
         .eq('org_id', profile.org_id)
 
       if (job.project_id) {
-        await adminClient
-          .from('projects')
-          .update({ payment_method: previousProjectPaymentMethod })
-          .eq('id', job.project_id)
-          .eq('org_id', profile.org_id)
+        await updateProjectPaymentMethod(adminClient, {
+          projectId: job.project_id,
+          orgId: profile.org_id,
+          paymentMethod: previousProjectPaymentMethod,
+        })
+      }
+
+      try {
+        await restoreDealerFeeSnapshot(
+          adminClient,
+          dealerFeeSnapshot,
+          dealerFeeSnapshotIds,
+          profile.org_id,
+          job.id
+        )
+      } catch (rollbackDealerFeeError) {
+        console.error('[Financial Source] Dealer fee rollback failed:', rollbackDealerFeeError)
       }
 
       return NextResponse.json(

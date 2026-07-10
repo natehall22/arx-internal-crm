@@ -832,10 +832,10 @@ export default async function JobDetailPage({ params }: PageProps) {
       collected_cents: Math.round(amountCollected * 100),
       dealer_fee_amount: shouldTreatAsFinance
         ? (proposalFinancing?.dealer_fee_amount ?? jobRes.data.dealer_fee_amount)
-        : null,
+        : jobRes.data.dealer_fee_amount,
       dealer_fee_percent: shouldTreatAsFinance
         ? (proposalFinancing?.dealer_fee_percent ?? jobRes.data.dealer_fee_percent)
-        : null,
+        : jobRes.data.dealer_fee_percent,
       financing_program_id: shouldTreatAsFinance
         ? (proposalFinancing?.financing_program_id ?? jobRes.data.financing_program_id)
         : null,
