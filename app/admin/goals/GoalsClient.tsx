@@ -2,22 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { OrgMonthlyGoal, ScorecardPayload } from '@/lib/goals-scorecard'
-import type { ForecastResult } from '@/lib/goals-forecast'
+import type { ForecastMetricKey, ForecastResult } from '@/lib/goals-forecast'
+import {
+  deltaTextClass,
+  formatCurrency,
+  formatDeltaPct,
+  formatForecastRangeLabel,
+  formatInteger,
+  formatMetricValue,
+  formatSignedDelta,
+  metricProjectedTotal,
+} from '@/lib/goals-forecast-display'
 import { getCurrentMonthIso, getPreviousMonthIso, isPastGoalMonth } from '@/lib/goals-period'
 
 type TabId = 'scorecard' | 'goals' | 'forecast'
-
-function formatInteger(value: number): string {
-  return new Intl.NumberFormat('en-US').format(Math.round(value))
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(value)
-}
 
 function formatPct(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return '—'
@@ -427,6 +425,7 @@ function ForecastTab() {
   const [end, setEnd] = useState('')
   const [forecast, setForecast] = useState<ForecastResult | null>(null)
   const [compare, setCompare] = useState<ForecastResult | null>(null)
+  const [deltas, setDeltas] = useState<Record<ForecastMetricKey, number | null> | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -443,6 +442,9 @@ function ForecastTab() {
     let cancelled = false
     setLoading(true)
     setError(null)
+    setForecast(null)
+    setCompare(null)
+    setDeltas(null)
     fetch(`/api/admin/goals/forecast?${query}`)
       .then(async (res) => {
         if (!res.ok) {
@@ -455,6 +457,7 @@ function ForecastTab() {
         if (cancelled) return
         setForecast(json.forecast)
         setCompare(json.compare ?? null)
+        setDeltas(json.deltas ?? null)
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message)
@@ -468,12 +471,32 @@ function ForecastTab() {
   }, [query])
 
   const metricRows = forecast
-    ? Object.entries(forecast.metrics).map(([key, metric]) => ({
-        key,
-        ...metric,
-        projectedTotal: metric.actual + metric.knownBooked + metric.projected,
-      }))
+    ? (Object.entries(forecast.metrics) as [ForecastMetricKey, (typeof forecast.metrics)[ForecastMetricKey]][]).map(
+        ([key, metric]) => ({
+          key,
+          ...metric,
+          projectedTotal: metricProjectedTotal(metric),
+        })
+      )
     : []
+
+  const compareRows =
+    compare && deltas
+      ? (Object.entries(compare.metrics) as [ForecastMetricKey, (typeof compare.metrics)[ForecastMetricKey]][]).map(
+          ([key, metric]) => ({
+            key,
+            compareTotal: metricProjectedTotal(metric),
+            thisTotal: metricProjectedTotal(forecast!.metrics[key]),
+            delta: deltas[key],
+          })
+        )
+      : []
+
+  const rangeHeading = forecast
+    ? compare
+      ? `${formatForecastRangeLabel(forecast.rangeStart, forecast.rangeEnd)} vs ${formatForecastRangeLabel(compare.rangeStart, compare.rangeEnd)}`
+      : formatForecastRangeLabel(forecast.rangeStart, forecast.rangeEnd)
+    : null
 
   return (
     <div className="space-y-6">
@@ -520,6 +543,12 @@ function ForecastTab() {
             <WeeklyTrendChart points={forecast.weeklyTrend} />
           </div>
 
+          {rangeHeading ? (
+            <p className="text-sm font-medium" style={{ color: '#2c2c2a' }}>
+              {rangeHeading}
+            </p>
+          ) : null}
+
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
             <table className="min-w-full text-sm">
               <thead>
@@ -538,23 +567,50 @@ function ForecastTab() {
                 {metricRows.map((row) => (
                   <tr key={row.key} className="border-b border-gray-100">
                     <td className="px-4 py-2 font-medium capitalize" style={{ color: '#2c2c2a' }}>{row.key}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatInteger(row.actual)}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatInteger(row.knownBooked)}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatInteger(row.projectedTotal)}</td>
+                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.actual)}</td>
+                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.knownBooked)}</td>
+                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.projectedTotal)}</td>
                     <td className="px-4 py-2 text-xs" style={{ color: '#2c2c2a' }}>
-                      {formatInteger(row.actual + row.knownBooked + row.projectedLow)} – {formatInteger(row.actual + row.knownBooked + row.projectedHigh)}
+                      {formatMetricValue(row.key, row.actual + row.knownBooked + row.projectedLow)} – {formatMetricValue(row.key, row.actual + row.knownBooked + row.projectedHigh)}
                     </td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.goal != null ? formatInteger(row.goal) : '—'}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.gapToGoal != null ? formatInteger(row.gapToGoal) : '—'}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.neededPerWeek != null ? formatInteger(row.neededPerWeek) : '—'}</td>
+                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.goal != null ? formatMetricValue(row.key, row.goal) : '—'}</td>
+                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.gapToGoal != null ? formatMetricValue(row.key, row.gapToGoal) : '—'}</td>
+                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.neededPerWeek != null ? formatMetricValue(row.key, row.neededPerWeek) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {compare ? (
-            <p className="text-sm text-gray-600">Comparison range loaded — deltas available in API payload.</p>
+          {compare && compareRows.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-600">
+                    <th className="px-4 py-2">Metric</th>
+                    <th className="px-4 py-2">This range</th>
+                    <th className="px-4 py-2">Compare range</th>
+                    <th className="px-4 py-2">Delta</th>
+                    <th className="px-4 py-2">Delta %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compareRows.map((row) => (
+                    <tr key={row.key} className="border-b border-gray-100">
+                      <td className="px-4 py-2 font-medium capitalize" style={{ color: '#2c2c2a' }}>{row.key}</td>
+                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.thisTotal)}</td>
+                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.compareTotal)}</td>
+                      <td className={`px-4 py-2 font-medium ${deltaTextClass(row.delta)}`}>
+                        {formatSignedDelta(row.key, row.delta)}
+                      </td>
+                      <td className={`px-4 py-2 ${deltaTextClass(row.delta)}`}>
+                        {formatDeltaPct(row.delta, row.compareTotal)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
 
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
