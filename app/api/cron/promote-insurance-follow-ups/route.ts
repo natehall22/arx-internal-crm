@@ -108,7 +108,11 @@ export async function GET(request: NextRequest) {
       const pipelineStage = String(opportunity.pipeline_stage || '').trim().toLowerCase()
       const alreadyInInsideSalesQueue =
         pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
-        pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`)
+        pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`) ||
+        pipelineStage === DIDNT_SIT_PIPELINE_PREFIX ||
+        pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`) ||
+        pipelineStage === KNOCKBACK_PIPELINE_PREFIX ||
+        pipelineStage.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`)
 
       const followUpKind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeRows)
       const callability = getInsideSalesCallability(opportunity, inspectionOutcomeRows)

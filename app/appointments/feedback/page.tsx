@@ -12,21 +12,18 @@ import {
   sortActiveOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
-import { easternDatetimeLocalToUtcIso, getEasternTodayIso, EASTERN_TZ } from '@/lib/eastern-datetime'
+import {
+  easternDatetimeLocalToUtcIso,
+  getEasternTodayIso,
+  getEasternWeekdayForDateIso,
+  EASTERN_TZ,
+} from '@/lib/eastern-datetime'
 
 function addDaysToEasternDateIso(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number)
   const dt = new Date(Date.UTC(y, m - 1, d))
   dt.setUTCDate(dt.getUTCDate() + days)
   return dt.toISOString().slice(0, 10)
-}
-
-function getEasternWeekdayForDateIso(iso: string): number {
-  const weekday = new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
-    timeZone: EASTERN_TZ,
-    weekday: 'short',
-  })
-  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday)
 }
 
 /** Tomorrow in ET, skipping Sunday — default suggestion for the inside-sales insurance call. */

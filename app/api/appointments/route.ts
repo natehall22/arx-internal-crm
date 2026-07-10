@@ -97,7 +97,8 @@ export async function GET(request: NextRequest) {
     } else if (filter === 'past') {
       query = query.lt('scheduled_for', now)
     } else if (filter === 'needs_feedback') {
-      query = query.lt('scheduled_for', now).eq('status', 'scheduled')
+      // Insurance calls are dispositioned from the inside-sales queue, not the feedback form.
+      query = query.lt('scheduled_for', now).eq('status', 'scheduled').neq('appointment_type', 'insurance_call')
     }
 
     query = query.order('scheduled_for', { ascending: filter === 'upcoming' })

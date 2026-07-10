@@ -472,10 +472,15 @@ export async function POST(request: NextRequest) {
     const assignedCloserId = appointment?.closer_user_id || user.id
     const outcomeAt = new Date().toISOString()
 
-    if (isInsuranceOutcome && insuranceCallAtIso) {
+    if ((isInsuranceOutcome && insuranceCallAtIso) || sanitizedHandoffContext) {
       if (!appointment_id || !appointment) {
         return NextResponse.json(
-          { error: 'appointment_id is required to book an inside-sales insurance call' },
+          {
+            error:
+              isInsuranceOutcome && insuranceCallAtIso
+                ? 'appointment_id is required to book an inside-sales insurance call'
+                : 'appointment_id is required to save insurance handoff context',
+          },
           { status: 400 }
         )
       }
@@ -489,7 +494,12 @@ export async function POST(request: NextRequest) {
         })
         if (!canReassign) {
           return NextResponse.json(
-            { error: 'Only the assigned closer, setter, or a scheduling manager can book the insurance call' },
+            {
+              error:
+                isInsuranceOutcome && insuranceCallAtIso
+                  ? 'Only the assigned closer, setter, or a scheduling manager can book the insurance call'
+                  : 'Only the assigned closer, setter, or a scheduling manager can save insurance handoff context',
+            },
             { status: 403 }
           )
         }
@@ -988,21 +998,31 @@ export async function POST(request: NextRequest) {
 
     // Rep booked the inside-sales insurance call: put it on the inside-sales calendar + notify.
     if (isInsuranceOutcome && insuranceCallAtIso) {
-      let existingInsuranceCallQuery = supabase
-        .from('scheduled_appointments')
-        .select('id')
-        .eq('org_id', profile.org_id)
-        .eq('lead_id', leadId)
-        .eq('appointment_type', 'insurance_call')
-        .eq('status', 'scheduled')
+      const insuranceCallBaseQuery = () =>
+        supabase
+          .from('scheduled_appointments')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('lead_id', leadId)
+          .eq('appointment_type', 'insurance_call')
+          .eq('status', 'scheduled')
 
+      let existingInsuranceCall: { id: string } | null = null
       if (opportunityId) {
-        existingInsuranceCallQuery = existingInsuranceCallQuery.eq('opportunity_id', opportunityId)
+        const { data: byOpportunity } = await insuranceCallBaseQuery()
+          .eq('opportunity_id', opportunityId)
+          .maybeSingle()
+        existingInsuranceCall = byOpportunity
+        if (!existingInsuranceCall) {
+          const { data: orphanByLead } = await insuranceCallBaseQuery()
+            .is('opportunity_id', null)
+            .maybeSingle()
+          existingInsuranceCall = orphanByLead
+        }
       } else {
-        existingInsuranceCallQuery = existingInsuranceCallQuery.is('opportunity_id', null)
+        const { data: byLeadOnly } = await insuranceCallBaseQuery().is('opportunity_id', null).maybeSingle()
+        existingInsuranceCall = byLeadOnly
       }
-
-      const { data: existingInsuranceCall } = await existingInsuranceCallQuery.maybeSingle()
 
       let insuranceCallAppointmentId = existingInsuranceCall?.id || null
 
@@ -1011,6 +1031,7 @@ export async function POST(request: NextRequest) {
           .from('scheduled_appointments')
           .update({
             scheduled_for: insuranceCallAtIso,
+            opportunity_id: opportunityId || null,
             notes: [
               `Inside-sales insurance call booked by ${profile.full_name || 'the closer'} at the inspection.`,
               sanitizedHandoffContext?.context_line ? `Context: ${sanitizedHandoffContext.context_line}` : null,

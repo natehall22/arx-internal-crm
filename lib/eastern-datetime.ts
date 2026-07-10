@@ -14,6 +14,15 @@ export function getEasternWeekdayIndex(timeZone = EASTERN_TZ): number {
   return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday)
 }
 
+/** 0=Sun … 6=Sat for a YYYY-MM-DD calendar date interpreted in Eastern Time. */
+export function getEasternWeekdayForDateIso(iso: string, timeZone = EASTERN_TZ): number {
+  const weekday = fromZonedTime(`${iso}T12:00:00`, timeZone).toLocaleDateString('en-US', {
+    timeZone,
+    weekday: 'short',
+  })
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday)
+}
+
 /** Work-week pace factor (Mon=0.2 … Fri=1.0, Sun=0, Sat=1.0) — matches accountability API. */
 export function getEasternPaceFactor(timeZone = EASTERN_TZ): number {
   const dayOfWeek = getEasternWeekdayIndex(timeZone)

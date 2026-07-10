@@ -615,6 +615,15 @@ export async function POST(
         body: `Inside sales scheduled inspection back to closer (${assignedCloserName}) for ${scheduleLabel}${note ? ` — ${note}` : ''}`,
       })
 
+      // Lead went back to the closer — cancel any still-open inside-sales insurance calls.
+      await admin
+        .from('scheduled_appointments')
+        .update({ status: 'cancelled' })
+        .eq('org_id', profile.org_id)
+        .eq('opportunity_id', opportunityId)
+        .eq('appointment_type', 'insurance_call')
+        .eq('status', 'scheduled')
+
       return NextResponse.json({
         opportunity: updatedOpportunity,
         scheduled_appointment_id: scheduledAppointmentId,
@@ -649,6 +658,16 @@ export async function POST(
         )
         if (nextFollowUpAt) {
           updateData.follow_up_at = nextFollowUpAt
+        } else {
+          // No next date picked: clear a PAST-due follow-up so the worked lead stops
+          // pinning to the top as "overdue" and the attempt cadence takes over.
+          // A future follow-up (upcoming scheduled call) is left untouched.
+          const existingFollowUpMs = opportunity.follow_up_at
+            ? new Date(opportunity.follow_up_at).getTime()
+            : NaN
+          if (Number.isFinite(existingFollowUpMs) && existingFollowUpMs <= Date.now()) {
+            updateData.follow_up_at = null
+          }
         }
       } else if (action === 'mark_rescheduled') {
         activityType = 'status_change'
@@ -720,6 +739,41 @@ export async function POST(
         body: activityBody,
         spoke_with: spokeWith || null,
       })
+    }
+
+    // Keep the inside-sales calendar honest: logging the call completes a due
+    // insurance-call appointment; rescheduling moves open calls to the new time;
+    // resolving the lead cancels any still-open ones.
+    if (action === 'log_call' || action === 'log_text') {
+      if (nextFollowUpAt) {
+        await admin
+          .from('scheduled_appointments')
+          .update({ scheduled_for: nextFollowUpAt })
+          .eq('org_id', profile.org_id)
+          .eq('opportunity_id', opportunityId)
+          .eq('appointment_type', 'insurance_call')
+          .eq('status', 'scheduled')
+      }
+      await admin
+        .from('scheduled_appointments')
+        .update({ status: 'completed' })
+        .eq('org_id', profile.org_id)
+        .eq('opportunity_id', opportunityId)
+        .eq('appointment_type', 'insurance_call')
+        .eq('status', 'scheduled')
+        .lte('scheduled_for', new Date().toISOString())
+    } else if (
+      action === 'mark_lost' ||
+      action === 'mark_unresponsive' ||
+      action === 'mark_rescheduled'
+    ) {
+      await admin
+        .from('scheduled_appointments')
+        .update({ status: 'cancelled' })
+        .eq('org_id', profile.org_id)
+        .eq('opportunity_id', opportunityId)
+        .eq('appointment_type', 'insurance_call')
+        .eq('status', 'scheduled')
     }
 
     return NextResponse.json({ opportunity: updatedOpportunity })
