@@ -27,6 +27,7 @@ import {
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
+import { bookInsuranceCallAppointment } from '@/lib/insurance-call-appointment'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
@@ -529,6 +530,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Book the inside-sales calendar row before mutating the opportunity so a calendar failure
+    // cannot leave pipeline_stage/follow_up_at committed without a matching appointment.
+    let insuranceCallAppointmentId: string | null = null
+    if (isInsuranceOutcome && insuranceCallAtIso) {
+      const booking = await bookInsuranceCallAppointment(supabase, {
+        orgId: profile.org_id,
+        leadId,
+        opportunityId,
+        insuranceCallAtIso,
+        bookedByName: profile.full_name,
+        sanitizedHandoffContext,
+        appointment,
+        lead,
+      })
+      if (booking.error) {
+        return NextResponse.json({ error: booking.error }, { status: 500 })
+      }
+      insuranceCallAppointmentId = booking.appointmentId
+    }
+
     // Create opportunity only for approved trigger outcomes and only when no opportunity exists.
     if (shouldCreateOpportunity && !opportunityId && leadId) {
       console.log('Creating opportunity from inspection outcome...')
@@ -676,6 +697,24 @@ export async function POST(request: NextRequest) {
       }
 
       console.log('Successfully updated opportunity')
+    }
+
+    if (insuranceCallAppointmentId && opportunityId) {
+      const { error: linkInsuranceCallError } = await supabase
+        .from('scheduled_appointments')
+        .update({ opportunity_id: opportunityId })
+        .eq('id', insuranceCallAppointmentId)
+        .eq('org_id', profile.org_id)
+      if (linkInsuranceCallError) {
+        console.error(
+          'Failed to link insurance-call appointment to opportunity:',
+          linkInsuranceCallError
+        )
+        return NextResponse.json(
+          { error: 'Failed to link inside-sales insurance call to the opportunity' },
+          { status: 500 }
+        )
+      }
     }
 
     // Create status update record (closer = assigned rep on the appointment, not necessarily submitter)
@@ -996,93 +1035,8 @@ export async function POST(request: NextRequest) {
         .eq('appointment_id', appointment_id)
     }
 
-    // Rep booked the inside-sales insurance call: put it on the inside-sales calendar + notify.
-    if (isInsuranceOutcome && insuranceCallAtIso) {
-      const insuranceCallBaseQuery = () =>
-        supabase
-          .from('scheduled_appointments')
-          .select('id')
-          .eq('org_id', profile.org_id)
-          .eq('lead_id', leadId)
-          .eq('appointment_type', 'insurance_call')
-          .eq('status', 'scheduled')
-
-      let existingInsuranceCall: { id: string } | null = null
-      if (opportunityId) {
-        const { data: byOpportunity } = await insuranceCallBaseQuery()
-          .eq('opportunity_id', opportunityId)
-          .maybeSingle()
-        existingInsuranceCall = byOpportunity
-        if (!existingInsuranceCall) {
-          const { data: orphanByLead } = await insuranceCallBaseQuery()
-            .is('opportunity_id', null)
-            .maybeSingle()
-          existingInsuranceCall = orphanByLead
-        }
-      } else {
-        const { data: byLeadOnly } = await insuranceCallBaseQuery().is('opportunity_id', null).maybeSingle()
-        existingInsuranceCall = byLeadOnly
-      }
-
-      let insuranceCallAppointmentId = existingInsuranceCall?.id || null
-
-      if (existingInsuranceCall?.id) {
-        const { error: updateInsuranceCallError } = await supabase
-          .from('scheduled_appointments')
-          .update({
-            scheduled_for: insuranceCallAtIso,
-            opportunity_id: opportunityId || null,
-            notes: [
-              `Inside-sales insurance call booked by ${profile.full_name || 'the closer'} at the inspection.`,
-              sanitizedHandoffContext?.context_line ? `Context: ${sanitizedHandoffContext.context_line}` : null,
-            ]
-              .filter(Boolean)
-              .join('\n'),
-          })
-          .eq('id', existingInsuranceCall.id)
-          .eq('org_id', profile.org_id)
-
-        if (updateInsuranceCallError) {
-          console.error('Failed to update insurance-call appointment:', updateInsuranceCallError)
-          return NextResponse.json(
-            { error: 'Failed to schedule inside-sales insurance call on the calendar' },
-            { status: 500 }
-          )
-        }
-      } else {
-        const { data: insuranceCallAppointment, error: insuranceCallError } = await supabase
-          .from('scheduled_appointments')
-          .insert({
-            org_id: profile.org_id,
-            lead_id: leadId,
-            opportunity_id: opportunityId || null,
-            closer_user_id: null,
-            canvasser_user_id: appointment?.canvasser_user_id || lead?.owner_user_id || null,
-            scheduled_for: insuranceCallAtIso,
-            duration_minutes: 15,
-            address_text: appointment?.address_text || lead?.address_text || null,
-            status: 'scheduled',
-            notes: [
-              `Inside-sales insurance call booked by ${profile.full_name || 'the closer'} at the inspection.`,
-              sanitizedHandoffContext?.context_line ? `Context: ${sanitizedHandoffContext.context_line}` : null,
-            ]
-              .filter(Boolean)
-              .join('\n'),
-            appointment_type: 'insurance_call',
-          })
-          .select('id')
-          .single()
-
-        if (insuranceCallError || !insuranceCallAppointment?.id) {
-          console.error('Failed to create insurance-call appointment:', insuranceCallError)
-          return NextResponse.json(
-            { error: 'Failed to schedule inside-sales insurance call on the calendar' },
-            { status: 500 }
-          )
-        }
-        insuranceCallAppointmentId = insuranceCallAppointment.id
-      }
-
+    // Notify inside-sales after calendar booking + opportunity commit succeeded.
+    if (isInsuranceOutcome && insuranceCallAtIso && insuranceCallAppointmentId) {
       const { data: orgUsers } = await supabase
         .from('users')
         .select('id, role, active, custom_roles(name, display_name)')
