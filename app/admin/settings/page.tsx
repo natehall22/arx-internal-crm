@@ -28,7 +28,6 @@ type SettingsSection =
   | 'canvass-dispositions'
   | 'inspection-outcomes'
   | 'close-outcomes'
-  | 'estimate-settings'
   | 'appointment-settings'
   | 'budgets'
   | 'capital'
@@ -126,14 +125,6 @@ export default function AdminSettingsPage() {
   
   // Settings state
   const [customFields, setCustomFields] = useState<CustomField[]>([])
-  const [estimateSettings, setEstimateSettings] = useState({
-    default_tax_rate: 8.25,
-    steep_multiplier: 15,
-    high_multiplier: 25,
-    include_labor_in_tax: false,
-    default_validity_days: 30,
-    require_signature: true,
-  })
   const [integrationSettings, setIntegrationSettings] = useState({
     quickbooks_connected: false,
     quickbooks_company_id: '',
@@ -803,12 +794,6 @@ export default function AdminSettingsPage() {
       ],
     },
     {
-      title: 'ESTIMATING',
-      items: [
-        { id: 'estimate-settings', label: 'Estimate Settings' },
-      ],
-    },
-    {
       title: 'SCHEDULING',
       items: [
         { id: 'appointment-settings', label: 'Appointment Types' },
@@ -1097,89 +1082,6 @@ export default function AdminSettingsPage() {
                 <div className="pt-4 border-t">
                   <button
                     onClick={saveReportSettings}
-                    disabled={saving}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Estimate Settings */}
-          {activeSection === 'estimate-settings' && (
-            <div className="max-w-2xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">Estimate Settings</h1>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Default Tax Rate (%)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={estimateSettings.default_tax_rate}
-                      onChange={(e) => setEstimateSettings(prev => ({ ...prev, default_tax_rate: parseFloat(e.target.value) }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Estimate Validity (days)</label>
-                    <input
-                      type="number"
-                      value={estimateSettings.default_validity_days}
-                      onChange={(e) => setEstimateSettings(prev => ({ ...prev, default_validity_days: parseInt(e.target.value) }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Steep Roof Multiplier (%)</label>
-                    <input
-                      type="number"
-                      value={estimateSettings.steep_multiplier}
-                      onChange={(e) => setEstimateSettings(prev => ({ ...prev, steep_multiplier: parseInt(e.target.value) }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">High Roof Multiplier (%)</label>
-                    <input
-                      type="number"
-                      value={estimateSettings.high_multiplier}
-                      onChange={(e) => setEstimateSettings(prev => ({ ...prev, high_multiplier: parseInt(e.target.value) }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={estimateSettings.include_labor_in_tax}
-                      onChange={(e) => setEstimateSettings(prev => ({ ...prev, include_labor_in_tax: e.target.checked }))}
-                      className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-                    />
-                    <span className="text-sm text-gray-700">Include labor in tax calculation</span>
-                  </label>
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={estimateSettings.require_signature}
-                      onChange={(e) => setEstimateSettings(prev => ({ ...prev, require_signature: e.target.checked }))}
-                      className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-                    />
-                    <span className="text-sm text-gray-700">Require customer signature on estimates</span>
-                  </label>
-                </div>
-
-                <div className="pt-4 border-t">
-                  <button
-                    onClick={saveSettings}
                     disabled={saving}
                     className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                   >

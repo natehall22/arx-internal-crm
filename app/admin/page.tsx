@@ -91,8 +91,21 @@ export default async function AdminPage() {
   // Check if user can access cost/pricing data (admin and operations only)
   const canAccessCostData = ['admin', 'operations'].includes(profile.role)
   const canAccessPayroll = ['admin', 'owner', 'operations'].includes(profile.role)
+  const canAccessGoalsForecast = ['admin', 'owner'].includes(profile.role)
 
   const adminSections = [
+    {
+      title: 'Goals & Forecast',
+      description: 'Monthly targets, scorecard, and revenue forecasting',
+      href: '/admin/goals',
+      requiresSuperuserAccess: true,
+      accent: 'emerald',
+      icon: (
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      ),
+    },
     {
       title: 'Settings',
       description: 'Workflows, fields, integrations, and system settings',
@@ -401,6 +414,9 @@ export default async function AdminPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {adminSections
             .filter((section) => {
+              if ((section as { requiresSuperuserAccess?: boolean }).requiresSuperuserAccess && !canAccessGoalsForecast) {
+                return false
+              }
               if (section.requiresCostAccess && !canAccessCostData) {
                 return false
               }
