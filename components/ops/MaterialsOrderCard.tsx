@@ -36,6 +36,7 @@ export default function MaterialsOrderCard({
   const [overrides, setOverrides] = useState<JobMaterialOrderOverrideRow[]>([])
   const [loadingOverrides, setLoadingOverrides] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
 
   const computedItems = useMemo(
     () =>
@@ -115,16 +116,42 @@ export default function MaterialsOrderCard({
 
   const printHref = `/ops/jobs/${jobId}/material-order/print`
 
+  const summaryParts: string[] = []
+  if (ready.length > 0) summaryParts.push(`${ready.length} order`)
+  if (confirm.length > 0) summaryParts.push(`${confirm.length} confirm`)
+  if (manual.length > 0) summaryParts.push(`${manual.length} manual`)
+  if (excluded.length > 0) summaryParts.push(`${excluded.length} excluded`)
+  const summaryText = summaryParts.join(' · ')
+
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
-        <div>
-          <h2 className="text-lg font-semibold text-[#2c2c2a]">Materials Order List</h2>
-          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">
-            From sold scope + roof measure
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-start gap-2 rounded-lg text-left hover:bg-gray-50 -m-2 p-2"
+        >
+          <svg
+            className={`mt-1 h-4 w-4 shrink-0 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-[#2c2c2a]">Materials Order List</h2>
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">
+              From sold scope + roof measure
+            </span>
+            {!expanded && summaryText ? (
+              <p className="mt-1 text-xs text-gray-600">{summaryText}</p>
+            ) : null}
+          </div>
+        </button>
+        <div className="flex shrink-0 items-center gap-2">
           {loadingOverrides ? (
             <span className="text-[11px] text-gray-500">Loading edits…</span>
           ) : null}
@@ -138,47 +165,52 @@ export default function MaterialsOrderCard({
           </Link>
         </div>
       </div>
-      <p className="text-xs text-gray-600 mb-4">
-        Quantities are computed from the accepted proposal and measurement. Tap a row to adjust qty,
-        exclude an item, or add a note — then record actual orders below in Materials.
-      </p>
 
-      {ready.length > 0 && (
-        <OrderSection
-          title="Order"
-          items={ready}
-          savingKey={savingKey}
-          onSave={saveOverride}
-        />
-      )}
-      {confirm.length > 0 && (
-        <OrderSection
-          title="Confirm before ordering"
-          items={confirm}
-          tone="amber"
-          savingKey={savingKey}
-          onSave={saveOverride}
-        />
-      )}
-      {manual.length > 0 && (
-        <OrderSection
-          title="Manual — count in field"
-          items={manual}
-          tone="gray"
-          savingKey={savingKey}
-          onSave={saveOverride}
-        />
-      )}
-      {excluded.length > 0 && (
-        <OrderSection
-          title="Excluded from order"
-          items={excluded}
-          tone="gray"
-          savingKey={savingKey}
-          onSave={saveOverride}
-          showExcluded
-        />
-      )}
+      {expanded ? (
+        <>
+          <p className="mt-3 text-xs text-gray-600 mb-4">
+            Quantities are computed from the accepted proposal and measurement. Tap a row to adjust qty,
+            exclude an item, or add a note — then record actual orders below in Materials.
+          </p>
+
+          {ready.length > 0 && (
+            <OrderSection
+              title="Order"
+              items={ready}
+              savingKey={savingKey}
+              onSave={saveOverride}
+            />
+          )}
+          {confirm.length > 0 && (
+            <OrderSection
+              title="Confirm before ordering"
+              items={confirm}
+              tone="amber"
+              savingKey={savingKey}
+              onSave={saveOverride}
+            />
+          )}
+          {manual.length > 0 && (
+            <OrderSection
+              title="Manual — count in field"
+              items={manual}
+              tone="gray"
+              savingKey={savingKey}
+              onSave={saveOverride}
+            />
+          )}
+          {excluded.length > 0 && (
+            <OrderSection
+              title="Excluded from order"
+              items={excluded}
+              tone="gray"
+              savingKey={savingKey}
+              onSave={saveOverride}
+              showExcluded
+            />
+          )}
+        </>
+      ) : null}
     </div>
   )
 }
