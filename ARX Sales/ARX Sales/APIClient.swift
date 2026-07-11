@@ -80,7 +80,9 @@ struct CanvassLeadDetail: Codable, Identifiable {
     let owner_name: String?      // setter who last touched the lead
 }
 
-struct SaveLeadRequest: Codable {
+/// Plain data payload — freely passed between the main actor and `OfflineLeadQueue`
+/// (a background actor), so it opts out of the project's default MainActor isolation.
+nonisolated struct SaveLeadRequest: Codable {
     var lead_id: String?
     var client_lead_id: String?
     var lat: Double?

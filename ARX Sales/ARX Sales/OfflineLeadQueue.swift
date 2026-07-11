@@ -5,7 +5,9 @@ import Combine
 
 // MARK: - Queue item
 
-struct QueuedLeadItem: Codable, Identifiable {
+/// Plain data payload owned by the `OfflineLeadQueue` actor — opts out of the project's
+/// default MainActor isolation so the actor can construct/mutate it without hopping actors.
+nonisolated struct QueuedLeadItem: Codable, Identifiable {
     let id: UUID
     var request: SaveLeadRequest
     let enqueuedAt: Date

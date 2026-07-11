@@ -10,9 +10,10 @@ final class NetworkPathMonitor: ObservableObject {
     private let queue = DispatchQueue(label: "arx.network.path")
 
     func start() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor in
-                self?.isOffline = path.status != .satisfied
+        monitor.pathUpdateHandler = { path in
+            let satisfied = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                self?.isOffline = !satisfied
             }
         }
         monitor.start(queue: queue)
