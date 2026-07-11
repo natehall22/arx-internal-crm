@@ -12,7 +12,10 @@ const PAGE_SIZE = 1000
 const INSURANCE_INSPECTION_OUTCOME_IDS = new Set(['insurance_follow_up', 'waiting_on_insurance'])
 
 export type MorningUpdateMetrics = {
-  reportDateLabel: string
+  /** Eastern date the email is sent (today at 5:30am). */
+  sentDateLabel: string
+  /** Eastern calendar day covered by "Yesterday" metrics. */
+  yesterdayDateLabel: string
   doorsKnockedYesterday: number
   doorsKnockedMonthToDate: number
   inspectionsScheduledYesterday: number
@@ -135,6 +138,7 @@ export async function fetchMorningUpdateMetrics(
   supabase: SupabaseClient,
   orgId: string
 ): Promise<MorningUpdateMetrics> {
+  const today = getDateRangeForTimeFrame('today', TIMEZONE)
   const yesterday = getDateRangeForTimeFrame('yesterday', TIMEZONE)
   const monthToDate = getDateRangeForTimeFrame('month', TIMEZONE)
   const lastMonth = getDateRangeForTimeFrame('last_month', TIMEZONE)
@@ -210,7 +214,8 @@ export async function fetchMorningUpdateMetrics(
   const yearRevenue = summarizeSignedContracts(yearContracts).revenue
 
   return {
-    reportDateLabel: formatReportDateLabel(yesterday.start.toISOString()),
+    sentDateLabel: formatReportDateLabel(today.start.toISOString()),
+    yesterdayDateLabel: formatReportDateLabel(yesterday.start.toISOString()),
     doorsKnockedYesterday,
     doorsKnockedMonthToDate,
     inspectionsScheduledYesterday,

@@ -64,7 +64,8 @@ function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
         ${options?.test ? '<p style="margin: 0 0 16px; padding: 10px 12px; background: #fef3c7; color: #92400e; border-radius: 8px; font-size: 13px; font-weight: 600;">Test email — not sent on the daily schedule.</p>' : ''}
         <h1 style="margin: 0 0 8px; color: #111827; font-size: 22px;">ARX Morning Update</h1>
-        <p style="margin: 0 0 20px; color: #6B7280; font-size: 14px;">${escapeHtml(metrics.reportDateLabel)}</p>
+        <p style="margin: 0 0 4px; color: #111827; font-size: 14px; font-weight: 600;">${escapeHtml(metrics.sentDateLabel)}</p>
+        <p style="margin: 0 0 20px; color: #6B7280; font-size: 14px;">Yesterday&apos;s activity (${escapeHtml(metrics.yesterdayDateLabel)})</p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
           ${tableRows}
         </table>
@@ -130,7 +131,7 @@ export async function sendMorningUpdateEmail(
   const metrics = params.metrics ?? (await fetchMorningUpdateMetrics(supabase, params.orgId))
   const transporter = getMailTransport()
   const subjectPrefix = isTest ? '[TEST] ' : ''
-  const subject = `${subjectPrefix}ARX Morning Update — ${metrics.reportDateLabel}`
+  const subject = `${subjectPrefix}ARX Morning Update — ${metrics.sentDateLabel}`
   const html = buildMorningUpdateHtml(metrics, { test: isTest })
 
   let sent = 0
