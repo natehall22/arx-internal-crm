@@ -44,3 +44,7 @@ next-env.d.ts
 
 # Claude Code — machine-local permission overrides
 .claude/settings.local.json
+.claude/launch.json
+
+# Local generated artifacts
+/tmp/
