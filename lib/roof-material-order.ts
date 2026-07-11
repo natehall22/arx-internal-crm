@@ -74,6 +74,8 @@ export function roofWasteAndOrder(input: {
   ridges_lf: number
   avg_pitch_multiplier: number
   avg_pitch_degrees?: number
+  /** True when LF inputs are slope-corrected (measurements saved with lf_slope_corrected). */
+  lf_is_sloped?: boolean
 }) {
   const waste: RoofWasteEstimate = calculateRoofWaste({
     baseSquares: input.total_squares,
@@ -83,6 +85,7 @@ export function roofWasteAndOrder(input: {
     ridges_lf: input.ridges_lf,
     avgPitchMultiplier: input.avg_pitch_multiplier,
     avgPitchDegrees: input.avg_pitch_degrees,
+    lfIsSloped: input.lf_is_sloped,
   })
   const field = roofFieldOrderFromMeasurement({
     total_squares: input.total_squares,

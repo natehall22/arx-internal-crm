@@ -27,6 +27,10 @@ import {
   snapAzimuthDegrees,
 } from '@/lib/roof-measure-drain-overlay'
 import { classifyRoofEdgesWithOptionalPlanes } from '@/lib/roof-plane-edge-classification'
+import {
+  slopeCorrectEdgeTotals,
+  slopedLengthForLinearFeature,
+} from '@/lib/roof-edge-slope-correction'
 import { dsmPitchDisagreesWithSolar } from '@/lib/solar-dsm'
 import {
   facingCompassFromAzimuthDegrees,
@@ -108,7 +112,10 @@ interface LinearFeature {
   id: string
   type: 'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'
   points: Point[]
+  /** Plan-view length as drawn on the satellite map. */
   length_ft: number
+  /** True roof-surface length (slope-corrected); set by updateMeasurements. */
+  sloped_length_ft?: number
   label?: string
   origin?: 'ai_draft' | 'manual_draw'
 }
@@ -151,6 +158,8 @@ interface MeasurementData {
   waste_category: string
   // Metadata
   linear_features?: LinearFeature[]
+  /** True when rake/hip/valley/step-flashing LF are slope-corrected (true lengths, not plan view). */
+  lf_slope_corrected?: boolean
   quote_ready?: boolean
   linear_review_status?: 'measured' | 'missing'
   measurement_confidence: 'high' | 'medium' | 'low'
@@ -1943,7 +1952,10 @@ export default function RoofMeasurePage() {
             : feature.type === 'wall_flashing'
               ? 'wall_flash'
               : feature.type,
-        length_ft: feature.length_ft,
+        // Price off the slope-corrected length so the estimate matches the measurement.
+        length_ft:
+          measurements?.linear_features?.find((f) => f.id === feature.id)?.sloped_length_ft ??
+          feature.length_ft,
       })),
     ]
 
@@ -2543,7 +2555,7 @@ export default function RoofMeasurePage() {
     // LINEAR FOOTAGE — 2D edge graph uses footprint drain azimuth; 2.5D plane path uses facing+pitch when flag on.
     // ============================================================
 
-    const geoEdges = classifyRoofEdgesWithOptionalPlanes(
+    const rawGeoEdges = classifyRoofEdgesWithOptionalPlanes(
       currentFacets.map((f) => ({
         id: f.id,
         points: f.points,
@@ -2557,25 +2569,6 @@ export default function RoofMeasurePage() {
       })),
       USE_PLANE_INTERSECTION_LF
     )
-
-    const manualRidges = features
-      .filter(f => f.type === 'ridge')
-      .reduce((sum, f) => sum + f.length_ft, 0)
-    const ridges = manualRidges > 0 ? Math.round(manualRidges) : geoEdges.ridges_lf
-    if (manualRidges > 0) {
-      validationNotes.push(
-        'Manual ridge lines replaced the auto-estimated ridge length — verify total ridge LF before quoting.'
-      )
-    }
-
-    const hips  = geoEdges.hips_lf
-    const eaves = geoEdges.eaves_lf
-    const rakes = geoEdges.rakes_lf
-
-    const manualValleys = features
-      .filter(f => f.type === 'valley')
-      .reduce((sum, f) => sum + f.length_ft, 0)
-    const valleys = geoEdges.valleys_lf + Math.round(manualValleys)
 
     const estimatedPitchMultipliers = currentFacets
       .map((facet) => {
@@ -2591,15 +2584,61 @@ export default function RoofMeasurePage() {
     const avgPitchDegrees = currentFacets.length > 0
       ? currentFacets.reduce((sum, f) => sum + (f.pitch_degrees || 0), 0) / currentFacets.length
       : 0
-    
-    // ---- FLASHING FROM MANUAL DRAWINGS ----
-    const stepFlashing = features
+
+    // Slope-correct rake/hip/valley LF from plan view to true roof-surface lengths
+    // (eaves/ridges are horizontal — unchanged). Unset-pitch facets contribute no correction.
+    const multByFacetId = new Map<string, number>(
+      currentFacets.map((f) => [
+        f.id,
+        f.pitch && f.pitch !== 'Unset' ? f.pitch_multiplier || 1.118 : 1,
+      ])
+    )
+    const geoEdges = slopeCorrectEdgeTotals(rawGeoEdges, multByFacetId)
+
+    // Drawn/AI lines are plan-view polylines — resolve each to its true sloped length.
+    const slopeFacetPolys = currentFacets.map((f) => ({
+      points: f.points,
+      pitch_multiplier: multByFacetId.get(f.id) ?? 1,
+    }))
+    const featuresWithSlope: LinearFeature[] = features.map((f) => ({
+      ...f,
+      sloped_length_ft: slopedLengthForLinearFeature({
+        type: f.type,
+        points: f.points,
+        planLengthFt: f.length_ft,
+        facets: slopeFacetPolys,
+        fallbackMultiplier: avgPitchMultiplier,
+      }),
+    }))
+    const featureLf = (f: LinearFeature) => f.sloped_length_ft ?? f.length_ft
+
+    const manualRidges = featuresWithSlope
+      .filter(f => f.type === 'ridge')
+      .reduce((sum, f) => sum + featureLf(f), 0)
+    const ridges = manualRidges > 0 ? Math.round(manualRidges) : geoEdges.ridges_lf
+    if (manualRidges > 0) {
+      validationNotes.push(
+        'Manual ridge lines replaced the auto-estimated ridge length — verify total ridge LF before quoting.'
+      )
+    }
+
+    const hips  = geoEdges.hips_lf
+    const eaves = geoEdges.eaves_lf
+    const rakes = geoEdges.rakes_lf
+
+    const manualValleys = featuresWithSlope
+      .filter(f => f.type === 'valley')
+      .reduce((sum, f) => sum + featureLf(f), 0)
+    const valleys = geoEdges.valleys_lf + Math.round(manualValleys)
+
+    // ---- FLASHING FROM MANUAL DRAWINGS (slope-corrected) ----
+    const stepFlashing = featuresWithSlope
       .filter(f => f.type === 'step_flashing')
-      .reduce((sum, f) => sum + f.length_ft, 0)
-    
-    const wallFlashing = features
+      .reduce((sum, f) => sum + featureLf(f), 0)
+
+    const wallFlashing = featuresWithSlope
       .filter(f => f.type === 'wall_flashing')
-      .reduce((sum, f) => sum + f.length_ft, 0)
+      .reduce((sum, f) => sum + featureLf(f), 0)
     
     // ============================================================
     // PITCH AND WASTE CALCULATIONS
@@ -2623,6 +2662,7 @@ export default function RoofMeasurePage() {
       ridges_lf: ridges,
       avgPitchMultiplier,
       avgPitchDegrees: avgPitchDegrees,
+      lfIsSloped: true,
     })
     const wastePercent = wasteEst.wastePercent
     const category = wasteEst.category
@@ -2871,7 +2911,8 @@ export default function RoofMeasurePage() {
       avg_pitch_degrees: safeNum(Math.round(avgPitchDegrees * 100) / 100, 0),
       suggested_waste: safeNum(wastePercent, 10),
       waste_category: category,
-      linear_features: features,
+      linear_features: featuresWithSlope,
+      lf_slope_corrected: true,
       quote_ready: quoteReady,
       linear_review_status: hasMeasuredLinework ? 'measured' : 'missing',
       measurement_confidence: confidence,
@@ -3684,7 +3725,9 @@ export default function RoofMeasurePage() {
                           ) : null}
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-400 text-xs">{feature.length_ft} LF</span>
+                          <span className="text-gray-400 text-xs">
+                            {measurements?.linear_features?.find((f) => f.id === feature.id)?.sloped_length_ft ?? feature.length_ft} LF
+                          </span>
                           <button
                             onClick={() => deleteLinearFeature(feature.id)}
                             className="text-gray-500 hover:text-red-400"
@@ -3858,6 +3901,7 @@ export default function RoofMeasurePage() {
                       ridges_lf: measurements.ridges_lf,
                       avg_pitch_multiplier: measurements.avg_pitch_multiplier,
                       avg_pitch_degrees: measurements.avg_pitch_degrees,
+                      lf_is_sloped: measurements.lf_slope_corrected === true,
                     })
                     return (
                       <div className="mt-1 space-y-1 text-[11px] text-emerald-100/90">

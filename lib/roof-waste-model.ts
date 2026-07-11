@@ -58,6 +58,8 @@ export function calculateRoofWaste(input: {
   ridges_lf: number
   avgPitchMultiplier: number
   avgPitchDegrees?: number
+  /** True when the LF inputs are already slope-corrected (true roof-surface lengths) — skip the plan→sloped course multiplier. */
+  lfIsSloped?: boolean
 }): RoofWasteEstimate {
   const baseSquares = positive(input.baseSquares)
   if (baseSquares <= 0 || input.facetCount <= 0) {
@@ -77,21 +79,26 @@ export function calculateRoofWaste(input: {
   }
 
   const pitchMult = input.avgPitchMultiplier > 0 ? input.avgPitchMultiplier : 1
+  // Slope-corrected valley/hip LF already includes the climb along the roof surface.
+  // Ridges are horizontal either way (plan = true length), so ridge-trim courses
+  // keep the pitch multiplier regardless of the flag — behavior unchanged there.
+  const courseMult = input.lfIsSloped ? 1 : pitchMult
+  const ridgeCourseMult = pitchMult
   const facetCount = Math.max(1, input.facetCount)
 
   const sizeFactor = Math.min(1.15, Math.max(0.85, Math.sqrt(20 / baseSquares)))
   const baseAreaSq = round2(baseSquares * BASE_AREA_WASTE_RATE * sizeFactor)
 
   const valleySq = wasteSqFromCourses(
-    coursesAlongLinearLf(input.valleys_lf, pitchMult),
+    coursesAlongLinearLf(input.valleys_lf, courseMult),
     WASTE_SHINGLES_PER_COURSE_VALLEY
   )
   const hipFieldSq = wasteSqFromCourses(
-    coursesAlongLinearLf(input.hips_lf, pitchMult),
+    coursesAlongLinearLf(input.hips_lf, courseMult),
     WASTE_SHINGLES_PER_COURSE_HIP
   )
   const ridgeTrimSq = wasteSqFromCourses(
-    coursesAlongLinearLf(input.ridges_lf, pitchMult),
+    coursesAlongLinearLf(input.ridges_lf, ridgeCourseMult),
     WASTE_SHINGLES_PER_COURSE_RIDGE_TRIM
   )
 
