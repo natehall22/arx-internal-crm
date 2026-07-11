@@ -41,6 +41,9 @@ struct MeasureView: View {
                 }
             }
             .onAppear { Task { await vm.fetchSaved() } }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: AppSettings.floatingTabContentInset)
+            }
         }
     }
 

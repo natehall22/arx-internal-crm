@@ -218,7 +218,7 @@ struct CaptureGuidanceView: View {
         DispatchQueue.global(qos: .userInitiated).async {
             let anchors = vm.collectedAnchors
             let processor = MeshProcessor()
-            let result = processor.processFull(anchors: anchors)
+            let result = processor.process(anchors: anchors, scanType: scanType)
             DispatchQueue.main.async {
                 vm.isProcessing = false
                 scanResult = result
@@ -290,6 +290,9 @@ struct CaptureARView: UIViewRepresentable {
 
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal, .vertical]
+        if ARWorldTrackingConfiguration.isSupported {
+            config.worldAlignment = .gravityAndHeading
+        }
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
             config.sceneReconstruction = .mesh
         }

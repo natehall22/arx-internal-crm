@@ -18,10 +18,23 @@ struct ScheduleInspectionSheet: View {
     @State private var notes: String = ""
     @State private var isScheduling: Bool = false
     @State private var errorMessage: String? = nil
+    @StateObject private var networkMonitor = NetworkPathMonitor()
 
     var body: some View {
         NavigationView {
             Form {
+                if networkMonitor.isOffline {
+                    Section {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "wifi.slash")
+                                .foregroundColor(Color(hex: "#B45309"))
+                            Text("You're offline — scheduling an inspection needs a connection.")
+                                .font(.subheadline)
+                                .foregroundColor(AppSettings.darkText)
+                        }
+                    }
+                }
+
                 // MARK: Summary callout
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
@@ -95,11 +108,13 @@ struct ScheduleInspectionSheet: View {
                             Text("Schedule")
                                 .fontWeight(.semibold)
                         }
-                        .disabled(isScheduling)
+                        .disabled(isScheduling || networkMonitor.isOffline)
                     }
                 }
             }
         }
+        .onAppear { networkMonitor.start() }
+        .onDisappear { networkMonitor.stop() }
     }
 
     // MARK: - Schedule action

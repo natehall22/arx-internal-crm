@@ -5,6 +5,9 @@ import Supabase
 
 struct DashboardView: View {
     var onRoleLoaded: ((String) -> Void)? = nil
+    var onOpenSettings: (() -> Void)? = nil
+
+    @AppStorage(AppSettings.Keys.focusMode) private var focusMode = false
 
     @State private var stats: PersonalStats?
     @State private var teamStats: TeamStatsResponse?
@@ -54,14 +57,25 @@ struct DashboardView: View {
                         // MARK: - My Numbers
                         myNumbersSection
 
-                        // MARK: - Leaderboard
-                        leaderboardSection
+                        if !focusMode {
+                            leaderboardSection
+                        }
                     }
                 }
-                .padding(.bottom, 20)
+                .padding(.bottom, AppSettings.floatingTabContentInset)
             }
             .navigationTitle(greeting)
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        onOpenSettings?()
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
             .refreshable {
                 await loadData()
             }

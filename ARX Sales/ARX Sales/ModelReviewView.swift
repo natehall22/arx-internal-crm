@@ -81,7 +81,7 @@ struct ModelReviewView: View {
                     RoofFaceDetailSheet(face: face, onEdit: { showFaceEdit = true })
                         .transition(.move(edge: .bottom))
                 } else if let face = selectedWallFace {
-                    WallFaceDetailSheet(face: face, onEdit: { showFaceEdit = true })
+                    WallFaceDetailSheet(face: bindingForWall(face), onEdit: { showFaceEdit = true })
                         .transition(.move(edge: .bottom))
                 } else {
                     summaryBar
@@ -164,6 +164,18 @@ struct ModelReviewView: View {
             Text(value).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundColor(.white)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func bindingForWall(_ face: WallFace) -> Binding<WallFace> {
+        Binding(
+            get: { scanResult.wallFaces.first(where: { $0.id == face.id }) ?? face },
+            set: { updated in
+                if let i = scanResult.wallFaces.firstIndex(where: { $0.id == updated.id }) {
+                    scanResult.wallFaces[i] = updated
+                    selectedWallFace = updated
+                }
+            }
+        )
     }
 }
 
@@ -359,7 +371,7 @@ struct RoofFaceDetailSheet: View {
 // MARK: - Wall Face Detail Sheet
 
 struct WallFaceDetailSheet: View {
-    let face: WallFace
+    @Binding var face: WallFace
     let onEdit: () -> Void
     var body: some View {
         VStack(spacing: 0) {
@@ -367,7 +379,7 @@ struct WallFaceDetailSheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(face.label).font(.headline).foregroundColor(.white)
-                    Text("\(face.openings.count) opening\(face.openings.count == 1 ? "" : "s") subtracted")
+                    Text("Assign elevation for CRM upload")
                         .font(.caption).foregroundColor(.white.opacity(0.6))
                 }
                 Spacer()
@@ -377,7 +389,17 @@ struct WallFaceDetailSheet: View {
                         .background(Color.white).cornerRadius(20)
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+
+            Picker("Elevation", selection: $face.elevationName) {
+                ForEach(AppSettings.elevationNames, id: \.self) { name in
+                    Text(name).tag(name)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .onChange(of: face.elevationName) { face.label = "\($0) Wall" }
+
             HStack(spacing: 0) {
                 detailCell(label: "GROSS",   value: "\(Int(face.areaSqFt)) ft²")
                 detailCell(label: "OPENINGS", value: "\(Int(face.areaSqFt - face.netAreaSqFt)) ft²")

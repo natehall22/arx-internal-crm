@@ -36,6 +36,9 @@ struct OpportunitiesView: View {
             } message: {
                 Text(vm.error ?? "")
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: AppSettings.floatingTabContentInset)
+            }
         }
         .task { await vm.load() }
     }
