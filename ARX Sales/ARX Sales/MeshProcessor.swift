@@ -263,7 +263,8 @@ enum MeshProcessorTests {
         let slopedArea = proc.fittedPlanarAreaSqFt(vertices: [
             SIMD3(0, 0, 0), SIMD3(1, 0.02, 0), SIMD3(1, 0.01, 1), SIMD3(0, -0.01, 1)
         ])
-        guard slopedArea > 100 && slopedArea < 120 else { return false }
+        // ~1m x 1m patch ≈ 1 m² ≈ 10.76 ft² — verified against a hand-traced computation.
+        guard slopedArea > 9 && slopedArea < 12 else { return false }
 
         // Flat roof: normal ≈ (0,1,0) must not produce NaN area
         let flatVerts: [SIMD3<Float>] = [
