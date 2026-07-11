@@ -1,0 +1,6 @@
+job_ref,install_date,squares_measured,waste_pct_suggested,squares_with_waste,ridges_lf,hips_lf,valleys_lf,field_bundles_ordered,field_squares_ordered,cap_bundles_ordered,field_bundles_actual,field_squares_actual,cap_bundles_actual,delta_bundles_field,delta_bundles_cap,delta_squares,reorder_flag,reorder_reason,notes
+greenway-2026-05,2026-05-15,28.13,17,32.91,112,109,68,78,26,0,99,33,10,21,10,0.09,Y,field_short+cap_short,"First PO ordered 26 sq without full waste applied (tool said 33 with 17% waste); caps never on first PO at all"
+florida-2026-06,2026-06-20,24.5,11,27.2,101,0,0,84,28,5,82,27.3,5,-2,0,0.1,N,,"Clean gable, no hips/valleys; tool measurement within 1 bundle of actual"
+archie-braxton,,,,,,,,,,,,,,,,-3.5,N,,"3.5 sq of extra bundles left over (over-order); no other job detail given"
+randy-hart,,,,,,,,,,,,,,2,,,Y,field_short,"2 bundles short, three-tab shingles; no other job detail given"
+donnell,,,,,,,,,,,,,,-2,,,N,,"2 bundles extra left over (over-order); no other job detail given"
