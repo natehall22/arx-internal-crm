@@ -525,7 +525,7 @@ export default function AdminPricingPage() {
               <h2 className="text-xl font-bold text-gray-900">
                 {editingType ? 'Edit Service Type' : 'Add Service Type'}
               </h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-[#2c2c2a]/80 mt-1">
                 Set the price you charge customers for this type of work.
               </p>
             </div>
@@ -569,7 +569,7 @@ export default function AdminPricingPage() {
                       <p className={`font-medium text-sm ${typeForm.pricing_unit === option.value ? 'text-indigo-700' : 'text-gray-900'}`}>
                         {option.label}
                       </p>
-                      <p className="text-xs text-gray-500">{option.desc}</p>
+                      <p className="text-xs text-[#2c2c2a]/75">{option.desc}</p>
                     </button>
                   ))}
                 </div>
@@ -580,9 +580,9 @@ export default function AdminPricingPage() {
                 <p className="text-sm font-medium text-gray-700 mb-3">Your Costs</p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Material Cost {UNIT_SHORT[typeForm.pricing_unit]}</label>
+                    <label className="block text-xs font-medium text-[#2c2c2a]/80 mb-1">Material Cost {UNIT_SHORT[typeForm.pricing_unit]}</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#2c2c2a]/60">$</span>
                       <input
                         type="number"
                         step="0.01"
@@ -594,9 +594,9 @@ export default function AdminPricingPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Labor Cost {UNIT_SHORT[typeForm.pricing_unit]}</label>
+                    <label className="block text-xs font-medium text-[#2c2c2a]/80 mb-1">Labor Cost {UNIT_SHORT[typeForm.pricing_unit]}</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#2c2c2a]/60">$</span>
                       <input
                         type="number"
                         step="0.01"
@@ -611,7 +611,7 @@ export default function AdminPricingPage() {
                 {(typeForm.material_cost || typeForm.labor_cost) && (
                   <div className="mt-3 pt-3 border-t border-gray-200">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Total Cost:</span>
+                      <span className="text-[#2c2c2a]/80">Total Cost:</span>
                       <span className="font-semibold text-gray-900">
                         ${((parseFloat(typeForm.material_cost) || 0) + (parseFloat(typeForm.labor_cost) || 0)).toFixed(2)}
                       </span>
@@ -621,16 +621,16 @@ export default function AdminPricingPage() {
               </div>
 
               {/* Profit Margin - Admin Only */}
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="p-4 bg-green-50 border border-green-300 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
-                  <label className="text-sm font-medium text-green-800">
+                  <label className="text-sm font-medium text-[#2c2c2a]">
                     Profit Markup
                   </label>
-                  <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                  <span className="px-2 py-0.5 bg-green-200 text-green-900 border border-green-300 text-xs font-semibold rounded-full">
                     Admin Only
                   </span>
                 </div>
-                <p className="text-xs text-green-600 mb-3">
+                <p className="text-xs text-[#2c2c2a]/85 mb-3">
                   This percentage is added to your costs to calculate the selling price. (0-1000%)
                 </p>
                 <div className="flex items-center gap-2">
@@ -641,24 +641,24 @@ export default function AdminPricingPage() {
                     max="1000"
                     value={typeForm.profit_margin_percent}
                     onChange={(e) => setTypeForm(prev => ({ ...prev, profit_margin_percent: e.target.value }))}
-                    className="w-24 px-3 py-2 border border-green-300 rounded-lg text-right bg-white text-lg font-semibold"
+                    className="w-24 px-3 py-2 border border-green-400 rounded-lg text-right bg-white text-lg font-semibold text-[#2c2c2a]"
                     placeholder="35"
                   />
-                  <span className="text-green-700 font-medium text-lg">%</span>
+                  <span className="text-[#2c2c2a] font-medium text-lg">%</span>
                 </div>
               </div>
 
               {/* Calculated Selling Price */}
               {(typeForm.material_cost || typeForm.labor_cost) && typeForm.profit_margin_percent && (
-                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <div className="p-4 bg-indigo-50 border border-indigo-300 rounded-lg">
                   <div className="flex justify-between items-center">
                     <div>
-                      <p className="text-sm font-medium text-indigo-800">Calculated Selling Price</p>
-                      <p className="text-xs text-indigo-600">
+                      <p className="text-sm font-medium text-[#2c2c2a]">Calculated Selling Price</p>
+                      <p className="text-xs text-[#2c2c2a]/85">
                         Cost ${((parseFloat(typeForm.material_cost) || 0) + (parseFloat(typeForm.labor_cost) || 0)).toFixed(2)} + {typeForm.profit_margin_percent}% markup
                       </p>
                     </div>
-                    <p className="text-2xl font-bold text-indigo-700">
+                    <p className="text-2xl font-bold text-[#2c2c2a]">
                       ${(((parseFloat(typeForm.material_cost) || 0) + (parseFloat(typeForm.labor_cost) || 0)) * (1 + (parseFloat(typeForm.profit_margin_percent) || 0) / 100)).toFixed(2)}
                     </p>
                   </div>
@@ -671,7 +671,7 @@ export default function AdminPricingPage() {
                   <div className="w-full border-t border-gray-300"></div>
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">or set price directly</span>
+                  <span className="px-2 bg-white text-[#2c2c2a]/75 font-medium">or set price directly</span>
                 </div>
               </div>
 
@@ -680,7 +680,7 @@ export default function AdminPricingPage() {
                   Selling Price {UNIT_SHORT[typeForm.pricing_unit]}
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">$</span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#2c2c2a]/60 text-lg">$</span>
                   <input
                     type="number"
                     step="0.01"
@@ -690,7 +690,7 @@ export default function AdminPricingPage() {
                     placeholder={getPricePlaceholder(typeForm.pricing_unit)}
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-[#2c2c2a]/80 mt-1">
                   Override the calculated price or enter directly if not using cost + markup.
                 </p>
               </div>
@@ -706,7 +706,7 @@ export default function AdminPricingPage() {
                       className="w-20 px-3 py-2 border border-gray-300 rounded-lg"
                       placeholder="25"
                     />
-                    <span className="text-gray-500">years</span>
+                    <span className="text-[#2c2c2a]/80 font-medium">years</span>
                   </div>
                 </div>
                 <div>
@@ -729,7 +729,7 @@ export default function AdminPricingPage() {
             <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-3">
               <button
                 onClick={closeModal}
-                className="px-5 py-2.5 border border-gray-300 rounded-lg font-medium hover:bg-gray-100"
+                className="px-5 py-2.5 border border-gray-300 rounded-lg font-medium text-[#2c2c2a] hover:bg-gray-100"
               >
                 Cancel
               </button>
