@@ -46,51 +46,51 @@ export async function GET(request: NextRequest) {
     let insideSalesScoped = false
     let orgInspectionOutcomeRows: ReturnType<typeof mergeOrgInspectionOutcomesWithDefaults> | null = null
 
+    const [{ fullAccess, permissionNames }, customRoleResult] = await Promise.all([
+      resolveEffectivePermissionNames(adminClient, authContext.authUser.id, {
+        role: profile.role,
+        custom_role_id: profile.custom_role_id ?? null,
+      }),
+      profile.custom_role_id
+        ? adminClient
+            .from('custom_roles')
+            .select('name, display_name')
+            .eq('id', profile.custom_role_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null as { name?: string; display_name?: string } | null }),
+    ])
+
+    const customRole = customRoleResult.data
+    const insideSalesAccessInput = {
+      role: profile.role,
+      customRoleName: customRole?.name || null,
+      customRoleDisplayName: customRole?.display_name || null,
+      permissionNames,
+    }
+    insideSalesScoped = shouldScopeLeadsToInsideSalesWorker(insideSalesAccessInput)
+
     // Admin / Roles: gate on effective `opportunities:view` (legacy matrix + custom roles + user overrides).
     // Internal/reporting calls may bypass with _internal=true (existing behavior).
     if (!bypassRoleFilter) {
-      const [{ fullAccess, permissionNames }, customRoleResult] = await Promise.all([
-        resolveEffectivePermissionNames(adminClient, authContext.authUser.id, {
-          role: profile.role,
-          custom_role_id: profile.custom_role_id ?? null,
-        }),
-        profile.custom_role_id
-          ? adminClient
-              .from('custom_roles')
-              .select('name, display_name')
-              .eq('id', profile.custom_role_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null as { name?: string; display_name?: string } | null }),
-      ])
-
       const effective = { fullAccess, permissionNames }
       if (!effectiveHasPermission(effective, 'opportunities:view')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
       }
+    }
 
-      const customRole = customRoleResult.data
-      const insideSalesAccessInput = {
-        role: profile.role,
-        customRoleName: customRole?.name || null,
-        customRoleDisplayName: customRole?.display_name || null,
-        permissionNames,
-      }
-      insideSalesScoped = shouldScopeLeadsToInsideSalesWorker(insideSalesAccessInput)
-
-      if (insideSalesScoped) {
-        const { data: orgRow } = await adminClient
-          .from('orgs')
-          .select('settings')
-          .eq('id', profile.org_id)
-          .maybeSingle()
-        const rawOutcomes = orgRow?.settings?.inspection_outcomes
-        const inspectionOutcomeSettings = Array.isArray(rawOutcomes)
-          ? rawOutcomes
-          : Array.isArray(rawOutcomes?.outcomes)
-            ? rawOutcomes.outcomes
-            : null
-        orgInspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
-      }
+    if (insideSalesScoped) {
+      const { data: orgRow } = await adminClient
+        .from('orgs')
+        .select('settings')
+        .eq('id', profile.org_id)
+        .maybeSingle()
+      const rawOutcomes = orgRow?.settings?.inspection_outcomes
+      const inspectionOutcomeSettings = Array.isArray(rawOutcomes)
+        ? rawOutcomes
+        : Array.isArray(rawOutcomes?.outcomes)
+          ? rawOutcomes.outcomes
+          : null
+      orgInspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
     }
 
     // Build the query - fetch all columns explicitly to avoid join issues
@@ -121,8 +121,7 @@ export async function GET(request: NextRequest) {
     // Role-based filtering for reps (closers see their own; managers see org-wide above)
     const isRep = ['rep', 'sales_rep', 'closer'].includes(profile.role)
 
-    if (!bypassRoleFilter) {
-      if (isRep) {
+    if (!bypassRoleFilter && isRep && !insideSalesScoped) {
         // Closers see opportunities they own, set, or are assigned on the lead (lead.closer_user_id is source of truth when calendar reassignment syncs the rep)
         const { data: closerLeadRows } = await adminClient
           .from('leads')
@@ -140,7 +139,6 @@ export async function GET(request: NextRequest) {
           orParts.push(`lead_id.in.(${leadIdsWhereCloser.join(',')})`)
         }
         query = query.or(orParts.join(','))
-      }
     }
 
     if (leadIds) {
@@ -165,29 +163,59 @@ export async function GET(request: NextRequest) {
 
     let scopedOpportunities = opportunities || []
 
-    if (!bypassRoleFilter && insideSalesScoped && orgInspectionOutcomeRows) {
-      const leadIdList = scopedOpportunities.map((o: { lead_id?: string | null }) => o.lead_id).filter(Boolean)
-      const leadChannelById = new Map<string, string | null>()
+    if (insideSalesScoped && orgInspectionOutcomeRows) {
+      const oppIdListForScope = scopedOpportunities.map((o: { id: string }) => o.id)
+      const leadIdListForScope = scopedOpportunities
+        .map((o: { lead_id?: string | null }) => o.lead_id)
+        .filter(Boolean)
 
-      if (leadIdList.length > 0) {
+      let inspectionMapForScope = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
+      if (oppIdListForScope.length > 0) {
+        const { data: inspectionStatuses } = await adminClient
+          .from('inspection_status_updates')
+          .select('opportunity_id, lead_id, outcome, notes, created_at')
+          .in('opportunity_id', oppIdListForScope)
+          .order('created_at', { ascending: false })
+
+        inspectionMapForScope = mapLatestInspectionByOpportunityId(inspectionStatuses || [])
+      }
+
+      let leadInspectionMapForScope = new Map<string, { outcome: string; notes: string | null; created_at: string }>()
+      if (leadIdListForScope.length > 0) {
+        const { data: leadOnlyStatuses } = await adminClient
+          .from('inspection_status_updates')
+          .select('lead_id, outcome, notes, created_at')
+          .in('lead_id', leadIdListForScope)
+          .order('created_at', { ascending: false })
+
+        leadInspectionMapForScope = mapLatestInspectionByLeadId(leadOnlyStatuses || [])
+      }
+
+      const leadChannelById = new Map<string, string | null>()
+      if (leadIdListForScope.length > 0) {
         const { data: leadRows } = await adminClient
           .from('leads')
           .select('id, channel')
-          .in('id', leadIdList)
+          .in('id', leadIdListForScope)
 
         for (const lead of leadRows || []) {
           leadChannelById.set(lead.id, lead.channel ?? null)
         }
       }
 
-      scopedOpportunities = scopedOpportunities.filter((opportunity: any) =>
-        isOpportunityInInsideSalesWorkerScope(
+      scopedOpportunities = scopedOpportunities.filter((opportunity: any) => {
+        const merged = mergeEffectiveInspectionFields(
           opportunity,
+          inspectionMapForScope,
+          leadInspectionMapForScope
+        )
+        return isOpportunityInInsideSalesWorkerScope(
+          merged,
           authContext.authUser.id,
           opportunity.lead_id ? leadChannelById.get(opportunity.lead_id) : null,
           orgInspectionOutcomeRows
         )
-      )
+      })
     }
 
     // Fetch related data separately to avoid join issues

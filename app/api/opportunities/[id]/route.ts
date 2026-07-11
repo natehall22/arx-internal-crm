@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
+import {
+  mapLatestInspectionByLeadId,
+  mapLatestInspectionByOpportunityId,
+  withEffectiveInspectionFields,
+} from '@/lib/effective-inspection-state'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import {
+  isOpportunityInInsideSalesWorkerScope,
+  shouldScopeLeadsToInsideSalesWorker,
+} from '@/lib/inside-sales-follow-up'
+import { mergeOrgInspectionOutcomesWithDefaults } from '@/lib/inspection-outcomes'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 
 export const dynamic = 'force-dynamic'
@@ -27,15 +38,86 @@ export async function GET(
     }
 
     const adminClient = getAdminClient()
+    const profile = authContext.profile
     const { data: opportunity, error } = await adminClient
       .from('opportunities')
       .select('*')
       .eq('id', params.id)
-      .eq('org_id', authContext.profile.org_id)
+      .eq('org_id', profile.org_id)
       .single()
 
     if (error || !opportunity) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    const [{ permissionNames }, customRoleResult] = await Promise.all([
+      resolveEffectivePermissionNames(adminClient, authContext.authUser.id, {
+        role: profile.role,
+        custom_role_id: profile.custom_role_id ?? null,
+      }),
+      profile.custom_role_id
+        ? adminClient
+            .from('custom_roles')
+            .select('name, display_name')
+            .eq('id', profile.custom_role_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null as { name?: string; display_name?: string } | null }),
+    ])
+
+    const customRole = customRoleResult.data
+    const insideSalesAccessInput = {
+      role: profile.role,
+      customRoleName: customRole?.name || null,
+      customRoleDisplayName: customRole?.display_name || null,
+      permissionNames,
+    }
+
+    if (shouldScopeLeadsToInsideSalesWorker(insideSalesAccessInput)) {
+      const [{ data: orgRow }, { data: leadRow }, { data: inspectionStatuses }, { data: leadInspectionRows }] =
+        await Promise.all([
+          adminClient.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle(),
+          opportunity.lead_id
+            ? adminClient.from('leads').select('channel').eq('id', opportunity.lead_id).maybeSingle()
+            : Promise.resolve({ data: null as { channel?: string | null } | null }),
+          adminClient
+            .from('inspection_status_updates')
+            .select('opportunity_id, lead_id, outcome, notes, created_at')
+            .eq('opportunity_id', params.id)
+            .order('created_at', { ascending: false }),
+          opportunity.lead_id
+            ? adminClient
+                .from('inspection_status_updates')
+                .select('lead_id, outcome, notes, created_at')
+                .eq('lead_id', opportunity.lead_id)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: [] as any[] }),
+        ])
+
+      const rawOutcomes = orgRow?.settings?.inspection_outcomes
+      const inspectionOutcomeSettings = Array.isArray(rawOutcomes)
+        ? rawOutcomes
+        : Array.isArray(rawOutcomes?.outcomes)
+          ? rawOutcomes.outcomes
+          : null
+      const orgInspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
+      const inspectionByOpportunityId = mapLatestInspectionByOpportunityId(inspectionStatuses || [])
+      const inspectionByLeadId = mapLatestInspectionByLeadId(leadInspectionRows || [])
+      const opportunityEffective = withEffectiveInspectionFields(
+        opportunity,
+        inspectionByOpportunityId,
+        inspectionByLeadId
+      )
+
+      if (
+        !isOpportunityInInsideSalesWorkerScope(
+          opportunityEffective,
+          authContext.authUser.id,
+          leadRow?.channel ?? null,
+          orgInspectionOutcomeRows
+        )
+      ) {
+        return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+      }
     }
 
     return NextResponse.json({ opportunity })
