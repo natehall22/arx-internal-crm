@@ -7,6 +7,11 @@ import {
   mergeEffectiveInspectionFields,
 } from '@/lib/effective-inspection-state'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import {
+  isOpportunityInInsideSalesWorkerScope,
+  shouldScopeLeadsToInsideSalesWorker,
+} from '@/lib/inside-sales-follow-up'
+import { mergeOrgInspectionOutcomesWithDefaults } from '@/lib/inspection-outcomes'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +43,56 @@ export async function GET(request: NextRequest) {
     const searchQuery = searchParams.get('q')
     const bypassRoleFilter = searchParams.get('_internal') === 'true' // For internal API calls (reporting, etc.)
 
+    let insideSalesScoped = false
+    let orgInspectionOutcomeRows: ReturnType<typeof mergeOrgInspectionOutcomesWithDefaults> | null = null
+
+    // Admin / Roles: gate on effective `opportunities:view` (legacy matrix + custom roles + user overrides).
+    // Internal/reporting calls may bypass with _internal=true (existing behavior).
+    if (!bypassRoleFilter) {
+      const [{ fullAccess, permissionNames }, customRoleResult] = await Promise.all([
+        resolveEffectivePermissionNames(adminClient, authContext.authUser.id, {
+          role: profile.role,
+          custom_role_id: profile.custom_role_id ?? null,
+        }),
+        profile.custom_role_id
+          ? adminClient
+              .from('custom_roles')
+              .select('name, display_name')
+              .eq('id', profile.custom_role_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null as { name?: string; display_name?: string } | null }),
+      ])
+
+      const effective = { fullAccess, permissionNames }
+      if (!effectiveHasPermission(effective, 'opportunities:view')) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+
+      const customRole = customRoleResult.data
+      const insideSalesAccessInput = {
+        role: profile.role,
+        customRoleName: customRole?.name || null,
+        customRoleDisplayName: customRole?.display_name || null,
+        permissionNames,
+      }
+      insideSalesScoped = shouldScopeLeadsToInsideSalesWorker(insideSalesAccessInput)
+
+      if (insideSalesScoped) {
+        const { data: orgRow } = await adminClient
+          .from('orgs')
+          .select('settings')
+          .eq('id', profile.org_id)
+          .maybeSingle()
+        const rawOutcomes = orgRow?.settings?.inspection_outcomes
+        const inspectionOutcomeSettings = Array.isArray(rawOutcomes)
+          ? rawOutcomes
+          : Array.isArray(rawOutcomes?.outcomes)
+            ? rawOutcomes.outcomes
+            : null
+        orgInspectionOutcomeRows = mergeOrgInspectionOutcomesWithDefaults(inspectionOutcomeSettings)
+      }
+    }
+
     // Build the query - fetch all columns explicitly to avoid join issues
     let query = adminClient
       .from('opportunities')
@@ -48,9 +103,12 @@ export async function GET(request: NextRequest) {
         customer_id,
         owner_user_id,
         setter_user_id,
+        assigned_user_id,
         address_text,
         project_type,
         status,
+        pipeline_stage,
+        follow_up_at,
         inspection_outcome,
         inspection_outcome_at,
         inspection_notes,
@@ -59,19 +117,6 @@ export async function GET(request: NextRequest) {
       `)
       .eq('org_id', profile.org_id)
       .order('created_at', { ascending: false })
-
-    // Admin / Roles: gate on effective `opportunities:view` (legacy matrix + custom roles + user overrides).
-    // Internal/reporting calls may bypass with _internal=true (existing behavior).
-    if (!bypassRoleFilter) {
-      const effective = await resolveEffectivePermissionNames(
-        adminClient,
-        authContext.authUser.id,
-        { role: profile.role, custom_role_id: profile.custom_role_id ?? null }
-      )
-      if (!effectiveHasPermission(effective, 'opportunities:view')) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      }
-    }
 
     // Role-based filtering for reps (closers see their own; managers see org-wide above)
     const isRep = ['rep', 'sales_rep', 'closer'].includes(profile.role)
@@ -109,18 +154,44 @@ export async function GET(request: NextRequest) {
 
     if (oppsError) {
       console.error('Opportunities fetch error:', oppsError)
-      // Handle case where table doesn't exist yet
       if (oppsError.message?.includes('does not exist') || oppsError.message?.includes('schema cache')) {
-        return NextResponse.json({ 
+        return NextResponse.json({
           opportunities: [],
-          warning: 'Opportunities table not found. Please run database migrations.'
+          warning: 'Opportunities table not found. Please run database migrations.',
         })
       }
       return NextResponse.json({ error: `Failed to fetch opportunities: ${oppsError.message}` }, { status: 500 })
     }
 
+    let scopedOpportunities = opportunities || []
+
+    if (!bypassRoleFilter && insideSalesScoped && orgInspectionOutcomeRows) {
+      const leadIdList = scopedOpportunities.map((o: { lead_id?: string | null }) => o.lead_id).filter(Boolean)
+      const leadChannelById = new Map<string, string | null>()
+
+      if (leadIdList.length > 0) {
+        const { data: leadRows } = await adminClient
+          .from('leads')
+          .select('id, channel')
+          .in('id', leadIdList)
+
+        for (const lead of leadRows || []) {
+          leadChannelById.set(lead.id, lead.channel ?? null)
+        }
+      }
+
+      scopedOpportunities = scopedOpportunities.filter((opportunity: any) =>
+        isOpportunityInInsideSalesWorkerScope(
+          opportunity,
+          authContext.authUser.id,
+          opportunity.lead_id ? leadChannelById.get(opportunity.lead_id) : null,
+          orgInspectionOutcomeRows
+        )
+      )
+    }
+
     // Fetch related data separately to avoid join issues
-    let enrichedOpportunities = opportunities || []
+    let enrichedOpportunities = scopedOpportunities
     
     if (fullData && enrichedOpportunities.length > 0) {
       // Get unique IDs for related lookups

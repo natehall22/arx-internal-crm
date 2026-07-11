@@ -72,6 +72,7 @@ export default function OpportunitiesPage() {
   const [insideSalesAccessChecked, setInsideSalesAccessChecked] = useState(false)
   const [canViewInsideSalesTab, setCanViewInsideSalesTab] = useState(false)
   const [canSelfAssignInsideSales, setCanSelfAssignInsideSales] = useState(false)
+  const isQueueOnlyWorker = canSelfAssignInsideSales
   const [inspectionOutcomeRows, setInspectionOutcomeRows] = useState<InspectionOutcomeConfigRow[]>(() =>
     sortInspectionOutcomes([...DEFAULT_INSPECTION_OUTCOMES], { includeInactive: true })
   )
@@ -196,8 +197,24 @@ export default function OpportunitiesPage() {
   }, [])
 
   useEffect(() => {
+    if (!insideSalesAccessChecked || isQueueOnlyWorker) return
     loadOpportunities()
-  }, [])
+  }, [insideSalesAccessChecked, isQueueOnlyWorker])
+
+  useEffect(() => {
+    if (!insideSalesAccessChecked || !isQueueOnlyWorker) return
+    if (activeView === 'inside_sales') return
+    const next = new URLSearchParams(searchParams.toString())
+    next.set('view', 'inside_sales')
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false })
+  }, [
+    activeView,
+    insideSalesAccessChecked,
+    isQueueOnlyWorker,
+    pathname,
+    router,
+    searchParams,
+  ])
 
   useEffect(() => {
     loadInsideSales()
@@ -327,15 +344,17 @@ export default function OpportunitiesPage() {
               )}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setView('all')}
-                className={`rounded-full px-3 py-2 text-sm font-medium ${
-                  activeView === 'all' ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
-                }`}
-              >
-                All Opportunities
-              </button>
+              {(!insideSalesAccessChecked || !isQueueOnlyWorker) && (
+                <button
+                  type="button"
+                  onClick={() => setView('all')}
+                  className={`rounded-full px-3 py-2 text-sm font-medium ${
+                    activeView === 'all' ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
+                  }`}
+                >
+                  All Opportunities
+                </button>
+              )}
               {insideSalesAccessChecked && canViewInsideSalesTab && (
                 <button
                   type="button"

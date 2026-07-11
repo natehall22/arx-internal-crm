@@ -564,7 +564,7 @@ export default function InsideSalesPage() {
           Lost
         </button>
         <Link
-          href={`/opportunities/${item.id}`}
+          href={`/opportunities/${item.id}?view=inside_sales`}
           className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
         >
           Full record →

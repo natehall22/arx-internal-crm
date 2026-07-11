@@ -276,6 +276,27 @@ export function shouldScopeLeadsToInsideSalesWorker(roleLike: RoleLike): boolean
   return isInsideSalesRoleLike(roleLike)
 }
 
+type InsideSalesOpportunityScopeInput = OpportunityLike & {
+  owner_user_id?: string | null
+  assigned_user_id?: string | null
+  lead_id?: string | null
+}
+
+/** Mirrors opportunity detail page access for queue-only inside-sales workers. */
+export function isOpportunityInInsideSalesWorkerScope(
+  opportunity: InsideSalesOpportunityScopeInput,
+  userId: string,
+  leadChannel: string | null | undefined,
+  orgInspectionOutcomes?: OrgInspectionOutcomesArg
+): boolean {
+  return (
+    hasActiveInsideSalesFollowUp(opportunity, orgInspectionOutcomes) ||
+    opportunity.owner_user_id === userId ||
+    opportunity.assigned_user_id === userId ||
+    leadChannel === 'inbound'
+  )
+}
+
 export function canViewInsideSalesFollowUp(roleLike: RoleLike) {
   return MANAGER_ROLES.has(normalize(roleLike.role)) || isInsideSalesRoleLike(roleLike)
 }

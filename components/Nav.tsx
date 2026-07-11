@@ -15,7 +15,7 @@ import {
   isBarredFromSalesDocAccess,
   isOrgSuperuserRoleSlug,
 } from '@/lib/permissions'
-import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
+import { canViewInsideSalesFollowUp, isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 
@@ -299,6 +299,17 @@ export default function Nav() {
       if (isBarredFromProjectsUi(userRole)) return false
     }
     if (item.href === '/opportunities' && (userRole === 'setter' || userRole === 'canvasser')) {
+      return false
+    }
+    if (
+      item.href === '/opportunities' &&
+      isInsideSalesRoleLike({
+        role: userRole,
+        customRoleName,
+        customRoleDisplayName,
+        permissionNames: effectivePermissionNames,
+      })
+    ) {
       return false
     }
     if (item.href === '/pricebook' && isSalesDocBarredNav) {

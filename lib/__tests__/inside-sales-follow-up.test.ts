@@ -13,6 +13,7 @@ import {
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
   canViewInsideSalesFollowUp,
   isInsideSalesRoleLike,
+  isOpportunityInInsideSalesWorkerScope,
 } from '@/lib/inside-sales-follow-up'
 
 describe('inside sales access identity', () => {
@@ -87,6 +88,51 @@ describe('inside sales access identity', () => {
       expect.arrayContaining(['leads:view', 'leads:claim_inbound', 'opportunities:view'])
     )
     expect(hasInsideSalesQueuePermissionGrant(INSIDE_SALES_PRESET_PERMISSION_NAMES)).toBe(true)
+  })
+
+  it('scopes opportunity list access to queue, ownership, assignment, and inbound', () => {
+    const queueOpportunity = {
+      status: 'open',
+      pipeline_stage: 'inside_sales_didnt_sit',
+      owner_user_id: 'other-user',
+      assigned_user_id: null,
+    }
+    expect(isOpportunityInInsideSalesWorkerScope(queueOpportunity, 'worker-1', null)).toBe(true)
+    expect(
+      isOpportunityInInsideSalesWorkerScope(
+        { status: 'open', owner_user_id: 'worker-1' },
+        'worker-1',
+        null
+      )
+    ).toBe(true)
+    expect(
+      isOpportunityInInsideSalesWorkerScope(
+        { status: 'open', assigned_user_id: 'worker-1' },
+        'worker-1',
+        null
+      )
+    ).toBe(true)
+    expect(
+      isOpportunityInInsideSalesWorkerScope(
+        { status: 'open', owner_user_id: 'other-user' },
+        'worker-1',
+        'inbound'
+      )
+    ).toBe(true)
+    expect(
+      isOpportunityInInsideSalesWorkerScope(
+        { status: 'won', pipeline_stage: 'inside_sales_didnt_sit' },
+        'worker-1',
+        null
+      )
+    ).toBe(false)
+    expect(
+      isOpportunityInInsideSalesWorkerScope(
+        { status: 'open', owner_user_id: 'other-user' },
+        'worker-1',
+        'door_to_door'
+      )
+    ).toBe(false)
   })
 })
 
