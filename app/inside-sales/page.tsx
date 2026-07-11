@@ -537,7 +537,7 @@ export default function InsideSalesPage() {
             onClick={() => openScheduleBack(item)}
             className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-200"
           >
-            Schedule Back
+            Schedule to Closer
           </button>
         )}
         <button
