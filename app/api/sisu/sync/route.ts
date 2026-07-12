@@ -384,6 +384,15 @@ export async function POST(request: NextRequest) {
           })
           if (notificationError) {
             console.error('[sisu/sync] Failed to insert heat-qualified notification:', notificationError)
+          } else {
+            // Only push when the in-app notification row landed (keeps channels consistent).
+            const { sendPushToUserBackground } = await import('@/lib/push-apns')
+            sendPushToUserBackground(
+              userId,
+              'You hit it.',
+              `You qualified for ${spiff.name}. ${reward}`,
+              { type: 'spiff' }
+            )
           }
         }
 

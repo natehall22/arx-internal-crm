@@ -356,6 +356,14 @@ export async function PATCH(
         body: `You have been assigned an appointment with ${homeownerLabel} on ${formatDateTimeInTimezone(appointment.scheduled_for)} ET`,
         data: { appointment_id: params.id },
       })
+      // Best-effort APNs — never blocks reassignment.
+      const { sendPushToUserBackground } = await import('@/lib/push-apns')
+      sendPushToUserBackground(
+        new_closer_id,
+        'New Appointment Assigned',
+        `You have been assigned an appointment with ${homeownerLabel} on ${formatDateTimeInTimezone(appointment.scheduled_for)} ET`,
+        { type: 'appointment', appointment_id: params.id }
+      )
 
       // Setter / canvasser (when not old or new assignee — those get their own notifications above)
       if (

@@ -10,6 +10,7 @@ import Supabase
 
 @main
 struct ARX_SalesApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var isAuthenticated = false
     @AppStorage(AppSettings.Keys.colorScheme) private var colorSchemeRaw = ColorSchemeSetting.system.rawValue
 
@@ -37,6 +38,8 @@ struct ARX_SalesApp: App {
                             let userId = session.user.id.uuidString.lowercased()
                             await OfflineLeadQueueBridge.shared.configure(forUserId: userId)
                             isAuthenticated = true
+                            // Push permission only after sign-in (never unexplained cold-launch prompt).
+                            PushManager.shared.requestAuthorizationAfterSignIn()
                         } else {
                             await OfflineLeadQueueBridge.shared.configure(forUserId: nil)
                             isAuthenticated = false
@@ -57,6 +60,7 @@ struct ARX_SalesApp: App {
                             isAuthenticated = false
                         }
                     case .signedOut, .userDeleted:
+                        await PushManager.shared.unregisterOnSignOut()
                         isAuthenticated = false
                         await OfflineLeadQueueBridge.shared.configure(forUserId: nil)
                     case .passwordRecovery, .mfaChallengeVerified:

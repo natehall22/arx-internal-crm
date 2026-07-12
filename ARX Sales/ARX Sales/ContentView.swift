@@ -7,6 +7,7 @@ import SwiftUI
 import Supabase
 
 struct ContentView: View {
+    @ObservedObject private var pushManager = PushManager.shared
     @State private var mobileCaps: MobileAppCapabilities?
     @State private var selectedTab: AppTab = .canvass
     @State private var showSettings = false
@@ -108,6 +109,23 @@ struct ContentView: View {
             }
             ensureValidSelection()
         }
+        .onChange(of: pushManager.pendingTab) { _ in
+            applyPendingPushTab()
+        }
+        .onAppear {
+            applyPendingPushTab()
+        }
+    }
+
+    private func applyPendingPushTab() {
+        guard let tab = pushManager.pendingTab else { return }
+        if availableTabs.contains(tab) {
+            selectedTab = tab
+        } else if tab == .sisu {
+            // SPIFF push but Sisu not visible — land on home instead.
+            selectedTab = homeScreen.tab
+        }
+        pushManager.pendingTab = nil
     }
 
     private func ensureValidSelection() {

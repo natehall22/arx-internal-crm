@@ -1262,6 +1262,14 @@ export async function POST(request: Request) {
             body: `${setterName} scheduled an inspection for you at ${leadRow.address_text || 'address TBD'} on ${scheduledTime}${!calendarSynced ? ' (Calendar not synced - please add manually)' : ''}`,
             link_url: opportunityId ? `/opportunities/${opportunityId}` : `/leads/${leadRow.id}`,
           })
+          // Best-effort APNs — append only; does not change scheduling logic.
+          const { sendPushToUserBackground } = await import('@/lib/push-apns')
+          sendPushToUserBackground(
+            closerUserId,
+            'New Inspection Assigned',
+            `${setterName} scheduled an inspection for you at ${leadRow.address_text || 'address TBD'} on ${scheduledTime}`,
+            { type: 'appointment' }
+          )
         }
 
         // Also email assigned closer for canvass inspection assignment.

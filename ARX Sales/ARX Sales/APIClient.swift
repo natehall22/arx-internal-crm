@@ -588,6 +588,39 @@ struct APIClient {
         return data
     }
 
+    static func delete(path: String, body: some Encodable) async throws {
+        guard let token = await bearerToken() else { throw APIError.unauthenticated }
+        var req = URLRequest(url: URL(string: baseURL + path)!)
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(body)
+        req.timeoutInterval = 15
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
+            throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+    }
+
+    // MARK: - Push token
+
+    static func registerPushToken(_ deviceToken: String, environment: String) async throws {
+        struct Body: Encodable {
+            let device_token: String
+            let platform: String
+            let environment: String
+        }
+        _ = try await post(
+            path: "/api/mobile/push-token",
+            body: Body(device_token: deviceToken, platform: "ios", environment: environment)
+        )
+    }
+
+    static func unregisterPushToken(_ deviceToken: String) async throws {
+        struct Body: Encodable { let device_token: String }
+        try await delete(path: "/api/mobile/push-token", body: Body(device_token: deviceToken))
+    }
+
     // MARK: - Dashboard
 
     static func personalStats(timeframe: String = "week") async throws -> PersonalStats {
