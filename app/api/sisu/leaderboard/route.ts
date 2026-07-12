@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 
@@ -91,13 +91,10 @@ function rankEntries(
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
+    let authContext: Awaited<ReturnType<typeof requireAuthApi>>
+    try {
+      authContext = await requireAuthApi()
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -105,17 +102,11 @@ export async function POST(request: NextRequest) {
     await request.json().catch(() => ({}))
 
     const admin = getAdminClient()
-    const { data: profile, error: profileError } = await admin
-      .from('users')
-      .select('id, org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (profileError || !profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    const userProfile: UserProfile = {
+      id: authContext.authUser.id,
+      org_id: authContext.profile.org_id,
+      role: authContext.profile.role,
     }
-
-    const userProfile = profile as UserProfile
 
     const { data: userRows, error: usersError } = await admin
       .from('users')
