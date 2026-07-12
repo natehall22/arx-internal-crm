@@ -7,6 +7,39 @@ import Combine
 
 struct OpportunitiesView: View {
     @StateObject private var vm = OpportunitiesVM()
+    @State private var searchText = ""
+    @State private var statusFilter: StatusFilter = .active
+    @AppStorage(AppSettings.Keys.navigationApp) private var navigationAppRaw = NavigationAppSetting.appleMaps.rawValue
+
+    /// "Active" is the working default — a closer's daily list shouldn't start
+    /// buried under every won/lost record from the past year.
+    enum StatusFilter: String, CaseIterable, Identifiable {
+        case active = "Active"
+        case won = "Won"
+        case lost = "Lost"
+        case all = "All"
+        var id: String { rawValue }
+
+        func matches(_ status: String?) -> Bool {
+            switch self {
+            case .all: return true
+            case .won: return status == "won"
+            case .lost: return status == "lost"
+            case .active: return status != "won" && status != "lost"
+            }
+        }
+    }
+
+    private var filteredOpportunities: [Opportunity] {
+        vm.opportunities.filter { opp in
+            guard statusFilter.matches(opp.status) else { return false }
+            guard !searchText.isEmpty else { return true }
+            let q = searchText.lowercased()
+            return opp.displayName.lowercased().contains(q)
+                || (opp.address_text ?? "").lowercased().contains(q)
+                || (opp.lead_phone ?? "").contains(q)
+        }
+    }
 
     var body: some View {
         NavigationView {
@@ -47,14 +80,73 @@ struct OpportunitiesView: View {
 
     private var opportunityList: some View {
         List {
-            ForEach(vm.opportunities) { opp in
-                NavigationLink(destination: OpportunityDetailView(opportunity: opp)) {
-                    OpportunityRow(opportunity: opp)
+            Section {
+                Picker("Status", selection: $statusFilter) {
+                    ForEach(StatusFilter.allCases) { f in
+                        Text(f.rawValue).tag(f)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+
+            Section {
+                if filteredOpportunities.isEmpty {
+                    Text(searchText.isEmpty ? "Nothing matching this filter" : "No matches for “\(searchText)”")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(filteredOpportunities) { opp in
+                        NavigationLink(destination: OpportunityDetailView(opportunity: opp)) {
+                            OpportunityRow(opportunity: opp)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if let phone = opp.lead_phone, !phone.isEmpty {
+                                Button {
+                                    if let url = URL(string: "tel:\(phone.filter { $0.isNumber })") {
+                                        UIApplication.shared.open(url)
+                                    }
+                                } label: {
+                                    Label("Call", systemImage: "phone.fill")
+                                }
+                                .tint(.green)
+                            }
+                            if let address = opp.address_text, !address.isEmpty {
+                                Button {
+                                    openDirections(to: address)
+                                } label: {
+                                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                                }
+                                .tint(AppSettings.brandBlue)
+                            }
+                        }
+                    }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Name, address, or phone")
         .refreshable { await vm.load() }
+    }
+
+    private func openDirections(to address: String) {
+        let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? address
+        let app = NavigationAppSetting(rawValue: navigationAppRaw) ?? .appleMaps
+        switch app {
+        case .appleMaps:
+            if let url = URL(string: "http://maps.apple.com/?daddr=\(encoded)") {
+                UIApplication.shared.open(url)
+            }
+        case .googleMaps:
+            let googleURL = URL(string: "comgooglemaps://?daddr=\(encoded)&directionsmode=driving")
+            let webFallback = URL(string: "https://maps.google.com/?daddr=\(encoded)")
+            if let googleURL, UIApplication.shared.canOpenURL(googleURL) {
+                UIApplication.shared.open(googleURL)
+            } else if let webFallback {
+                UIApplication.shared.open(webFallback)
+            }
+        }
     }
 
     // MARK: - Empty State
