@@ -49,13 +49,35 @@ export async function GET(
 
     const { data: opportunity, error: oppError } = await adminClient
       .from('opportunities')
-      .select('id')
+      .select('id, owner_user_id, setter_user_id, lead_id')
       .eq('id', opportunityId)
       .eq('org_id', authContext.profile.org_id)
       .maybeSingle()
 
     if (oppError || !opportunity) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    // Reps only see proposals for opportunities they own, set, or are the assigned closer on —
+    // mirrors app/api/opportunities/route.ts (list) and app/api/opportunities/[id]/route.ts
+    // (detail) scoping so this sub-resource can't leak another rep's proposal totals.
+    const repLikeRoles = ['rep', 'sales_rep', 'closer'] as const
+    if (repLikeRoles.includes(profile.role as (typeof repLikeRoles)[number])) {
+      const isOwner = opportunity.owner_user_id === authContext.authUser.id
+      const isSetter = opportunity.setter_user_id === authContext.authUser.id
+      let isLeadCloser = false
+      if (!isOwner && !isSetter && opportunity.lead_id) {
+        const { data: lead } = await adminClient
+          .from('leads')
+          .select('closer_user_id')
+          .eq('id', opportunity.lead_id)
+          .eq('org_id', profile.org_id)
+          .maybeSingle()
+        isLeadCloser = lead?.closer_user_id === authContext.authUser.id
+      }
+      if (!isOwner && !isSetter && !isLeadCloser) {
+        return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+      }
     }
 
     const { data: rows, error: proposalsError } = await adminClient
