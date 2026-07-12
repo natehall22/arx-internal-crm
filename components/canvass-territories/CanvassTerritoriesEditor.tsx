@@ -224,6 +224,17 @@ export function CanvassTerritoriesEditor({
         } else {
           setOrgTeams([])
         }
+      } else {
+        // Previously swallowed silently: territories would still load and render fine,
+        // but the "Assigned reps"/"Assigned teams" pickers would just show empty with no
+        // explanation — indistinguishable from "assignment doesn't work". Surface it instead.
+        const j = await uRes.json().catch(() => ({}))
+        setUsers([])
+        setOrgTeams([])
+        setError(
+          j.error ||
+            'Could not load reps/teams for assignment. Areas still loaded — try refreshing to assign reps.'
+        )
       }
     } catch {
       setError('Failed to load data')
