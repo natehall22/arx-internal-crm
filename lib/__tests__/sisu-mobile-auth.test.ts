@@ -21,6 +21,7 @@ jest.mock('next/server', () => ({
 import { requireAuthApi } from '@/lib/auth'
 import { POST as leaderboardPOST } from '@/app/api/sisu/leaderboard/route'
 import { GET as badgesGET } from '@/app/api/sisu/badges/route'
+import { GET as incentivesGET } from '@/app/api/sisu/incentives/route'
 
 const mockRequireAuthApi = requireAuthApi as jest.MockedFunction<typeof requireAuthApi>
 
@@ -68,5 +69,16 @@ describe('Sisu routes accept bearer auth (iOS) and reject unauthenticated', () =
 
     const res = await badgesGET(fakeRequest('https://x.test/api/sisu/badges?userId=not-a-uuid'))
     expect(res.status).toBe(400)
+  })
+
+  it('incentives: returns 401 when requireAuthApi throws (no cookie or bearer session)', async () => {
+    mockRequireAuthApi.mockRejectedValue(new Error('Unauthorized'))
+
+    const res = await incentivesGET()
+    const body = await res.json()
+
+    expect(res.status).toBe(401)
+    expect(body).toEqual({ error: 'Unauthorized' })
+    expect(mockRequireAuthApi).toHaveBeenCalledTimes(1)
   })
 })

@@ -69,6 +69,128 @@ struct SisuBadgesResponse: Decodable {
     let badges: [SisuBadge]
 }
 
+/// A SPIFF ("Heat") program with the current rep's live progress toward it.
+/// Mirrors `SpiffWithProgress` in lib/incentive-metrics.ts — do not add fields
+/// that don't exist server-side; extend /api/sisu/incentives first.
+struct SisuSpiff: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let trigger_metric: String
+    let threshold: Double
+    let reward_type: String
+    let reward_amount: Double?
+    let reward_note: String?
+    let eligible_roles: [String]
+    let starts_at: String
+    let ends_at: String
+    let status: String
+    let currentValue: Double
+    let qualified: Bool
+    let payout_amount: Double?
+    let payroll_pay_date: String?
+
+    /// 0...100, clamped. `threshold` can be 0 for misconfigured programs — guard divide-by-zero.
+    var progressPct: Double {
+        guard threshold > 0 else { return 0 }
+        return min(100, max(0, (currentValue / threshold) * 100))
+    }
+
+    /// "$200 Cash", "$50 Gift Card", or "Recognition" — matches formatReward() on web.
+    var rewardLabel: String {
+        if reward_type == "recognition" { return "Recognition" }
+        if let note = reward_note, !note.isEmpty { return note }
+        if let amount = reward_amount {
+            let formatted = String(format: "$%.0f", amount)
+            return reward_type == "gift_card" ? "\(formatted) Gift Card" : "\(formatted) Cash"
+        }
+        return reward_type == "gift_card" ? "Gift Card" : "Cash"
+    }
+
+    /// Human label for the trigger metric — matches spiffMetricLabel() on web.
+    var metricLabel: String {
+        switch trigger_metric {
+        case "inspections_set": return "Inspections Set"
+        case "inspections_sat": return "Inspections Sat"
+        case "closed_sales": return "Closed Sales"
+        case "closed_revenue": return "Closed Revenue ($)"
+        case "doors_knocked": return "Doors Knocked"
+        case "close_rate": return "Close Rate (%)"
+        case "upgrade_attached": return "Upgrades Attached"
+        default: return trigger_metric.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    var endsAtDate: Date? { ISO8601DateParser.parse(ends_at) }
+
+    /// "2d left", "6h left", "Ended" — matches timeRemainingLabel() on web.
+    var timeRemainingLabel: String {
+        guard let end = endsAtDate else { return "" }
+        let diff = end.timeIntervalSinceNow
+        if diff <= 0 { return "Ended" }
+        let hours = diff / 3600
+        if hours < 2 {
+            let mins = Int(diff / 60)
+            return "\(mins / 60)h \(String(format: "%02d", mins % 60))m left"
+        }
+        if hours < 24 { return "\(Int(hours))h left" }
+        return "\(Int(hours / 24))d left"
+    }
+
+    /// Within 24h of ending and not yet qualified — surfaces urgency in the UI.
+    var isUrgent: Bool {
+        guard !qualified, let end = endsAtDate else { return false }
+        let diff = end.timeIntervalSinceNow
+        return diff > 0 && diff < 24 * 60 * 60
+    }
+}
+
+/// A rep's active weekly targets. Mirrors `UserIncentiveGoal` in lib/incentive-metrics.ts.
+/// Set by managers via the web admin; iOS is read-only.
+struct SisuIncentiveGoal: Decodable {
+    let id: String
+    let weekly_doors_target: Int?
+    let weekly_inspections_target: Int?
+    let weekly_sales_target: Int?
+    let weekly_revenue_target: Double?
+    let effective_from: String
+    let effective_to: String?
+
+    var hasAnyTarget: Bool {
+        weekly_doors_target != nil || weekly_inspections_target != nil
+            || weekly_sales_target != nil || weekly_revenue_target != nil
+    }
+}
+
+/// This-week live counts backing goal progress bars. Subset of `LiveMetrics` on
+/// web (badge-milestone-only fields like doorsKnockedForBadge are omitted —
+/// iOS doesn't need them since badge unlock progress isn't shown here).
+struct SisuLiveMetrics: Decodable {
+    let inspectionsSet: Int
+    let doorsKnocked: Int
+    let closedSales: Int
+}
+
+struct SisuIncentivesResponse: Decodable {
+    let liveMetrics: SisuLiveMetrics
+    let goal: SisuIncentiveGoal?
+    let activeSpiffs: [SisuSpiff]
+    let asOf: String
+}
+
+/// Minimal ISO8601 parser shared by Sisu models — handles both fractional-second
+/// and whole-second timestamp formats Postgres/PostgREST can emit.
+enum ISO8601DateParser {
+    static func parse(_ string: String) -> Date? {
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFractional.date(from: string) { return date }
+        let whole = ISO8601DateFormatter()
+        whole.formatOptions = [.withInternetDateTime]
+        return whole.date(from: string)
+    }
+}
+
 // MARK: - Canvass Models
 
 struct CanvassPin: Codable, Identifiable {
@@ -370,6 +492,11 @@ struct APIClient {
             URLQueryItem(name: "userId", value: userId)
         ])
         return try JSONDecoder().decode(SisuBadgesResponse.self, from: data).badges
+    }
+
+    static func sisuIncentives() async throws -> SisuIncentivesResponse {
+        let data = try await request(path: "/api/sisu/incentives")
+        return try JSONDecoder().decode(SisuIncentivesResponse.self, from: data)
     }
 
     // MARK: - Canvass
