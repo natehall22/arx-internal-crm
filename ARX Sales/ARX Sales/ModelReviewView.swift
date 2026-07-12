@@ -16,6 +16,7 @@ struct ModelReviewView: View {
     @State private var selectedWallFace: WallFace? = nil
     @State private var showFaceEdit = false
     @State private var showSaveSheet = false
+    @State private var showDeleteConfirm = false
     @State private var jobAddress: String
     @Environment(\.dismiss) private var dismiss
 
@@ -78,15 +79,27 @@ struct ModelReviewView: View {
 
                 // Selected face detail
                 if let face = selectedRoofFace {
-                    RoofFaceDetailSheet(face: face, onEdit: { showFaceEdit = true })
+                    RoofFaceDetailSheet(face: face, onEdit: { showFaceEdit = true },
+                                        onDelete: { showDeleteConfirm = true })
                         .transition(.move(edge: .bottom))
                 } else if let face = selectedWallFace {
-                    WallFaceDetailSheet(face: bindingForWall(face), onEdit: { showFaceEdit = true })
+                    WallFaceDetailSheet(face: bindingForWall(face), onEdit: { showFaceEdit = true },
+                                        onDelete: { showDeleteConfirm = true })
                         .transition(.move(edge: .bottom))
                 } else {
                     summaryBar
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete this face?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { deleteSelectedFace() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Use this to remove a facet the scan merged or split incorrectly — common on complex roofs. This can't be undone; re-scan to get it back.")
         }
         .sheet(isPresented: $showFaceEdit) {
             if let face = selectedRoofFace {
@@ -164,6 +177,16 @@ struct ModelReviewView: View {
             Text(value).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundColor(.white)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func deleteSelectedFace() {
+        if let face = selectedRoofFace {
+            scanResult.roofFaces.removeAll { $0.id == face.id }
+            selectedRoofFace = nil
+        } else if let face = selectedWallFace {
+            scanResult.wallFaces.removeAll { $0.id == face.id }
+            selectedWallFace = nil
+        }
     }
 
     private func bindingForWall(_ face: WallFace) -> Binding<WallFace> {
@@ -325,6 +348,7 @@ struct SceneModelView: UIViewRepresentable {
 struct RoofFaceDetailSheet: View {
     let face: RoofFace
     let onEdit: () -> Void
+    let onDelete: () -> Void
     var body: some View {
         VStack(spacing: 0) {
             Capsule().fill(Color.white.opacity(0.3)).frame(width: 40, height: 4).padding(.top, 8)
@@ -335,6 +359,12 @@ struct RoofFaceDetailSheet: View {
                         .font(.caption).foregroundColor(.white.opacity(0.6))
                 }
                 Spacer()
+                Button { onDelete() } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(.ultraThinMaterial).clipShape(Circle())
+                }
                 Button { onEdit() } label: {
                     Text("Edit").fontWeight(.semibold).foregroundColor(.black)
                         .padding(.horizontal, 16).padding(.vertical, 8)
@@ -373,6 +403,7 @@ struct RoofFaceDetailSheet: View {
 struct WallFaceDetailSheet: View {
     @Binding var face: WallFace
     let onEdit: () -> Void
+    let onDelete: () -> Void
     var body: some View {
         VStack(spacing: 0) {
             Capsule().fill(Color.white.opacity(0.3)).frame(width: 40, height: 4).padding(.top, 8)
@@ -383,6 +414,12 @@ struct WallFaceDetailSheet: View {
                         .font(.caption).foregroundColor(.white.opacity(0.6))
                 }
                 Spacer()
+                Button { onDelete() } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(.ultraThinMaterial).clipShape(Circle())
+                }
                 Button { onEdit() } label: {
                     Text("Edit").fontWeight(.semibold).foregroundColor(.black)
                         .padding(.horizontal, 16).padding(.vertical, 8)
