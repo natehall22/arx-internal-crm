@@ -2,6 +2,7 @@ import SwiftUI
 
 enum AppTab: String, CaseIterable, Identifiable {
     case dashboard
+    case sisu
     case canvass
     case opportunities
     case measure
@@ -11,6 +12,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
+        case .sisu: return "Sisu"
         case .canvass: return "Canvass"
         case .opportunities: return "Opportunities"
         case .measure: return "Measure"
@@ -20,11 +22,21 @@ enum AppTab: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .dashboard: return "chart.bar.fill"
+        case .sisu: return "flame.fill"
         case .canvass: return "map.fill"
         case .opportunities: return "briefcase.fill"
         case .measure: return "ruler.fill"
         }
     }
+}
+
+/// Which screen occupies the "home" tab slot — Sisu (gamification hub) or the plainer Dashboard.
+enum HomeScreenSetting: String, CaseIterable {
+    case sisu
+    case dashboard
+
+    var tab: AppTab { self == .sisu ? .sisu : .dashboard }
+    var label: String { self == .sisu ? "Sisu" : "Dashboard" }
 }
 
 struct TabBarConfig: Codable, Equatable {
@@ -73,12 +85,15 @@ struct TabBarConfig: Codable, Equatable {
         return str
     }
 
-    func resolvedTabs(capabilities: MobileAppCapabilities?) -> [AppTab] {
+    func resolvedTabs(capabilities: MobileAppCapabilities?, homeScreen: HomeScreenSetting = .sisu) -> [AppTab] {
         var result: [AppTab] = []
         for entry in order where entry.visible {
-            guard let tab = AppTab(rawValue: entry.tab) else { continue }
+            guard let storedTab = AppTab(rawValue: entry.tab) else { continue }
+            // Home slot: whatever's stored (dashboard or sisu), always render the current preference.
+            let tab = (storedTab == .dashboard || storedTab == .sisu) ? homeScreen.tab : storedTab
+            guard !result.contains(tab) else { continue }
             switch tab {
-            case .dashboard, .canvass:
+            case .dashboard, .sisu, .canvass:
                 result.append(tab)
             case .opportunities:
                 if capabilities?.opportunitiesTab == true { result.append(tab) }
@@ -86,7 +101,7 @@ struct TabBarConfig: Codable, Equatable {
                 if capabilities?.measureTab == true { result.append(tab) }
             }
         }
-        if !result.contains(.dashboard) { result.insert(.dashboard, at: 0) }
+        if !result.contains(homeScreen.tab) { result.insert(homeScreen.tab, at: 0) }
         if !result.contains(.canvass) { result.insert(.canvass, at: min(1, result.count)) }
         return result
     }

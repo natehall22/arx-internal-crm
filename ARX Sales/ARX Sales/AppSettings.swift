@@ -22,6 +22,9 @@ enum AppSettings {
         static let pinTimeFilter = "settings.pinTimeFilter"
         static let tabBarConfig = "settings.tabBarConfig"
 
+        /// Which screen occupies the home tab slot — Sisu (default) or Dashboard.
+        static let homeScreen = "settings.homeScreen"
+
         /// Last-known `app_access` per signed-in user (prefix — actual key appends the user id).
         /// Lets a denied user re-launching offline on a shared device still see the lockout
         /// screen without needing a network round-trip; unknown/never-seen users fail open.

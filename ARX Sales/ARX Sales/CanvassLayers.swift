@@ -234,19 +234,26 @@ enum TerritoryGeometry {
 
 struct NavBarSettingsView: View {
     @AppStorage(AppSettings.Keys.tabBarConfig) private var tabBarConfigRaw = ""
+    @AppStorage(AppSettings.Keys.homeScreen) private var homeScreenRaw = HomeScreenSetting.sisu.rawValue
     @State private var config = TabBarConfig.default
+
+    private var homeScreen: HomeScreenSetting { HomeScreenSetting(rawValue: homeScreenRaw) ?? .sisu }
 
     var body: some View {
         List {
             Section("Tab Order & Visibility") {
                 ForEach(config.order.indices, id: \.self) { idx in
                     let entry = config.order[idx]
-                    if let tab = AppTab(rawValue: entry.tab) {
+                    if let storedTab = AppTab(rawValue: entry.tab) {
+                        // Home slot displays whichever of Sisu/Dashboard is actually active
+                        // (set in Settings above) — the stored entry itself never changes.
+                        let isHomeSlot = storedTab == .dashboard || storedTab == .sisu
+                        let tab = isHomeSlot ? homeScreen.tab : storedTab
                         HStack {
                             Image(systemName: tab.systemImage)
                             Text(tab.title)
                             Spacer()
-                            if tab == .dashboard || tab == .canvass {
+                            if isHomeSlot || tab == .canvass {
                                 Text("Required").font(.caption).foregroundColor(.secondary)
                             } else {
                                 Toggle("", isOn: bindingForVisible(idx))
@@ -258,7 +265,7 @@ struct NavBarSettingsView: View {
                 .onMove { from, to in config.order.move(fromOffsets: from, toOffset: to) }
             }
             Section {
-                Text("Dashboard and Canvass are always available. Opportunities and Measure follow your role permissions.")
+                Text("\(homeScreen.label) and Canvass are always available. Opportunities and Measure follow your role permissions. Switch between Sisu and Dashboard from the main Settings screen.")
                     .font(.caption)
                     .foregroundColor(AppSettings.darkText.opacity(0.75))
             }

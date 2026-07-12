@@ -31,6 +31,44 @@ struct TeamStatsResponse: Codable {
     let closerStats: [TeamMemberStats]?
 }
 
+// MARK: - Sisu Models
+
+struct SisuLeaderboardEntry: Decodable, Identifiable {
+    let user_id: String
+    let full_name: String
+    let role: String
+    let primary_metric: Int
+    let doors_knocked: Int
+    let rank: Int
+    let badge_count: Int
+    var id: String { user_id }
+}
+
+struct SisuLeaderboardResponse: Decodable {
+    let setters: [SisuLeaderboardEntry]
+    let closers: [SisuLeaderboardEntry]
+    let asOf: String
+}
+
+struct SisuBadge: Decodable, Identifiable {
+    let id: String
+    let badge_id: String
+    let awarded_at: String
+    let incentive_badges: SisuBadgeInfo?
+
+    struct SisuBadgeInfo: Decodable {
+        let name: String?
+        let description: String?
+        let icon_key: String?
+        let color_hex: String?
+        let image_url: String?
+    }
+}
+
+struct SisuBadgesResponse: Decodable {
+    let badges: [SisuBadge]
+}
+
 // MARK: - Canvass Models
 
 struct CanvassPin: Codable, Identifiable {
@@ -317,6 +355,21 @@ struct APIClient {
             queryItems: [URLQueryItem(name: "timeframe", value: timeframe)]
         )
         return try JSONDecoder().decode(TeamStatsResponse.self, from: data)
+    }
+
+    // MARK: - Sisu
+
+    static func sisuLeaderboard() async throws -> SisuLeaderboardResponse {
+        struct EmptyBody: Encodable {}
+        let data = try await post(path: "/api/sisu/leaderboard", body: EmptyBody())
+        return try JSONDecoder().decode(SisuLeaderboardResponse.self, from: data)
+    }
+
+    static func sisuBadges(userId: String) async throws -> [SisuBadge] {
+        let data = try await request(path: "/api/sisu/badges", queryItems: [
+            URLQueryItem(name: "userId", value: userId)
+        ])
+        return try JSONDecoder().decode(SisuBadgesResponse.self, from: data).badges
     }
 
     // MARK: - Canvass
