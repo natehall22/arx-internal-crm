@@ -6,7 +6,6 @@ import InspectionStatusCard from '@/components/InspectionStatusCard'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import CommissionWidget from '@/components/CommissionWidget'
-import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
@@ -2103,9 +2102,6 @@ export default function DashboardClient({
           </div>
         </div>
       </div>
-
-      {/* AI Assistant */}
-      <AIAssistantWrapper context={{ type: 'general' }} />
 
       {/* Comp Plan Modal */}
       {showCompPlanModal && (

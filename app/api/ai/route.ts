@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { requireAuthApi } from '@/lib/auth'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { canAccessJobBoardFromPermissionNames } from '@/lib/permissions'
+import { createServiceClient } from '@/lib/supabase/service'
+import {
+  createRequestScopedClient,
+  getRequestAccessToken,
+} from '@/lib/supabase/request-client'
 
 export type AIAction =
   | 'job_next_action'
@@ -34,6 +42,15 @@ const SYSTEM_PROMPTS: Record<AIAction, string> = {
   chat: 'You are an AI assistant built into the ARX Roofing & Exteriors CRM. Help with CRM tasks: leads, opportunities, jobs, scheduling, pricing, and team management. Be concise and practical. Return plain text responses.',
 }
 
+const JOB_BOARD_ACTIONS = new Set<AIAction>([
+  'job_next_action',
+  'job_profit_risk',
+  'job_packet_summary',
+  'notes_summary',
+  'collection_followup_email',
+  'change_order_draft',
+])
+
 function isAIAction(action: string): action is AIAction {
   return action in SYSTEM_PROMPTS
 }
@@ -44,8 +61,55 @@ function getOpenAI() {
   })
 }
 
+async function resolveAuthenticatedAiClient() {
+  const auth = await requireAuthApi()
+  const accessToken = getRequestAccessToken()
+  if (!accessToken) {
+    throw new Error('Unauthorized')
+  }
+  return {
+    profile: auth.profile,
+    supabase: createRequestScopedClient(accessToken),
+  }
+}
+
+async function userHasAiEnabled(
+  supabase: ReturnType<typeof createRequestScopedClient>,
+  userId: string
+): Promise<boolean> {
+  const { data: settings } = await supabase
+    .from('user_settings')
+    .select('ai_enabled')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  return Boolean(settings?.ai_enabled)
+}
+
 export async function POST(request: Request) {
   try {
+    let profile: { id: string; role: string }
+    let supabase: ReturnType<typeof createRequestScopedClient>
+
+    try {
+      const resolved = await resolveAuthenticatedAiClient()
+      profile = resolved.profile
+      supabase = resolved.supabase
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unauthorized'
+      if (message === 'Account disabled') {
+        return NextResponse.json({ error: 'Account disabled' }, { status: 403 })
+      }
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    if (!(await userHasAiEnabled(supabase, profile.id))) {
+      return NextResponse.json(
+        { error: 'AI assistant is not enabled. Enable it in Settings.' },
+        { status: 403 }
+      )
+    }
+
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
       return NextResponse.json({ error: 'Server AI configuration missing' }, { status: 500 })
@@ -60,6 +124,14 @@ export async function POST(request: Request) {
 
     if (typeof context !== 'object' || context === null || Array.isArray(context)) {
       return NextResponse.json({ error: 'Invalid context' }, { status: 400 })
+    }
+
+    if (JOB_BOARD_ACTIONS.has(action)) {
+      const admin = createServiceClient()
+      const permissions = await resolveEffectivePermissionNames(admin, profile.id, profile)
+      if (!canAccessJobBoardFromPermissionNames(permissions)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
     }
 
     const openai = getOpenAI()

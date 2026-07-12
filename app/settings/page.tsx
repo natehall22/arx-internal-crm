@@ -71,7 +71,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadSettings()
-    
+
+    const tab = searchParams.get('tab')
+    if (tab === 'notifications' || tab === 'calendar' || tab === 'ai' || tab === 'reports' || tab === 'display') {
+      setActiveTab(tab)
+    }
+
     // Check for OAuth callback messages
     const success = searchParams.get('success')
     const error = searchParams.get('error')
