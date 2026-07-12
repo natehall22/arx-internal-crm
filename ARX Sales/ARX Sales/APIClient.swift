@@ -106,6 +106,58 @@ struct MobileAppointmentsResponse: Decodable {
     let appointments: [MobileAppointment]
 }
 
+/// Row from GET /api/mobile/leads — caller's attributed/owned canvass leads.
+struct MobileLead: Decodable, Identifiable {
+    let id: String
+    let lat: Double?
+    let lng: Double?
+    let address_text: String?
+    let homeowner_name: String?
+    let phone: String?
+    let canvass_disposition: String?
+    let canvass_notes: String?
+    let status: String?
+    let created_at: String?
+    let updated_at: String?
+
+    var displayName: String {
+        let name = homeowner_name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, !name.isEmpty { return name }
+        let addr = address_text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let addr, !addr.isEmpty { return addr }
+        return "Lead"
+    }
+
+    var hasCoordinate: Bool {
+        guard let lat, let lng else { return false }
+        return lat != 0 || lng != 0
+    }
+
+    var asCanvassPin: CanvassPin? {
+        guard let lat, let lng, hasCoordinate else { return nil }
+        return CanvassPin(
+            id: id,
+            lat: lat,
+            lng: lng,
+            d: canvass_disposition,
+            s: status,
+            o: nil,
+            t: created_at,
+            ia: nil
+        )
+    }
+
+    /// Matches web canvass "Scheduled" filter: status=inspection and/or disposition inspection_scheduled.
+    var isScheduled: Bool {
+        status == "inspection" || canvass_disposition == "inspection_scheduled"
+    }
+}
+
+struct MobileLeadsResponse: Decodable {
+    let leads: [MobileLead]
+    let hasMore: Bool?
+}
+
 // MARK: - Sisu Models
 
 struct SisuLeaderboardEntry: Decodable, Identifiable {
@@ -599,6 +651,13 @@ struct APIClient {
             out.append(apt)
         }
         return out
+    }
+
+    // MARK: - My Leads
+
+    static func myLeads() async throws -> MobileLeadsResponse {
+        let data = try await request(path: "/api/mobile/leads")
+        return try JSONDecoder().decode(MobileLeadsResponse.self, from: data)
     }
 
     // MARK: - Canvass

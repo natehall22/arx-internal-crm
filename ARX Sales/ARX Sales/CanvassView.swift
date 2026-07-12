@@ -15,8 +15,11 @@ struct CanvassView: View {
     @State private var showLeadSheet = false
     @State private var showPendingSheet = false
     @State private var showLayersSheet = false
+    @State private var showLeadListSheet = false
     @State private var selectedPin: CanvassPin? = nil
     @State private var newLeadCoord: CLLocationCoordinate2D? = nil
+    @State private var pendingLeadFromList: MobileLead? = nil
+    @State private var leadListOpenGeneration = 0
     @State private var hasInitiallyZoomed = false
     @State private var trackingMode: MKUserTrackingMode = .none
     @State private var flyTarget: CLLocationCoordinate2D? = nil
@@ -62,8 +65,14 @@ struct CanvassView: View {
                     vm.loadTerritoriesIfNeeded(show: showTerritories)
                 },
                 onZoom: { vm.invalidateBoundsCache() },
-                onLongPress: { coord in newLeadCoord = coord; selectedPin = nil; showLeadSheet = true },
-                onPinTap: { pin in selectedPin = pin; newLeadCoord = nil; showLeadSheet = true }
+                onLongPress: { coord in
+                    leadListOpenGeneration += 1
+                    newLeadCoord = coord; selectedPin = nil; showLeadSheet = true
+                },
+                onPinTap: { pin in
+                    leadListOpenGeneration += 1
+                    selectedPin = pin; newLeadCoord = nil; showLeadSheet = true
+                }
             )
             .ignoresSafeArea()
 
@@ -94,6 +103,10 @@ struct CanvassView: View {
 
                 HStack(alignment: .bottom) {
                     VStack(spacing: 10) {
+                        MapCircleButton(systemImage: "list.bullet", isActive: showLeadListSheet) {
+                            showLeadListSheet = true
+                        }
+                        .accessibilityLabel("My Leads")
                         MapCircleButton(systemImage: "square.3.layers.3d", isActive: showLayersSheet) { showLayersSheet = true }
                         timeScrubberCapsule
                     }
@@ -159,6 +172,15 @@ struct CanvassView: View {
         .sheet(isPresented: $showLayersSheet) {
             LayersSheetView(weatherAvailable: weatherOverlayAvailable).mediumSheetPresentation()
         }
+        .sheet(isPresented: $showLeadListSheet, onDismiss: {
+            openLeadFromListIfNeeded()
+        }) {
+            LeadListView { lead in
+                pendingLeadFromList = lead
+                showLeadListSheet = false
+            }
+            .largeSheetPresentation()
+        }
         .onAppear {
             vm.startLocationTracking()
             offlineBridge.onSyncSuccess = { [weak vm] in
@@ -204,6 +226,35 @@ struct CanvassView: View {
             trackingMode = .followWithHeading
         default:
             trackingMode = .none
+        }
+    }
+
+    /// After My Leads sheet dismisses, fly the map and open the same pin flow as `onPinTap`.
+    private func openLeadFromListIfNeeded() {
+        guard let lead = pendingLeadFromList, let pin = lead.asCanvassPin else {
+            pendingLeadFromList = nil
+            return
+        }
+        pendingLeadFromList = nil
+        let coord = CLLocationCoordinate2D(latitude: pin.lat, longitude: pin.lng)
+        leadListOpenGeneration += 1
+        let generation = leadListOpenGeneration
+
+        // Force a fresh viewport fetch around the destination (list pins may be outside cache).
+        vm.invalidateBoundsCache()
+        mapCoordinator.flyToCoordinate?(coord)
+        let region = MKCoordinateRegion(
+            center: coord,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        )
+        vm.loadPins(for: region)
+
+        // Brief delay so the list sheet can finish dismissing before presenting LeadSheet.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard generation == leadListOpenGeneration else { return }
+            selectedPin = pin
+            newLeadCoord = nil
+            showLeadSheet = true
         }
     }
 }
