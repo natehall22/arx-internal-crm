@@ -71,6 +71,21 @@ struct LeadSheetView: View {
                                             .foregroundColor(.white.opacity(0.8))
                                     }
                                 }
+                                if !phone.isEmpty {
+                                    Spacer()
+                                    Button {
+                                        if let url = URL(string: "tel:\(phone.filter { $0.isNumber })") {
+                                            UIApplication.shared.open(url)
+                                        }
+                                    } label: {
+                                        Image(systemName: "phone.fill")
+                                            .foregroundColor(.white)
+                                            .padding(8)
+                                            .background(Circle().fill(Color.white.opacity(0.2)))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Call homeowner")
+                                }
                             }
                             .padding(.vertical, 2)
                         }
