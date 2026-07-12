@@ -31,6 +31,81 @@ struct TeamStatsResponse: Codable {
     let closerStats: [TeamMemberStats]?
 }
 
+// MARK: - Appointment Models (GET /api/appointments?filter=upcoming)
+
+/// Slim decode of enriched appointment rows from `/api/appointments`.
+/// Phone lives on nested `leads`; address prefers appointment.address_text then leads.
+struct MobileAppointment: Decodable, Identifiable {
+    let id: String
+    let scheduled_for: String
+    let appointment_type: String?
+    let address_text: String?
+    let status: String?
+    let leads: MobileAppointmentLead?
+    let closer: MobileAppointmentUser?
+    let setter: MobileAppointmentUser?
+
+    struct MobileAppointmentLead: Decodable {
+        let homeowner_name: String?
+        let phone: String?
+        let address_text: String?
+    }
+
+    struct MobileAppointmentUser: Decodable {
+        let id: String?
+        let full_name: String?
+        let role: String?
+    }
+
+    var homeownerName: String {
+        let name = leads?.homeowner_name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (name?.isEmpty == false) ? name! : "Homeowner"
+    }
+
+    var displayAddress: String? {
+        let apt = address_text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let apt, !apt.isEmpty { return apt }
+        let lead = leads?.address_text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let lead, !lead.isEmpty { return lead }
+        return nil
+    }
+
+    var phone: String? {
+        let p = leads?.phone?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (p?.isEmpty == false) ? p : nil
+    }
+
+    var scheduledDate: Date? {
+        Self.parseISO8601(scheduled_for)
+    }
+
+    var typeLabel: String {
+        switch appointment_type {
+        case "inspection": return "Inspection"
+        case "insurance_call": return "Insurance Call"
+        case "follow_up": return "Follow-up"
+        case nil, "": return "Appointment"
+        default:
+            return appointment_type!
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+    }
+
+    static func parseISO8601(_ raw: String) -> Date? {
+        let withFrac = ISO8601DateFormatter()
+        withFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFrac.date(from: raw) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: raw)
+    }
+}
+
+struct MobileAppointmentsResponse: Decodable {
+    let appointments: [MobileAppointment]
+}
+
 // MARK: - Sisu Models
 
 struct SisuLeaderboardEntry: Decodable, Identifiable {
@@ -497,6 +572,33 @@ struct APIClient {
     static func sisuIncentives() async throws -> SisuIncentivesResponse {
         let data = try await request(path: "/api/sisu/incentives")
         return try JSONDecoder().decode(SisuIncentivesResponse.self, from: data)
+    }
+
+    // MARK: - Appointments
+
+    /// Upcoming scheduled appointments for the signed-in rep (Bearer-auth on existing web route).
+    /// Decodes each row independently so one malformed appointment cannot hide the card.
+    static func upcomingAppointments() async throws -> [MobileAppointment] {
+        let data = try await request(path: "/api/appointments", queryItems: [
+            URLQueryItem(name: "filter", value: "upcoming"),
+        ])
+        guard
+            let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let rows = root["appointments"] as? [Any]
+        else {
+            return try JSONDecoder().decode(MobileAppointmentsResponse.self, from: data).appointments
+        }
+        let decoder = JSONDecoder()
+        var out: [MobileAppointment] = []
+        out.reserveCapacity(rows.count)
+        for row in rows {
+            guard JSONSerialization.isValidJSONObject(row),
+                  let rowData = try? JSONSerialization.data(withJSONObject: row),
+                  let apt = try? decoder.decode(MobileAppointment.self, from: rowData)
+            else { continue }
+            out.append(apt)
+        }
+        return out
     }
 
     // MARK: - Canvass

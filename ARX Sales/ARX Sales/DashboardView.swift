@@ -16,11 +16,14 @@ struct DashboardView: View {
     @State private var timeframe = "week"
     @State private var userName: String = ""
     @State private var userRole: String = ""
+    @State private var appointmentRefreshToken = 0
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Additive — hides itself when empty / fetch fails; never blanks stats.
+                    NextAppointmentCard(refreshToken: appointmentRefreshToken)
 
                     // MARK: - Timeframe Picker
                     Picker("Timeframe", selection: $timeframe) {
@@ -77,6 +80,7 @@ struct DashboardView: View {
                 }
             }
             .refreshable {
+                appointmentRefreshToken += 1
                 await loadData()
             }
         }

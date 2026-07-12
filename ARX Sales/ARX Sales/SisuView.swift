@@ -13,6 +13,7 @@ struct SisuView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var selectedBoard: Board = .closers
+    @State private var appointmentRefreshToken = 0
 
     private enum Board: String, CaseIterable {
         case setters = "Setters"
@@ -23,6 +24,9 @@ struct SisuView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Additive — hides itself when empty / fetch fails; never blanks hub.
+                    NextAppointmentCard(refreshToken: appointmentRefreshToken)
+
                     if isLoading {
                         ProgressView("Loading…")
                             .frame(maxWidth: .infinity)
@@ -57,7 +61,10 @@ struct SisuView: View {
                     .accessibilityLabel("Settings")
                 }
             }
-            .refreshable { await loadData() }
+            .refreshable {
+                appointmentRefreshToken += 1
+                await loadData()
+            }
         }
         .task { await loadData() }
     }
