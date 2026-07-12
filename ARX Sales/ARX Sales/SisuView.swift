@@ -8,6 +8,7 @@ struct SisuView: View {
 
     @State private var leaderboard: SisuLeaderboardResponse?
     @State private var badges: [SisuBadge] = []
+    @State private var incentives: SisuIncentivesResponse?
     @State private var currentUserId: String?
     @State private var isLoading = true
     @State private var error: String?
@@ -38,6 +39,8 @@ struct SisuView: View {
                         .padding(.top, 60)
                     } else {
                         myRankCard
+                        spiffsSection
+                        goalSection
                         badgesSection
                         leaderboardSection
                     }
@@ -132,6 +135,55 @@ struct SisuView: View {
         }
     }
 
+    // MARK: - Active SPIFFs (live money — sits right under the rank card on purpose)
+
+    @ViewBuilder
+    private var spiffsSection: some View {
+        if let spiffs = incentives?.activeSpiffs, !spiffs.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("ACTIVE SPIFFS")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+
+                ForEach(spiffs) { spiff in
+                    SpiffCard(spiff: spiff)
+                        .padding(.horizontal)
+                }
+            }
+        }
+    }
+
+    // MARK: - Weekly Goal (personal targets — calmer than SPIFFs by design)
+
+    @ViewBuilder
+    private var goalSection: some View {
+        if let inc = incentives, let goal = inc.goal, goal.hasAnyTarget {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("MY WEEKLY GOAL")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+
+                VStack(spacing: 12) {
+                    if let target = goal.weekly_doors_target {
+                        GoalProgressRow(label: "Doors", current: inc.liveMetrics.doorsKnocked, target: target)
+                    }
+                    if let target = goal.weekly_inspections_target {
+                        GoalProgressRow(label: "Inspections", current: inc.liveMetrics.inspectionsSet, target: target)
+                    }
+                    if let target = goal.weekly_sales_target {
+                        GoalProgressRow(label: "Sales", current: inc.liveMetrics.closedSales, target: target)
+                    }
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(16)
+                .padding(.horizontal)
+            }
+        }
+    }
+
     // MARK: - Badges
 
     @ViewBuilder
@@ -208,6 +260,9 @@ struct SisuView: View {
                 badges = (try? await APIClient.sisuBadges(userId: uid)) ?? []
             }
 
+            // SPIFFs/goal are additive — a failure here shouldn't blank the whole hub.
+            incentives = try? await APIClient.sisuIncentives()
+
             // Board defaults to wherever the rep actually shows up.
             if let myBoard = myEntryBoard {
                 selectedBoard = myBoard
@@ -216,6 +271,116 @@ struct SisuView: View {
             self.error = error.localizedDescription
         }
         isLoading = false
+    }
+}
+
+// MARK: - SPIFF Card
+
+struct SpiffCard: View {
+    let spiff: SisuSpiff
+
+    private var accent: Color {
+        if spiff.qualified { return Color(hex: "#10B981") }
+        if spiff.isUrgent { return Color(hex: "#EF4444") }
+        return AppSettings.brandBlue
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(spiff.name)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(AppSettings.darkText)
+                    Text(spiff.metricLabel)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(spiff.rewardLabel)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(accent)
+                    Text(spiff.timeRemainingLabel)
+                        .font(.caption2.weight(spiff.isUrgent ? .bold : .regular))
+                        .foregroundColor(spiff.isUrgent ? Color(hex: "#EF4444") : .secondary)
+                }
+            }
+
+            // Progress toward the threshold
+            VStack(alignment: .leading, spacing: 4) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(accent.opacity(0.15))
+                        Capsule()
+                            .fill(accent)
+                            .frame(width: max(8, geo.size.width * spiff.progressPct / 100))
+                    }
+                }
+                .frame(height: 8)
+
+                HStack {
+                    if spiff.qualified {
+                        Label("Qualified!", systemImage: "checkmark.seal.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(accent)
+                    } else {
+                        Text("\(Int(spiff.currentValue)) of \(Int(spiff.threshold))")
+                            .font(.caption)
+                            .foregroundColor(AppSettings.darkText)
+                    }
+                    Spacer()
+                    if let payout = spiff.payout_amount, spiff.qualified {
+                        Text(String(format: "$%.0f earned", payout))
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(accent)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(spiff.qualified ? accent.opacity(0.5) : Color.clear, lineWidth: 1.5)
+        )
+    }
+}
+
+// MARK: - Goal Progress Row
+
+struct GoalProgressRow: View {
+    let label: String
+    let current: Int
+    let target: Int
+
+    private var fraction: Double {
+        guard target > 0 else { return 0 }
+        return min(1, Double(current) / Double(target))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(AppSettings.darkText)
+                Spacer()
+                Text("\(current) / \(target)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(fraction >= 1 ? Color(hex: "#10B981") : AppSettings.darkText)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.15))
+                    Capsule()
+                        .fill(fraction >= 1 ? Color(hex: "#10B981") : AppSettings.brandBlue)
+                        .frame(width: max(4, geo.size.width * fraction))
+                }
+            }
+            .frame(height: 6)
+        }
     }
 }
 
