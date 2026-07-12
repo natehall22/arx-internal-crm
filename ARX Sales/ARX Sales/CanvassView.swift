@@ -47,6 +47,7 @@ struct CanvassView: View {
             CanvassMapView(
                 pins: visiblePins,
                 territories: showTerritories ? vm.territories : [],
+                weatherPolygons: (showWeather && weatherOverlayAvailable) ? vm.weatherPolygons : [],
                 overlayPoints: vm.overlayPoints(showWeather: showWeather && weatherOverlayAvailable, showRoofAge: showRoofAge),
                 userLocation: vm.userLocation,
                 hasInitiallyZoomed: $hasInitiallyZoomed,
@@ -106,6 +107,8 @@ struct CanvassView: View {
                         }
                         if vm.weatherDegraded && showWeather && weatherOverlayAvailable {
                             MapHUDChip { Text("Weather unavailable (est.)") }
+                        } else if showWeather && weatherOverlayAvailable && !vm.weatherPolygons.isEmpty {
+                            WeatherLegendChip(hasWarning: vm.weatherPolygons.contains { $0.kind == "warning" })
                         }
                         if vm.roofAgeDegraded && showRoofAge {
                             MapHUDChip { Text("Roof age unavailable (est.)") }
@@ -205,6 +208,31 @@ struct CanvassView: View {
     }
 }
 
+// MARK: - Weather Legend Chip
+
+/// One compact line, shown only when there's weather polygon data on screen — reads
+/// as a plain status chip alongside the pin-count/filter chips, not a separate panel.
+struct WeatherLegendChip: View {
+    let hasWarning: Bool
+    var body: some View {
+        MapHUDChip {
+            HStack(spacing: 10) {
+                if hasWarning {
+                    legendDot(color: Color(hex: "#DC2626"), label: "Active alert")
+                }
+                legendDot(color: Color(hex: "#F59E0B"), label: "Hail (est.)")
+            }
+        }
+    }
+
+    private func legendDot(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(label)
+        }
+    }
+}
+
 // MARK: - ViewModel
 
 class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -214,6 +242,7 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var loadError: String? = nil
     @Published var territories: [Territory] = []
     @Published var weatherPoints: [MapOverlayPoint] = []
+    @Published var weatherPolygons: [WeatherPolygonFeature] = []
     @Published var roofAgePoints: [MapOverlayPoint] = []
     @Published var weatherDegraded = false
     @Published var roofAgeDegraded = false
@@ -349,6 +378,7 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
 struct CanvassMapView: UIViewRepresentable {
     let pins: [CanvassPin]
     var territories: [Territory] = []
+    var weatherPolygons: [WeatherPolygonFeature] = []
     var overlayPoints: [MapOverlayPoint] = []
     let userLocation: CLLocationCoordinate2D?
     @Binding var hasInitiallyZoomed: Bool
@@ -425,6 +455,7 @@ struct CanvassMapView: UIViewRepresentable {
         }
 
         syncTerritoryOverlays(map, context: context)
+        syncWeatherPolygonOverlays(map, context: context)
         syncOverlayAnnotations(map, context: context)
 
         let incoming = Set(pins.map(\.id))
@@ -449,12 +480,31 @@ struct CanvassMapView: UIViewRepresentable {
         map.addAnnotations(toAdd)
     }
 
+    /// Territory and weather polygons are both plain `MKPolygon` overlays on the same map,
+    /// so each sync method only touches overlays it tagged itself (via `title` prefix) —
+    /// otherwise toggling one layer would wipe out the other on the next render pass.
+    private static let territoryTitlePrefix = "territory:"
+    private static let weatherTitlePrefix = "weather:"
+
     private func syncTerritoryOverlays(_ map: MKMapView, context: Context) {
         let existing = map.overlays.compactMap { $0 as? MKPolygon }
+            .filter { ($0.title ?? "").hasPrefix(Self.territoryTitlePrefix) }
         map.removeOverlays(existing)
         for t in territories {
             for poly in t.boundary_geojson.polygons {
-                poly.title = t.id
+                poly.title = Self.territoryTitlePrefix + t.id
+                map.addOverlay(poly)
+            }
+        }
+    }
+
+    private func syncWeatherPolygonOverlays(_ map: MKMapView, context: Context) {
+        let existing = map.overlays.compactMap { $0 as? MKPolygon }
+            .filter { ($0.title ?? "").hasPrefix(Self.weatherTitlePrefix) }
+        map.removeOverlays(existing)
+        for feature in weatherPolygons {
+            for poly in feature.polygons {
+                poly.title = Self.weatherTitlePrefix + feature.kind + ":" + feature.layer + ":" + feature.id
                 map.addOverlay(poly)
             }
         }
@@ -539,14 +589,41 @@ struct CanvassMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            if let poly = overlay as? MKPolygon, let territoryId = poly.title, let t = parent.territories.first(where: { $0.id == territoryId }) {
-                let renderer = MKPolygonRenderer(polygon: poly)
-                let alpha: CGFloat = t.assigned_to_me ? 0.25 : 0.15
-                renderer.fillColor = UIColor(hex: t.color).withAlphaComponent(alpha)
-                renderer.strokeColor = UIColor(hex: t.color)
-                renderer.lineWidth = 2
-                return renderer
+            guard let poly = overlay as? MKPolygon, let title = poly.title else {
+                return MKOverlayRenderer(overlay: overlay)
             }
+
+            if title.hasPrefix(CanvassMapView.territoryTitlePrefix) {
+                let territoryId = String(title.dropFirst(CanvassMapView.territoryTitlePrefix.count))
+                if let t = parent.territories.first(where: { $0.id == territoryId }) {
+                    let renderer = MKPolygonRenderer(polygon: poly)
+                    let alpha: CGFloat = t.assigned_to_me ? 0.25 : 0.15
+                    renderer.fillColor = UIColor(hex: t.color).withAlphaComponent(alpha)
+                    renderer.strokeColor = UIColor(hex: t.color)
+                    renderer.lineWidth = 2
+                    return renderer
+                }
+            }
+
+            if title.hasPrefix(CanvassMapView.weatherTitlePrefix) {
+                // "weather:<kind>:<layer>:<id>" — id is the last component (a UUID, no colons).
+                let id = String(title.split(separator: ":").last ?? "")
+                if let feature = parent.weatherPolygons.first(where: { $0.id == id }) {
+                    // A swath (large, low-urgency footprint) stays soft; an active warning
+                    // stays bold and reads as "act on this now" without shouting over the map.
+                    let color = UIColor(hex: feature.colorHex)
+                    let isWarning = feature.kind == "warning"
+                    let renderer = MKPolygonRenderer(polygon: poly)
+                    renderer.fillColor = color.withAlphaComponent(isWarning ? 0.12 : 0.18)
+                    renderer.strokeColor = color.withAlphaComponent(isWarning ? 0.9 : 0.6)
+                    renderer.lineWidth = isWarning ? 2 : 1.5
+                    if isWarning {
+                        renderer.lineDashPattern = [6, 4]
+                    }
+                    return renderer
+                }
+            }
+
             return MKOverlayRenderer(overlay: overlay)
         }
 

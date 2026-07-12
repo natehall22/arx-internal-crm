@@ -11,6 +11,63 @@ struct MapOverlayPoint: Identifiable {
     let kind: String
 }
 
+/// Warning (active NWS severe-weather alert) or swath (radar-derived hail-fall
+/// footprint) polygon — the backend returns these alongside point storm reports,
+/// but they were previously dropped entirely since only Point geometries were parsed.
+struct WeatherPolygonFeature: Identifiable {
+    let id: String
+    let kind: String    // "warning" | "swath"
+    let layer: String   // "hail" | "wind"
+    let polygons: [MKPolygon]
+
+    var colorHex: String {
+        switch (kind, layer) {
+        case ("warning", _): return "#DC2626"   // active alert — most urgent, always red
+        case (_, "wind"): return "#3B82F6"
+        default: return "#F59E0B"               // hail swath — amber, softer than an active warning
+        }
+    }
+}
+
+extension WeatherPolygonFeature {
+    /// Parses Polygon/MultiPolygon `warning`/`swath` features. Point `report` features
+    /// are handled separately by `MapOverlayPoint.fromWeatherFeature`.
+    static func from(_ f: [String: Any], layer: String) -> WeatherPolygonFeature? {
+        guard let props = f["properties"] as? [String: Any],
+              let kind = props["kind"] as? String, kind == "warning" || kind == "swath",
+              let geom = f["geometry"] as? [String: Any],
+              let geomType = geom["type"] as? String else { return nil }
+
+        let polygons: [MKPolygon]
+        switch geomType {
+        case "Polygon":
+            guard let rings = geom["coordinates"] as? [[[Double]]], let outer = rings.first,
+                  let poly = polygon(from: outer) else { return nil }
+            polygons = [poly]
+        case "MultiPolygon":
+            guard let multi = geom["coordinates"] as? [[[[Double]]]] else { return nil }
+            polygons = multi.compactMap { ringSet in
+                guard let outer = ringSet.first else { return nil }
+                return polygon(from: outer)
+            }
+        default:
+            return nil
+        }
+        guard !polygons.isEmpty else { return nil }
+        let layerName = props["layer"] as? String ?? layer
+        return WeatherPolygonFeature(id: UUID().uuidString, kind: kind, layer: layerName, polygons: polygons)
+    }
+
+    private static func polygon(from ring: [[Double]]) -> MKPolygon? {
+        let coords = ring.compactMap { pair -> CLLocationCoordinate2D? in
+            guard pair.count >= 2 else { return nil }
+            return CLLocationCoordinate2D(latitude: pair[1], longitude: pair[0])
+        }
+        guard coords.count >= 3 else { return nil }
+        return MKPolygon(coordinates: coords, count: coords.count)
+    }
+}
+
 extension CanvassViewModel {
     @MainActor
     func loadMyUserId() async {
@@ -76,7 +133,7 @@ extension CanvassViewModel {
             if weather {
                 await loadWeather(bbox: bbox)
             } else {
-                await MainActor.run { weatherPoints = []; weatherDegraded = false }
+                await MainActor.run { weatherPoints = []; weatherPolygons = []; weatherDegraded = false }
             }
             if roofAge {
                 await loadRoofAge(bbox: bbox)
@@ -88,6 +145,7 @@ extension CanvassViewModel {
 
     private func loadWeather(bbox: MapBbox) async {
         var allPoints: [MapOverlayPoint] = []
+        var allPolygons: [WeatherPolygonFeature] = []
         var anyDegraded = false
         for layer in ["hail", "wind"] {
             var items = bbox.queryItems
@@ -98,12 +156,14 @@ extension CanvassViewModel {
                 if json?["degraded"] as? Bool == true { anyDegraded = true }
                 let features = json?["features"] as? [[String: Any]] ?? []
                 allPoints.append(contentsOf: features.compactMap { MapOverlayPoint.fromWeatherFeature($0, layer: layer) })
+                allPolygons.append(contentsOf: features.compactMap { WeatherPolygonFeature.from($0, layer: layer) })
             } catch {
                 anyDegraded = true
             }
         }
         await MainActor.run {
             weatherPoints = allPoints
+            weatherPolygons = allPolygons
             weatherDegraded = anyDegraded
         }
     }
