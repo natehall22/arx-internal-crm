@@ -10,6 +10,7 @@ struct OpportunityDetailView: View {
 
     @StateObject private var vm: OpportunityDetailVM
     @State private var activeScanType: ScanType? = nil
+    @State private var selectedProposal: Proposal? = nil
     @Environment(\.dismiss) private var dismiss
 
     init(opportunity: Opportunity) {
@@ -111,7 +112,10 @@ struct OpportunityDetailView: View {
                         .font(.subheadline).foregroundColor(.secondary)
                 } else {
                     ForEach(vm.proposals) { p in
-                        ProposalRow(proposal: p)
+                        Button { selectedProposal = p } label: {
+                            ProposalRow(proposal: p)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -119,6 +123,10 @@ struct OpportunityDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(opportunity.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selectedProposal) { proposal in
+            ProposalDetailSheet(proposal: proposal)
+                .mediumSheetPresentation()
+        }
         .fullScreenCover(item: $activeScanType, onDismiss: {
             activeScanType = nil
         }) { scanType in
@@ -251,6 +259,7 @@ struct ProposalRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(proposal.title ?? "Proposal \(proposal.proposal_number ?? "")")
                     .font(.subheadline.weight(.medium))
+                    .foregroundColor(AppSettings.darkText)
                 if let total = proposal.total_price {
                     Text(String(format: "$%.2f", total))
                         .font(.caption).foregroundColor(.secondary)
@@ -260,8 +269,72 @@ struct ProposalRow: View {
             Text(proposal.statusLabel)
                 .font(.caption.weight(.semibold))
                 .foregroundColor(proposal.statusColor)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Proposal Detail Sheet
+
+struct ProposalDetailSheet: View {
+    let proposal: Proposal
+    @Environment(\.dismiss) private var dismiss
+
+    /// Full editing (line items, PDF, send/sign flow) lives on the web CRM —
+    /// this opens it in Safari. The rep may need to sign in there separately;
+    /// the iOS session doesn't carry over to an external browser.
+    private var webURL: URL? {
+        URL(string: "\(APIClient.baseURL)/proposals/\(proposal.id)")
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Proposal") {
+                    FormValueRow(label: "Title", value: proposal.title ?? "Proposal \(proposal.proposal_number ?? "")")
+                    if let number = proposal.proposal_number, !number.isEmpty {
+                        FormValueRow(label: "Number", value: number)
+                    }
+                    FormValueRow(label: "Status", value: proposal.statusLabel)
+                    if let total = proposal.total_price {
+                        FormValueRow(label: "Total", value: String(format: "$%.2f", total))
+                    }
+                    if let created = proposal.created_at {
+                        FormValueRow(label: "Created", value: friendlyDate(created))
+                    }
+                }
+                if let webURL {
+                    Section {
+                        Button {
+                            UIApplication.shared.open(webURL)
+                        } label: {
+                            Label("Open in Web CRM", systemImage: "safari")
+                        }
+                    } footer: {
+                        Text("Full editing, PDF, and send/sign happen on the web CRM. You may need to sign in there separately.")
+                    }
+                }
+            }
+            .navigationTitle("Proposal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func friendlyDate(_ iso: String) -> String {
+        guard let date = MeasurementListDateParsing.parse(iso) else { return iso }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 
