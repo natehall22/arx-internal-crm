@@ -73,9 +73,8 @@ final class PushManager: NSObject, ObservableObject {
         pendingTab = nil
     }
 
-    func routeNotification(userInfo: [AnyHashable: Any]) {
-        let type = (userInfo["type"] as? String)?.lowercased()
-        switch type {
+    func routeNotification(type: String?) {
+        switch type?.lowercased() {
         case "spiff", "sisu_heat_qualified":
             pendingTab = .sisu
         case "appointment", "new_appointment", "appointment_assigned", "appointment_reassigned":
@@ -110,9 +109,11 @@ extension PushManager: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
+        // Extract the only field routing needs before hopping actors — [AnyHashable: Any]
+        // isn't Sendable, but the String is (silences the Swift 6 capture warning).
+        let type = response.notification.request.content.userInfo["type"] as? String
         Task { @MainActor in
-            PushManager.shared.routeNotification(userInfo: userInfo)
+            PushManager.shared.routeNotification(type: type)
             completionHandler()
         }
     }

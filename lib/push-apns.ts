@@ -109,13 +109,28 @@ async function sendApnsHttp2(opts: {
 
   return new Promise((resolve) => {
     let settled = false
+    let client: http2.ClientHttp2Session | null = null
+    let timeout: ReturnType<typeof setTimeout> | null = null
+
     const finish = (result: ApnsSendResult) => {
       if (settled) return
       settled = true
+      if (timeout) clearTimeout(timeout)
+      try {
+        client?.close()
+      } catch {
+        /* ignore */
+      }
       resolve(result)
     }
 
-    let client: http2.ClientHttp2Session
+    // Hard deadline: an unresolved send would otherwise pin the invocation open via
+    // waitUntil until Vercel's max duration. APNs normally answers in well under a second.
+    timeout = setTimeout(() => {
+      console.error('[push-apns] send timed out', { host })
+      finish({ ok: false, status: 0, reason: 'timeout', unregistered: false })
+    }, 10_000)
+
     try {
       client = http2.connect(`https://${host}`)
     } catch (err) {
