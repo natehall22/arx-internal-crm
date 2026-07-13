@@ -2,7 +2,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { EASTERN_TZ } from '@/lib/eastern-datetime'
+import { getOrgMonthlyGoal } from '@/lib/goals-scorecard'
 import { countOrgInspectionSetsInPeriod } from '@/lib/inspection-set-metrics'
+import {
+  isMondayEastern,
+  resolveMorningUpdateActivityWindow,
+  resolveMorningUpdateLastWeekWindow,
+  resolveMorningUpdateSentDateLabel,
+  shareOfMonthGoalPct,
+} from '@/lib/morning-update-windows'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 
 const TIMEZONE = EASTERN_TZ
@@ -11,30 +19,39 @@ const PAGE_SIZE = 1000
 /** Inspection feedback / close outcomes that mean the deal is going through insurance. */
 const INSURANCE_INSPECTION_OUTCOME_IDS = new Set(['insurance_follow_up', 'waiting_on_insurance'])
 
+export type MorningUpdateGoalShare = {
+  actual: number
+  goal: number | null
+  shareOfMonthPct: number | null
+}
+
+export type MorningUpdateLastWeekVsGoals = {
+  rangeLabel: string
+  monthGoalLabel: string
+  doors: MorningUpdateGoalShare
+  sets: MorningUpdateGoalShare
+  sales: MorningUpdateGoalShare
+  revenue: MorningUpdateGoalShare
+}
+
 export type MorningUpdateMetrics = {
-  reportDateLabel: string
-  doorsKnockedYesterday: number
+  sentDateLabel: string
+  activityPeriodKind: 'yesterday' | 'weekend'
+  activityPeriodLabel: string
+  /** Doors / sets / sales for the activity window (yesterday, or Sat–Sun on Monday). */
+  doorsKnockedPeriod: number
   doorsKnockedMonthToDate: number
-  inspectionsScheduledYesterday: number
+  inspectionsScheduledPeriod: number
   inspectionsScheduledMonthToDate: number
-  salesYesterday: number
+  salesPeriod: number
   salesMonthToDate: number
   revenueLastMonth: number
   revenueMonthToDate: number
   revenueYearToDate: number
   insuranceInspectionsLastMonth: number
   insuranceInspectionsMonthToDate: number
-}
-
-function formatReportDateLabel(startIso: string): string {
-  const d = new Date(startIso)
-  return d.toLocaleDateString('en-US', {
-    timeZone: TIMEZONE,
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  /** Monday only: last week totals vs current month goals. Null Tue–Sat. */
+  lastWeekVsGoals: MorningUpdateLastWeekVsGoals | null
 }
 
 async function countDoors(
@@ -131,47 +148,57 @@ function summarizeSignedContracts(rows: SignedContractRow[]): { salesCount: numb
   return { salesCount: seen.size, revenue }
 }
 
+function goalShare(actual: number, goal: number | null | undefined): MorningUpdateGoalShare {
+  const normalized = goal == null ? null : Number(goal)
+  return {
+    actual,
+    goal: normalized,
+    shareOfMonthPct: shareOfMonthGoalPct(actual, normalized),
+  }
+}
+
 export async function fetchMorningUpdateMetrics(
   supabase: SupabaseClient,
-  orgId: string
+  orgId: string,
+  now: Date = new Date()
 ): Promise<MorningUpdateMetrics> {
-  const yesterday = getDateRangeForTimeFrame('yesterday', TIMEZONE)
+  const activity = resolveMorningUpdateActivityWindow(now)
+  const monday = isMondayEastern(now)
+  const lastWeek = monday ? resolveMorningUpdateLastWeekWindow(now) : null
+
   const monthToDate = getDateRangeForTimeFrame('month', TIMEZONE)
   const lastMonth = getDateRangeForTimeFrame('last_month', TIMEZONE)
   const yearToDate = getDateRangeForTimeFrame('year', TIMEZONE)
 
+  const activityStart = activity.start.toISOString()
+  const activityEnd = activity.end.toISOString()
+
   const [
-    doorsKnockedYesterday,
+    doorsKnockedPeriod,
     doorsKnockedMonthToDate,
-    inspectionsScheduledYesterday,
+    inspectionsScheduledPeriod,
     inspectionsScheduledMonthToDate,
-    yesterdayContracts,
+    periodContracts,
     monthContracts,
     lastMonthContracts,
     yearContracts,
     insuranceInspectionsLastMonth,
     insuranceInspectionsMonthToDate,
+    lastWeekDoors,
+    lastWeekSets,
+    lastWeekContracts,
+    monthGoal,
   ] = await Promise.all([
-    countDoors(supabase, orgId, yesterday.start.toISOString(), yesterday.end.toISOString()),
+    countDoors(supabase, orgId, activityStart, activityEnd),
     countDoors(supabase, orgId, monthToDate.start.toISOString(), monthToDate.end.toISOString()),
-    countInspectionSets(
-      supabase,
-      orgId,
-      yesterday.start.toISOString(),
-      yesterday.end.toISOString()
-    ),
+    countInspectionSets(supabase, orgId, activityStart, activityEnd),
     countInspectionSets(
       supabase,
       orgId,
       monthToDate.start.toISOString(),
       monthToDate.end.toISOString()
     ),
-    fetchSignedContractsInPeriod(
-      supabase,
-      orgId,
-      yesterday.start.toISOString(),
-      yesterday.end.toISOString()
-    ),
+    fetchSignedContractsInPeriod(supabase, orgId, activityStart, activityEnd),
     fetchSignedContractsInPeriod(
       supabase,
       orgId,
@@ -202,25 +229,67 @@ export async function fetchMorningUpdateMetrics(
       monthToDate.start.toISOString(),
       monthToDate.end.toISOString()
     ),
+    lastWeek
+      ? countDoors(supabase, orgId, lastWeek.start.toISOString(), lastWeek.end.toISOString())
+      : Promise.resolve(0),
+    lastWeek
+      ? countInspectionSets(supabase, orgId, lastWeek.start.toISOString(), lastWeek.end.toISOString())
+      : Promise.resolve(0),
+    lastWeek
+      ? fetchSignedContractsInPeriod(
+          supabase,
+          orgId,
+          lastWeek.start.toISOString(),
+          lastWeek.end.toISOString()
+        )
+      : Promise.resolve([] as SignedContractRow[]),
+    monday
+      ? getOrgMonthlyGoal(
+          supabase,
+          orgId,
+          now.toLocaleDateString('en-CA', { timeZone: TIMEZONE }).slice(0, 7)
+        // The core morning email must still send if the goals lookup fails — degrade to
+        // "no goal" rather than let an unrelated goals-feature error kill the whole send.
+        ).catch(() => null)
+      : Promise.resolve(null),
   ])
 
-  const yesterdaySales = summarizeSignedContracts(yesterdayContracts)
+  const periodSales = summarizeSignedContracts(periodContracts)
   const monthSales = summarizeSignedContracts(monthContracts)
   const lastMonthRevenue = summarizeSignedContracts(lastMonthContracts).revenue
   const yearRevenue = summarizeSignedContracts(yearContracts).revenue
+  const lastWeekSales = summarizeSignedContracts(lastWeekContracts)
+
+  let lastWeekVsGoals: MorningUpdateLastWeekVsGoals | null = null
+  if (monday && lastWeek) {
+    lastWeekVsGoals = {
+      rangeLabel: lastWeek.rangeLabel,
+      monthGoalLabel: lastWeek.monthGoalLabel,
+      doors: goalShare(lastWeekDoors, monthGoal?.doors_target),
+      sets: goalShare(lastWeekSets, monthGoal?.sets_target),
+      sales: goalShare(lastWeekSales.salesCount, monthGoal?.sales_target),
+      revenue: goalShare(
+        lastWeekSales.revenue,
+        monthGoal?.revenue_target != null ? Number(monthGoal.revenue_target) : null
+      ),
+    }
+  }
 
   return {
-    reportDateLabel: formatReportDateLabel(yesterday.start.toISOString()),
-    doorsKnockedYesterday,
+    sentDateLabel: resolveMorningUpdateSentDateLabel(now),
+    activityPeriodKind: activity.kind,
+    activityPeriodLabel: activity.periodLabel,
+    doorsKnockedPeriod,
     doorsKnockedMonthToDate,
-    inspectionsScheduledYesterday,
+    inspectionsScheduledPeriod,
     inspectionsScheduledMonthToDate,
-    salesYesterday: yesterdaySales.salesCount,
+    salesPeriod: periodSales.salesCount,
     salesMonthToDate: monthSales.salesCount,
     revenueLastMonth: lastMonthRevenue,
     revenueMonthToDate: monthSales.revenue,
     revenueYearToDate: yearRevenue,
     insuranceInspectionsLastMonth,
     insuranceInspectionsMonthToDate,
+    lastWeekVsGoals,
   }
 }

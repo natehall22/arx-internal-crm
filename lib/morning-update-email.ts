@@ -23,22 +23,42 @@ function formatCurrency(value: number): string {
   }).format(value)
 }
 
+function formatGoalShareValue(
+  actual: number,
+  goal: number | null,
+  shareOfMonthPct: number | null,
+  format: 'integer' | 'currency'
+): string {
+  const actualText = format === 'currency' ? formatCurrency(actual) : formatInteger(actual)
+  if (goal == null) {
+    return `${actualText} · No goal set`
+  }
+  const goalText = format === 'currency' ? formatCurrency(goal) : formatInteger(goal)
+  const pctText = shareOfMonthPct != null ? ` (${shareOfMonthPct}% of month)` : ''
+  return `${actualText} · goal ${goalText}${pctText}`
+}
+
 const MORNING_UPDATE_FOOTER_QUOTE =
   'Yes, it is 5:30am. No, the coffee is not optional. The numbers, however, are.'
 
+function activityLabelPrefix(kind: MorningUpdateMetrics['activityPeriodKind']): string {
+  return kind === 'weekend' ? 'Weekend' : 'Yesterday'
+}
+
 function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?: boolean }): string {
+  const period = activityLabelPrefix(metrics.activityPeriodKind)
   const rows: Array<{ label: string; value: string }> = [
-    { label: 'Doors Knocked Yesterday', value: formatInteger(metrics.doorsKnockedYesterday) },
+    { label: `Doors Knocked ${period}`, value: formatInteger(metrics.doorsKnockedPeriod) },
     { label: 'Doors Knocked Month To Date', value: formatInteger(metrics.doorsKnockedMonthToDate) },
     {
-      label: 'Total Inspections Scheduled Yesterday',
-      value: formatInteger(metrics.inspectionsScheduledYesterday),
+      label: `Total Inspections Scheduled ${period}`,
+      value: formatInteger(metrics.inspectionsScheduledPeriod),
     },
     {
       label: 'Total Inspections Scheduled Month To Date',
       value: formatInteger(metrics.inspectionsScheduledMonthToDate),
     },
-    { label: 'Sales Yesterday', value: formatInteger(metrics.salesYesterday) },
+    { label: `Sales ${period}`, value: formatInteger(metrics.salesPeriod) },
     { label: 'Total Sales This Month', value: formatInteger(metrics.salesMonthToDate) },
     { label: 'Total Revenue Sold Last Month', value: formatCurrency(metrics.revenueLastMonth) },
     { label: 'Total Revenue Sold This Month', value: formatCurrency(metrics.revenueMonthToDate) },
@@ -60,14 +80,62 @@ function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?
     )
     .join('')
 
+  const activitySubline =
+    metrics.activityPeriodKind === 'weekend'
+      ? `Weekend activity (${escapeHtml(metrics.activityPeriodLabel)})`
+      : `Yesterday&apos;s activity (${escapeHtml(metrics.activityPeriodLabel)})`
+
+  let lastWeekSection = ''
+  if (metrics.lastWeekVsGoals) {
+    const w = metrics.lastWeekVsGoals
+    const weekRows = [
+      {
+        label: 'Doors',
+        value: formatGoalShareValue(w.doors.actual, w.doors.goal, w.doors.shareOfMonthPct, 'integer'),
+      },
+      {
+        label: 'Inspections set',
+        value: formatGoalShareValue(w.sets.actual, w.sets.goal, w.sets.shareOfMonthPct, 'integer'),
+      },
+      {
+        label: 'Sales',
+        value: formatGoalShareValue(w.sales.actual, w.sales.goal, w.sales.shareOfMonthPct, 'integer'),
+      },
+      {
+        label: 'Revenue',
+        value: formatGoalShareValue(
+          w.revenue.actual,
+          w.revenue.goal,
+          w.revenue.shareOfMonthPct,
+          'currency'
+        ),
+      },
+    ]
+      .map(
+        (row) =>
+          `<tr><td style="padding: 8px 0; color: #2c2c2a; width: 280px; vertical-align: top;">${escapeHtml(row.label)}</td><td style="padding: 8px 0; color: #2c2c2a; font-weight: 600; font-size: 15px;">${escapeHtml(row.value)}</td></tr>`
+      )
+      .join('')
+
+    lastWeekSection = `
+        <h2 style="margin: 28px 0 6px; color: #111827; font-size: 17px;">Last week vs ${escapeHtml(w.monthGoalLabel)} goals</h2>
+        <p style="margin: 0 0 12px; color: #2c2c2a; font-size: 13px;">${escapeHtml(w.rangeLabel)} totals as a share of this month&apos;s targets</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">
+          ${weekRows}
+        </table>
+      `
+  }
+
   return `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
         ${options?.test ? '<p style="margin: 0 0 16px; padding: 10px 12px; background: #fef3c7; color: #92400e; border-radius: 8px; font-size: 13px; font-weight: 600;">Test email — not sent on the daily schedule.</p>' : ''}
         <h1 style="margin: 0 0 8px; color: #111827; font-size: 22px;">ARX Morning Update</h1>
-        <p style="margin: 0 0 20px; color: #6B7280; font-size: 14px;">${escapeHtml(metrics.reportDateLabel)}</p>
+        <p style="margin: 0 0 4px; color: #111827; font-size: 14px; font-weight: 600;">${escapeHtml(metrics.sentDateLabel)}</p>
+        <p style="margin: 0 0 20px; color: #6B7280; font-size: 14px;">${activitySubline}</p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
           ${tableRows}
         </table>
+        ${lastWeekSection}
         <p style="color: #6B7280; font-size: 12px; margin-top: 20px;">
           Automated owner morning update from ARX CRM. Revenue reflects signed installation and repair agreements. Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.
         </p>
@@ -130,7 +198,7 @@ export async function sendMorningUpdateEmail(
   const metrics = params.metrics ?? (await fetchMorningUpdateMetrics(supabase, params.orgId))
   const transporter = getMailTransport()
   const subjectPrefix = isTest ? '[TEST] ' : ''
-  const subject = `${subjectPrefix}ARX Morning Update — ${metrics.reportDateLabel}`
+  const subject = `${subjectPrefix}ARX Morning Update — ${metrics.sentDateLabel}`
   const html = buildMorningUpdateHtml(metrics, { test: isTest })
 
   let sent = 0

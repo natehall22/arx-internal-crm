@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OrgMonthlyGoal, ScorecardPayload } from '@/lib/goals-scorecard'
 import type { ForecastMetricKey, ForecastResult } from '@/lib/goals-forecast'
 import {
@@ -14,6 +14,7 @@ import {
   metricProjectedTotal,
 } from '@/lib/goals-forecast-display'
 import { getCurrentMonthIso, getPreviousMonthIso, isPastGoalMonth } from '@/lib/goals-period'
+import { formatNumericDraft, parseDraftFloat } from '@/lib/numeric-input-draft'
 
 type TabId = 'scorecard' | 'goals' | 'forecast'
 
@@ -240,6 +241,17 @@ function ScorecardTab({
   )
 }
 
+function priorGoalHasTargets(goal: OrgMonthlyGoal): boolean {
+  return (
+    goal.doors_target != null ||
+    goal.sets_target != null ||
+    goal.sits_target != null ||
+    goal.sales_target != null ||
+    goal.revenue_target != null ||
+    Boolean(goal.notes?.trim())
+  )
+}
+
 function GoalsTab({
   month,
   onMonthChange,
@@ -259,77 +271,126 @@ function GoalsTab({
   const [meta, setMeta] = useState<OrgMonthlyGoal | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-
-  const loadGoal = useCallback(async (targetMonth: string) => {
-    setLoading(true)
-    setStatus(null)
-    const res = await fetch(`/api/admin/goals?month=${encodeURIComponent(targetMonth)}`)
-    const json = await res.json()
-    if (!res.ok) {
-      setStatus(json.error || 'Failed to load goal')
-      setLoading(false)
-      return
-    }
-    const goal = json.goal as OrgMonthlyGoal | null
-    setMeta(goal)
-    setForm({
-      doors_target: goal?.doors_target?.toString() ?? '',
-      sets_target: goal?.sets_target?.toString() ?? '',
-      sits_target: goal?.sits_target?.toString() ?? '',
-      sales_target: goal?.sales_target?.toString() ?? '',
-      revenue_target: goal?.revenue_target?.toString() ?? '',
-      notes: goal?.notes ?? '',
-    })
-    setLoading(false)
-  }, [])
+  const [copying, setCopying] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const monthRef = useRef(month)
+  useEffect(() => {
+    monthRef.current = month
+  }, [month])
 
   useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+
+    async function loadGoal(targetMonth: string) {
+      setLoading(true)
+      setStatus(null)
+      try {
+        const res = await fetch(`/api/admin/goals?month=${encodeURIComponent(targetMonth)}`, {
+          signal: controller.signal,
+        })
+        const json = await res.json()
+        if (cancelled) return
+        if (!res.ok) {
+          setStatus(json.error || 'Failed to load goal')
+          setLoading(false)
+          return
+        }
+        const goal = json.goal as OrgMonthlyGoal | null
+        setMeta(goal)
+        setForm({
+          doors_target: formatNumericDraft(goal?.doors_target),
+          sets_target: formatNumericDraft(goal?.sets_target),
+          sits_target: formatNumericDraft(goal?.sits_target),
+          sales_target: formatNumericDraft(goal?.sales_target),
+          revenue_target: formatNumericDraft(goal?.revenue_target),
+          notes: goal?.notes ?? '',
+        })
+        setLoading(false)
+      } catch (error) {
+        if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return
+        setStatus('Failed to load goal')
+        setLoading(false)
+      }
+    }
+
     void loadGoal(month)
-  }, [month, loadGoal])
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [month])
 
   const save = async () => {
+    const targetMonth = month
+    setSaving(true)
     setStatus('Saving…')
-    const res = await fetch('/api/admin/goals', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        month,
-        doors_target: form.doors_target ? Number(form.doors_target) : null,
-        sets_target: form.sets_target ? Number(form.sets_target) : null,
-        sits_target: form.sits_target ? Number(form.sits_target) : null,
-        sales_target: form.sales_target ? Number(form.sales_target) : null,
-        revenue_target: form.revenue_target ? Number(form.revenue_target) : null,
-        notes: form.notes || null,
-      }),
-    })
-    const json = await res.json()
-    if (!res.ok) {
-      setStatus(json.error || 'Save failed')
-      return
+    try {
+      const res = await fetch('/api/admin/goals', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          month: targetMonth,
+          doors_target: parseDraftFloat(form.doors_target),
+          sets_target: parseDraftFloat(form.sets_target),
+          sits_target: parseDraftFloat(form.sits_target),
+          sales_target: parseDraftFloat(form.sales_target),
+          revenue_target: parseDraftFloat(form.revenue_target),
+          notes: form.notes.trim() ? form.notes : null,
+        }),
+      })
+      const json = await res.json()
+      // Bail if the month picker moved on while this save was in flight — applying a stale
+      // response would silently overwrite the now-visible month's data with the old month's.
+      if (monthRef.current !== targetMonth) return
+      if (!res.ok) {
+        setStatus(json.error || 'Save failed')
+        return
+      }
+      setMeta(json.goal)
+      setStatus('Saved')
+    } finally {
+      setSaving(false)
     }
-    setMeta(json.goal)
-    setStatus('Saved')
   }
 
   const copyPrevious = async () => {
-    const prev = getPreviousMonthIso(month)
-    const res = await fetch(`/api/admin/goals?month=${encodeURIComponent(prev)}`)
-    const json = await res.json()
-    if (!res.ok || !json.goal) {
-      setStatus('No previous month goal to copy')
-      return
+    const targetMonth = month
+    setCopying(true)
+    setStatus(null)
+    try {
+      const prev = getPreviousMonthIso(targetMonth)
+      const res = await fetch(`/api/admin/goals?month=${encodeURIComponent(prev)}`)
+      const json = await res.json()
+      if (monthRef.current !== targetMonth) return
+      if (!res.ok) {
+        setStatus(json.error || 'Failed to load previous month')
+        return
+      }
+      if (!json.goal) {
+        setStatus('No previous month goal to copy')
+        return
+      }
+      const goal = json.goal as OrgMonthlyGoal
+      if (!priorGoalHasTargets(goal)) {
+        setStatus('Previous month has no targets set')
+        return
+      }
+      setForm({
+        doors_target: formatNumericDraft(goal.doors_target),
+        sets_target: formatNumericDraft(goal.sets_target),
+        sits_target: formatNumericDraft(goal.sits_target),
+        sales_target: formatNumericDraft(goal.sales_target),
+        revenue_target: formatNumericDraft(goal.revenue_target),
+        notes: goal.notes ?? '',
+      })
+      setStatus(`Copied from ${prev} — click Save goals to keep`)
+    } finally {
+      setCopying(false)
     }
-    const goal = json.goal as OrgMonthlyGoal
-    setForm({
-      doors_target: goal.doors_target?.toString() ?? '',
-      sets_target: goal.sets_target?.toString() ?? '',
-      sits_target: goal.sits_target?.toString() ?? '',
-      sales_target: goal.sales_target?.toString() ?? '',
-      revenue_target: goal.revenue_target?.toString() ?? '',
-      notes: goal.notes ?? '',
-    })
-    setStatus(`Copied from ${prev}`)
   }
+
+  const actionsDisabled = readOnly || loading || copying || saving
 
   return (
     <div className="space-y-4">
@@ -340,7 +401,8 @@ function GoalsTab({
             type="month"
             value={month}
             onChange={(e) => onMonthChange(e.target.value)}
-            className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            disabled={copying || saving}
+            className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
             style={{ color: '#2c2c2a' }}
           />
         </label>
@@ -348,9 +410,10 @@ function GoalsTab({
           <button
             type="button"
             onClick={() => void copyPrevious()}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+            disabled={actionsDisabled}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Copy from previous month
+            {copying ? 'Copying…' : 'Copy from previous month'}
           </button>
         ) : null}
       </div>
@@ -377,7 +440,7 @@ function GoalsTab({
               type="number"
               min={0}
               value={form[key]}
-              disabled={readOnly}
+              disabled={readOnly || loading}
               onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
               className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
               style={{ color: '#2c2c2a' }}
@@ -391,7 +454,7 @@ function GoalsTab({
         <textarea
           rows={3}
           value={form.notes}
-          disabled={readOnly}
+          disabled={readOnly || loading}
           onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
           className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
           style={{ color: '#2c2c2a' }}
@@ -402,9 +465,10 @@ function GoalsTab({
         <button
           type="button"
           onClick={() => void save()}
-          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+          disabled={actionsDisabled}
+          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Save goals
+          {saving ? 'Saving…' : 'Save goals'}
         </button>
       ) : null}
 

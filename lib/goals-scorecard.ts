@@ -31,6 +31,7 @@ import {
 import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import { isCanvassDoorLead, SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 
 export type OrgMonthlyGoal = {
   id: string
@@ -102,22 +103,50 @@ async function loadSitOutcomeSet(
   return getSitOutcomeNormalizedIdSet(settings.inspection_outcomes)
 }
 
+/**
+ * Exact org-wide door count via the same RPC the Dashboard uses — a plain
+ * `.select().limit(FETCH_LIMIT)` fetch silently truncates once an org's monthly
+ * lead volume exceeds 1000 rows (confirmed: June 2026 had 2682 leads, undercounting
+ * the Scorecard's doors tile at 995 vs. the Dashboard's correct 2669).
+ */
 async function countDoorsInPeriod(
   supabase: SupabaseClient,
   orgId: string,
   startIso: string,
   endIso: string
 ): Promise<number> {
-  const { data, error } = await supabase
-    .from('leads')
-    .select('source, canvass_disposition')
-    .eq('org_id', orgId)
-    .gte('created_at', startIso)
-    .lt('created_at', endIso)
-    .limit(FETCH_LIMIT)
+  const { data, error } = await supabase.rpc('dashboard_count_door_leads_scoped', {
+    p_org_id: orgId,
+    p_start: startIso,
+    p_end: endIso,
+    p_scope_user_ids: [],
+  })
 
   if (error) throw error
-  return (data || []).filter((row) => isCanvassDoorLead(row)).length
+  return Number(data ?? 0)
+}
+
+/** Paginated fetch of door-lead rows for forecast history — a period this long can exceed 1000 rows. */
+async function fetchAllDoorLeadRows(
+  supabase: SupabaseClient,
+  orgId: string,
+  startIso: string,
+  endIso: string
+): Promise<{ created_at: string; source: string | null; canvass_disposition: string | null }[]> {
+  return fetchSupabaseAllPages<{ created_at: string; source: string | null; canvass_disposition: string | null }>(
+    async (from, to) =>
+      supabase
+        .from('leads')
+        .select('created_at, source, canvass_disposition')
+        .eq('org_id', orgId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        // id tiebreaker: created_at alone isn't unique (e.g. a csv_import batch), so ties need a
+        // stable secondary sort or a batch straddling a page boundary can be split inconsistently.
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)
+  )
 }
 
 async function fetchInspectionSets(
@@ -611,14 +640,8 @@ async function buildForecastHistory(
   historyEndIso: string,
   sitOutcomeIdSet: Set<string>
 ): Promise<ForecastHistory> {
-  const [doorLeads, sets, sits, contracts] = await Promise.all([
-    supabase
-      .from('leads')
-      .select('created_at, source, canvass_disposition')
-      .eq('org_id', orgId)
-      .gte('created_at', historyStartIso)
-      .lt('created_at', historyEndIso)
-      .limit(FETCH_LIMIT),
+  const [doorLeadRows, sets, sits, contracts] = await Promise.all([
+    fetchAllDoorLeadRows(supabase, orgId, historyStartIso, historyEndIso),
     fetchInspectionSets(supabase, orgId, historyStartIso, historyEndIso),
     sitOutcomeIdSet.size === 0
       ? Promise.resolve([])
@@ -631,11 +654,7 @@ async function buildForecastHistory(
     fetchSignedContracts(supabase, orgId, historyStartIso, historyEndIso),
   ])
 
-  if (doorLeads.error) throw doorLeads.error
-
-  const doors = (doorLeads.data || [])
-    .filter((row) => isCanvassDoorLead(row))
-    .map((row) => row.created_at as string)
+  const doors = doorLeadRows.filter((row) => isCanvassDoorLead(row)).map((row) => row.created_at)
 
   const sales = contracts.map((c) => ({
     signedAt: c.customer_signed_at as string,
@@ -643,20 +662,29 @@ async function buildForecastHistory(
   }))
 
   const oppIds = contracts.map((c) => c.opportunity_id).filter(Boolean) as string[]
-  const setRows = await supabase
-    .from('scheduled_appointments')
-    .select('scheduled_for, opportunity_id, lead_id, appointment_type, status')
-    .eq('org_id', orgId)
-    .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
-    .gte('scheduled_for', historyStartIso)
-    .lt('scheduled_for', historyEndIso)
-    .limit(FETCH_LIMIT)
-
-  if (setRows.error) throw setRows.error
+  const setRows = await fetchSupabaseAllPages<{
+    id: string
+    scheduled_for: string
+    opportunity_id: string | null
+    lead_id: string | null
+    appointment_type: string | null
+    status: string | null
+  }>(async (from, to) =>
+    supabase
+      .from('scheduled_appointments')
+      .select('id, scheduled_for, opportunity_id, lead_id, appointment_type, status')
+      .eq('org_id', orgId)
+      .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+      .gte('scheduled_for', historyStartIso)
+      .lt('scheduled_for', historyEndIso)
+      .order('scheduled_for', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to)
+  )
 
   const setToSalePairs: { setAt: string; signedAt: string }[] = []
   const setsByOpp = new Map<string, string>()
-  for (const row of (setRows.data || []).filter(countsAsInspectionSet)) {
+  for (const row of setRows.filter(countsAsInspectionSet)) {
     if (row.opportunity_id) {
       const existing = setsByOpp.get(row.opportunity_id)
       if (!existing || row.scheduled_for < existing) {
