@@ -1,6 +1,6 @@
 -- Mobile device tokens for APNs push (ARX Sales iOS)
 -- Migration: 202607120001_mobile_device_tokens.sql
--- DO NOT apply via supabase db push — Nathan applies via Supabase MCP apply_migration.
+-- Apply via Supabase SQL editor or MCP apply_migration (not supabase db push).
 
 CREATE TABLE IF NOT EXISTS mobile_device_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
