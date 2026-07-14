@@ -282,34 +282,32 @@ struct LeadSheetView: View {
             hydrateFromQueuedItem(queued)
         }
 
-        // Geocode + detail fetch run concurrently, neither blocks the UI
-        async let geoTask: String? = reverseGeocode(coordinate)
+        let coord = coordinate
+        let preserveQueued = queued != nil
+        // Detail fetch only applies to a real, already-synced existing pin — matches the
+        // four branches this replaces (skip for a brand-new lead or an offline-pending one).
+        let detailPinId: String? = (pin != nil && !isNew && pin?.isPending != true) ? pin?.id : nil
 
-        if let pin, !isNew, pin.isPendingEdit || queued?.request.lead_id != nil {
-            let pinId = pin.id
-            async let detailTask = fetchDetail(id: pinId)
-            let (geo, lead) = await (geoTask, detailTask)
-            if let lead { populateForm(from: lead, preserveQueuedFields: queued != nil) }
-            if address.isEmpty {
-                address = geo ?? coordString(coordinate) ?? ""
+        // Geocoding and the lead-detail fetch each carry their own bounded timeout
+        // (reverseGeocode: ~5s, fetchDetail: ~10s) and now run as independent tasks in
+        // this group, each applying its own result the moment it resolves. Previously
+        // they were joined via `await (geoTask, detailTask)`, which held the address
+        // field on "Looking up address…" for as long as the SLOWER of the two took —
+        // so a rep on a weak connection (or any detail-fetch hiccup) saw the address
+        // stay stuck well past the point geocoding itself had already succeeded.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                let geo = await self.reverseGeocode(coord)
+                if self.address.isEmpty {
+                    self.address = geo ?? self.coordString(coord) ?? ""
+                }
             }
-        } else if let pin, pin.isPending {
-            let geo = await geoTask
-            if address.isEmpty {
-                address = geo ?? coordString(coordinate) ?? ""
-            }
-        } else if let pin, !isNew {
-            let pinId = pin.id
-            async let detailTask = fetchDetail(id: pinId)
-            let (geo, lead) = await (geoTask, detailTask)
-            if let lead { populateForm(from: lead, preserveQueuedFields: false) }
-            if address.isEmpty {
-                address = geo ?? coordString(coordinate) ?? ""
-            }
-        } else {
-            let geo = await geoTask
-            if address.isEmpty {
-                address = geo ?? coordString(coordinate) ?? ""
+            if let detailPinId {
+                group.addTask { @MainActor in
+                    if let lead = await self.fetchDetail(id: detailPinId) {
+                        self.populateForm(from: lead, preserveQueuedFields: preserveQueued)
+                    }
+                }
             }
         }
     }
