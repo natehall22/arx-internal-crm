@@ -8,6 +8,7 @@
  */
 import { haversineDistanceFeet, type RoofMeasurePoint } from './roof-measure-geometry'
 import {
+  applyHeightAwareValleyHint,
   classifyRoofEdges,
   RIDGE_HIP_AZIMUTH_THRESHOLD_DEG,
   SHARED_EDGE_TOLERANCE_DEG,
@@ -104,9 +105,13 @@ function facetFacingAzimuth(f: PlaneFacetInput): number | null {
 }
 
 /**
- * Ridge/hip/valley from plane normals plus Solar facet azimuths.
- * Normal angle alone is ambiguous (~2×pitch for both ridge and hip corners); azimuth
- * separation disambiguates opposing facets (ridge) vs perpendicular (hip) vs parallel (valley).
+ * Ridge vs hip/valley from plane normals plus Solar facet azimuths. Azimuth ~180°
+ * apart is an unambiguous ridge. Azimuth ~90° apart is either a hip (convex) or a
+ * T/L valley (concave) — indistinguishable from angle/azimuth alone, since a common
+ * hip corner and a common valley intersection both produce ~90° azimuth separation;
+ * callers must resolve hip-vs-valley from plane height (see applyHeightAwareValleyHint
+ * at the call site). Azimuth ~0° apart (parallel) or missing falls back to the
+ * dihedral-angle heuristic below.
  */
 function classifySharedEdgeFromPlanes(
   azimuthA: number | null,
@@ -118,12 +123,12 @@ function classifySharedEdgeFromPlanes(
 
   if (azimuthA != null && azimuthB != null) {
     const azDiff = normalizeAngleDiff(azimuthA, azimuthB)
-    if (angle < 25) return 'valley'
     if (azDiff >= RIDGE_HIP_AZIMUTH_THRESHOLD_DEG) return 'ridge'
     if (azDiff >= 45 && azDiff <= 135) return 'hip'
   }
 
-  // Fallback when azimuth missing: coarse normal-angle buckets (legacy thresholds, fixed).
+  // Azimuths point roughly the same way (valley-prone) or are unavailable — dihedral
+  // angle disambiguates. Coarse normal-angle buckets (legacy thresholds, fixed).
   if (angle < 25) return 'valley'
   if (angle >= 110) return 'ridge'
   if (angle >= 45 && angle <= 100) return 'hip'
@@ -178,12 +183,17 @@ export function classifyRoofEdgesFromPlanes(facets: PlaneFacetInput[]): EdgeClas
 
       const n1: [number, number, number] = [p1[0], p1[1], p1[2]]
       const n2: [number, number, number] = [p2[0], p2[1], p2[2]]
-      const edgeType = classifySharedEdgeFromPlanes(
+      const azimuthBasedType = classifySharedEdgeFromPlanes(
         facetFacingAzimuth(facets[i]),
         facetFacingAzimuth(facets[j]),
         n1,
         n2
       )
+      // azDiff alone can't tell a hip (convex) from a valley (concave) — a T/L wing
+      // meeting the main roof commonly has the same ~90° azDiff as a hip corner.
+      // Same height-hint used by the live 2D classifier resolves it from the facets'
+      // own plane_height_at_center_meters (already computed above, unlike azimuth).
+      const edgeType = applyHeightAwareValleyHint(azimuthBasedType, facets[i], facets[j], mid, mid)
 
       let sharedLen = 0
       const ptsA = facets[i].points

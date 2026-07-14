@@ -142,6 +142,104 @@ describe('roof plane edge classification', () => {
     expect(d2.ridges_lf).toBeGreaterThanOrEqual(0)
   })
 
+  it('low-pitch gable ridge (opposing azimuths) is not misclassified as a valley', () => {
+    // 2/12 pitch (9.46°): dihedral angle between opposing-azimuth normals is only
+    // ~19° (< the 25° valley heuristic threshold), but azimuth 180° apart is an
+    // unambiguous ridge signal that must win over the shallow-pitch dihedral angle.
+    const facets = [
+      {
+        id: 'a',
+        points: [
+          { lat: 35.41, lng: -80.6 },
+          { lat: 35.41, lng: -80.599 },
+          { lat: 35.4095, lng: -80.599 },
+          { lat: 35.4095, lng: -80.6 },
+        ],
+        facing_azimuth_degrees: 180,
+        pitch_degrees: 9.46,
+        plane_height_at_center_meters: 250,
+      },
+      {
+        id: 'b',
+        points: [
+          { lat: 35.4095, lng: -80.6 },
+          { lat: 35.4095, lng: -80.599 },
+          { lat: 35.409, lng: -80.599 },
+          { lat: 35.409, lng: -80.6 },
+        ],
+        facing_azimuth_degrees: 0,
+        pitch_degrees: 9.46,
+        plane_height_at_center_meters: 250,
+      },
+    ]
+    const r = classifyRoofEdgesFromPlanes(facets)
+    expect(r.ridges_lf).toBeGreaterThan(0)
+    expect(r.valleys_lf).toBe(0)
+  })
+
+  it('T-intersection valley (azDiff ~90°, same as a hip) resolves via plane-height hint', () => {
+    // azDiff alone can't tell a hip from a T/L valley — both commonly run ~90° apart.
+    // A small higher section capping into a larger lower roof (asymmetric footprint +
+    // higher plane_height_at_center_meters) is the disambiguating signal.
+    const main: PlaneFacetInput = {
+      id: 'main',
+      points: [
+        { lat: 35.41, lng: -80.6 },
+        { lat: 35.41, lng: -80.599 },
+        { lat: 35.4097, lng: -80.599 },
+        { lat: 35.4097, lng: -80.6 },
+      ],
+      facing_azimuth_degrees: 180,
+      pitch_degrees: 9.46, // 2/12 — the low-pitch case that regressed without the height hint
+      plane_height_at_center_meters: 250,
+    }
+    const wing: PlaneFacetInput = {
+      id: 'wing',
+      points: [
+        { lat: 35.4097, lng: -80.6 },
+        { lat: 35.4097, lng: -80.599 },
+        { lat: 35.40967, lng: -80.599 },
+        { lat: 35.40967, lng: -80.6 },
+      ],
+      facing_azimuth_degrees: 90,
+      pitch_degrees: 9.46,
+      plane_height_at_center_meters: 253,
+    }
+    const r = classifyRoofEdgesFromPlanes([main, wing])
+    expect(r.valleys_lf).toBeGreaterThan(0)
+    expect(r.hips_lf).toBe(0)
+  })
+
+  it('genuine hip corner (azDiff ~90°, no height-hint signal) stays a hip', () => {
+    const a: PlaneFacetInput = {
+      id: 'a',
+      points: [
+        { lat: 35.41, lng: -80.6 },
+        { lat: 35.41, lng: -80.599 },
+        { lat: 35.4097, lng: -80.599 },
+        { lat: 35.4097, lng: -80.6 },
+      ],
+      facing_azimuth_degrees: 180,
+      pitch_degrees: 26.565,
+      plane_height_at_center_meters: 250,
+    }
+    const b: PlaneFacetInput = {
+      id: 'b',
+      points: [
+        { lat: 35.4097, lng: -80.6 },
+        { lat: 35.4097, lng: -80.599 },
+        { lat: 35.4094, lng: -80.599 },
+        { lat: 35.4094, lng: -80.6 },
+      ],
+      facing_azimuth_degrees: 90,
+      pitch_degrees: 26.565,
+      plane_height_at_center_meters: 250, // same height — no valley hint
+    }
+    const r = classifyRoofEdgesFromPlanes([a, b])
+    expect(r.hips_lf).toBeGreaterThan(0)
+    expect(r.valleys_lf).toBe(0)
+  })
+
   it('plane classifier returns same shape as 2D', () => {
     const facets = [
       {
