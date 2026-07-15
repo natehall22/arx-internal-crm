@@ -7,6 +7,7 @@ const TABS = [
   { label: 'Heats', href: '/admin/sisu/incentives' },
   { label: 'Badges', href: '/admin/sisu/incentives?tab=badges' },
   { label: '444 Program', href: '/admin/sisu/444' },
+  { label: 'Setter Ramp', href: '/admin/sisu/setter-ramp' },
   { label: 'Bonus Approval', href: '/admin/sisu/bonus-approval' },
   { label: 'Accountability', href: '/admin/sisu/accountability' },
 ] as const

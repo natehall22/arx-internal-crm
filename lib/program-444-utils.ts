@@ -1,11 +1,16 @@
-type TimeZoneParts = {
+// NOTE: the timezone-math helpers below are exported so lib/setter-ramp-utils.ts
+// can reuse the exact same Sunday-alignment logic for its open-ended tenure-week
+// windows, instead of forking a second copy of fiddly DST-safe date math.
+// Exporting is additive-only — no behavior change for 444 callers.
+
+export type TimeZoneParts = {
   year: number
   month: number
   day: number
   weekday: string
 }
 
-const WEEKDAY_INDEX: Record<string, number> = {
+export const WEEKDAY_INDEX: Record<string, number> = {
   Sun: 0,
   Mon: 1,
   Tue: 2,
@@ -15,7 +20,7 @@ const WEEKDAY_INDEX: Record<string, number> = {
   Sat: 6,
 }
 
-function getTimeZoneParts(date: Date, timezone: string): TimeZoneParts {
+export function getTimeZoneParts(date: Date, timezone: string): TimeZoneParts {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     weekday: 'short',
@@ -44,7 +49,7 @@ function getTimeZoneParts(date: Date, timezone: string): TimeZoneParts {
   }
 }
 
-function addDaysToDateParts(
+export function addDaysToDateParts(
   dateParts: Pick<TimeZoneParts, 'year' | 'month' | 'day'>,
   days: number
 ): Pick<TimeZoneParts, 'year' | 'month' | 'day'> {
@@ -56,7 +61,7 @@ function addDaysToDateParts(
   }
 }
 
-function getOffsetMilliseconds(utcDate: Date, timezone: string): number {
+export function getOffsetMilliseconds(utcDate: Date, timezone: string): number {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     year: 'numeric',
@@ -93,7 +98,7 @@ function getOffsetMilliseconds(utcDate: Date, timezone: string): number {
   return localAsUtc - utcDate.getTime()
 }
 
-function zonedDateTimeToUtcIso(
+export function zonedDateTimeToUtcIso(
   dateParts: Pick<TimeZoneParts, 'year' | 'month' | 'day'>,
   timezone: string,
   hour: number,

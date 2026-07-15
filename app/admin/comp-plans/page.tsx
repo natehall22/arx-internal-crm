@@ -1189,6 +1189,7 @@ export default function CompPlansPage() {
                   <div className="flex flex-wrap gap-4">
                     {[
                       { role: 'sales_rep', label: 'Sales Rep' },
+                      { role: 'setter', label: 'Setter' },
                       { role: 'canvasser', label: 'Canvasser' },
                       { role: 'call_center', label: 'Call Center' },
                       { role: 'sales_manager', label: 'Sales Manager' },
