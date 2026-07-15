@@ -8,6 +8,19 @@ export function getEasternTodayIso(timeZone = EASTERN_TZ): string {
   return new Date().toLocaleDateString('en-CA', { timeZone })
 }
 
+/** Calendar date YYYY-MM-DD in Eastern Time for a UTC instant (timestamptz column). */
+export function getEasternDateIso(iso: string | null | undefined, timeZone = EASTERN_TZ): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return null
+  return d.toLocaleDateString('en-CA', { timeZone })
+}
+
+/** Calendar month YYYY-MM in Eastern Time for a UTC instant (timestamptz column). */
+export function getEasternMonthKey(iso: string | null | undefined, timeZone = EASTERN_TZ): string | null {
+  return getEasternDateIso(iso, timeZone)?.slice(0, 7) ?? null
+}
+
 /** 0=Sun … 6=Sat in Eastern Time. */
 export function getEasternWeekdayIndex(timeZone = EASTERN_TZ): number {
   const weekday = new Date().toLocaleDateString('en-US', { timeZone, weekday: 'short' })

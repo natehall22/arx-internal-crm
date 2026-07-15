@@ -2,10 +2,13 @@ import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib
 import { calculateCommissionFromPlanForSale, type CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import {
   getSitOutcomeNormalizedIdSet,
-  normalizeInspectionOutcomeId,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
+import { getCustomDateRange } from '@/lib/date-ranges'
+import { EASTERN_TZ, getEasternMonthKey } from '@/lib/eastern-datetime'
+import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 
 export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' | 'owner' }
 
@@ -232,7 +235,15 @@ export async function loadOrgSitOutcomeIdSet(
   supabase: SupabaseClient,
   orgId: string
 ): Promise<Set<string>> {
-  const { data: orgRow } = await supabase.from('orgs').select('settings').eq('id', orgId).maybeSingle()
+  const { data: orgRow, error } = await supabase
+    .from('orgs')
+    .select('settings')
+    .eq('id', orgId)
+    .maybeSingle()
+  // A query failure here must not be treated as "org has no custom sit-outcome
+  // config" (which falls back to defaults and would silently compute tier bonuses
+  // from the wrong outcome set) — propagate it so payroll fails closed instead.
+  if (error) throw error
   const raw = orgRow?.settings as { inspection_outcomes?: InspectionOutcomeConfigRow[] } | undefined
   return getSitOutcomeNormalizedIdSet(raw?.inspection_outcomes)
 }
@@ -250,80 +261,93 @@ export async function buildMonthlyTierMetricMaps(
   sitsBySetterMonth: Map<string, number>
   sitsByOwnerMonth: Map<string, number>
   salesByOwnerMonth: Map<string, number>
+  /** Opportunity ids with a qualifying inspection_outcome that couldn't be dated
+   * (no inspection_outcome_at, no qualifying status row) — excluded from
+   * sitsBySetterMonth/sitsByOwnerMonth rather than guessed from an unrelated
+   * timestamp. Payroll admins should resolve these opportunities' inspection dates. */
+  skippedOpportunityIds: string[]
 }> {
   const sitsBySetterMonth = new Map<string, number>()
   const sitsByOwnerMonth = new Map<string, number>()
   const salesByOwnerMonth = new Map<string, number>()
+  const skippedOpportunityIds: string[] = []
 
-  const startIso = `${volFrom}T00:00:00.000Z`
-  const endIso = `${volTo}T23:59:59.999Z`
+  // Half-open [start, end) boundary in the org's payroll timezone (Eastern) — volFrom/
+  // volTo are calendar-month first/last days, so end is Eastern midnight of the day
+  // after volTo. Prevents a late-evening Eastern sit near month-end from rolling into
+  // the next UTC calendar month's tier bucket.
+  const { start, end } = getCustomDateRange(volFrom, volTo, EASTERN_TZ)
+  const startIso = start.toISOString()
+  const endIso = end.toISOString()
 
   const sitSet = await loadOrgSitOutcomeIdSet(supabase, orgId)
   if (sitSet.size > 0) {
-    const { data: opps, error: oppErr } = await supabase
-      .from('opportunities')
-      .select('setter_user_id, owner_user_id, inspection_outcome, inspection_outcome_at')
-      .eq('org_id', orgId)
-      .not('inspection_outcome', 'is', null)
-      .not('inspection_outcome_at', 'is', null)
-      .gte('inspection_outcome_at', startIso)
-      .lte('inspection_outcome_at', endIso)
-
-    if (oppErr) {
-      console.error('buildMonthlyTierMetricMaps opportunities', oppErr)
-    } else {
-      for (const o of opps || []) {
-        const norm = normalizeInspectionOutcomeId(o.inspection_outcome as string | null)
-        if (!sitSet.has(norm)) continue
-        const mk = monthKeyFromSaleDate(o.inspection_outcome_at as string | null)
-        if (!mk) continue
-        const su = o.setter_user_id as string | null | undefined
-        const ou = o.owner_user_id as string | null | undefined
-        if (su) {
-          const key = `${su}|${mk}`
-          sitsBySetterMonth.set(key, (sitsBySetterMonth.get(key) || 0) + 1)
-        }
-        if (ou) {
-          const key = `${ou}|${mk}`
-          sitsByOwnerMonth.set(key, (sitsByOwnerMonth.get(key) || 0) + 1)
-        }
+    // Resolves each opportunity's FIRST qualifying sit (not whatever the
+    // opportunity's inspection_outcome column currently holds) so a later
+    // re-attempt can't shift which month a sit's volume-bonus tier counts
+    // toward — same resolution the per-unit sit-pay calculation uses.
+    // Let failures propagate: a payroll export computed from an empty sit map
+    // would look valid while silently omitting every tier bonus.
+    const sitOpps = await fetchEffectiveSitOpportunitiesInPeriod(supabase, {
+      orgId,
+      startIso,
+      endIso,
+      sitOutcomeIdSet: sitSet,
+      eligibilityMode: 'first_qualifying',
+      onSkippedForMissingTimestamp: (oppId) => skippedOpportunityIds.push(oppId),
+    })
+    for (const o of sitOpps) {
+      const mk = getEasternMonthKey(o.inspection_outcome_at)
+      if (!mk) continue
+      if (o.setter_user_id) {
+        const key = `${o.setter_user_id}|${mk}`
+        sitsBySetterMonth.set(key, (sitsBySetterMonth.get(key) || 0) + 1)
+      }
+      if (o.owner_user_id) {
+        const key = `${o.owner_user_id}|${mk}`
+        sitsByOwnerMonth.set(key, (sitsByOwnerMonth.get(key) || 0) + 1)
       }
     }
   }
 
-  const { data: contracts, error: cErr } = await supabase
-    .from('order_form_contracts')
-    .select('customer_signed_at, opportunity_id, opportunities!inner(owner_user_id, org_id)')
-    .eq('org_id', orgId)
-    .in('agreement_type', SALE_AGREEMENT_TYPES)
-    .eq('status', 'completed')
-    .not('customer_signed_at', 'is', null)
-    .gte('customer_signed_at', startIso)
-    .lte('customer_signed_at', endIso)
+  const contracts = await fetchSupabaseAllPages<{
+    customer_signed_at: string | null
+    opportunity_id: string | null
+    opportunities: { owner_user_id: string | null } | { owner_user_id: string | null }[] | null
+  }>(async (from, to) =>
+    supabase
+      .from('order_form_contracts')
+      .select('customer_signed_at, opportunity_id, opportunities!inner(owner_user_id, org_id)')
+      .eq('org_id', orgId)
+      .in('agreement_type', SALE_AGREEMENT_TYPES)
+      .eq('status', 'completed')
+      .not('customer_signed_at', 'is', null)
+      .gte('customer_signed_at', startIso)
+      .lt('customer_signed_at', endIso)
+      .order('customer_signed_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to)
+  )
 
-  if (cErr) {
-    console.error('buildMonthlyTierMetricMaps contracts', cErr)
-  } else {
-    const seen = new Set<string>()
-    for (const c of contracts || []) {
-      const rawOpp = c.opportunities as unknown
-      const opp = (Array.isArray(rawOpp) ? rawOpp[0] : rawOpp) as
-        | { owner_user_id: string | null }
-        | null
-        | undefined
-      const owner = opp?.owner_user_id
-      if (!owner) continue
-      const mk = monthKeyFromSaleDate(c.customer_signed_at as string | null)
-      if (!mk) continue
-      const dedupe = `${owner}|${mk}|${c.opportunity_id as string}`
-      if (seen.has(dedupe)) continue
-      seen.add(dedupe)
-      const key = `${owner}|${mk}`
-      salesByOwnerMonth.set(key, (salesByOwnerMonth.get(key) || 0) + 1)
-    }
+  const seen = new Set<string>()
+  for (const c of contracts) {
+    const rawOpp = c.opportunities as unknown
+    const opp = (Array.isArray(rawOpp) ? rawOpp[0] : rawOpp) as
+      | { owner_user_id: string | null }
+      | null
+      | undefined
+    const owner = opp?.owner_user_id
+    if (!owner) continue
+    const mk = getEasternMonthKey(c.customer_signed_at)
+    if (!mk) continue
+    const dedupe = `${owner}|${mk}|${c.opportunity_id as string}`
+    if (seen.has(dedupe)) continue
+    seen.add(dedupe)
+    const key = `${owner}|${mk}`
+    salesByOwnerMonth.set(key, (salesByOwnerMonth.get(key) || 0) + 1)
   }
 
-  return { sitsBySetterMonth, sitsByOwnerMonth, salesByOwnerMonth }
+  return { sitsBySetterMonth, sitsByOwnerMonth, salesByOwnerMonth, skippedOpportunityIds }
 }
 
 export function periodSitsAndCloseRateForParticipant(input: {

@@ -5,9 +5,11 @@ import {
 } from '@/lib/comp-plan-unit-types'
 import { resolveCustomerDisplayName } from '@/lib/customers'
 import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
+import { getEasternDateIso } from '@/lib/eastern-datetime'
 import { getSitOutcomeNormalizedIdSet, type InspectionOutcomeConfigRow } from '@/lib/inspection-outcomes'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { roundMoney } from '@/lib/money'
+import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 
 export type HybridComponentForUnitPay = {
   type: string
@@ -82,8 +84,7 @@ export function resolveSaleCustomerName(input: {
 }
 
 function formatEventDate(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  return String(iso).slice(0, 10)
+  return getEasternDateIso(iso)
 }
 
 function sortPeriodUnitPayLines(lines: PeriodUnitPayLine[]): PeriodUnitPayLine[] {
@@ -165,16 +166,32 @@ export async function fetchPeriodUnitPayLinesForUser(
     sitRate: number
     saleRate: number
   }
-): Promise<{ sitLines: PeriodUnitPayLine[]; saleLines: PeriodUnitPayLine[] }> {
+): Promise<{
+  sitLines: PeriodUnitPayLine[]
+  saleLines: PeriodUnitPayLine[]
+  /** Opportunity ids with a qualifying sit that couldn't be dated (no
+   * inspection_outcome_at, no qualifying status row) — excluded rather than dated
+   * from an unrelated edit timestamp. Surfaced so payroll admins can resolve them. */
+  skippedOpportunityIds: string[]
+}> {
   const { orgId, userId, startIso, endIso, unitTypes, sitRate, saleRate } = opts
   const needsSit = unitTypes.includes('sit')
   const needsSale = unitTypes.includes('sale')
 
   const sitLines: PeriodUnitPayLine[] = []
   const saleLines: PeriodUnitPayLine[] = []
+  const skippedOpportunityIds: string[] = []
 
   if (needsSit) {
-    const { data: orgRow } = await supabase.from('orgs').select('settings').eq('id', orgId).maybeSingle()
+    const { data: orgRow, error: orgErr } = await supabase
+      .from('orgs')
+      .select('settings')
+      .eq('id', orgId)
+      .maybeSingle()
+    // A query failure must not be treated as "no custom sit-outcome config" (which
+    // falls back to defaults) — propagate it so the statement fails closed instead
+    // of silently computing sit pay from the wrong outcome set.
+    if (orgErr) throw orgErr
     const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
       (orgRow?.settings as { inspection_outcomes?: InspectionOutcomeConfigRow[] } | undefined)
         ?.inspection_outcomes
@@ -185,6 +202,8 @@ export async function fetchPeriodUnitPayLinesForUser(
         startIso,
         endIso,
         sitOutcomeIdSet,
+        eligibilityMode: 'first_qualifying',
+        onSkippedForMissingTimestamp: (oppId) => skippedOpportunityIds.push(oppId),
       })
       const userSitOpps = sitOpps.filter((o) => o.setter_user_id === userId)
       const oppIds = userSitOpps.map((o) => o.id)
@@ -199,17 +218,23 @@ export async function fetchPeriodUnitPayLinesForUser(
       >()
 
       if (oppIds.length > 0) {
-        const { data: oppRows, error: oppErr } = await supabase
-          .from('opportunities')
-          .select(
-            'id, lead_id, address_text, leads(homeowner_name), customers(name)'
-          )
-          .eq('org_id', orgId)
-          .in('id', oppIds)
+        const oppRows = await fetchSupabaseAllPages<{
+          id: string
+          lead_id: string | null
+          address_text: string | null
+          leads: { homeowner_name?: string | null } | { homeowner_name?: string | null }[] | null
+          customers: { name?: string | null } | { name?: string | null }[] | null
+        }>(async (from, to) =>
+          supabase
+            .from('opportunities')
+            .select('id, lead_id, address_text, leads(homeowner_name), customers(name)')
+            .eq('org_id', orgId)
+            .in('id', oppIds)
+            .order('id', { ascending: true })
+            .range(from, to)
+        )
 
-        if (oppErr) throw oppErr
-
-        for (const row of oppRows || []) {
+        for (const row of oppRows) {
           const rawLead = row.leads as unknown
           const lead = (Array.isArray(rawLead) ? rawLead[0] : rawLead) as
             | { homeowner_name?: string | null }
@@ -251,33 +276,57 @@ export async function fetchPeriodUnitPayLinesForUser(
   }
 
   if (needsSale) {
-    const { data: contracts, error } = await supabase
-      .from('order_form_contracts')
-      .select(
-        `id,
-         opportunity_id,
-         customer_name,
-         customer_signed_at,
-         opportunities!inner(
-           setter_user_id,
-           org_id,
-           lead_id,
-           address_text,
-           leads(homeowner_name),
-           customers(name)
-         )`
-      )
-      .eq('org_id', orgId)
-      .in('agreement_type', SALE_AGREEMENT_TYPES)
-      .eq('status', 'completed')
-      .not('customer_signed_at', 'is', null)
-      .gte('customer_signed_at', startIso)
-      .lt('customer_signed_at', endIso)
-
-    if (error) throw error
+    const contracts = await fetchSupabaseAllPages<{
+      id: string
+      opportunity_id: string | null
+      customer_name: string | null
+      customer_signed_at: string | null
+      opportunities:
+        | {
+            setter_user_id: string | null
+            lead_id?: string | null
+            address_text?: string | null
+            leads?: { homeowner_name?: string | null } | { homeowner_name?: string | null }[] | null
+            customers?: { name?: string | null } | { name?: string | null }[] | null
+          }
+        | {
+            setter_user_id: string | null
+            lead_id?: string | null
+            address_text?: string | null
+            leads?: { homeowner_name?: string | null } | { homeowner_name?: string | null }[] | null
+            customers?: { name?: string | null } | { name?: string | null }[] | null
+          }[]
+        | null
+    }>(async (from, to) =>
+      supabase
+        .from('order_form_contracts')
+        .select(
+          `id,
+           opportunity_id,
+           customer_name,
+           customer_signed_at,
+           opportunities!inner(
+             setter_user_id,
+             org_id,
+             lead_id,
+             address_text,
+             leads(homeowner_name),
+             customers(name)
+           )`
+        )
+        .eq('org_id', orgId)
+        .in('agreement_type', SALE_AGREEMENT_TYPES)
+        .eq('status', 'completed')
+        .not('customer_signed_at', 'is', null)
+        .gte('customer_signed_at', startIso)
+        .lt('customer_signed_at', endIso)
+        .order('customer_signed_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)
+    )
 
     const seen = new Set<string>()
-    for (const row of contracts || []) {
+    for (const row of contracts) {
       const rawOpp = row.opportunities as unknown
       const opp = (Array.isArray(rawOpp) ? rawOpp[0] : rawOpp) as
         | {
@@ -326,7 +375,15 @@ export async function fetchPeriodUnitPayLinesForUser(
     }
   }
 
-  return { sitLines, saleLines }
+  if (skippedOpportunityIds.length > 0) {
+    console.warn('fetchPeriodUnitPayLinesForUser: sits skipped for missing inspection timestamp', {
+      orgId,
+      userId,
+      skippedOpportunityIds,
+    })
+  }
+
+  return { sitLines, saleLines, skippedOpportunityIds }
 }
 
 /** @deprecated Use fetchPeriodUnitPayLinesForUser — kept for count-only callers if any. */

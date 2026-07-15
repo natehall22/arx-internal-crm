@@ -51,10 +51,12 @@ export default function AdminPayrollPage() {
   const [rowCount, setRowCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [skippedOpportunityIds, setSkippedOpportunityIds] = useState<string[]>([])
 
   const load = async () => {
     setLoading(true)
     setError('')
+    setSkippedOpportunityIds([])
     try {
       const res = await fetch(`/api/admin/payroll/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       if (res.status === 401) {
@@ -75,6 +77,7 @@ export default function AdminPayrollPage() {
       const data = await res.json()
       setRows(data.rows || [])
       setRowCount(data.rowCount ?? 0)
+      setSkippedOpportunityIds(data.warnings?.sitsSkippedForMissingTimestamp ?? [])
     } catch (e) {
       setError('Failed to load payroll data')
       setRows([])
@@ -161,6 +164,20 @@ export default function AdminPayrollPage() {
           </div>
 
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+
+          {skippedOpportunityIds.length > 0 && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-semibold">
+                {skippedOpportunityIds.length} sit{skippedOpportunityIds.length === 1 ? '' : 's'} skipped for
+                missing inspection timestamp
+              </p>
+              <p className="mt-1 text-amber-800">
+                These opportunities have a qualifying inspection outcome but no reliable date to pay it
+                against, so they were excluded rather than dated from an unrelated edit. Not reflected in
+                tier bonuses below — check each opportunity&apos;s inspection status history.
+              </p>
+            </div>
+          )}
 
           {rowCount > 0 && (
             <p className="mt-4 text-sm text-gray-600">

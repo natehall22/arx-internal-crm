@@ -112,12 +112,15 @@ export async function GET(request: NextRequest) {
 
     const volumeMap = buildMonthlyVolumeMaps(volJobs || [], opportunityByProjectId, projectIdByJobId)
 
-    const { sitsBySetterMonth, sitsByOwnerMonth, salesByOwnerMonth } = await buildMonthlyTierMetricMaps(
-      supabase,
-      orgId,
-      volFrom,
-      volTo
-    )
+    const { sitsBySetterMonth, sitsByOwnerMonth, salesByOwnerMonth, skippedOpportunityIds } =
+      await buildMonthlyTierMetricMaps(supabase, orgId, volFrom, volTo)
+
+    if (skippedOpportunityIds.length > 0) {
+      console.warn(
+        'payroll export: opportunities skipped for missing inspection timestamp',
+        { orgId, volFrom, volTo, skippedOpportunityIds }
+      )
+    }
 
     const { data: exportJobs, error: exErr } = await supabase
       .from('production_jobs')
@@ -391,6 +394,7 @@ export async function GET(request: NextRequest) {
       to,
       rowCount: rows.length,
       rows,
+      warnings: { sitsSkippedForMissingTimestamp: skippedOpportunityIds },
     })
   } catch (e) {
     console.error('GET /api/admin/payroll/export', e)

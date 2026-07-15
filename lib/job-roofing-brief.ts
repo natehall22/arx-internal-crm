@@ -35,6 +35,7 @@ export type JobRoofingBriefFields = {
   stepFlashingLf: BriefField
   wallFlashingLf: BriefField
   accessories: { value: string | null }
+  soldAddOns: { value: string | null }
   specialRemarks: { value: string | null }
   showNoWasteWarning: boolean
   proposalHref: string | null
@@ -123,6 +124,32 @@ function resolveSpecialRemarks(input: {
   if (input.materialsNotes?.trim()) parts.push(input.materialsNotes.trim())
   if (openItems) parts.push(openItems)
   return parts.length > 0 ? parts.join('\n\n') : null
+}
+
+const ADDER_UNIT_LABELS: Record<string, string> = {
+  square: 'sq',
+  lf: 'LF',
+  per_sqft: 'sq ft',
+  each: 'ea',
+}
+
+function fmtAdderQty(n: number): string {
+  if (Number.isInteger(n)) return n.toFixed(0)
+  return String(Number(n.toFixed(2)))
+}
+
+function formatSoldAddOns(scope: JobSoldScope): string | null {
+  const lines = Array.isArray(scope.line_items) ? scope.line_items : []
+  const parts: string[] = []
+  for (const item of lines) {
+    if (!item.is_adder || item.quantity <= 0) continue
+    const unit = (item.unit || '').toLowerCase()
+    if (unit === 'percent') continue
+    const unitLabel = ADDER_UNIT_LABELS[unit] ?? item.unit
+    const qtyLabel = [fmtAdderQty(item.quantity), unitLabel].filter(Boolean).join(' ')
+    parts.push(`${item.name} — ${qtyLabel}`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 function formatAccessories(input: {
@@ -278,6 +305,7 @@ export function buildJobRoofingBrief(input: {
         pipeBootsQty,
       }),
     },
+    soldAddOns: { value: formatSoldAddOns(scope) },
     specialRemarks: {
       value: resolveSpecialRemarks({
         specialInstructions: input.specialInstructions,
@@ -301,6 +329,7 @@ export function jobRoofingBriefHasContent(fields: JobRoofingBriefFields): boolea
       fields.stepFlashingLf.value ||
       fields.wallFlashingLf.value ||
       fields.accessories.value ||
+      fields.soldAddOns.value ||
       fields.specialRemarks.value ||
       fields.showNoWasteWarning
   )

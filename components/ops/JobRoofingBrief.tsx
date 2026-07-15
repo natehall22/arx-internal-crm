@@ -165,6 +165,17 @@ export default function JobRoofingBrief({
         </div>
       </div>
 
+      {fields.soldAddOns.value ? (
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            Sold add-ons
+          </span>
+          <p className="mt-1 text-sm text-[#2c2c2a] whitespace-pre-wrap break-words">
+            {fields.soldAddOns.value}
+          </p>
+        </div>
+      ) : null}
+
       {fields.specialRemarks.value ? (
         <div className="mt-3 border-t border-gray-100 pt-3">
           <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
