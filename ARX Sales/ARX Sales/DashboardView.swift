@@ -5,6 +5,9 @@ import Supabase
 
 struct DashboardView: View {
     var onRoleLoaded: ((String) -> Void)? = nil
+    var onOpenSettings: (() -> Void)? = nil
+
+    @AppStorage(AppSettings.Keys.focusMode) private var focusMode = false
 
     @State private var stats: PersonalStats?
     @State private var teamStats: TeamStatsResponse?
@@ -13,11 +16,14 @@ struct DashboardView: View {
     @State private var timeframe = "week"
     @State private var userName: String = ""
     @State private var userRole: String = ""
+    @State private var appointmentRefreshToken = 0
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Additive — hides itself when empty / fetch fails; never blanks stats.
+                    NextAppointmentCard(refreshToken: appointmentRefreshToken)
 
                     // MARK: - Timeframe Picker
                     Picker("Timeframe", selection: $timeframe) {
@@ -54,15 +60,27 @@ struct DashboardView: View {
                         // MARK: - My Numbers
                         myNumbersSection
 
-                        // MARK: - Leaderboard
-                        leaderboardSection
+                        if !focusMode {
+                            leaderboardSection
+                        }
                     }
                 }
-                .padding(.bottom, 20)
+                .padding(.bottom, AppSettings.floatingTabContentInset)
             }
             .navigationTitle(greeting)
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        onOpenSettings?()
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
             .refreshable {
+                appointmentRefreshToken += 1
                 await loadData()
             }
         }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,13 +23,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
+    let authContext: Awaited<ReturnType<typeof requireAuthApi>>
+    try {
+      authContext = await requireAuthApi()
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -41,17 +38,10 @@ export async function GET(request: NextRequest) {
 
     const admin = getAdminClient()
 
-    const { data: callerProfile, error: callerError } = await admin
-      .from('users')
-      .select('id, org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (callerError || !callerProfile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    const caller: UserProfile = {
+      id: authContext.authUser.id,
+      org_id: authContext.profile.org_id,
     }
-
-    const caller = callerProfile as UserProfile
 
     const { data: targetProfile } = await admin
       .from('users')

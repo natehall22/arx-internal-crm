@@ -13,6 +13,37 @@ function getAdminClient() {
   })
 }
 
+// Plain reps (rep/sales_rep/closer) may only reach an opportunity they own, set, or are the
+// assigned closer on via the linked lead — same three checks the list endpoint
+// (app/api/opportunities/route.ts GET) uses to scope org-wide browsing. Everyone else
+// (managers, admins, and any other role) is unrestricted here, matching that same list
+// endpoint's `isRep` gate: only rep/sales_rep/closer get narrowed, nobody else does today.
+const REP_LIKE_ROLES = new Set(['rep', 'sales_rep', 'closer'])
+
+async function canRepAccessOpportunity(
+  adminClient: ReturnType<typeof getAdminClient>,
+  profile: { role: string; org_id: string },
+  userId: string,
+  opportunity: { owner_user_id: string | null; setter_user_id: string | null; lead_id: string | null }
+): Promise<boolean> {
+  if (!REP_LIKE_ROLES.has(profile.role)) return true
+
+  if (opportunity.owner_user_id === userId) return true
+  if (opportunity.setter_user_id === userId) return true
+
+  if (opportunity.lead_id) {
+    const { data: lead } = await adminClient
+      .from('leads')
+      .select('closer_user_id')
+      .eq('id', opportunity.lead_id)
+      .eq('org_id', profile.org_id)
+      .maybeSingle()
+    if (lead?.closer_user_id === userId) return true
+  }
+
+  return false
+}
+
 // GET - Get a single opportunity
 export async function GET(
   request: NextRequest,
@@ -26,15 +57,24 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const profile = authContext.profile
     const adminClient = getAdminClient()
     const { data: opportunity, error } = await adminClient
       .from('opportunities')
       .select('*')
       .eq('id', params.id)
-      .eq('org_id', authContext.profile.org_id)
+      .eq('org_id', profile.org_id)
       .single()
 
     if (error || !opportunity) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    // Reps only get records they own, set, or are the assigned closer on via the lead —
+    // mirrors the list endpoint's scoping (app/api/opportunities/route.ts GET) so this
+    // by-id lookup can't be used to bypass the list's ownership filter. Managers/admins
+    // (anyone outside this role set) are unrestricted, same as the list endpoint.
+    if (!(await canRepAccessOpportunity(adminClient, profile, authContext.authUser.id, opportunity))) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 
@@ -94,12 +134,18 @@ export async function PATCH(
 
     const { data: existingOpp, error: existingErr } = await adminClient
       .from('opportunities')
-      .select('id, setter_user_id, owner_user_id')
+      .select('id, setter_user_id, owner_user_id, lead_id')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
 
     if (existingErr || !existingOpp) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    // Same ownership scoping as GET: a rep can't patch an opportunity they don't own/set/close,
+    // even if they somehow have the id (e.g. from a stale link or another surface).
+    if (!(await canRepAccessOpportunity(adminClient, profile, authContext.authUser.id, existingOpp))) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 

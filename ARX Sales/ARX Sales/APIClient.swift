@@ -31,6 +31,293 @@ struct TeamStatsResponse: Codable {
     let closerStats: [TeamMemberStats]?
 }
 
+// MARK: - Appointment Models (GET /api/appointments?filter=upcoming)
+
+/// Slim decode of enriched appointment rows from `/api/appointments`.
+/// Phone lives on nested `leads`; address prefers appointment.address_text then leads.
+struct MobileAppointment: Decodable, Identifiable {
+    let id: String
+    let scheduled_for: String
+    let appointment_type: String?
+    let address_text: String?
+    let status: String?
+    let leads: MobileAppointmentLead?
+    let closer: MobileAppointmentUser?
+    let setter: MobileAppointmentUser?
+
+    struct MobileAppointmentLead: Decodable {
+        let homeowner_name: String?
+        let phone: String?
+        let address_text: String?
+    }
+
+    struct MobileAppointmentUser: Decodable {
+        let id: String?
+        let full_name: String?
+        let role: String?
+    }
+
+    var homeownerName: String {
+        let name = leads?.homeowner_name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (name?.isEmpty == false) ? name! : "Homeowner"
+    }
+
+    var displayAddress: String? {
+        let apt = address_text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let apt, !apt.isEmpty { return apt }
+        let lead = leads?.address_text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let lead, !lead.isEmpty { return lead }
+        return nil
+    }
+
+    var phone: String? {
+        let p = leads?.phone?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (p?.isEmpty == false) ? p : nil
+    }
+
+    var scheduledDate: Date? {
+        Self.parseISO8601(scheduled_for)
+    }
+
+    var typeLabel: String {
+        switch appointment_type {
+        case "inspection": return "Inspection"
+        case "insurance_call": return "Insurance Call"
+        case "follow_up": return "Follow-up"
+        case nil, "": return "Appointment"
+        default:
+            return appointment_type!
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+    }
+
+    static func parseISO8601(_ raw: String) -> Date? {
+        let withFrac = ISO8601DateFormatter()
+        withFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFrac.date(from: raw) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: raw)
+    }
+}
+
+struct MobileAppointmentsResponse: Decodable {
+    let appointments: [MobileAppointment]
+}
+
+/// Row from GET /api/mobile/leads — caller's attributed/owned canvass leads.
+struct MobileLead: Decodable, Identifiable {
+    let id: String
+    let lat: Double?
+    let lng: Double?
+    let address_text: String?
+    let homeowner_name: String?
+    let phone: String?
+    let canvass_disposition: String?
+    let canvass_notes: String?
+    let status: String?
+    let created_at: String?
+    let updated_at: String?
+
+    var displayName: String {
+        let name = homeowner_name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, !name.isEmpty { return name }
+        let addr = address_text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let addr, !addr.isEmpty { return addr }
+        return "Lead"
+    }
+
+    var hasCoordinate: Bool {
+        guard let lat, let lng else { return false }
+        return lat != 0 || lng != 0
+    }
+
+    var asCanvassPin: CanvassPin? {
+        guard let lat, let lng, hasCoordinate else { return nil }
+        return CanvassPin(
+            id: id,
+            lat: lat,
+            lng: lng,
+            d: canvass_disposition,
+            s: status,
+            o: nil,
+            t: created_at,
+            ia: nil
+        )
+    }
+
+    /// Matches web canvass "Scheduled" filter: status=inspection and/or disposition inspection_scheduled.
+    var isScheduled: Bool {
+        status == "inspection" || canvass_disposition == "inspection_scheduled"
+    }
+}
+
+struct MobileLeadsResponse: Decodable {
+    let leads: [MobileLead]
+    let hasMore: Bool?
+}
+
+// MARK: - Sisu Models
+
+struct SisuLeaderboardEntry: Decodable, Identifiable {
+    let user_id: String
+    let full_name: String
+    let role: String
+    let primary_metric: Int
+    let doors_knocked: Int
+    let rank: Int
+    let badge_count: Int
+    var id: String { user_id }
+}
+
+struct SisuLeaderboardResponse: Decodable {
+    let setters: [SisuLeaderboardEntry]
+    let closers: [SisuLeaderboardEntry]
+    let asOf: String
+}
+
+struct SisuBadge: Decodable, Identifiable {
+    let id: String
+    let badge_id: String
+    let awarded_at: String
+    let incentive_badges: SisuBadgeInfo?
+
+    struct SisuBadgeInfo: Decodable {
+        let name: String?
+        let description: String?
+        let icon_key: String?
+        let color_hex: String?
+        let image_url: String?
+    }
+}
+
+struct SisuBadgesResponse: Decodable {
+    let badges: [SisuBadge]
+}
+
+/// A SPIFF ("Heat") program with the current rep's live progress toward it.
+/// Mirrors `SpiffWithProgress` in lib/incentive-metrics.ts — do not add fields
+/// that don't exist server-side; extend /api/sisu/incentives first.
+struct SisuSpiff: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let trigger_metric: String
+    let threshold: Double
+    let reward_type: String
+    let reward_amount: Double?
+    let reward_note: String?
+    let eligible_roles: [String]
+    let starts_at: String
+    let ends_at: String
+    let status: String
+    let currentValue: Double
+    let qualified: Bool
+    let payout_amount: Double?
+    let payroll_pay_date: String?
+
+    /// 0...100, clamped. `threshold` can be 0 for misconfigured programs — guard divide-by-zero.
+    var progressPct: Double {
+        guard threshold > 0 else { return 0 }
+        return min(100, max(0, (currentValue / threshold) * 100))
+    }
+
+    /// "$200 Cash", "$50 Gift Card", or "Recognition" — matches formatReward() on web.
+    var rewardLabel: String {
+        if reward_type == "recognition" { return "Recognition" }
+        if let note = reward_note, !note.isEmpty { return note }
+        if let amount = reward_amount {
+            let formatted = String(format: "$%.0f", amount)
+            return reward_type == "gift_card" ? "\(formatted) Gift Card" : "\(formatted) Cash"
+        }
+        return reward_type == "gift_card" ? "Gift Card" : "Cash"
+    }
+
+    /// Human label for the trigger metric — matches spiffMetricLabel() on web.
+    var metricLabel: String {
+        switch trigger_metric {
+        case "inspections_set": return "Inspections Set"
+        case "inspections_sat": return "Inspections Sat"
+        case "closed_sales": return "Closed Sales"
+        case "closed_revenue": return "Closed Revenue ($)"
+        case "doors_knocked": return "Doors Knocked"
+        case "close_rate": return "Close Rate (%)"
+        case "upgrade_attached": return "Upgrades Attached"
+        default: return trigger_metric.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    var endsAtDate: Date? { ISO8601DateParser.parse(ends_at) }
+
+    /// "2d left", "6h left", "Ended" — matches timeRemainingLabel() on web.
+    var timeRemainingLabel: String {
+        guard let end = endsAtDate else { return "" }
+        let diff = end.timeIntervalSinceNow
+        if diff <= 0 { return "Ended" }
+        let hours = diff / 3600
+        if hours < 2 {
+            let mins = Int(diff / 60)
+            return "\(mins / 60)h \(String(format: "%02d", mins % 60))m left"
+        }
+        if hours < 24 { return "\(Int(hours))h left" }
+        return "\(Int(hours / 24))d left"
+    }
+
+    /// Within 24h of ending and not yet qualified — surfaces urgency in the UI.
+    var isUrgent: Bool {
+        guard !qualified, let end = endsAtDate else { return false }
+        let diff = end.timeIntervalSinceNow
+        return diff > 0 && diff < 24 * 60 * 60
+    }
+}
+
+/// A rep's active weekly targets. Mirrors `UserIncentiveGoal` in lib/incentive-metrics.ts.
+/// Set by managers via the web admin; iOS is read-only.
+struct SisuIncentiveGoal: Decodable {
+    let id: String
+    let weekly_doors_target: Int?
+    let weekly_inspections_target: Int?
+    let weekly_sales_target: Int?
+    let weekly_revenue_target: Double?
+    let effective_from: String
+    let effective_to: String?
+
+    var hasAnyTarget: Bool {
+        weekly_doors_target != nil || weekly_inspections_target != nil
+            || weekly_sales_target != nil || weekly_revenue_target != nil
+    }
+}
+
+/// This-week live counts backing goal progress bars. Subset of `LiveMetrics` on
+/// web (badge-milestone-only fields like doorsKnockedForBadge are omitted —
+/// iOS doesn't need them since badge unlock progress isn't shown here).
+struct SisuLiveMetrics: Decodable {
+    let inspectionsSet: Int
+    let doorsKnocked: Int
+    let closedSales: Int
+}
+
+struct SisuIncentivesResponse: Decodable {
+    let liveMetrics: SisuLiveMetrics
+    let goal: SisuIncentiveGoal?
+    let activeSpiffs: [SisuSpiff]
+    let asOf: String
+}
+
+/// Minimal ISO8601 parser shared by Sisu models — handles both fractional-second
+/// and whole-second timestamp formats Postgres/PostgREST can emit.
+enum ISO8601DateParser {
+    static func parse(_ string: String) -> Date? {
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFractional.date(from: string) { return date }
+        let whole = ISO8601DateFormatter()
+        whole.formatOptions = [.withInternetDateTime]
+        return whole.date(from: string)
+    }
+}
+
 // MARK: - Canvass Models
 
 struct CanvassPin: Codable, Identifiable {
@@ -42,6 +329,20 @@ struct CanvassPin: Codable, Identifiable {
     let o: String?      // owner_user_id
     let t: String?      // created_at
     let ia: Bool?       // installation_agreement_signed (sold)
+    /// Local-only pending sync marker (not from API).
+    var isPending: Bool = false
+    /// Queued edit to an existing server pin (distinct from new-lead pending).
+    var isPendingEdit: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case id, lat, lng, d, s, o, t, ia
+    }
+    /// Whether map marker appearance should change (pending overlay, disposition, owner).
+    func isMapDisplayEqual(to other: CanvassPin) -> Bool {
+        d == other.d && s == other.s && o == other.o && ia == other.ia
+            && isPending == other.isPending && isPendingEdit == other.isPendingEdit
+            && lat == other.lat && lng == other.lng
+    }
 }
 
 struct CanvassViewportResponse: Codable {
@@ -66,8 +367,11 @@ struct CanvassLeadDetail: Codable, Identifiable {
     let owner_name: String?      // setter who last touched the lead
 }
 
-struct SaveLeadRequest: Codable {
+/// Plain data payload — freely passed between the main actor and `OfflineLeadQueue`
+/// (a background actor), so it opts out of the project's default MainActor isolation.
+nonisolated struct SaveLeadRequest: Codable {
     var lead_id: String?
+    var client_lead_id: String?
     var lat: Double?
     var lng: Double?
     var address_text: String?
@@ -76,9 +380,23 @@ struct SaveLeadRequest: Codable {
     var canvass_disposition: String?
     var canvass_notes: String?
     var source: String = "canvass"
+
+    /// Merge newer non-nil fields into this request (offline queue coalescing).
+    mutating func merge(from newer: SaveLeadRequest) {
+        if let v = newer.lead_id { lead_id = v }
+        if let v = newer.client_lead_id { client_lead_id = v }
+        if let v = newer.lat { lat = v }
+        if let v = newer.lng { lng = v }
+        if let v = newer.address_text { address_text = v }
+        if let v = newer.homeowner_name { homeowner_name = v }
+        if let v = newer.phone { phone = v }
+        if let v = newer.canvass_disposition { canvass_disposition = v }
+        if let v = newer.canvass_notes { canvass_notes = v }
+        if !newer.source.isEmpty { source = newer.source }
+    }
 }
 
-struct SaveLeadResponse: Codable {
+struct SaveLeadResponse: Codable, Equatable {
     let lead_id: String?
     let status: String?
 }
@@ -165,12 +483,14 @@ struct LidarMeasurePayload: Encodable {
     static func from(wallFaces: [WallFace]) -> LidarMeasurePayload {
         let elevations = wallFaces.map { face -> LidarElevationPayload in
             let verts = face.vertices
-            let ys = verts.map { Double($0.y) }
-            let heightM = (ys.max() ?? 0) - (ys.min() ?? 0)
+            let ys = verts.map { Double($0.y) }.sorted()
+            let p5 = percentile(ys, 0.05)
+            let p95 = percentile(ys, 0.95)
+            let heightM = max(0, p95 - p5)
             let heightFt = heightM * 3.28084
             let widthFt = heightFt > 0.5 ? face.areaSqFt / heightFt : nil
             return LidarElevationPayload(
-                elevation_name: face.label,
+                elevation_name: face.elevationName,
                 wall_width_ft: widthFt.map { $0 > 0.5 ? $0 : nil } ?? nil,
                 wall_height_ft: heightFt > 0.5 ? heightFt : nil,
                 lidar_confidence: nil,
@@ -189,6 +509,13 @@ struct LidarMeasurePayload: Encodable {
                 : elevations,
             device_model: nil
         )
+    }
+
+    private static func percentile(_ sorted: [Double], _ p: Double) -> Double {
+        guard !sorted.isEmpty else { return 0 }
+        let vals = sorted
+        let idx = Int(Double(vals.count - 1) * p)
+        return vals[min(max(idx, 0), vals.count - 1)]
     }
 }
 
@@ -239,19 +566,59 @@ struct APIClient {
         return data
     }
 
-    static func post(path: String, body: some Encodable) async throws -> Data {
+    static func post(path: String, body: some Encodable, timeout: TimeInterval = 15) async throws -> Data {
         guard let token = await bearerToken() else { throw APIError.unauthenticated }
+        return try await post(path: path, body: body, accessToken: token, timeout: timeout)
+    }
+
+    static func post(path: String, body: some Encodable, accessToken: String, timeout: TimeInterval = 15) async throws -> Data {
         var req = URLRequest(url: URL(string: baseURL + path)!)
         req.httpMethod = "POST"
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(body)
+        req.timeoutInterval = timeout
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard http.statusCode < 400 else {
+            throw APIError.httpError(http.statusCode)
+        }
+        return data
+    }
+
+    static func delete(path: String, body: some Encodable) async throws {
+        guard let token = await bearerToken() else { throw APIError.unauthenticated }
+        var req = URLRequest(url: URL(string: baseURL + path)!)
+        req.httpMethod = "DELETE"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(body)
         req.timeoutInterval = 15
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (_, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse, http.statusCode < 400 else {
             throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
-        return data
+    }
+
+    // MARK: - Push token
+
+    static func registerPushToken(_ deviceToken: String, environment: String) async throws {
+        struct Body: Encodable {
+            let device_token: String
+            let platform: String
+            let environment: String
+        }
+        _ = try await post(
+            path: "/api/mobile/push-token",
+            body: Body(device_token: deviceToken, platform: "ios", environment: environment)
+        )
+    }
+
+    static func unregisterPushToken(_ deviceToken: String) async throws {
+        struct Body: Encodable { let device_token: String }
+        try await delete(path: "/api/mobile/push-token", body: Body(device_token: deviceToken))
     }
 
     // MARK: - Dashboard
@@ -270,6 +637,60 @@ struct APIClient {
             queryItems: [URLQueryItem(name: "timeframe", value: timeframe)]
         )
         return try JSONDecoder().decode(TeamStatsResponse.self, from: data)
+    }
+
+    // MARK: - Sisu
+
+    static func sisuLeaderboard() async throws -> SisuLeaderboardResponse {
+        struct EmptyBody: Encodable {}
+        let data = try await post(path: "/api/sisu/leaderboard", body: EmptyBody())
+        return try JSONDecoder().decode(SisuLeaderboardResponse.self, from: data)
+    }
+
+    static func sisuBadges(userId: String) async throws -> [SisuBadge] {
+        let data = try await request(path: "/api/sisu/badges", queryItems: [
+            URLQueryItem(name: "userId", value: userId)
+        ])
+        return try JSONDecoder().decode(SisuBadgesResponse.self, from: data).badges
+    }
+
+    static func sisuIncentives() async throws -> SisuIncentivesResponse {
+        let data = try await request(path: "/api/sisu/incentives")
+        return try JSONDecoder().decode(SisuIncentivesResponse.self, from: data)
+    }
+
+    // MARK: - Appointments
+
+    /// Upcoming scheduled appointments for the signed-in rep (Bearer-auth on existing web route).
+    /// Decodes each row independently so one malformed appointment cannot hide the card.
+    static func upcomingAppointments() async throws -> [MobileAppointment] {
+        let data = try await request(path: "/api/appointments", queryItems: [
+            URLQueryItem(name: "filter", value: "upcoming"),
+        ])
+        guard
+            let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let rows = root["appointments"] as? [Any]
+        else {
+            return try JSONDecoder().decode(MobileAppointmentsResponse.self, from: data).appointments
+        }
+        let decoder = JSONDecoder()
+        var out: [MobileAppointment] = []
+        out.reserveCapacity(rows.count)
+        for row in rows {
+            guard JSONSerialization.isValidJSONObject(row),
+                  let rowData = try? JSONSerialization.data(withJSONObject: row),
+                  let apt = try? decoder.decode(MobileAppointment.self, from: rowData)
+            else { continue }
+            out.append(apt)
+        }
+        return out
+    }
+
+    // MARK: - My Leads
+
+    static func myLeads() async throws -> MobileLeadsResponse {
+        let data = try await request(path: "/api/mobile/leads")
+        return try JSONDecoder().decode(MobileLeadsResponse.self, from: data)
     }
 
     // MARK: - Canvass
@@ -292,9 +713,37 @@ struct APIClient {
         return (try JSONDecoder().decode(Response.self, from: data)).leads
     }
 
-    static func saveLead(_ payload: SaveLeadRequest) async throws -> SaveLeadResponse {
-        let data = try await post(path: "/api/canvass/lead", body: payload)
+    static func saveLeadDirect(_ payload: SaveLeadRequest) async throws -> SaveLeadResponse {
+        guard let token = await bearerToken() else { throw APIError.unauthenticated }
+        return try await saveLeadDirect(payload, accessToken: token)
+    }
+
+    static func saveLeadDirect(_ payload: SaveLeadRequest, accessToken: String) async throws -> SaveLeadResponse {
+        let data = try await post(path: "/api/canvass/lead", body: payload, accessToken: accessToken)
         return try JSONDecoder().decode(SaveLeadResponse.self, from: data)
+    }
+
+    /// Tries online save; on transport/5xx failure enqueues for offline replay.
+    static func saveLeadQueued(_ payload: SaveLeadRequest) async throws -> SaveLeadOutcome {
+        do {
+            let response = try await saveLeadDirect(payload)
+            return .synced(response)
+        } catch {
+            guard OfflineQueuePolicy.shouldQueue(error: error) else { throw error }
+            let enqueued = await OfflineLeadQueue.shared.enqueue(payload)
+            guard enqueued else { throw APIError.offlineQueueUnavailable }
+            return .queuedOffline
+        }
+    }
+
+    static func saveLead(_ payload: SaveLeadRequest) async throws -> SaveLeadResponse {
+        let outcome = try await saveLeadQueued(payload)
+        switch outcome {
+        case .synced(let response):
+            return response
+        case .queuedOffline:
+            throw APIError.offlineQueued
+        }
     }
 
     // MARK: - Opportunities
@@ -445,6 +894,8 @@ enum APIError: Error, LocalizedError {
     case unauthenticated
     case httpError(Int)
     case invalidResponse
+    case offlineQueued
+    case offlineQueueUnavailable
     /// Scheduling-specific errors returned by the server (e.g. conflict, no closer).
     case schedulingConflict(String)
     var errorDescription: String? {
@@ -452,6 +903,8 @@ enum APIError: Error, LocalizedError {
         case .unauthenticated: return "Not signed in"
         case .httpError(let code): return "Server error (\(code))"
         case .invalidResponse: return "Unexpected server response"
+        case .offlineQueued: return "Saved offline — will sync when back online"
+        case .offlineQueueUnavailable: return "Not signed in — could not save offline"
         case .schedulingConflict(let msg): return msg
         }
     }
@@ -460,13 +913,35 @@ enum APIError: Error, LocalizedError {
 // MARK: - Mobile app (ARX Sales)
 
 /// Flags from `GET /api/mobile/capabilities` — match Admin → Roles “View Opportunities”.
-struct MobileAppCapabilities: Decodable {
+struct MobileAppCapabilities: Decodable, Equatable {
+    /// False for inside-sales queue workers — ARX Sales is the field-canvassing app for
+    /// setters/closers. Defaults `true` so an older cached value / offline-first launch
+    /// never strands a legitimate field rep; the server is authoritative once reachable.
+    let appAccess: Bool
     let opportunitiesTab: Bool
     let measureTab: Bool
+    let weatherOverlay: Bool
 
     enum CodingKeys: String, CodingKey {
+        case appAccess = "app_access"
         case opportunitiesTab = "opportunities_tab"
         case measureTab = "measure_tab"
+        case weatherOverlay = "weather_overlay"
+    }
+
+    init(appAccess: Bool = true, opportunitiesTab: Bool = false, measureTab: Bool = false, weatherOverlay: Bool = false) {
+        self.appAccess = appAccess
+        self.opportunitiesTab = opportunitiesTab
+        self.measureTab = measureTab
+        self.weatherOverlay = weatherOverlay
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        appAccess = try c.decodeIfPresent(Bool.self, forKey: .appAccess) ?? true
+        opportunitiesTab = try c.decodeIfPresent(Bool.self, forKey: .opportunitiesTab) ?? false
+        measureTab = try c.decodeIfPresent(Bool.self, forKey: .measureTab) ?? false
+        weatherOverlay = try c.decodeIfPresent(Bool.self, forKey: .weatherOverlay) ?? false
     }
 }
 

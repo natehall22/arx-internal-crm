@@ -215,10 +215,15 @@ struct CaptureGuidanceView: View {
 
     private func processScan() {
         vm.isProcessing = true
+        // Snapshot the anchors on the main actor (via the lock-guarded accessor)
+        // before crossing to the background queue, rather than reading
+        // `vm.collectedAnchors` from inside the background closure — see
+        // `CaptureGuidanceVM.snapshotAnchors()` for why that was an unsynchronized
+        // cross-thread race.
+        let anchors = vm.snapshotAnchors()
         DispatchQueue.global(qos: .userInitiated).async {
-            let anchors = vm.collectedAnchors
             let processor = MeshProcessor()
-            let result = processor.processFull(anchors: anchors)
+            let result = processor.process(anchors: anchors, scanType: scanType)
             DispatchQueue.main.async {
                 vm.isProcessing = false
                 scanResult = result
@@ -251,13 +256,30 @@ class CaptureGuidanceVM: NSObject, ObservableObject, ARSessionDelegate {
     @Published var meshCoverage: Double = 0.0
     @Published var isProcessing = false
 
-    var collectedAnchors: [ARMeshAnchor] = []
+    // `_collectedAnchors` is written from ARSessionDelegate callbacks below, which
+    // ARKit fires on its own internal session thread — not the main thread —
+    // regardless of this type's default MainActor isolation
+    // (SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor). It was previously read directly
+    // from `processScan()`'s `DispatchQueue.global` closure, an unsynchronized
+    // cross-thread read/write on the array. `anchorsLock` guards both sides, and
+    // `snapshotAnchors()` is the only way to read it, so a lock can't be forgotten
+    // at a new call site.
+    private var _collectedAnchors: [ARMeshAnchor] = []
+    private let anchorsLock = NSLock()
+
     weak var arSession: ARSession?
 
     var completedCount: Int { completedPositions.count }
 
     func markComplete(positionId: Int) {
         completedPositions.insert(positionId)
+    }
+
+    /// Thread-safe snapshot of the most recent mesh anchors. Safe to call from any thread.
+    func snapshotAnchors() -> [ARMeshAnchor] {
+        anchorsLock.lock()
+        defer { anchorsLock.unlock() }
+        return _collectedAnchors
     }
 
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
@@ -270,7 +292,9 @@ class CaptureGuidanceVM: NSObject, ObservableObject, ARSessionDelegate {
 
     private func updateAnchors(_ session: ARSession) {
         let meshAnchors = session.currentFrame?.anchors.compactMap { $0 as? ARMeshAnchor } ?? []
-        collectedAnchors = meshAnchors
+        anchorsLock.lock()
+        _collectedAnchors = meshAnchors
+        anchorsLock.unlock()
         let coverage = min(Double(meshAnchors.count) / 30.0, 1.0)
         DispatchQueue.main.async { self.meshCoverage = coverage }
     }
@@ -290,6 +314,9 @@ struct CaptureARView: UIViewRepresentable {
 
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal, .vertical]
+        if ARWorldTrackingConfiguration.isSupported {
+            config.worldAlignment = .gravityAndHeading
+        }
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
             config.sceneReconstruction = .mesh
         }

@@ -6,7 +6,7 @@
  * Rakes climb their facet's slope: true = plan × pitch multiplier √(1+(r/12)²).
  * Hips/valleys run diagonally between two faces: true = plan × √(1+(tan²A+tan²B)/4)
  * — the standard roofing hip/valley factor (exact for equal pitches meeting at a
- * 90° plan corner, e.g. ×1.061 at 6/12, ×1.099 at 8/12).
+ * 90° plan corner, e.g. ×1.061 at 6/12, ×1.106 at 8/12).
  *
  * Applied at measure time only. Saved measurements are snapshots, so records
  * written before this correction keep their original plan-view values.

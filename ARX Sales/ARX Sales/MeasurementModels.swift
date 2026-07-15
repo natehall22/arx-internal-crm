@@ -54,8 +54,8 @@ struct RoofFace: Identifiable {
         self.pitchDegrees = pitchDeg
         self.pitchRise    = rise
 
-        // Azimuth: which compass direction the face slopes toward
-        let azRaw = atan2(Double(normal.x), Double(normal.z)) * 180 / .pi
+        // Azimuth with gravityAndHeading: −Z is true north
+        let azRaw = atan2(Double(normal.x), Double(-normal.z)) * 180 / .pi
         let az    = (azRaw + 360).truncatingRemainder(dividingBy: 360)
         self.azimuthDegrees = az
         self.isSelected     = false
@@ -84,6 +84,7 @@ struct WallFace: Identifiable {
     var netAreaSqFt: Double       // area minus openings
     var openings: [Opening]
     var azimuthDegrees: Double
+    var elevationName: String   // Front / Right / Rear / Left for CRM upload
     var label: String
     var isSelected: Bool = false
     var color: FaceColor = .wall
@@ -101,17 +102,29 @@ struct WallFace: Identifiable {
         self.areaSqFt = areaSqFt
         self.netAreaSqFt = areaSqFt
         self.openings = []
-        let azRaw = atan2(Double(normal.x), Double(normal.z)) * 180 / .pi
+        let azRaw = atan2(Double(normal.x), Double(-normal.z)) * 180 / .pi
         let az    = (azRaw + 360).truncatingRemainder(dividingBy: 360)
         self.azimuthDegrees = az
-        self.label          = WallFace.label(for: az)
+        self.elevationName   = WallFace.defaultElevation(for: az)
+        self.label           = WallFace.label(for: az)
     }
 
-    mutating func recalcNet() {
-        netAreaSqFt = max(0, areaSqFt - openings.reduce(0) { $0 + $1.areaSqFt })
+    static func defaultElevation(for azimuth: Double) -> String {
+        switch azimuth {
+        case 315...360, 0..<45:   return "Front"
+        case 45..<135:            return "Right"
+        case 135..<225:           return "Rear"
+        case 225..<315:           return "Left"
+        default:                  return "Front"
+        }
     }
 
     static func label(for azimuth: Double) -> String {
+        let elev = defaultElevation(for: azimuth)
+        return "\(elev) Wall"
+    }
+
+    static func compassLabel(for azimuth: Double) -> String {
         switch azimuth {
         case 315...360, 0..<45:   return "North Wall"
         case 45..<135:            return "East Wall"
@@ -119,6 +132,10 @@ struct WallFace: Identifiable {
         case 225..<315:           return "West Wall"
         default:                  return "Wall"
         }
+    }
+
+    mutating func recalcNet() {
+        netAreaSqFt = max(0, areaSqFt - openings.reduce(0) { $0 + $1.areaSqFt })
     }
 }
 

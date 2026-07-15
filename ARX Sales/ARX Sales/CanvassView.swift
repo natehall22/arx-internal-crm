@@ -6,92 +6,280 @@ import Combine
 // MARK: - Canvass View
 
 struct CanvassView: View {
+    var onOpenSettings: (() -> Void)? = nil
+    var weatherOverlayAvailable: Bool = false
+
     @StateObject private var vm = CanvassViewModel()
+    @ObservedObject private var offlineBridge = OfflineLeadQueueBridge.shared
+    @ObservedObject private var mapCoordinator = CanvassMapCoordinator.shared
     @State private var showLeadSheet = false
+    @State private var showPendingSheet = false
+    @State private var showLayersSheet = false
+    @State private var showLeadListSheet = false
     @State private var selectedPin: CanvassPin? = nil
     @State private var newLeadCoord: CLLocationCoordinate2D? = nil
+    @State private var pendingLeadFromList: MobileLead? = nil
+    @State private var leadListOpenGeneration = 0
     @State private var hasInitiallyZoomed = false
+    @State private var trackingMode: MKUserTrackingMode = .none
+    @State private var flyTarget: CLLocationCoordinate2D? = nil
+
+    @AppStorage(AppSettings.Keys.mapStyle) private var mapStyleRaw = MapStyleSetting.hybrid.rawValue
+    @AppStorage(AppSettings.Keys.enable3DBuildings) private var enable3DBuildings = true
+    @AppStorage(AppSettings.Keys.showTerritories) private var showTerritories = true
+    @AppStorage(AppSettings.Keys.showWeather) private var showWeather = false
+    @AppStorage(AppSettings.Keys.showRoofAge) private var showRoofAge = false
+    @AppStorage(AppSettings.Keys.myPinsOnly) private var myPinsOnly = false
+    @AppStorage(AppSettings.Keys.focusMode) private var focusMode = false
+    @AppStorage(AppSettings.Keys.pinTimeFilter) private var pinTimeFilterRaw = PinTimeFilter.all.rawValue
+
+    private var timeFilter: PinTimeFilter { PinTimeFilter(rawValue: pinTimeFilterRaw) ?? .all }
+    private var visiblePins: [CanvassPin] {
+        vm.filteredPins(
+            pending: offlineBridge.localPendingPins(ownerUserId: vm.myUserId),
+            queuedItems: offlineBridge.pendingItems,
+            myUserId: vm.myUserId,
+            focusMode: focusMode,
+            myPinsOnly: myPinsOnly,
+            timeFilter: timeFilter
+        )
+    }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             CanvassMapView(
-                pins: vm.pins,
+                pins: visiblePins,
+                territories: showTerritories ? vm.territories : [],
+                weatherPolygons: (showWeather && weatherOverlayAvailable) ? vm.weatherPolygons : [],
+                overlayPoints: vm.overlayPoints(showWeather: showWeather && weatherOverlayAvailable, showRoofAge: showRoofAge),
                 userLocation: vm.userLocation,
                 hasInitiallyZoomed: $hasInitiallyZoomed,
+                trackingMode: $trackingMode,
+                flyTarget: $flyTarget,
+                mapStyle: MapStyleSetting(rawValue: mapStyleRaw) ?? .hybrid,
+                enable3DBuildings: enable3DBuildings,
                 onRegionChange: { region in
+                    mapCoordinator.lastRegion = region
                     vm.loadPins(for: region)
+                    vm.loadOverlays(for: region, weather: showWeather && weatherOverlayAvailable, roofAge: showRoofAge)
+                    vm.loadTerritoriesIfNeeded(show: showTerritories)
                 },
-                onZoom: {
-                    vm.invalidateBoundsCache()
-                },
+                onZoom: { vm.invalidateBoundsCache() },
                 onLongPress: { coord in
-                    newLeadCoord = coord
-                    selectedPin = nil
-                    showLeadSheet = true
+                    leadListOpenGeneration += 1
+                    newLeadCoord = coord; selectedPin = nil; showLeadSheet = true
                 },
                 onPinTap: { pin in
-                    selectedPin = pin
-                    newLeadCoord = nil
-                    showLeadSheet = true
+                    leadListOpenGeneration += 1
+                    selectedPin = pin; newLeadCoord = nil; showLeadSheet = true
                 }
             )
             .ignoresSafeArea()
 
-            // Bottom HUD
-            VStack(spacing: 8) {
-                if let err = vm.loadError {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.yellow)
-                        Text(err)
-                            .font(.caption)
+            // Floating controls — top-left settings, top-right map utilities
+            VStack {
+                HStack(alignment: .top) {
+                    MapCircleButton(systemImage: "gearshape.fill") {
+                        onOpenSettings?()
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(20)
-                }
+                    .accessibilityLabel("Settings")
 
-                if vm.isLoading {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Loading pins…")
-                            .font(.caption)
+                    Spacer()
+
+                    VStack(spacing: 10) {
+                        MapCircleButton(
+                            systemImage: trackingGlyph,
+                            isActive: trackingMode != .none
+                        ) {
+                            cycleTrackingMode()
+                        }
+                        .accessibilityLabel("Follow location")
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(20)
-                } else if vm.loadError == nil {
-                    HStack(spacing: 6) {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Text(vm.pins.isEmpty ? "No leads in this area" : "\(vm.pins.count) lead\(vm.pins.count == 1 ? "" : "s")")
-                            .font(.caption)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(20)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer()
+
+                HStack(alignment: .bottom) {
+                    VStack(spacing: 10) {
+                        MapCircleButton(systemImage: "list.bullet", isActive: showLeadListSheet) {
+                            showLeadListSheet = true
+                        }
+                        .accessibilityLabel("My Leads")
+                        MapCircleButton(systemImage: "square.3.layers.3d", isActive: showLayersSheet) { showLayersSheet = true }
+                        timeScrubberCapsule
+                    }
+                    .padding(.leading, 16)
+
+                    Spacer()
+
+                    VStack(spacing: 8) {
+                        if let coverage = vm.coverageLabel(pins: visiblePins, partial: true) {
+                            MapHUDChip { Text(coverage) }
+                        }
+                        if vm.weatherDegraded && showWeather && weatherOverlayAvailable {
+                            MapHUDChip { Text("Weather unavailable (est.)") }
+                        } else if showWeather && weatherOverlayAvailable && !vm.weatherPolygons.isEmpty {
+                            WeatherLegendChip(hasWarning: vm.weatherPolygons.contains { $0.kind == "warning" })
+                        }
+                        if vm.roofAgeDegraded && showRoofAge {
+                            MapHUDChip { Text("Roof age unavailable (est.)") }
+                        }
+                        if focusMode || myPinsOnly {
+                            MapHUDChip { Text("Filter: My pins only") }
+                        }
+                        if timeFilter != .all {
+                            MapHUDChip { Text("Filter: Last \(timeFilter.label)") }
+                        }
+                        if let err = vm.loadError {
+                            MapHUDChip {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle.fill").foregroundColor(Color(hex: "#B45309"))
+                                    Text(err)
+                                }
+                            }
+                        }
+                        if vm.isLoading {
+                            MapHUDChip { HStack(spacing: 8) { ProgressView().scaleEffect(0.85); Text("Loading pins…") } }
+                        } else if vm.loadError == nil {
+                            MapHUDChip {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "mappin.circle.fill").foregroundColor(AppSettings.brandBlue)
+                                    Text(visiblePins.isEmpty ? "No leads in this area" : "\(visiblePins.count) lead\(visiblePins.count == 1 ? "" : "s")")
+                                }
+                            }
+                        }
+                        if offlineBridge.pendingCount > 0 {
+                            Button { showPendingSheet = true } label: {
+                                MapHUDChip { HStack(spacing: 6) { Text("⏳"); Text("\(offlineBridge.pendingCount) pending sync") } }
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.bottom, AppSettings.floatingTabContentInset)
             }
-            .padding(.bottom, 12)
         }
         .sheet(isPresented: $showLeadSheet, onDismiss: {
             vm.invalidateBoundsCache()
             if let r = vm.lastRegion { vm.loadPins(for: r) }
+            Task { await offlineBridge.refresh() }
         }) {
-            LeadSheetView(
-                pin: selectedPin,
-                coordinate: newLeadCoord ?? (selectedPin.map {
-                    CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng)
-                })
-            )
-            .canvassSheetPresentation()
+            LeadSheetView(pin: selectedPin, coordinate: newLeadCoord ?? selectedPin.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) })
+                .canvassSheetPresentation()
+        }
+        .sheet(isPresented: $showPendingSheet) { PendingSyncSheet(bridge: offlineBridge).mediumSheetPresentation() }
+        .sheet(isPresented: $showLayersSheet) {
+            LayersSheetView(weatherAvailable: weatherOverlayAvailable).mediumSheetPresentation()
+        }
+        .sheet(isPresented: $showLeadListSheet, onDismiss: {
+            openLeadFromListIfNeeded()
+        }) {
+            LeadListView { lead in
+                pendingLeadFromList = lead
+                showLeadListSheet = false
+            }
+            .largeSheetPresentation()
         }
         .onAppear {
             vm.startLocationTracking()
+            offlineBridge.onSyncSuccess = { [weak vm] in
+                vm?.invalidateBoundsCache()
+                if let region = vm?.lastRegion {
+                    vm?.loadPins(for: region)
+                }
+            }
+            mapCoordinator.flyToCoordinate = { flyTarget = $0 }
+            Task { await vm.loadMyUserId() }
+        }
+        .onChange(of: showTerritories) { _ in vm.loadTerritoriesIfNeeded(show: showTerritories) }
+    }
+
+    private var timeScrubberCapsule: some View {
+        HStack(spacing: 2) {
+            ForEach(PinTimeFilter.allCases) { filter in
+                Button { pinTimeFilterRaw = filter.rawValue } label: {
+                    Text(filter.label)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(timeFilter == filter ? AppSettings.brandBlue : .white)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(Capsule().fill(Color.black.opacity(0.55)))
+    }
+
+    private var trackingGlyph: String {
+        switch trackingMode {
+        case .follow: return "location.fill"
+        case .followWithHeading: return "location.north.line.fill"
+        default: return "location"
+        }
+    }
+
+    private func cycleTrackingMode() {
+        switch trackingMode {
+        case .none:
+            trackingMode = .follow
+        case .follow:
+            trackingMode = .followWithHeading
+        default:
+            trackingMode = .none
+        }
+    }
+
+    /// After My Leads sheet dismisses, fly the map and open the same pin flow as `onPinTap`.
+    private func openLeadFromListIfNeeded() {
+        guard let lead = pendingLeadFromList, let pin = lead.asCanvassPin else {
+            pendingLeadFromList = nil
+            return
+        }
+        pendingLeadFromList = nil
+        let coord = CLLocationCoordinate2D(latitude: pin.lat, longitude: pin.lng)
+        leadListOpenGeneration += 1
+        let generation = leadListOpenGeneration
+
+        // Force a fresh viewport fetch around the destination (list pins may be outside cache).
+        vm.invalidateBoundsCache()
+        mapCoordinator.flyToCoordinate?(coord)
+        let region = MKCoordinateRegion(
+            center: coord,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        )
+        vm.loadPins(for: region)
+
+        // Brief delay so the list sheet can finish dismissing before presenting LeadSheet.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard generation == leadListOpenGeneration else { return }
+            selectedPin = pin
+            newLeadCoord = nil
+            showLeadSheet = true
+        }
+    }
+}
+
+// MARK: - Weather Legend Chip
+
+/// One compact line, shown only when there's weather polygon data on screen — reads
+/// as a plain status chip alongside the pin-count/filter chips, not a separate panel.
+struct WeatherLegendChip: View {
+    let hasWarning: Bool
+    var body: some View {
+        MapHUDChip {
+            HStack(spacing: 10) {
+                if hasWarning {
+                    legendDot(color: Color(hex: "#DC2626"), label: "Active alert")
+                }
+                legendDot(color: Color(hex: "#F59E0B"), label: "Hail (est.)")
+            }
+        }
+    }
+
+    private func legendDot(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(label)
         }
     }
 }
@@ -103,10 +291,20 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var userLocation: CLLocationCoordinate2D? = nil
     @Published var isLoading = false
     @Published var loadError: String? = nil
+    @Published var territories: [Territory] = []
+    @Published var weatherPoints: [MapOverlayPoint] = []
+    @Published var weatherPolygons: [WeatherPolygonFeature] = []
+    @Published var roofAgePoints: [MapOverlayPoint] = []
+    @Published var weatherDegraded = false
+    @Published var roofAgeDegraded = false
 
+    @Published var myUserId: String?
     var lastRegion: MKCoordinateRegion?
+    var territoriesLoaded = false
+
     private let locationManager = CLLocationManager()
     private var loadTask: Task<Void, Never>? = nil
+    var overlayTask: Task<Void, Never>? = nil
     private var lastLoadedBounds: (minLat: Double, maxLat: Double, minLng: Double, maxLng: Double)? = nil
 
     override init() {
@@ -185,6 +383,31 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         lastLoadedBounds = nil
     }
 
+    /// Merge server pins with local pending pins (pending wins on same id).
+    func displayPins(merging pending: [CanvassPin], queuedItems: [QueuedLeadItem] = []) -> [CanvassPin] {
+        var byId = Dictionary(uniqueKeysWithValues: pins.map { ($0.id, $0) })
+        for p in pending {
+            byId[p.id] = p
+        }
+        for item in queuedItems {
+            guard let leadId = item.request.lead_id, !leadId.isEmpty else { continue }
+            guard let existing = byId[leadId] else { continue }
+            byId[leadId] = CanvassPin(
+                id: existing.id,
+                lat: item.request.lat ?? existing.lat,
+                lng: item.request.lng ?? existing.lng,
+                d: item.request.canvass_disposition ?? existing.d,
+                s: existing.s,
+                o: existing.o,
+                t: existing.t,
+                ia: existing.ia,
+                isPending: true,
+                isPendingEdit: true
+            )
+        }
+        return Array(byId.values)
+    }
+
     private func spanToZoom(_ span: MKCoordinateSpan) -> Int {
         let delta = span.latitudeDelta
         if delta < 0.002 { return 20 }
@@ -205,8 +428,15 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
 
 struct CanvassMapView: UIViewRepresentable {
     let pins: [CanvassPin]
+    var territories: [Territory] = []
+    var weatherPolygons: [WeatherPolygonFeature] = []
+    var overlayPoints: [MapOverlayPoint] = []
     let userLocation: CLLocationCoordinate2D?
     @Binding var hasInitiallyZoomed: Bool
+    @Binding var trackingMode: MKUserTrackingMode
+    @Binding var flyTarget: CLLocationCoordinate2D?
+    let mapStyle: MapStyleSetting
+    let enable3DBuildings: Bool
     let onRegionChange: (MKCoordinateRegion) -> Void
     let onZoom: () -> Void
     let onLongPress: (CLLocationCoordinate2D) -> Void
@@ -214,31 +444,73 @@ struct CanvassMapView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MKMapView {
         let map = MKMapView()
-        map.mapType = .hybrid
         map.showsUserLocation = true
+        map.showsCompass = false
+        map.showsScale = false
         map.delegate = context.coordinator
+        context.coordinator.applyMapConfigurationIfNeeded(to: map)
 
-        // Long press to drop a pin
         let lp = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
         lp.minimumPressDuration = 0.5
         map.addGestureRecognizer(lp)
+
+        // Native compass — adaptive (visible when heading ≠ north)
+        let compass = MKCompassButton(mapView: map)
+        compass.compassVisibility = .adaptive
+        compass.translatesAutoresizingMaskIntoConstraints = false
+        map.addSubview(compass)
+        NSLayoutConstraint.activate([
+            compass.topAnchor.constraint(equalTo: map.safeAreaLayoutGuide.topAnchor, constant: 66),
+            compass.trailingAnchor.constraint(equalTo: map.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+        ])
+        context.coordinator.compassButton = compass
+
+        // Native scale — bottom-leading, clear of settings gear and floating tab bar
+        let scale = MKScaleView(mapView: map)
+        scale.legendAlignment = .leading
+        scale.translatesAutoresizingMaskIntoConstraints = false
+        map.addSubview(scale)
+        NSLayoutConstraint.activate([
+            scale.leadingAnchor.constraint(equalTo: map.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            scale.bottomAnchor.constraint(equalTo: map.safeAreaLayoutGuide.bottomAnchor, constant: -100),
+            scale.widthAnchor.constraint(equalToConstant: 80),
+        ])
+        context.coordinator.scaleView = scale
 
         return map
     }
 
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.applyMapConfigurationIfNeeded(to: map)
 
-        // Auto-zoom to user location the first time we get a fix
+        if map.userTrackingMode != trackingMode {
+            map.setUserTrackingMode(trackingMode, animated: true)
+        }
+
+        // Auto-zoom to user location the first time we get a fix — pitched 3D aerial feel.
+        // Skip setCamera when follow is already on so we don't cancel tracking.
         if !hasInitiallyZoomed, let loc = userLocation {
-            let region = MKCoordinateRegion(center: loc, latitudinalMeters: 500, longitudinalMeters: 500)
-            map.setRegion(region, animated: true)
+            if trackingMode == .none {
+                let camera = MKMapCamera(lookingAtCenter: loc, fromDistance: 600, pitch: 45, heading: 0)
+                map.setCamera(camera, animated: true)
+            }
             DispatchQueue.main.async { hasInitiallyZoomed = true }
         }
 
-        // Sync annotations — remove stale, add new
-        let existing = Set(map.annotations.compactMap { ($0 as? PinAnnotation)?.pinId })
+        if let target = flyTarget {
+            let camera = map.camera.copy() as! MKMapCamera
+            camera.centerCoordinate = target
+            map.setCamera(camera, animated: true)
+            DispatchQueue.main.async { flyTarget = nil }
+        }
+
+        syncTerritoryOverlays(map, context: context)
+        syncWeatherPolygonOverlays(map, context: context)
+        syncOverlayAnnotations(map, context: context)
+
         let incoming = Set(pins.map(\.id))
+        let pinById = Dictionary(uniqueKeysWithValues: pins.map { ($0.id, $0) })
 
         let toRemove = map.annotations.filter {
             guard let p = $0 as? PinAnnotation else { return false }
@@ -246,8 +518,71 @@ struct CanvassMapView: UIViewRepresentable {
         }
         map.removeAnnotations(toRemove)
 
-        let toAdd = pins.filter { !existing.contains($0.id) }.map(PinAnnotation.init)
+        for ann in map.annotations {
+            guard let pinAnn = ann as? PinAnnotation,
+                  let updated = pinById[pinAnn.pinId],
+                  !pinAnn.pin.isMapDisplayEqual(to: updated) else { continue }
+            map.removeAnnotation(ann)
+            map.addAnnotation(PinAnnotation(updated))
+        }
+
+        let refreshedIds = Set(map.annotations.compactMap { ($0 as? PinAnnotation)?.pinId })
+        let toAdd = pins.filter { !refreshedIds.contains($0.id) }.map(PinAnnotation.init)
         map.addAnnotations(toAdd)
+    }
+
+    /// Territory and weather polygons are both plain `MKPolygon` overlays on the same map,
+    /// so each sync method only touches overlays it tagged itself (via `title` prefix) —
+    /// otherwise toggling one layer would wipe out the other on the next render pass.
+    private static let territoryTitlePrefix = "territory:"
+    private static let weatherTitlePrefix = "weather:"
+
+    private func syncTerritoryOverlays(_ map: MKMapView, context: Context) {
+        let existing = map.overlays.compactMap { $0 as? MKPolygon }
+            .filter { ($0.title ?? "").hasPrefix(Self.territoryTitlePrefix) }
+        map.removeOverlays(existing)
+        for t in territories {
+            for poly in t.boundary_geojson.polygons {
+                poly.title = Self.territoryTitlePrefix + t.id
+                map.addOverlay(poly)
+            }
+        }
+    }
+
+    private func syncWeatherPolygonOverlays(_ map: MKMapView, context: Context) {
+        let existing = map.overlays.compactMap { $0 as? MKPolygon }
+            .filter { ($0.title ?? "").hasPrefix(Self.weatherTitlePrefix) }
+        map.removeOverlays(existing)
+        for feature in weatherPolygons {
+            for poly in feature.polygons {
+                poly.title = Self.weatherTitlePrefix + feature.kind + ":" + feature.layer + ":" + feature.id
+                map.addOverlay(poly)
+            }
+        }
+    }
+
+    private func syncOverlayAnnotations(_ map: MKMapView, context: Context) {
+        let toRemove = map.annotations.filter { $0 is OverlayPointAnnotation }
+        map.removeAnnotations(toRemove)
+        for pt in overlayPoints {
+            map.addAnnotation(OverlayPointAnnotation(point: pt))
+        }
+    }
+
+    private func applyMapConfiguration(to map: MKMapView) {
+        if #available(iOS 16.0, *) {
+            let elevation: MKMapConfiguration.ElevationStyle = enable3DBuildings ? .realistic : .flat
+            switch mapStyle {
+            case .standard:
+                map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: elevation)
+            case .hybrid:
+                map.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: elevation)
+            case .satellite:
+                map.preferredConfiguration = MKImageryMapConfiguration(elevationStyle: elevation)
+            }
+        } else {
+            map.mapType = mapStyle.legacyMapType
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -256,28 +591,45 @@ struct CanvassMapView: UIViewRepresentable {
 
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: CanvassMapView
+        var compassButton: MKCompassButton?
+        var scaleView: MKScaleView?
         private var regionDebounce: Task<Void, Never>?
+        private var lastSpan: MKCoordinateSpan? = nil
+        private var appliedMapStyle: MapStyleSetting?
+        private var appliedEnable3D: Bool?
 
         init(_ parent: CanvassMapView) { self.parent = parent }
 
-        private var lastSpan: MKCoordinateSpan? = nil
+        func applyMapConfigurationIfNeeded(to map: MKMapView) {
+            let style = parent.mapStyle
+            let enable3D = parent.enable3DBuildings
+            guard style != appliedMapStyle || enable3D != appliedEnable3D else { return }
+            parent.applyMapConfiguration(to: map)
+            appliedMapStyle = style
+            appliedEnable3D = enable3D
+        }
+
+        func mapView(_ mapView: MKMapView, didChange mode: MKUserTrackingMode, animated: Bool) {
+            DispatchQueue.main.async {
+                if self.parent.trackingMode != mode {
+                    self.parent.trackingMode = mode
+                }
+            }
+        }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             let currentSpan = mapView.region.span
             let region = mapView.region
 
-            // Detect zoom change — if the user zoomed, invalidate the bounds cache
-            // so we always fetch fresh data at the new detail level
             let didZoom: Bool = {
                 guard let prev = lastSpan else { return false }
                 let ratio = currentSpan.latitudeDelta / max(prev.latitudeDelta, 1e-10)
-                return ratio < 0.85 || ratio > 1.15   // >15% span change = zoom
+                return ratio < 0.85 || ratio > 1.15
             }()
             lastSpan = currentSpan
 
             regionDebounce?.cancel()
             regionDebounce = Task {
-                // 350 ms — single debounce, replaces the old 300ms+400ms chain
                 try? await Task.sleep(nanoseconds: 350_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
@@ -287,8 +639,57 @@ struct CanvassMapView: UIViewRepresentable {
             }
         }
 
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            guard let poly = overlay as? MKPolygon, let title = poly.title else {
+                return MKOverlayRenderer(overlay: overlay)
+            }
+
+            if title.hasPrefix(CanvassMapView.territoryTitlePrefix) {
+                let territoryId = String(title.dropFirst(CanvassMapView.territoryTitlePrefix.count))
+                if let t = parent.territories.first(where: { $0.id == territoryId }) {
+                    let renderer = MKPolygonRenderer(polygon: poly)
+                    let alpha: CGFloat = t.assigned_to_me ? 0.25 : 0.15
+                    renderer.fillColor = UIColor(hex: t.color).withAlphaComponent(alpha)
+                    renderer.strokeColor = UIColor(hex: t.color)
+                    renderer.lineWidth = 2
+                    return renderer
+                }
+            }
+
+            if title.hasPrefix(CanvassMapView.weatherTitlePrefix) {
+                // "weather:<kind>:<layer>:<id>" — id is the last component (a UUID, no colons).
+                let id = String(title.split(separator: ":").last ?? "")
+                if let feature = parent.weatherPolygons.first(where: { $0.id == id }) {
+                    // A swath (large, low-urgency footprint) stays soft; an active warning
+                    // stays bold and reads as "act on this now" without shouting over the map.
+                    let color = UIColor(hex: feature.colorHex)
+                    let isWarning = feature.kind == "warning"
+                    let renderer = MKPolygonRenderer(polygon: poly)
+                    renderer.fillColor = color.withAlphaComponent(isWarning ? 0.12 : 0.18)
+                    renderer.strokeColor = color.withAlphaComponent(isWarning ? 0.9 : 0.6)
+                    renderer.lineWidth = isWarning ? 2 : 1.5
+                    if isWarning {
+                        renderer.lineDashPattern = [6, 4]
+                    }
+                    return renderer
+                }
+            }
+
+            return MKOverlayRenderer(overlay: overlay)
+        }
+
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
-            // Cluster annotation — show count badge
+            if let overlay = annotation as? OverlayPointAnnotation {
+                let id = "OverlayPoint"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView
+                    ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+                view.annotation = annotation
+                view.markerTintColor = UIColor(hex: overlay.colorHex)
+                view.glyphImage = UIImage(systemName: overlay.kind == "weather" ? "cloud.bolt" : "house")
+                view.canShowCallout = false
+                view.clusteringIdentifier = nil
+                return view
+            }
             if let cluster = annotation as? MKClusterAnnotation {
                 let id = "Cluster"
                 let view = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView
@@ -302,14 +703,25 @@ struct CanvassMapView: UIViewRepresentable {
             }
 
             guard let pin = annotation as? PinAnnotation else { return nil }
-            let id = "CanvassPin"
+            let id = pin.isPending ? (pin.isPendingEdit ? "PendingEditPin" : "PendingPin") : "CanvassPin"
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView
                 ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
             view.annotation = annotation
-            view.markerTintColor = pin.uiColor
-            view.glyphImage = pin.glyphImage
+            if pin.isPending {
+                if pin.isPendingEdit {
+                    view.markerTintColor = UIColor(hex: "#F59E0B")
+                    view.glyphImage = UIImage(systemName: "arrow.clockwise.circle")
+                } else {
+                    view.markerTintColor = UIColor(hex: "#9CA3AF")
+                    view.glyphImage = UIImage(systemName: "clock.arrow.circlepath")
+                }
+                view.clusteringIdentifier = nil
+            } else {
+                view.markerTintColor = pin.uiColor
+                view.glyphImage = pin.glyphImage
+                view.clusteringIdentifier = "canvass"
+            }
             view.canShowCallout = false
-            view.clusteringIdentifier = "canvass"   // enables auto-clustering
             return view
         }
 
@@ -329,11 +741,27 @@ struct CanvassMapView: UIViewRepresentable {
     }
 }
 
+// MARK: - Overlay point annotation
+
+class OverlayPointAnnotation: NSObject, MKAnnotation {
+    let point: MapOverlayPoint
+    var coordinate: CLLocationCoordinate2D { point.coordinate }
+    var colorHex: String { point.colorHex }
+    var kind: String { point.kind }
+
+    init(point: MapOverlayPoint) {
+        self.point = point
+        super.init()
+    }
+}
+
 // MARK: - Pin Annotation
 
 class PinAnnotation: NSObject, MKAnnotation {
     let pin: CanvassPin
     var pinId: String { pin.id }
+    var isPending: Bool { pin.isPending }
+    var isPendingEdit: Bool { pin.isPendingEdit }
     var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: pin.lat, longitude: pin.lng) }
 
     nonisolated init(_ pin: CanvassPin) {
@@ -342,15 +770,12 @@ class PinAnnotation: NSObject, MKAnnotation {
     }
 
     var uiColor: UIColor {
-        // Sold (installation agreement) → green dollar
         if pin.ia == true { return UIColor(hex: "#10B981") }
-        // Scheduled inspection → green
         if pin.s == "inspection" { return UIColor(hex: "#10B981") }
-        // Disposition color
         if let d = pin.d, let disp = CanvassDisposition.find(d) {
             return UIColor(hex: disp.color)
         }
-        return UIColor(hex: "#3B82F6") // blue = not knocked / unknown
+        return UIColor(hex: "#3B82F6")
     }
 
     var glyphImage: UIImage? {

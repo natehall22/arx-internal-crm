@@ -16,6 +16,7 @@ struct ModelReviewView: View {
     @State private var selectedWallFace: WallFace? = nil
     @State private var showFaceEdit = false
     @State private var showSaveSheet = false
+    @State private var showDeleteConfirm = false
     @State private var jobAddress: String
     @Environment(\.dismiss) private var dismiss
 
@@ -78,15 +79,27 @@ struct ModelReviewView: View {
 
                 // Selected face detail
                 if let face = selectedRoofFace {
-                    RoofFaceDetailSheet(face: face, onEdit: { showFaceEdit = true })
+                    RoofFaceDetailSheet(face: face, onEdit: { showFaceEdit = true },
+                                        onDelete: { showDeleteConfirm = true })
                         .transition(.move(edge: .bottom))
                 } else if let face = selectedWallFace {
-                    WallFaceDetailSheet(face: face, onEdit: { showFaceEdit = true })
+                    WallFaceDetailSheet(face: bindingForWall(face), onEdit: { showFaceEdit = true },
+                                        onDelete: { showDeleteConfirm = true })
                         .transition(.move(edge: .bottom))
                 } else {
                     summaryBar
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete this face?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { deleteSelectedFace() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Use this to remove a facet the scan merged or split incorrectly — common on complex roofs. This can't be undone; re-scan to get it back.")
         }
         .sheet(isPresented: $showFaceEdit) {
             if let face = selectedRoofFace {
@@ -164,6 +177,28 @@ struct ModelReviewView: View {
             Text(value).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundColor(.white)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func deleteSelectedFace() {
+        if let face = selectedRoofFace {
+            scanResult.roofFaces.removeAll { $0.id == face.id }
+            selectedRoofFace = nil
+        } else if let face = selectedWallFace {
+            scanResult.wallFaces.removeAll { $0.id == face.id }
+            selectedWallFace = nil
+        }
+    }
+
+    private func bindingForWall(_ face: WallFace) -> Binding<WallFace> {
+        Binding(
+            get: { scanResult.wallFaces.first(where: { $0.id == face.id }) ?? face },
+            set: { updated in
+                if let i = scanResult.wallFaces.firstIndex(where: { $0.id == updated.id }) {
+                    scanResult.wallFaces[i] = updated
+                    selectedWallFace = updated
+                }
+            }
+        )
     }
 }
 
@@ -313,6 +348,7 @@ struct SceneModelView: UIViewRepresentable {
 struct RoofFaceDetailSheet: View {
     let face: RoofFace
     let onEdit: () -> Void
+    let onDelete: () -> Void
     var body: some View {
         VStack(spacing: 0) {
             Capsule().fill(Color.white.opacity(0.3)).frame(width: 40, height: 4).padding(.top, 8)
@@ -323,6 +359,12 @@ struct RoofFaceDetailSheet: View {
                         .font(.caption).foregroundColor(.white.opacity(0.6))
                 }
                 Spacer()
+                Button { onDelete() } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(.ultraThinMaterial).clipShape(Circle())
+                }
                 Button { onEdit() } label: {
                     Text("Edit").fontWeight(.semibold).foregroundColor(.black)
                         .padding(.horizontal, 16).padding(.vertical, 8)
@@ -359,25 +401,42 @@ struct RoofFaceDetailSheet: View {
 // MARK: - Wall Face Detail Sheet
 
 struct WallFaceDetailSheet: View {
-    let face: WallFace
+    @Binding var face: WallFace
     let onEdit: () -> Void
+    let onDelete: () -> Void
     var body: some View {
         VStack(spacing: 0) {
             Capsule().fill(Color.white.opacity(0.3)).frame(width: 40, height: 4).padding(.top, 8)
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(face.label).font(.headline).foregroundColor(.white)
-                    Text("\(face.openings.count) opening\(face.openings.count == 1 ? "" : "s") subtracted")
+                    Text("Assign elevation for CRM upload")
                         .font(.caption).foregroundColor(.white.opacity(0.6))
                 }
                 Spacer()
+                Button { onDelete() } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(.ultraThinMaterial).clipShape(Circle())
+                }
                 Button { onEdit() } label: {
                     Text("Edit").fontWeight(.semibold).foregroundColor(.black)
                         .padding(.horizontal, 16).padding(.vertical, 8)
                         .background(Color.white).cornerRadius(20)
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+
+            Picker("Elevation", selection: $face.elevationName) {
+                ForEach(AppSettings.elevationNames, id: \.self) { name in
+                    Text(name).tag(name)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .onChange(of: face.elevationName) { face.label = "\($0) Wall" }
+
             HStack(spacing: 0) {
                 detailCell(label: "GROSS",   value: "\(Int(face.areaSqFt)) ft²")
                 detailCell(label: "OPENINGS", value: "\(Int(face.areaSqFt - face.netAreaSqFt)) ft²")

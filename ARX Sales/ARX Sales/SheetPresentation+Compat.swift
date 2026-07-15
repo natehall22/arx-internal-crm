@@ -21,4 +21,15 @@ extension View {
             self
         }
     }
+
+    @ViewBuilder
+    func largeSheetPresentation() -> some View {
+        if #available(iOS 16.0, *) {
+            self
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        } else {
+            self
+        }
+    }
 }

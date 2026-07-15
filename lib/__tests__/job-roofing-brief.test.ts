@@ -70,6 +70,62 @@ describe('buildJobRoofingBrief', () => {
     expect(fields.specialRemarks.value).toContain('Starter NOT full eave run')
   })
 
+  it('surfaces sold proposal adders as sold add-ons, excluding percent-based pricing modifiers', () => {
+    const fields = buildJobRoofingBrief({
+      scope: {
+        ...baseScope,
+        line_items: [
+          {
+            id: 'li-1',
+            name: 'Seamless Gutters',
+            description: null,
+            category: 'addons',
+            quantity: 306,
+            unit: 'lf',
+            unit_price: 12.8,
+            line_total: 3916.8,
+            is_adder: true,
+          },
+          {
+            id: 'li-2',
+            name: '4 x 8 OSB',
+            description: null,
+            category: 'addons',
+            quantity: 8,
+            unit: 'each',
+            unit_price: 48,
+            line_total: 384,
+            is_adder: true,
+          },
+          {
+            id: 'li-3',
+            name: '2 Story +',
+            description: null,
+            category: 'addons',
+            quantity: 1,
+            unit: 'percent',
+            unit_price: 3,
+            line_total: 0,
+            is_adder: true,
+          },
+          {
+            id: 'li-4',
+            name: 'Asphalt Shingles Installation',
+            description: null,
+            category: 'Roofing',
+            quantity: 57,
+            unit: 'square',
+            unit_price: 413.6,
+            line_total: 23575.2,
+            is_adder: false,
+          },
+        ],
+      },
+    })
+
+    expect(fields.soldAddOns.value).toBe('Seamless Gutters — 306 LF · 4 x 8 OSB — 8 ea')
+  })
+
   it('reflects material-order overrides in the brief', () => {
     const fields = buildJobRoofingBrief({
       scope: baseScope,

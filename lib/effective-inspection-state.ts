@@ -12,6 +12,7 @@ export type EffectiveInspectionFields = {
 }
 
 export type InspectionStatusRowLike = {
+  id?: string
   opportunity_id?: string | null
   lead_id?: string | null
   outcome?: string | null
