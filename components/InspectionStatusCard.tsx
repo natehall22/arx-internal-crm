@@ -9,8 +9,13 @@ import {
   sortActiveOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { easternDatetimeLocalToUtcIso, getEasternTodayIso } from '@/lib/eastern-datetime'
 import {
-} from '@/lib/scheduling-prompt'
+  buildInsuranceHandoffContext,
+  defaultInsuranceCallDate,
+  isInsuranceFollowUpOutcomeId,
+  isRescheduledOutcomeId,
+} from '@/lib/insurance-call-booking'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 
@@ -26,6 +31,7 @@ type OutcomeOption = {
   description: string
   color: string
   icon: string
+  inside_sales_handoff_enabled?: boolean
 }
 
 function toUiOptions(rows: InspectionOutcomeConfigRow[]): OutcomeOption[] {
@@ -35,12 +41,11 @@ function toUiOptions(rows: InspectionOutcomeConfigRow[]): OutcomeOption[] {
     description: o.description,
     color: o.color,
     icon: o.icon,
+    inside_sales_handoff_enabled: o.inside_sales_handoff_enabled,
   }))
 }
 
-/** Built-in ids that keep special UI (reschedule redirect, insurance slot, optional follow-up). */
-const RESCHEDULE_OUTCOME_ID = 'rescheduled'
-const INSURANCE_OUTCOME_ID = 'insurance_follow_up'
+/** Built-in id that keeps special UI (didn't-sit inside-sales handoff note). */
 const DIDNT_SIT_OUTCOME_ID = 'not_home'
 
 interface InspectionStatusCardProps {
@@ -58,6 +63,10 @@ interface InspectionStatusCardProps {
     requiresCloseSchedule?: boolean
     /** Present when requiresCloseSchedule — triggers /api/inspections/schedule-close after status. */
     closeSchedule?: CloseScheduleConfirm | null
+    /** UTC ISO time of the booked inside-sales insurance call (required for insurance follow-up). */
+    insuranceCallAt?: string
+    /** Structured rep→inside-sales handoff fields for /api/inspections/status. */
+    handoffContext?: Record<string, string>
   }) => Promise<void>
   onReschedule: (appointmentId: string) => void
   onFillLater?: () => Promise<void> | void
@@ -90,6 +99,18 @@ export default function InspectionStatusCard({
   const [schedulingTeams, setSchedulingTeams] = useState<Array<{ id: string; name: string }>>([])
   const [closeDurationMinutes, setCloseDurationMinutes] = useState(60)
   const [schedulePortalReady, setSchedulePortalReady] = useState(false)
+
+  // Inside-sales handoff state (insurance call booking + structured context for the call center)
+  // — mirrors /appointments/feedback so both feedback surfaces submit the same payload.
+  const [insuranceCallDate, setInsuranceCallDate] = useState(() => defaultInsuranceCallDate())
+  const [insuranceCallTime, setInsuranceCallTime] = useState('10:00')
+  const [claimFiled, setClaimFiled] = useState('')
+  const [insuranceCarrier, setInsuranceCarrier] = useState('')
+  const [claimNumber, setClaimNumber] = useState('')
+  const [adjusterMeeting, setAdjusterMeeting] = useState('')
+  const [decisionMaker, setDecisionMaker] = useState('')
+  const [bestCallWindow, setBestCallWindow] = useState('')
+  const [contextLine, setContextLine] = useState('')
 
   useEffect(() => {
     setSchedulePortalReady(true)
@@ -160,9 +181,17 @@ export default function InspectionStatusCard({
     }
   }, [requiresCloseScheduleForSelected])
 
-  const showInsuranceGracePeriod = selectedOutcome === INSURANCE_OUTCOME_ID
+  const isRescheduleSelected = isRescheduledOutcomeId(selectedOutcome)
+  // Close scheduling wins if an org outcome somehow matches both (same precedence as /appointments/feedback).
+  const showInsuranceCallBooking =
+    isInsuranceFollowUpOutcomeId(selectedOutcome) && !requiresCloseScheduleForSelected
   const showMovingToCloseSchedule = requiresCloseScheduleForSelected
   const showDidntSitHandoff = selectedOutcome === DIDNT_SIT_OUTCOME_ID
+  const showCallCenterContext =
+    selectedOutcome != null &&
+    !showInsuranceCallBooking &&
+    !isRescheduleSelected &&
+    selectedOutcomeOption?.inside_sales_handoff_enabled === true
   const isEscalated = isPromptEscalated(snoozeCount)
 
   const handleSubmit = async () => {
@@ -173,7 +202,7 @@ export default function InspectionStatusCard({
       return
     }
 
-    if (selectedOutcome === RESCHEDULE_OUTCOME_ID) {
+    if (isRescheduleSelected) {
       onReschedule(appointment.id)
       return
     }
@@ -185,6 +214,38 @@ export default function InspectionStatusCard({
       }
     }
 
+    if (showInsuranceCallBooking && (!insuranceCallDate || !insuranceCallTime)) {
+      setError('Pick the insurance call date and time')
+      return
+    }
+
+    if (showInsuranceCallBooking && !claimFiled) {
+      setError('Select whether the claim was filed')
+      return
+    }
+
+    let insuranceCallAt: string | undefined
+    if (showInsuranceCallBooking) {
+      const insuranceCallIso = easternDatetimeLocalToUtcIso(`${insuranceCallDate}T${insuranceCallTime}`)
+      if (!insuranceCallIso) {
+        setError('Could not parse the insurance call date and time. Check the fields and try again.')
+        return
+      }
+      insuranceCallAt = insuranceCallIso
+    }
+
+    const handoffContext = requiresCloseScheduleForSelected
+      ? undefined
+      : buildInsuranceHandoffContext({
+          claimFiled,
+          insuranceCarrier,
+          claimNumber,
+          adjusterMeeting,
+          decisionMaker,
+          bestCallWindow,
+          contextLine,
+        })
+
     setSaving(true)
     setError(null)
 
@@ -195,6 +256,8 @@ export default function InspectionStatusCard({
         setterFeedback,
         requiresCloseSchedule: requiresCloseScheduleForSelected,
         closeSchedule: requiresCloseScheduleForSelected ? closeSchedulePayload : undefined,
+        insuranceCallAt,
+        handoffContext,
       })
 
       setCompleted(true)
@@ -359,18 +422,171 @@ export default function InspectionStatusCard({
             </div>
           )}
 
-          {showInsuranceGracePeriod && (
-            <div className="px-6 py-4 border-t bg-violet-50/80">
-              <h3 className="text-sm font-semibold text-violet-900 mb-1">Insurance follow-up</h3>
-              <p className="text-xs text-violet-800">
-                Book the inside sales call with the customer on Appointments → Feedback (date and time required).
-                If you submit here without a booked call, inside sales receives the lead after 1 business day.
-              </p>
+          {/* Insurance follow-up — same booking fields as /appointments/feedback */}
+          {showInsuranceCallBooking && (
+            <div className="px-6 py-4 border-t bg-violet-50/80 space-y-4">
+              <h3 className="text-sm font-semibold text-violet-900">
+                Insurance call (book it with the customer now)
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Call date</label>
+                  <input
+                    type="date"
+                    value={insuranceCallDate}
+                    onChange={(e) => setInsuranceCallDate(e.target.value)}
+                    min={getEasternTodayIso()}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Call time (ET)</label>
+                  <input
+                    type="time"
+                    value={insuranceCallTime}
+                    onChange={(e) => setInsuranceCallTime(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Claim filed?</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'yes', label: 'Yes' },
+                    { value: 'no', label: 'No' },
+                    { value: 'customer_filing', label: 'Customer filing' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setClaimFiled(opt.value)}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium ${
+                        claimFiled === opt.value
+                          ? 'border-violet-500 bg-violet-100 text-violet-900'
+                          : 'border-gray-300 bg-white text-gray-700'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Insurance company</label>
+                  <input
+                    type="text"
+                    value={insuranceCarrier}
+                    onChange={(e) => setInsuranceCarrier(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Claim #</label>
+                  <input
+                    type="text"
+                    value={claimNumber}
+                    onChange={(e) => setClaimNumber(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Adjuster meeting (if known, ET)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={adjusterMeeting}
+                  onChange={(e) => setAdjusterMeeting(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Best time to call</label>
+                  <select
+                    value={bestCallWindow}
+                    onChange={(e) => setBestCallWindow(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base bg-white"
+                  >
+                    <option value="">—</option>
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="evening">Evening</option>
+                    <option value="anytime">Anytime</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Decision maker</label>
+                  <input
+                    type="text"
+                    value={decisionMaker}
+                    onChange={(e) => setDecisionMaker(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  What you told the customer
+                </label>
+                <input
+                  type="text"
+                  value={contextLine}
+                  onChange={(e) => setContextLine(e.target.value)}
+                  maxLength={200}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Call-center context for other inside-sales handoff outcomes — matches /appointments/feedback */}
+          {showCallCenterContext && (
+            <div className="px-6 py-4 border-t bg-cyan-50/80 space-y-4">
+              <h3 className="text-sm font-semibold text-cyan-900">For the call center</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Best time to call</label>
+                  <select
+                    value={bestCallWindow}
+                    onChange={(e) => setBestCallWindow(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base bg-white"
+                  >
+                    <option value="">—</option>
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="evening">Evening</option>
+                    <option value="anytime">Anytime</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ask for</label>
+                  <input
+                    type="text"
+                    value={decisionMaker}
+                    onChange={(e) => setDecisionMaker(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">What you told the customer</label>
+                <input
+                  type="text"
+                  value={contextLine}
+                  onChange={(e) => setContextLine(e.target.value)}
+                  maxLength={200}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base"
+                />
+              </div>
             </div>
           )}
 
           {/* Notes Section */}
-          {selectedOutcome && selectedOutcome !== RESCHEDULE_OUTCOME_ID && (
+          {selectedOutcome && !isRescheduleSelected && (
             <div className="px-6 py-4 border-t">
               <div className="space-y-4">
                 <div>
@@ -450,7 +666,7 @@ export default function InspectionStatusCard({
               ? 'Saving...'
               : completed
               ? 'Status Updated ✓'
-              : selectedOutcome === RESCHEDULE_OUTCOME_ID
+              : isRescheduleSelected
               ? 'Continue to Reschedule'
               : 'Submit Status Update'}
           </button>

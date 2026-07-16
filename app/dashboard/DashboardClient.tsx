@@ -823,6 +823,8 @@ export default function DashboardClient({
     followUpDate?: string
     requiresCloseSchedule?: boolean
     closeSchedule?: CloseScheduleConfirm | null
+    insuranceCallAt?: string
+    handoffContext?: Record<string, string>
   }) => {
     try {
       // Use the appointment ID from the scheduled_appointments object
@@ -844,6 +846,9 @@ export default function DashboardClient({
           setter_feedback: data.setterFeedback,
           schedule_follow_up: data.scheduleFollowUp,
           follow_up_date: data.followUpDate,
+          /** Books the inside-sales insurance_call appointment server-side (insurance follow-up). */
+          insurance_call_at: data.insuranceCallAt,
+          handoff_context: data.handoffContext,
         }),
       })
 

@@ -8,40 +8,16 @@ import CloseVisitDebriefWizard from '@/components/inspection/CloseVisitDebriefWi
 import {
   DEFAULT_INSPECTION_OUTCOMES,
   inspectionOutcomeRequiresCloseSchedule,
-  normalizeInspectionOutcomeId,
   sortActiveOutcomes,
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
+import { easternDatetimeLocalToUtcIso, getEasternTodayIso } from '@/lib/eastern-datetime'
 import {
-  easternDatetimeLocalToUtcIso,
-  getEasternTodayIso,
-  getEasternWeekdayForDateIso,
-  EASTERN_TZ,
-} from '@/lib/eastern-datetime'
-
-function addDaysToEasternDateIso(iso: string, days: number): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  dt.setUTCDate(dt.getUTCDate() + days)
-  return dt.toISOString().slice(0, 10)
-}
-
-/** Tomorrow in ET, skipping Sunday — default suggestion for the inside-sales insurance call. */
-function defaultInsuranceCallDate(): string {
-  let next = addDaysToEasternDateIso(getEasternTodayIso(), 1)
-  if (getEasternWeekdayForDateIso(next) === 0) {
-    next = addDaysToEasternDateIso(next, 1)
-  }
-  return next
-}
-
-function isRescheduledOutcomeId(id: string | null): boolean {
-  return normalizeInspectionOutcomeId(id) === 'rescheduled'
-}
-
-function isInsuranceFollowUpOutcomeId(id: string | null): boolean {
-  return normalizeInspectionOutcomeId(id) === 'insurance_follow_up'
-}
+  buildInsuranceHandoffContext,
+  defaultInsuranceCallDate,
+  isInsuranceFollowUpOutcomeId,
+  isRescheduledOutcomeId,
+} from '@/lib/insurance-call-booking'
 
 interface Appointment {
   id: string
@@ -270,18 +246,15 @@ export default function AppointmentFeedbackPage() {
     setSubmitting(true)
     setError(null)
 
-    const handoffContext: Record<string, string> = {}
-    if (claimFiled) handoffContext.claim_filed = claimFiled
-    if (insuranceCarrier.trim()) handoffContext.insurance_carrier = insuranceCarrier.trim()
-    if (claimNumber.trim()) handoffContext.claim_number = claimNumber.trim()
-    if (adjusterMeeting) {
-      const adjusterIso = easternDatetimeLocalToUtcIso(adjusterMeeting)
-      if (adjusterIso) handoffContext.adjuster_meeting_at = adjusterIso
-    }
-    if (decisionMaker.trim()) handoffContext.decision_maker = decisionMaker.trim()
-    if (bestCallWindow) handoffContext.best_call_window = bestCallWindow
-    if (contextLine.trim()) handoffContext.context_line = contextLine.trim()
-    const handoffContextPayload = Object.keys(handoffContext).length > 0 ? handoffContext : undefined
+    const handoffContextPayload = buildInsuranceHandoffContext({
+      claimFiled,
+      insuranceCarrier,
+      claimNumber,
+      adjusterMeeting,
+      decisionMaker,
+      bestCallWindow,
+      contextLine,
+    })
 
     try {
       if (isRescheduledOutcomeId(outcome)) {
