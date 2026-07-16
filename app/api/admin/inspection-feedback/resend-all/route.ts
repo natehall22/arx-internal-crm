@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
-import { isPromptDue } from '@/lib/inspection-feedback-prompt'
+import { isPromptDue, isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 
 export async function POST() {
   try {
@@ -37,7 +37,9 @@ export async function POST() {
     }
 
     const nowMs = Date.now()
-    const duePrompts = prompts.filter((prompt) => isPromptDue(prompt, nowMs))
+    const duePrompts = prompts.filter(
+      (prompt) => isPromptDue(prompt, nowMs) && !isPromptEscalated(prompt.snooze_count)
+    )
 
     if (duePrompts.length === 0) {
       return NextResponse.json({ success: true, count: 0 })
@@ -47,10 +49,11 @@ export async function POST() {
     const promptIds = duePrompts.map((p) => p.id)
     const { error: updateError } = await supabase
       .from('pending_status_prompts')
-      .update({ 
+      .update({
         prompt_at: new Date().toISOString(),
         dismissed: false,
       })
+      .eq('org_id', profile.org_id)
       .in('id', promptIds)
 
     if (updateError) {

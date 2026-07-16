@@ -1,3 +1,13 @@
+/** Snoozing ("Later") this many times makes a prompt non-dismissible — blocking modal until resolved. */
+export const FEEDBACK_PROMPT_ESCALATION_THRESHOLD = 2
+
+/** How long a non-escalating "Later" snooze hides a prompt before it resurfaces on its own. */
+export const FEEDBACK_PROMPT_SNOOZE_DURATION_MS = 4 * 60 * 60 * 1000
+
+export function isPromptEscalated(snoozeCount: number): boolean {
+  return snoozeCount >= FEEDBACK_PROMPT_ESCALATION_THRESHOLD
+}
+
 /** Minimal shape for `pending_status_prompts` rows with joined `appointment` for due-date logic */
 export type InspectionFeedbackPromptRow = {
   prompt_at?: string | null

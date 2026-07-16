@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 
 /** YYYY-MM-DD in org default timezone (ET) for calendar comparisons */
 function dateKeyEt(iso: string): string {
@@ -17,6 +18,7 @@ interface PendingFeedback {
   prompt_at: string
   completed: boolean
   dismissed: boolean
+  snooze_count: number
   created_at: string
   closer?: { full_name: string }
   appointment?: {
@@ -58,6 +60,18 @@ export default function InspectionFeedbackAdmin() {
     return staleWaiting || apptDayBeforeTodayEt
   }, [])
 
+  const isLocked = useCallback(
+    (item: PendingFeedback) => isPromptEscalated(item.snooze_count),
+    []
+  )
+
+  // `dismissed` stays true forever once set (only resend/reassignment clear it) — it means
+  // "still snoozed right now" only while prompt_at (the resurface timer) hasn't come due again.
+  const isStillSnoozed = useCallback(
+    (item: PendingFeedback) => item.dismissed && new Date(item.prompt_at).getTime() > Date.now(),
+    []
+  )
+
   const sortedPending = useMemo(() => {
     return [...pendingFeedback].sort((a, b) => {
       const aOver = isOverdue(a)
@@ -69,9 +83,9 @@ export default function InspectionFeedbackAdmin() {
 
   const filteredPending = useMemo(() => {
     if (pendingFilter === 'overdue') return sortedPending.filter(isOverdue)
-    if (pendingFilter === 'snoozed') return sortedPending.filter((i) => i.dismissed)
+    if (pendingFilter === 'snoozed') return sortedPending.filter((i) => isLocked(i) || isStillSnoozed(i))
     return sortedPending
-  }, [sortedPending, pendingFilter, isOverdue])
+  }, [sortedPending, pendingFilter, isOverdue, isLocked, isStillSnoozed])
 
   useEffect(() => {
     loadFeedback()
@@ -246,7 +260,7 @@ export default function InspectionFeedbackAdmin() {
                       ? sortedPending.length
                       : f === 'overdue'
                         ? sortedPending.filter(isOverdue).length
-                        : sortedPending.filter((i) => i.dismissed).length
+                        : sortedPending.filter((i) => isLocked(i) || isStillSnoozed(i)).length
                   const selected = pendingFilter === f
                   const selectedClass =
                     f === 'overdue'
@@ -282,6 +296,8 @@ export default function InspectionFeedbackAdmin() {
                 <div className="space-y-3">
                   {filteredPending.map((item) => {
                     const overdue = isOverdue(item)
+                    const locked = isLocked(item)
+                    const stillSnoozed = isStillSnoozed(item)
                     return (
                       <div
                         key={item.id}
@@ -308,26 +324,41 @@ export default function InspectionFeedbackAdmin() {
                                 Overdue
                               </span>
                             )}
-                            {item.dismissed && (
+                            {locked && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-600 text-white uppercase tracking-wide">
+                                Locked for rep
+                              </span>
+                            )}
+                            {!locked && stillSnoozed && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 uppercase tracking-wide">
-                                Snoozed
+                                Snoozed {item.snooze_count}x
                               </span>
                             )}
                             <span className={`text-xs font-medium ${overdue ? 'text-red-600' : 'text-amber-600'}`}>
-                              {item.dismissed ? 'Snoozed by rep' : `Prompt due ${formatDate(item.prompt_at)}`}
+                              {locked
+                                ? 'Rep must submit — resend can’t clear this'
+                                : stillSnoozed
+                                  ? 'Snoozed by rep'
+                                  : `Prompt due ${formatDate(item.prompt_at)}`}
                             </span>
                           </div>
-                          <button
-                            onClick={() => resendPrompt(item.id)}
-                            disabled={sending === item.id}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium min-h-[36px] disabled:opacity-50 ${
-                              overdue
-                                ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                                : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                            }`}
-                          >
-                            {sending === item.id ? 'Sending...' : 'Resend'}
-                          </button>
+                          {locked ? (
+                            <span className="inline-block px-3 py-1.5 rounded-lg text-sm font-medium min-h-[36px] bg-gray-100 text-gray-400 cursor-not-allowed">
+                              Resend
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => resendPrompt(item.id)}
+                              disabled={sending === item.id}
+                              className={`px-3 py-1.5 rounded-lg text-sm font-medium min-h-[36px] disabled:opacity-50 ${
+                                overdue
+                                  ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                  : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                              }`}
+                            >
+                              {sending === item.id ? 'Sending...' : 'Resend'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )

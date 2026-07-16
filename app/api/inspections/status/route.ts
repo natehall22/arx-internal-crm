@@ -325,13 +325,11 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (appointmentError || !appointmentData) {
-        // Appointment was deleted - mark the prompt as completed so it doesn't keep showing
-        console.log(`Appointment ${appointment_id} not found - marking prompt as completed`)
-        await supabase
-          .from('pending_status_prompts')
-          .update({ completed: true })
-          .eq('appointment_id', appointment_id)
-        
+        // Appointment row didn't load (deleted, race, etc). Don't mark the reminder complete yet —
+        // we don't know this request will actually succeed. The success path below (once we know
+        // the disposition was recorded) marks pending_status_prompts complete for real.
+        console.log(`Appointment ${appointment_id} not found - falling back to lead if available`)
+
         // If we have a lead_id fallback, use that instead of returning early
         if (directLeadId) {
           console.log(`Falling back to lead_id: ${directLeadId}`)
@@ -475,12 +473,15 @@ export async function POST(request: NextRequest) {
 
     if ((isInsuranceOutcome && insuranceCallAtIso) || sanitizedHandoffContext) {
       if (!appointment_id || !appointment) {
+        const action =
+          isInsuranceOutcome && insuranceCallAtIso
+            ? 'book an inside-sales insurance call'
+            : 'save insurance handoff context'
         return NextResponse.json(
           {
-            error:
-              isInsuranceOutcome && insuranceCallAtIso
-                ? 'appointment_id is required to book an inside-sales insurance call'
-                : 'appointment_id is required to save insurance handoff context',
+            error: appointment_id
+              ? `Could not load this appointment record to ${action}. It may have been changed or removed — refresh the page and try again. Nothing was saved.`
+              : `appointment_id is required to ${action}`,
           },
           { status: 400 }
         )
@@ -1317,7 +1318,6 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq('completed', false)
-      .eq('dismissed', false)
       .eq('closer_user_id', user.id) // Always filter by closer - this is the closer's feedback prompt
       .lte('prompt_at', new Date().toISOString())
       .order('prompt_at', { ascending: true })

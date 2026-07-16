@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     // Reset the prompt_at to now so it shows up again
     const { error: updateError } = await supabase
       .from('pending_status_prompts')
-      .update({ 
+      .update({
         prompt_at: new Date().toISOString(),
         dismissed: false,
       })

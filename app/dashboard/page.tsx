@@ -311,7 +311,6 @@ export default async function DashboardPage() {
     `)
     .eq('closer_user_id', profile.id)
     .eq('completed', false)
-    .eq('dismissed', false)
     .lte('prompt_at', new Date().toISOString())
     .order('prompt_at', { ascending: true })
 

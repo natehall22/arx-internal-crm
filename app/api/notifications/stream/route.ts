@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
                 id,
                 appointment_id,
                 prompt_at,
+                dismissed,
+                snooze_count,
                 scheduled_appointments!inner (
                   id,
                   scheduled_for,
@@ -95,7 +97,6 @@ export async function GET(request: NextRequest) {
               `)
               .eq('closer_user_id', user.id)
               .eq('completed', false)
-              .eq('dismissed', false)
               .lte('prompt_at', new Date().toISOString())
               .order('prompt_at', { ascending: true })
 

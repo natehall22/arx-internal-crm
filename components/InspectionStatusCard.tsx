@@ -12,6 +12,7 @@ import {
 import {
 } from '@/lib/scheduling-prompt'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
+import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 
 type AppointmentWithDetails = ScheduledAppointment & {
   lead?: { homeowner_name: string | null; address_text: string | null } | null
@@ -46,6 +47,7 @@ interface InspectionStatusCardProps {
   appointment: AppointmentWithDetails
   /** When feedback is due (from `pending_status_prompts.prompt_at`). */
   promptAt?: string | null
+  snoozeCount?: number
   onComplete: (data: {
     outcome: string
     notes: string
@@ -64,6 +66,7 @@ interface InspectionStatusCardProps {
 export default function InspectionStatusCard({
   appointment,
   promptAt,
+  snoozeCount = 0,
   onComplete,
   onReschedule,
   onFillLater,
@@ -160,6 +163,7 @@ export default function InspectionStatusCard({
   const showInsuranceGracePeriod = selectedOutcome === INSURANCE_OUTCOME_ID
   const showMovingToCloseSchedule = requiresCloseScheduleForSelected
   const showDidntSitHandoff = selectedOutcome === DIDNT_SIT_OUTCOME_ID
+  const isEscalated = isPromptEscalated(snoozeCount)
 
   const handleSubmit = async () => {
     if (completed) return
@@ -202,14 +206,14 @@ export default function InspectionStatusCard({
   }
 
   const handleFillLater = async () => {
-    if (!onFillLater || completed) return
+    if (!onFillLater || completed || isEscalated) return
 
     setSnoozing(true)
     setError(null)
     try {
       await onFillLater()
     } catch (err) {
-      setError('Failed to snooze this reminder')
+      setError(err instanceof Error ? err.message : 'Failed to snooze this reminder')
     } finally {
       setSnoozing(false)
     }
@@ -424,13 +428,18 @@ export default function InspectionStatusCard({
 
         {/* Actions - Fixed at bottom */}
         <div className="px-6 py-4 bg-gray-50 border-t flex-shrink-0 pb-safe">
+          {isEscalated && (
+            <p className="mb-3 text-sm font-semibold text-[#2c2c2a] text-center">
+              This reminder can’t be snoozed again. Submit the inspection outcome to continue.
+            </p>
+          )}
           <button
             type="button"
             onClick={handleFillLater}
-            disabled={saving || snoozing || completed || !onFillLater}
+            disabled={saving || snoozing || completed || !onFillLater || isEscalated}
             className="w-full mb-2 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {snoozing ? 'Snoozing...' : 'Fill Later'}
+            {isEscalated ? 'Feedback required' : snoozing ? 'Snoozing...' : 'Fill Later'}
           </button>
           <button
             onClick={handleSubmit}

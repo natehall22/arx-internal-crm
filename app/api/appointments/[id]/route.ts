@@ -604,8 +604,9 @@ export async function PATCH(
       if (appointment.appointment_type === 'inspection') {
         const { data: redirectedPrompts, error: promptRedirectError } = await adminClient
           .from('pending_status_prompts')
-          .update({ closer_user_id: new_closer_id, dismissed: false })
+          .update({ closer_user_id: new_closer_id, dismissed: false, snooze_count: 0 })
           .eq('appointment_id', params.id)
+          .eq('org_id', profile.org_id)
           .eq('completed', false)
           .select('id')
         if (promptRedirectError) {
@@ -634,6 +635,7 @@ export async function PATCH(
                 prompt_at: promptAt,
                 completed: false,
                 dismissed: false,
+                snooze_count: 0,
               },
               { onConflict: 'appointment_id' }
             )

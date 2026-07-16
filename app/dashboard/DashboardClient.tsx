@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
+import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import CommissionWidget from '@/components/CommissionWidget'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
@@ -916,6 +917,20 @@ export default function DashboardClient({
         throw new Error(errorData.error || 'Failed to snooze prompt')
       }
 
+      const data = await res.json().catch(() => ({}))
+      const snoozeCount = typeof data.snooze_count === 'number' ? data.snooze_count : 0
+      if (isPromptEscalated(snoozeCount)) {
+        setActivePrompt((current: any) =>
+          current?.id === activePrompt.id ? { ...current, snooze_count: snoozeCount } : current
+        )
+        setPromptQueue((current) =>
+          current.map((prompt) =>
+            prompt.id === activePrompt.id ? { ...prompt, snooze_count: snoozeCount } : prompt
+          )
+        )
+        return
+      }
+
       const remainingPrompts = promptQueue.filter((p) => p.id !== activePrompt.id)
       setPromptQueue(remainingPrompts)
       setActivePrompt(remainingPrompts.length > 0 ? remainingPrompts[0] : null)
@@ -1001,6 +1016,7 @@ export default function DashboardClient({
         <InspectionStatusCard
           key={activePrompt.id}
           promptAt={activePrompt.prompt_at}
+          snoozeCount={activePrompt.snooze_count}
           appointment={{
             ...activePrompt.scheduled_appointments,
             lead: activePrompt.scheduled_appointments.leads,

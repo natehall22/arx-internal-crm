@@ -376,7 +376,7 @@ export default async function LeadDetailPage({
       if (closerAttributionChanged && effectiveCloserId) {
         await supabase
           .from('pending_status_prompts')
-          .update({ closer_user_id: effectiveCloserId, dismissed: false })
+          .update({ closer_user_id: effectiveCloserId, dismissed: false, snooze_count: 0 })
           .eq('appointment_id', appt.id)
           .eq('completed', false)
       }

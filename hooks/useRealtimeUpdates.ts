@@ -7,6 +7,8 @@ interface AppointmentPrompt {
   id: string
   appointment_id: string
   prompt_at: string
+  dismissed: boolean
+  snooze_count: number
   scheduled_appointments: {
     id: string
     scheduled_for: string
