@@ -219,9 +219,9 @@ export async function GET(request: NextRequest) {
       // queue fetch the rep can't find her own queue customers when they call back. Mirrors the
       // opportunity detail page's inside-sales scope (app/opportunities/[id]/page.tsx). The
       // assigned fetch intentionally has no status filter (won/lost records she worked stay findable).
-      // Cap at 400: these ids feed a PostgREST or(id.in.(...)) querystring, which rejects
-      // somewhere between 400 (verified OK) and 1000 ids — most-due-first so truncation drops
-      // only the least-urgent queue items.
+      // Cap the combined list at 400: these ids feed a PostgREST or(id.in.(...)) querystring,
+      // which rejects somewhere between 400 (verified OK) and 1000 ids. Preserve leads already
+      // assigned to this worker first, then fill remaining slots with the most-due queue items.
       const [
         { data: assignedOpps, error: assignedOppsError },
         { data: queueOpps, error: queueOppsError },
@@ -231,7 +231,8 @@ export async function GET(request: NextRequest) {
           .select('lead_id')
           .eq('org_id', profile.org_id)
           .eq('assigned_user_id', user.id)
-          .not('lead_id', 'is', null),
+          .not('lead_id', 'is', null)
+          .limit(400),
         adminClient
           .from('opportunities')
           .select('lead_id')
@@ -257,6 +258,7 @@ export async function GET(request: NextRequest) {
       const scopedLeadIds = new Set<string>()
       for (const row of [...(assignedOpps || []), ...(queueOpps || [])]) {
         if (row.lead_id) scopedLeadIds.add(row.lead_id)
+        if (scopedLeadIds.size >= 400) break
       }
       assignedInsideSalesLeadIds = Array.from(scopedLeadIds)
     }
