@@ -120,7 +120,16 @@ function activePipelinePrefix(kind: 'didnt_sit' | 'handoff' | 'knockback' | null
 
 function parseFollowUpInput(value: unknown, timezone: string): string | null {
   if (typeof value !== 'string' || !value.trim()) return null
-  const localDateTimeStr = value.trim().slice(0, 16)
+  const trimmed = value.trim()
+  // If the value already carries zone info (UTC "Z" or a numeric offset), the
+  // client has already resolved the instant — use it as-is. Slicing off the zone
+  // and re-interpreting the wall-clock portion in `timezone` would double-shift
+  // by the ET offset (e.g. a 10:00 ET reschedule landing at 14:00 ET).
+  if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(trimmed)) {
+    const d = new Date(trimmed)
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null
+  }
+  const localDateTimeStr = trimmed.slice(0, 16)
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(localDateTimeStr)) return null
   return fromZonedTime(`${localDateTimeStr}:00`, timezone).toISOString()
 }
