@@ -22,6 +22,8 @@ export type SolarMaskSegment = {
     sw: { lat: number; lng: number }
     ne: { lat: number; lng: number }
   } | null
+  /** Number of raw Solar fragments represented by this merged physical plane. */
+  merged_segment_count?: number
 }
 
 export type SolarMaskFacetPayload = {
@@ -442,6 +444,21 @@ export function segmentFacetSuggestions(seg: SolarMaskSegment | null): Pick<
 }
 
 /**
+ * Suggestions for a mask contour. A merged physical plane may contain overlapping
+ * Solar fragments, so their summed API areas do not describe the resulting contour.
+ * In that case the UI must use contour footprint × pitch instead.
+ */
+export function maskPlaneFacetSuggestions(seg: SolarMaskSegment | null): ReturnType<typeof segmentFacetSuggestions> {
+  const suggestions = segmentFacetSuggestions(seg)
+  if ((seg?.merged_segment_count ?? 1) <= 1) return suggestions
+  return {
+    ...suggestions,
+    suggested_ground_area_sqft: null,
+    suggested_sloped_area_sqft: null,
+  }
+}
+
+/**
  * Prefer `solar_mask_plane` over `solar_bbox` / whole-roof contour when split facets pass this gate.
  */
 export function splitFacetsMeetMaskQualityThreshold(facets: SolarMaskFacetPayload[]): boolean {
@@ -751,6 +768,7 @@ export function mergeCoplanarSolarSegments(
     const representative = [...group].sort((a, b) => a.segment_index - b.segment_index)[0]
     return {
       ...representative,
+      merged_segment_count: group.length,
       pitch_degrees: weighted((s) => s.pitch_degrees),
       azimuth_degrees: (Math.atan2(azY, azX) * 180) / Math.PI + (azY < 0 ? 360 : 0),
       area_m2: group.reduce((sum, s) => sum + (s.area_m2 ?? 0), 0),
@@ -953,7 +971,7 @@ function facetsFromSplitMask(options: {
       confidence: 0.9,
       estimated_sq_ft: estSqFt > 0 ? estSqFt : null,
       solar_segment_index: meta.segment_index,
-      ...segmentFacetSuggestions(seg),
+      ...maskPlaneFacetSuggestions(seg),
       facet_source: 'solar_mask_plane',
     })
   }

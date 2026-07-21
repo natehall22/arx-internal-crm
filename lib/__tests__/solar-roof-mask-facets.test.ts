@@ -5,6 +5,7 @@ jest.mock('proj4', () => jest.fn())
 
 import {
   filterSplitFacetsByPin,
+  maskPlaneFacetSuggestions,
   mergeCoplanarSolarSegments,
   segmentFacetSuggestions,
   splitFacetsMeetMaskQualityThreshold,
@@ -143,6 +144,12 @@ describe('coplanar Solar segment merging', () => {
 
     expect(merged).toHaveLength(1)
     expect(merged[0].ground_area_m2).toBe(36)
+    expect(merged[0].merged_segment_count).toBe(2)
+    expect(maskPlaneFacetSuggestions(merged[0])).toMatchObject({
+      suggested_ground_area_sqft: null,
+      suggested_sloped_area_sqft: null,
+      suggested_pitch_degrees: 26,
+    })
   })
 
   it('keeps a parallel elevated dormer separate', () => {
@@ -152,6 +159,7 @@ describe('coplanar Solar segment merging', () => {
     )
 
     expect(merged).toHaveLength(2)
+    expect(maskPlaneFacetSuggestions(merged[0]).suggested_sloped_area_sqft).toBe(20 * 10.7639)
   })
 
   it('keeps opposing roof faces separate', () => {
