@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { getRoleDisplayName, isOrgSuperuserRoleSlug, permissionCategories } from '@/lib/permissions'
 import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/database'
+import EmployeeAgreementPanel from '@/components/employee-agreements/EmployeeAgreementPanel'
 
 type Permission = {
   id: string
@@ -1399,6 +1400,10 @@ export default function UsersPage() {
                     </div>
                   </div>
                 </div>
+
+                <EmployeeAgreementPanel
+                  user={{ id: editingUser.id, full_name: editingUser.full_name, email: editingUser.email }}
+                />
 
                 {/* Password Reset Section */}
                 <div className="bg-blue-50 rounded-lg p-4">
