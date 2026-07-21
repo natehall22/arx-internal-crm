@@ -54,7 +54,7 @@ const MAX_VERTICES_PER_RING = 48
 /** Per-plane mask contours — more vertices follow hips and irregular eaves. */
 const MAX_VERTICES_PER_SPLIT_RING = 72
 /** Douglas–Peucker tolerance (mask px ≈ 0.1 m) to straighten split-plane contour edges. */
-const SPLIT_RING_SIMPLIFY_EPS_PX = 2
+const SPLIT_RING_SIMPLIFY_EPS_PX = 4
 /** Split plane contours below this footprint fail the mask-quality gate (bbox/whole fallback). */
 const MIN_PLANE_FOOTPRINT_SQFT = 35
 
@@ -98,6 +98,7 @@ type SegPx = {
   maxC: number
   minR: number
   maxR: number
+  hasSpatialBounds: boolean
 }
 
 function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -220,6 +221,35 @@ function simplifyClosedRing(
   return closeRing(openSimplified)
 }
 
+/** Monotonic-chain convex hull for regularizing a physical plane merged from fragments. */
+function convexHullClosedRing(ring: [number, number][]): [number, number][] {
+  const points = openRingPoints(ring)
+    .map(([x, y]) => [x, y] as [number, number])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const unique = points.filter(
+    (point, index) => index === 0 || point[0] !== points[index - 1][0] || point[1] !== points[index - 1][1]
+  )
+  if (unique.length < 4) return closeRing(unique)
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const lower: [number, number][] = []
+  for (const point of unique) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      lower.pop()
+    }
+    lower.push(point)
+  }
+  const upper: [number, number][] = []
+  for (let i = unique.length - 1; i >= 0; i--) {
+    const point = unique[i]
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      upper.pop()
+    }
+    upper.push(point)
+  }
+  return closeRing(lower.slice(0, -1).concat(upper.slice(0, -1)))
+}
+
 function planarPolygonAreaSqFt(vertices: { lat: number; lng: number }[]): number {
   if (vertices.length < 3) return 0
   const lat0 = vertices.reduce((s, p) => s + p.lat, 0) / vertices.length
@@ -251,6 +281,107 @@ type MaskRasterAndProjector = {
   pixelToLngLat: (col: number, row: number) => { lat: number; lng: number }
   /** Approximate pixel (column, row) for a WGS84 point; null if projection fails. */
   lngLatToColRow: (lat: number, lng: number) => { col: number; row: number } | null
+}
+
+type SegmentRgbSample = { r: number; g: number; b: number }
+
+/**
+ * Detect a bright, neutral, low accessory plane surrounded by darker shingles.
+ * This is deliberately conservative: geometry alone cannot distinguish the white
+ * metal Helen Drive porch from the asphalt roof because Solar models both as roof.
+ */
+export function brightAccessorySegmentIndices(
+  segments: SolarMaskSegment[],
+  samples: Map<number, SegmentRgbSample>
+): Set<number> {
+  if (segments.length < 4 || samples.size < 4) return new Set()
+  const sampleRows = segments.flatMap((segment) => {
+    const rgb = samples.get(segment.segment_index)
+    return rgb ? [{ segment, rgb, lightness: (rgb.r + rgb.g + rgb.b) / 3 }] : []
+  })
+  if (sampleRows.length < 4) return new Set()
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b)
+    return sorted[Math.floor(sorted.length / 2)]
+  }
+  const medianLightness = median(sampleRows.map((row) => row.lightness))
+  const pitches = segments.flatMap((segment) =>
+    typeof segment.pitch_degrees === 'number' ? [segment.pitch_degrees] : []
+  )
+  const heights = segments.flatMap((segment) =>
+    typeof segment.plane_height_at_center_meters === 'number'
+      ? [segment.plane_height_at_center_meters]
+      : []
+  )
+  if (pitches.length < 4 || heights.length < 4) return new Set()
+  const medianPitch = median(pitches)
+  const medianHeight = median(heights)
+
+  return new Set(
+    sampleRows
+      .filter(({ segment, rgb, lightness }) => {
+        const neutralRange = Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b)
+        return (
+          lightness >= 235 &&
+          lightness >= medianLightness + 40 &&
+          neutralRange <= 18 &&
+          typeof segment.pitch_degrees === 'number' &&
+          segment.pitch_degrees <= medianPitch - 3 &&
+          typeof segment.plane_height_at_center_meters === 'number' &&
+          segment.plane_height_at_center_meters <= medianHeight - 0.3
+        )
+      })
+      .map(({ segment }) => segment.segment_index)
+  )
+}
+
+async function sampleSolarRgbAtSegmentCenters(options: {
+  rgbUrl: string
+  apiKey: string
+  segments: SolarMaskSegment[]
+  lngLatToColRow: MaskRasterAndProjector['lngLatToColRow']
+  expectedWidth: number
+  expectedHeight: number
+}): Promise<Map<number, SegmentRgbSample>> {
+  const { rgbUrl, apiKey, segments, lngLatToColRow, expectedWidth, expectedHeight } = options
+  try {
+    const response = await fetch(appendApiKeyToGeoTiffUrl(rgbUrl, apiKey))
+    if (!response.ok) return new Map()
+    const tiff = await geotiff.fromArrayBuffer(await response.arrayBuffer())
+    const image = await tiff.getImage()
+    if (image.getWidth() !== expectedWidth || image.getHeight() !== expectedHeight) return new Map()
+    const rasters = await image.readRasters()
+    if (!rasters[0] || !rasters[1] || !rasters[2]) return new Map()
+    const samples = new Map<number, SegmentRgbSample>()
+    for (const segment of segments) {
+      if (!segment.center) continue
+      const point = lngLatToColRow(segment.center.lat, segment.center.lng)
+      if (!point) continue
+      const cx = Math.round(point.col)
+      const cy = Math.round(point.row)
+      let r = 0
+      let g = 0
+      let b = 0
+      let count = 0
+      for (let dy = -8; dy <= 8; dy++) {
+        for (let dx = -8; dx <= 8; dx++) {
+          const col = cx + dx
+          const row = cy + dy
+          if (col < 0 || row < 0 || col >= expectedWidth || row >= expectedHeight) continue
+          const i = row * expectedWidth + col
+          r += Number(rasters[0][i])
+          g += Number(rasters[1][i])
+          b += Number(rasters[2][i])
+          count++
+        }
+      }
+      if (count > 0) samples.set(segment.segment_index, { r: r / count, g: g / count, b: b / count })
+    }
+    return samples
+  } catch (error) {
+    console.warn('[solar-mask] RGB accessory sampling failed:', error)
+    return new Map()
+  }
 }
 
 type MaskRasterLoadResult =
@@ -485,6 +616,7 @@ function buildSegmentPxList(
     let maxC = c0.col + 8
     let minR = c0.row - 8
     let maxR = c0.row + 8
+    let hasSpatialBounds = false
     if (s.bounding_box) {
       const { ne, sw } = s.bounding_box
       const pts = [
@@ -500,6 +632,7 @@ function buildSegmentPxList(
         maxC = Math.max(...cs) + pad
         minR = Math.min(...rs) - pad
         maxR = Math.max(...rs) + pad
+        hasSpatialBounds = true
       }
     }
     out.push({
@@ -510,9 +643,55 @@ function buildSegmentPxList(
       maxC,
       minR,
       maxR,
+      hasSpatialBounds,
     })
   }
   return out
+}
+
+/**
+ * Solar's roof mask can omit valid low-contrast roof pixels. Expand the DSM candidate
+ * area to the supplied segment footprints; plane-height matching later rejects ground,
+ * lower porches, and other pixels that do not belong to a known roof plane.
+ */
+function expandMaskToSegmentBounds(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  segments: SegPx[]
+): Uint8Array {
+  const expanded = mask.slice()
+  for (const segment of segments) {
+    if (!segment.hasSpatialBounds) continue
+    const minC = Math.max(0, Math.floor(segment.minC))
+    const maxC = Math.min(width - 1, Math.ceil(segment.maxC))
+    const minR = Math.max(0, Math.floor(segment.minR))
+    const maxR = Math.min(height - 1, Math.ceil(segment.maxR))
+    for (let row = minR; row <= maxR; row++) {
+      for (let col = minC; col <= maxC; col++) expanded[row * width + col] = 1
+    }
+  }
+  return expanded
+}
+
+function removeSegmentBoundsFromMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  segments: SegPx[]
+): Uint8Array {
+  const trimmed = mask.slice()
+  for (const segment of segments) {
+    if (!segment.hasSpatialBounds) continue
+    const minC = Math.max(0, Math.floor(segment.minC))
+    const maxC = Math.min(width - 1, Math.ceil(segment.maxC))
+    const minR = Math.max(0, Math.floor(segment.minR))
+    const maxR = Math.min(height - 1, Math.ceil(segment.maxR))
+    for (let row = minR; row <= maxR; row++) {
+      for (let col = minC; col <= maxC; col++) trimmed[row * width + col] = 0
+    }
+  }
+  return trimmed
 }
 
 /**
@@ -621,6 +800,11 @@ const M_PER_DEG_LAT = 111320
 const COPLANAR_AZIMUTH_TOLERANCE_DEG = 25
 const COPLANAR_PITCH_TOLERANCE_DEG = 8
 const COPLANAR_HEIGHT_TOLERANCE_M = 1
+/** Reject connected mask pixels that are not close to any known Solar plane (for example, a low porch). */
+const MAX_DSM_PLANE_HEIGHT_ERROR_M = Number(
+  process.env.ROOF_MEASURE_DSM_MAX_PLANE_ERROR_M ?? '1.5'
+)
+const MAX_MASK_PLANE_HEIGHT_ERROR_M = 3
 
 type MaskPlane = {
   segment_index: number
@@ -766,6 +950,9 @@ export function mergeCoplanarSolarSegments(
       0
     )
     const representative = [...group].sort((a, b) => a.segment_index - b.segment_index)[0]
+    const boxes = group
+      .map((s) => s.bounding_box)
+      .filter((box): box is NonNullable<SolarMaskSegment['bounding_box']> => Boolean(box))
     return {
       ...representative,
       merged_segment_count: group.length,
@@ -778,7 +965,19 @@ export function mergeCoplanarSolarSegments(
         lat: group.reduce((sum, s) => sum + (s.center?.lat ?? origin.lat) * weightOf(s), 0) / totalWeight,
         lng: group.reduce((sum, s) => sum + (s.center?.lng ?? origin.lng) * weightOf(s), 0) / totalWeight,
       },
-      bounding_box: null,
+      bounding_box:
+        boxes.length > 0
+          ? {
+              sw: {
+                lat: Math.min(...boxes.map((box) => box.sw.lat)),
+                lng: Math.min(...boxes.map((box) => box.sw.lng)),
+              },
+              ne: {
+                lat: Math.max(...boxes.map((box) => box.ne.lat)),
+                lng: Math.max(...boxes.map((box) => box.ne.lng)),
+              },
+            }
+          : null,
     }
   })
 }
@@ -802,7 +1001,7 @@ function majorityFilterLabels(
     for (let row = minR; row <= maxR; row++) {
       for (let col = minC; col <= maxC; col++) {
         const i = row * width + col
-        if (mask[i] !== 1) continue
+        if (mask[i] !== 1 || prev[i] < 0) continue
         const counts = new Map<number, number>()
         for (let dr = -radius; dr <= radius; dr++) {
           const rr = row + dr
@@ -840,6 +1039,8 @@ function majorityFilterLabels(
  */
 function labelRoofMaskByPlanes(options: {
   workBin: Uint8Array
+  /** Original connected roof mask; bbox-expanded pixels require a real DSM match. */
+  fallbackBin: Uint8Array
   width: number
   height: number
   planes: MaskPlane[]
@@ -847,12 +1048,37 @@ function labelRoofMaskByPlanes(options: {
   pixelToLngLat: (col: number, row: number) => { lat: number; lng: number }
   sampleDsm: DsmHeightSampler
   segsPx: SegPx[]
+  /** Simple gables should retain every pixel in the connected satellite mask. */
+  preserveOriginalMaskCoverage?: boolean
 }): Int32Array {
-  const { workBin, width, height, planes, origin, pixelToLngLat, sampleDsm, segsPx } = options
+  const {
+    workBin,
+    fallbackBin,
+    width,
+    height,
+    planes,
+    origin,
+    pixelToLngLat,
+    sampleDsm,
+    segsPx,
+    preserveOriginalMaskCoverage = false,
+  } = options
   const labels = new Int32Array(width * height).fill(-1)
   if (planes.length === 0) return labels
 
   const mLng = M_PER_DEG_LAT * Math.cos((origin.lat * Math.PI) / 180)
+  // Solar plane heights and the DSM can have a small vertical-datum offset. Anchor
+  // each plane to the DSM at its own center before comparing surrounding pixels.
+  const planeHeightOffsets = new Map<number, number>()
+  for (const plane of planes) {
+    const centerLat = origin.lat + plane.cy / M_PER_DEG_LAT
+    const centerLng = origin.lng + plane.cx / mLng
+    const centerDsm = sampleDsm(centerLat, centerLng)
+    planeHeightOffsets.set(
+      plane.segment_index,
+      centerDsm != null && Number.isFinite(centerDsm) ? centerDsm - plane.cz : 0
+    )
+  }
 
   let minC = width
   let maxC = -1
@@ -891,7 +1117,7 @@ function labelRoofMaskByPlanes(options: {
       const { lat, lng } = pixelToLngLat(col, row)
       const dz = sampleDsm(lat, lng)
       if (dz == null || !Number.isFinite(dz)) {
-        labels[i] = nearestSegmentLabel(col, row)
+        if (fallbackBin[i] === 1) labels[i] = nearestSegmentLabel(col, row)
         continue
       }
       const x = (lng - origin.lng) * mLng
@@ -899,13 +1125,21 @@ function labelRoofMaskByPlanes(options: {
       let best = -1
       let bd = Infinity
       for (const pl of planes) {
-        const err = Math.abs(dz - planePredictedHeight(pl, x, y))
+        const predicted =
+          planePredictedHeight(pl, x, y) + (planeHeightOffsets.get(pl.segment_index) ?? 0)
+        const err = Math.abs(dz - predicted)
         if (err < bd) {
           bd = err
           best = pl.segment_index
         }
       }
-      labels[i] = best
+      const maxError =
+        fallbackBin[i] === 1
+          ? preserveOriginalMaskCoverage
+            ? Infinity
+            : MAX_MASK_PLANE_HEIGHT_ERROR_M
+          : MAX_DSM_PLANE_HEIGHT_ERROR_M
+      if (bd <= maxError) labels[i] = best
     }
   }
 
@@ -951,7 +1185,15 @@ function facetsFromSplitMask(options: {
     const ring = largestRing(rings)
     if (!ring) continue
 
-    const simplified = simplifyClosedRing(ring, SPLIT_RING_SIMPLIFY_EPS_PX, MAX_VERTICES_PER_SPLIT_RING)
+    const seg = segmentByIndex(segments, meta.segment_index)
+    const regularizePrimaryPlane =
+      (seg?.merged_segment_count ?? 1) > 1 || (seg?.ground_area_m2 ?? 0) >= 40
+    const regularizedRing = regularizePrimaryPlane ? convexHullClosedRing(ring) : ring
+    const simplified = simplifyClosedRing(
+      regularizedRing,
+      SPLIT_RING_SIMPLIFY_EPS_PX,
+      MAX_VERTICES_PER_SPLIT_RING
+    )
     if (simplified.length < 4) continue
 
     const latLngVertices: { lat: number; lng: number }[] = []
@@ -961,7 +1203,6 @@ function facetsFromSplitMask(options: {
     }
     if (latLngVertices.length < 3) continue
 
-    const seg = segmentByIndex(segments, meta.segment_index)
     const estSqFt = Math.round(planarPolygonAreaSqFt(latLngVertices))
 
     out.push({
@@ -1114,7 +1355,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
   }
 
   try {
-    const { maskUrl, dsmUrl } = await fetchSolarDataLayerUrls(lat, lng, apiKey)
+    const { maskUrl, dsmUrl, rgbUrl } = await fetchSolarDataLayerUrls(lat, lng, apiKey)
     if (!maskUrl) {
       return maskAttempt('no_mask_url', null, baseDetails)
     }
@@ -1152,11 +1393,33 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       componentSeeds.length > 0
         ? restrictMaskToSeedComponent(bin, width, height, componentSeeds)
         : null
-    const workBin = targetComponent ?? bin
+    let workBin = targetComponent ?? bin
+
+    const rgbSamples = rgbUrl
+      ? await sampleSolarRgbAtSegmentCenters({
+          rgbUrl,
+          apiKey,
+          segments,
+          lngLatToColRow,
+          expectedWidth: width,
+          expectedHeight: height,
+        })
+      : new Map<number, SegmentRgbSample>()
+    const excludedAccessoryIndices = brightAccessorySegmentIndices(segments, rgbSamples)
+    const activeSegments = segments.filter(
+      (segment) => !excludedAccessoryIndices.has(segment.segment_index)
+    )
+    if (excludedAccessoryIndices.size > 0) {
+      const excludedPx = buildSegmentPxList(
+        segments.filter((segment) => excludedAccessoryIndices.has(segment.segment_index)),
+        lngLatToColRow
+      )
+      workBin = removeSegmentBoundsFromMask(workBin, width, height, excludedPx)
+    }
 
     const pinRef = { lat: referenceLat, lng: referenceLng }
-    const structureRef = solarStructureReference(segments, pinRef)
-    const mergedSegments = mergeCoplanarSolarSegments(segments, structureRef)
+    const structureRef = solarStructureReference(activeSegments, pinRef)
+    const mergedSegments = mergeCoplanarSolarSegments(activeSegments, structureRef)
     const labelSegments = segmentsForMaskLabeling(mergedSegments, width, height)
     const segsPx = buildSegmentPxList(labelSegments, lngLatToColRow)
 
@@ -1184,9 +1447,18 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           ? await loadDsmHeightSampler(dsmUrl, apiKey)
           : null
       let labels: Int32Array
+      let splitBin = workBin
       if (dsmSampler && planes.length >= 2) {
+        // A clean two-plane gable already has the right outer satellite mask. Expanding
+        // and height-clipping it can shrink valid eaves. Complex roofs need the expanded
+        // Solar footprints so elevated dormers survive while low porch roofs are rejected.
+        const preserveSimpleGable = planes.length === 2 && labelSegments.length === 2
+        splitBin = preserveSimpleGable
+          ? workBin
+          : expandMaskToSegmentBounds(workBin, width, height, segsPx)
         labels = labelRoofMaskByPlanes({
-          workBin,
+          workBin: splitBin,
+          fallbackBin: workBin,
           width,
           height,
           planes,
@@ -1194,13 +1466,14 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           pixelToLngLat,
           sampleDsm: dsmSampler,
           segsPx,
+          preserveOriginalMaskCoverage: preserveSimpleGable,
         })
         splitMethod = 'dsm_plane'
       } else {
         labels = labelRoofMaskBySegments(workBin, width, height, segsPx)
       }
       const splitFacets = facetsFromSplitMask({
-        bin: workBin,
+        bin: splitBin,
         labels,
         width,
         height,
@@ -1219,6 +1492,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           mask_height: height,
           split_plane_count: splitOut.length,
           merged_segment_count: mergedSegments.length,
+          excluded_accessory_segment_count: excludedAccessoryIndices.size,
           path: 'split_mask_plane',
           split_method: splitMethod,
         })
