@@ -36,6 +36,8 @@ const sampleStatement: PayrollStatementPayload = {
     id: 'period-123',
     label: '2026-w22',
     cutoffAt: '2026-05-30T16:32:00.000Z',
+    startAt: '2026-05-23T16:32:00.000Z',
+    endAt: '2026-05-30T16:32:00.000Z',
     payDate: '2026-06-05',
     status: 'locked',
   },
