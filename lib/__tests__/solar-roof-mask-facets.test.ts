@@ -5,6 +5,7 @@ jest.mock('proj4', () => jest.fn())
 
 import {
   filterSplitFacetsByPin,
+  mergeCoplanarSolarSegments,
   segmentFacetSuggestions,
   splitFacetsMeetMaskQualityThreshold,
   type SolarMaskFacetPayload,
@@ -114,5 +115,51 @@ describe('split mask quality threshold', () => {
         facet('whole-0', 32, -96, { facet_source: 'solar_mask_whole', estimated_sq_ft: 500 }),
       ])
     ).toBe(false)
+  })
+})
+
+describe('coplanar Solar segment merging', () => {
+  const makeSegment = (
+    index: number,
+    azimuth: number,
+    height: number,
+    lngOffset: number
+  ): SolarMaskSegment => ({
+    segment_index: index,
+    pitch_degrees: 26,
+    azimuth_degrees: azimuth,
+    area_m2: 20,
+    ground_area_m2: 18,
+    plane_height_at_center_meters: height,
+    center: { lat: 35, lng: -80 + lngOffset },
+    bounding_box: null,
+  })
+
+  it('combines near-identical fragments of one physical plane', () => {
+    const merged = mergeCoplanarSolarSegments(
+      [makeSegment(0, 154, 190, 0), makeSegment(1, 155, 190, 0)],
+      { lat: 35, lng: -80 }
+    )
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].ground_area_m2).toBe(36)
+  })
+
+  it('keeps a parallel elevated dormer separate', () => {
+    const merged = mergeCoplanarSolarSegments(
+      [makeSegment(0, 154, 190, 0), makeSegment(1, 155, 192, 0)],
+      { lat: 35, lng: -80 }
+    )
+
+    expect(merged).toHaveLength(2)
+  })
+
+  it('keeps opposing roof faces separate', () => {
+    const merged = mergeCoplanarSolarSegments(
+      [makeSegment(0, 154, 190, 0), makeSegment(1, 334, 190, 0)],
+      { lat: 35, lng: -80 }
+    )
+
+    expect(merged).toHaveLength(2)
   })
 })
