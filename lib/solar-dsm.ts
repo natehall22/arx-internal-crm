@@ -229,7 +229,29 @@ export async function sampleDsmForFacetVertices(
   }
 }
 
-export const DSM_PITCH_DISAGREE_THRESHOLD_DEG = 3
+/** Point height sampler (meters MSL) over a DSM raster loaded once; null if the layer is unavailable. */
+export type DsmHeightSampler = (lat: number, lng: number) => number | null
+
+/**
+ * Load the DSM raster once and return a per-point height sampler. Used by the
+ * roof-mask splitter to label each roof pixel by the Solar plane whose predicted
+ * elevation best matches the DSM (ridge-following split), vs. plain Voronoi.
+ */
+export async function loadDsmHeightSampler(
+  dsmUrl: string,
+  apiKey: string
+): Promise<DsmHeightSampler | null> {
+  const raster = await loadDsmRaster(dsmUrl, apiKey)
+  if (!raster) return null
+  return (lat: number, lng: number) => sampleHeightM(raster, lat, lng)
+}
+
+/**
+ * BASE-quality DSM pitch estimated from a facet's vertex heights is noisy (±~10–12°
+ * on small facets), so only a gross discrepancy vs. Solar is worth surfacing —
+ * a tighter threshold produced constant false "confirm slope" nags in the field.
+ */
+export const DSM_PITCH_DISAGREE_THRESHOLD_DEG = 15
 
 export function dsmPitchDisagreesWithSolar(
   solarPitchDegrees: number | null,

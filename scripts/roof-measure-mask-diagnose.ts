@@ -31,10 +31,14 @@ function loadEnvFile(filename: string) {
 loadEnvFile('.env.local')
 loadEnvFile('.env')
 
-const ADDRESSES = [
+const DEFAULT_ADDRESSES = [
   '304 Greenway Dr, Huntersville NC 28078',
   '1361 Kison Court Northwest, Concord, NC 28027',
+  '2712 Lyla Ave, Concord, NC',
+  '276 Epworth St NW, Concord, NC 28027',
 ]
+const cliAddress = process.argv.slice(2).join(' ').trim()
+const ADDRESSES = cliAddress ? [cliAddress] : DEFAULT_ADDRESSES
 
 function loadApiKey(): string {
   const key =
@@ -129,10 +133,25 @@ async function main() {
     console.log(`  lat/lng: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
     console.log(`  buildingInsights: ${status === 200 ? 'ok' : status}`)
     console.log(`  solar segments: ${segments.length}`)
+    for (const segment of segments) {
+      console.log(
+        `    #${segment.segment_index}: pitch=${segment.pitch_degrees ?? '-'} az=${segment.azimuth_degrees ?? '-'} ground_m2=${segment.ground_area_m2?.toFixed(1) ?? '-'} height_m=${segment.plane_height_at_center_meters?.toFixed(2) ?? '-'}`
+      )
+    }
     console.log(`  dataLayers mask: ${layers.maskUrl ? 'yes' : 'no'}  dsm: ${layers.dsmUrl ? 'yes' : 'no'}`)
     for (const a of attempts) {
       const extra = a.details?.nearest_contour_m != null ? ` nearest_m=${a.details.nearest_contour_m}` : ''
-      console.log(`  mask @ ${a.label}: reason=${a.reason} facets=${a.facet_count}${extra}`)
+      const splitMethod =
+        typeof a.details?.split_method === 'string'
+          ? ` split=${a.details.split_method}`
+          : ''
+      const mergedCount =
+        typeof a.details?.merged_segment_count === 'number'
+          ? ` merged=${a.details.merged_segment_count}`
+          : ''
+      console.log(
+        `  mask @ ${a.label}: reason=${a.reason} facets=${a.facet_count}${splitMethod}${mergedCount}${extra}`
+      )
     }
   }
 }

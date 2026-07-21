@@ -2,6 +2,12 @@ import { contours as d3contours } from 'd3-contour'
 import * as geotiff from 'geotiff'
 import geokeysToProj4 from 'geotiff-geokeys-to-proj4'
 import proj4 from 'proj4'
+import {
+  fetchSolarDataLayerUrls,
+  loadDsmHeightSampler,
+  type DsmHeightSampler,
+} from './solar-dsm'
+import { ROOF_MEASURE_DSM_PLANE_SPLIT } from './roof-measure-flags'
 
 export type SolarMaskSegment = {
   segment_index: number
@@ -45,6 +51,8 @@ const MAX_SPLIT_FACETS_OUTPUT = 16
 const MAX_VERTICES_PER_RING = 48
 /** Per-plane mask contours — more vertices follow hips and irregular eaves. */
 const MAX_VERTICES_PER_SPLIT_RING = 72
+/** Douglas–Peucker tolerance (mask px ≈ 0.1 m) to straighten split-plane contour edges. */
+const SPLIT_RING_SIMPLIFY_EPS_PX = 2
 /** Split plane contours below this footprint fail the mask-quality gate (bbox/whole fallback). */
 const MIN_PLANE_FOOTPRINT_SQFT = 35
 
@@ -156,6 +164,60 @@ function decimateClosedRing(ring: [number, number][], maxVertices: number): [num
   return closeRing(out)
 }
 
+function perpDistancePx(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return Math.hypot(p[0] - a[0], p[1] - a[1])
+  const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2
+  const cx = a[0] + t * dx
+  const cy = a[1] + t * dy
+  return Math.hypot(p[0] - cx, p[1] - cy)
+}
+
+/** Douglas–Peucker on an open polyline (endpoints preserved). */
+function douglasPeucker(pts: [number, number][], epsilon: number): [number, number][] {
+  if (pts.length < 3) return pts
+  let maxD = 0
+  let idx = 0
+  const a = pts[0]
+  const b = pts[pts.length - 1]
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = perpDistancePx(pts[i], a, b)
+    if (d > maxD) {
+      maxD = d
+      idx = i
+    }
+  }
+  if (maxD > epsilon) {
+    const left = douglasPeucker(pts.slice(0, idx + 1), epsilon)
+    const right = douglasPeucker(pts.slice(idx), epsilon)
+    return left.slice(0, -1).concat(right)
+  }
+  return [a, b]
+}
+
+/**
+ * Straighten a closed pixel ring: Douglas–Peucker removes the staircase jitter of a
+ * mask contour so facet edges read as straight eaves/rakes, then cap the vertex count.
+ * Falls back to even decimation if simplification collapses the ring.
+ */
+function simplifyClosedRing(
+  ring: [number, number][],
+  epsilonPx: number,
+  maxVertices: number
+): [number, number][] {
+  const open = openRingPoints(ring)
+  if (open.length < 4) return closeRing(open)
+  const simplified = douglasPeucker([...open, open[0]], epsilonPx)
+  const openSimplified = simplified.slice(0, -1)
+  if (openSimplified.length < 3) return decimateClosedRing(ring, maxVertices)
+  if (openSimplified.length > maxVertices) {
+    return decimateClosedRing(closeRing(openSimplified), maxVertices)
+  }
+  return closeRing(openSimplified)
+}
+
 function planarPolygonAreaSqFt(vertices: { lat: number; lng: number }[]): number {
   if (vertices.length < 3) return 0
   const lat0 = vertices.reduce((s, p) => s + p.lat, 0) / vertices.length
@@ -173,41 +235,6 @@ function planarPolygonAreaSqFt(vertices: { lat: number; lng: number }[]): number
     sum += x1 * y2 - x2 * y1
   }
   return Math.abs(sum / 2) * 10.7639
-}
-
-async function fetchDataLayersMaskUrl(lat: number, lng: number, apiKey: string): Promise<string | null> {
-  const params = new URLSearchParams({
-    'location.latitude': lat.toFixed(6),
-    'location.longitude': lng.toFixed(6),
-    radiusMeters: '100',
-    view: 'IMAGERY_LAYERS',
-    requiredQuality: 'BASE',
-    exactQualityRequired: 'false',
-    key: apiKey,
-  })
-  const url = `https://solar.googleapis.com/v1/dataLayers:get?${params}`
-  const response = await fetch(url)
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    console.warn('[solar-mask] dataLayers:get failed:', response.status, detail.slice(0, 200))
-    return null
-  }
-  const data = (await response.json().catch(() => null)) as {
-    maskUrl?: string
-    mask_url?: string
-    error?: { message?: string; code?: number }
-  } | null
-  if (data?.error?.message) {
-    console.warn('[solar-mask] dataLayers error:', data.error.message)
-    return null
-  }
-  const maskUrl =
-    typeof data?.maskUrl === 'string'
-      ? data.maskUrl
-      : typeof data?.mask_url === 'string'
-        ? data.mask_url
-        : null
-  return maskUrl && maskUrl.length > 0 ? maskUrl : null
 }
 
 function appendApiKeyToGeoTiffUrl(url: string, apiKey: string): string {
@@ -573,6 +600,301 @@ function labelRoofMaskBySegments(
   return labels
 }
 
+const M_PER_DEG_LAT = 111320
+const COPLANAR_AZIMUTH_TOLERANCE_DEG = 25
+const COPLANAR_PITCH_TOLERANCE_DEG = 8
+const COPLANAR_HEIGHT_TOLERANCE_M = 1
+
+type MaskPlane = {
+  segment_index: number
+  /** Unit normal, z-up (nz = cos pitch > 0). */
+  nx: number
+  ny: number
+  nz: number
+  /** Plane reference point in local ENU meters: segment center (x,y) at planeHeight (z, MSL). */
+  cx: number
+  cy: number
+  cz: number
+}
+
+/** Solar planes in a local ENU frame for DSM-elevation matching (needs pitch, azimuth, height, center). */
+function buildMaskPlanes(
+  segments: SolarMaskSegment[],
+  origin: { lat: number; lng: number }
+): MaskPlane[] {
+  const mLng = M_PER_DEG_LAT * Math.cos((origin.lat * Math.PI) / 180)
+  const out: MaskPlane[] = []
+  for (const s of segments) {
+    const pitch = s.pitch_degrees
+    const az = s.azimuth_degrees
+    const h = s.plane_height_at_center_meters
+    if (
+      s.center == null ||
+      pitch == null ||
+      az == null ||
+      h == null ||
+      !Number.isFinite(pitch) ||
+      !Number.isFinite(az) ||
+      !Number.isFinite(h)
+    ) {
+      continue
+    }
+    const p = (pitch * Math.PI) / 180
+    const a = (az * Math.PI) / 180
+    out.push({
+      segment_index: s.segment_index,
+      nx: Math.sin(p) * Math.sin(a),
+      ny: Math.sin(p) * Math.cos(a),
+      nz: Math.cos(p),
+      cx: (s.center.lng - origin.lng) * mLng,
+      cy: (s.center.lat - origin.lat) * M_PER_DEG_LAT,
+      cz: h,
+    })
+  }
+  return out
+}
+
+/** Elevation this plane predicts at local (x, y) meters. Moving downslope (azimuth dir) lowers z. */
+function planePredictedHeight(pl: MaskPlane, x: number, y: number): number {
+  return pl.cz - (pl.nx * (x - pl.cx) + pl.ny * (y - pl.cy)) / pl.nz
+}
+
+function circularDegreesDifference(a: number, b: number): number {
+  const diff = Math.abs(a - b) % 360
+  return Math.min(diff, 360 - diff)
+}
+
+/**
+ * Merge Solar fragments that describe the same physical roof plane. Solar sometimes
+ * subdivides a simple face into several near-identical segments (observed at 276
+ * Epworth), which otherwise produces blocky internal seams. Direction/pitch alone is
+ * insufficient because dormers may be parallel, so both plane equations must also
+ * predict the other segment center's elevation within a tight tolerance.
+ */
+export function mergeCoplanarSolarSegments(
+  segments: SolarMaskSegment[],
+  origin: { lat: number; lng: number }
+): SolarMaskSegment[] {
+  const eligible = segments.filter(
+    (s) =>
+      s.center &&
+      Number.isFinite(s.pitch_degrees) &&
+      Number.isFinite(s.azimuth_degrees) &&
+      Number.isFinite(s.plane_height_at_center_meters)
+  )
+  if (eligible.length < 2) return segments
+
+  const planes = buildMaskPlanes(eligible, origin)
+  const planeByIndex = new Map(planes.map((p) => [p.segment_index, p]))
+  const parent = new Map(eligible.map((s) => [s.segment_index, s.segment_index]))
+  const find = (index: number): number => {
+    let root = parent.get(index) ?? index
+    while ((parent.get(root) ?? root) !== root) root = parent.get(root) as number
+    return root
+  }
+  const union = (a: number, b: number): void => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent.set(Math.max(ra, rb), Math.min(ra, rb))
+  }
+
+  for (let i = 0; i < eligible.length; i++) {
+    const a = eligible[i]
+    const pa = planeByIndex.get(a.segment_index)
+    if (!pa || !a.center) continue
+    for (let j = i + 1; j < eligible.length; j++) {
+      const b = eligible[j]
+      const pb = planeByIndex.get(b.segment_index)
+      if (!pb || !b.center) continue
+      if (
+        circularDegreesDifference(a.azimuth_degrees as number, b.azimuth_degrees as number) >
+          COPLANAR_AZIMUTH_TOLERANCE_DEG ||
+        Math.abs((a.pitch_degrees as number) - (b.pitch_degrees as number)) >
+          COPLANAR_PITCH_TOLERANCE_DEG
+      ) {
+        continue
+      }
+      const errAAtB = Math.abs(planePredictedHeight(pa, pb.cx, pb.cy) - pb.cz)
+      const errBAtA = Math.abs(planePredictedHeight(pb, pa.cx, pa.cy) - pa.cz)
+      if (Math.max(errAAtB, errBAtA) <= COPLANAR_HEIGHT_TOLERANCE_M) {
+        union(a.segment_index, b.segment_index)
+      }
+    }
+  }
+
+  const groups = new Map<number, SolarMaskSegment[]>()
+  for (const segment of segments) {
+    const root = parent.has(segment.segment_index) ? find(segment.segment_index) : segment.segment_index
+    const group = groups.get(root) ?? []
+    group.push(segment)
+    groups.set(root, group)
+  }
+
+  return Array.from(groups.values()).map((group) => {
+    if (group.length === 1) return group[0]
+    const weightOf = (s: SolarMaskSegment) => Math.max(s.ground_area_m2 ?? s.area_m2 ?? 1, 0.01)
+    const totalWeight = group.reduce((sum, s) => sum + weightOf(s), 0)
+    const weighted = (value: (s: SolarMaskSegment) => number | null): number | null => {
+      const present = group.filter((s) => value(s) != null)
+      if (present.length === 0) return null
+      const weight = present.reduce((sum, s) => sum + weightOf(s), 0)
+      return present.reduce((sum, s) => sum + (value(s) as number) * weightOf(s), 0) / weight
+    }
+    const azX = group.reduce(
+      (sum, s) => sum + Math.cos(((s.azimuth_degrees ?? 0) * Math.PI) / 180) * weightOf(s),
+      0
+    )
+    const azY = group.reduce(
+      (sum, s) => sum + Math.sin(((s.azimuth_degrees ?? 0) * Math.PI) / 180) * weightOf(s),
+      0
+    )
+    const representative = [...group].sort((a, b) => a.segment_index - b.segment_index)[0]
+    return {
+      ...representative,
+      pitch_degrees: weighted((s) => s.pitch_degrees),
+      azimuth_degrees: (Math.atan2(azY, azX) * 180) / Math.PI + (azY < 0 ? 360 : 0),
+      area_m2: group.reduce((sum, s) => sum + (s.area_m2 ?? 0), 0),
+      ground_area_m2: group.reduce((sum, s) => sum + (s.ground_area_m2 ?? 0), 0),
+      plane_height_at_center_meters: weighted((s) => s.plane_height_at_center_meters),
+      center: {
+        lat: group.reduce((sum, s) => sum + (s.center?.lat ?? origin.lat) * weightOf(s), 0) / totalWeight,
+        lng: group.reduce((sum, s) => sum + (s.center?.lng ?? origin.lng) * weightOf(s), 0) / totalWeight,
+      },
+      bounding_box: null,
+    }
+  })
+}
+
+/**
+ * Smooth a per-pixel label field with a bounded majority (mode) filter — removes
+ * DSM speckle so plane regions contour cleanly. Only target-mask pixels vote.
+ */
+function majorityFilterLabels(
+  labels: Int32Array,
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  bbox: { minC: number; maxC: number; minR: number; maxR: number },
+  passes: number,
+  radius: number
+): void {
+  const { minC, maxC, minR, maxR } = bbox
+  for (let pass = 0; pass < passes; pass++) {
+    const prev = labels.slice()
+    for (let row = minR; row <= maxR; row++) {
+      for (let col = minC; col <= maxC; col++) {
+        const i = row * width + col
+        if (mask[i] !== 1) continue
+        const counts = new Map<number, number>()
+        for (let dr = -radius; dr <= radius; dr++) {
+          const rr = row + dr
+          if (rr < 0 || rr >= height) continue
+          for (let dc = -radius; dc <= radius; dc++) {
+            const cc = col + dc
+            if (cc < 0 || cc >= width) continue
+            const j = rr * width + cc
+            if (mask[j] !== 1) continue
+            const v = prev[j]
+            if (v < 0) continue
+            counts.set(v, (counts.get(v) ?? 0) + 1)
+          }
+        }
+        let bestV = prev[i]
+        let bestN = -1
+        counts.forEach((n, k) => {
+          if (n > bestN) {
+            bestN = n
+            bestV = k
+          }
+        })
+        labels[i] = bestV
+      }
+    }
+  }
+}
+
+/**
+ * Label each target roof pixel by the Solar plane whose predicted elevation best
+ * matches the DSM there, so facet boundaries fall on real ridges/hips/valleys (where
+ * two planes' heights cross) instead of nearest-center Voronoi bisectors. Pixels with
+ * no DSM sample fall back to the nearest segment center; the field is majority-filtered
+ * before contouring. Labels use `segment_index` values, matching `labelRoofMaskBySegments`.
+ */
+function labelRoofMaskByPlanes(options: {
+  workBin: Uint8Array
+  width: number
+  height: number
+  planes: MaskPlane[]
+  origin: { lat: number; lng: number }
+  pixelToLngLat: (col: number, row: number) => { lat: number; lng: number }
+  sampleDsm: DsmHeightSampler
+  segsPx: SegPx[]
+}): Int32Array {
+  const { workBin, width, height, planes, origin, pixelToLngLat, sampleDsm, segsPx } = options
+  const labels = new Int32Array(width * height).fill(-1)
+  if (planes.length === 0) return labels
+
+  const mLng = M_PER_DEG_LAT * Math.cos((origin.lat * Math.PI) / 180)
+
+  let minC = width
+  let maxC = -1
+  let minR = height
+  let maxR = -1
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      if (workBin[row * width + col] !== 1) continue
+      if (col < minC) minC = col
+      if (col > maxC) maxC = col
+      if (row < minR) minR = row
+      if (row > maxR) maxR = row
+    }
+  }
+  if (maxC < minC) return labels
+
+  const nearestSegmentLabel = (col: number, row: number): number => {
+    let best = -1
+    let bd = Infinity
+    for (const s of segsPx) {
+      const dc = col - s.col
+      const dr = row - s.row
+      const d = dc * dc + dr * dr
+      if (d < bd) {
+        bd = d
+        best = s.segment_index
+      }
+    }
+    return best
+  }
+
+  for (let row = minR; row <= maxR; row++) {
+    for (let col = minC; col <= maxC; col++) {
+      const i = row * width + col
+      if (workBin[i] !== 1) continue
+      const { lat, lng } = pixelToLngLat(col, row)
+      const dz = sampleDsm(lat, lng)
+      if (dz == null || !Number.isFinite(dz)) {
+        labels[i] = nearestSegmentLabel(col, row)
+        continue
+      }
+      const x = (lng - origin.lng) * mLng
+      const y = (lat - origin.lat) * M_PER_DEG_LAT
+      let best = -1
+      let bd = Infinity
+      for (const pl of planes) {
+        const err = Math.abs(dz - planePredictedHeight(pl, x, y))
+        if (err < bd) {
+          bd = err
+          best = pl.segment_index
+        }
+      }
+      labels[i] = best
+    }
+  }
+
+  majorityFilterLabels(labels, workBin, width, height, { minC, maxC, minR, maxR }, 3, 2)
+  return labels
+}
+
 function largestRing(rings: [number, number][][]): [number, number][] | null {
   let best: [number, number][] | null = null
   let bestA = 0
@@ -611,7 +933,7 @@ function facetsFromSplitMask(options: {
     const ring = largestRing(rings)
     if (!ring) continue
 
-    const simplified = decimateClosedRing(ring, MAX_VERTICES_PER_SPLIT_RING)
+    const simplified = simplifyClosedRing(ring, SPLIT_RING_SIMPLIFY_EPS_PX, MAX_VERTICES_PER_SPLIT_RING)
     if (simplified.length < 4) continue
 
     const latLngVertices: { lat: number; lng: number }[] = []
@@ -774,7 +1096,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
   }
 
   try {
-    const maskUrl = await fetchDataLayersMaskUrl(lat, lng, apiKey)
+    const { maskUrl, dsmUrl } = await fetchSolarDataLayerUrls(lat, lng, apiKey)
     if (!maskUrl) {
       return maskAttempt('no_mask_url', null, baseDetails)
     }
@@ -814,11 +1136,12 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         : null
     const workBin = targetComponent ?? bin
 
-    const labelSegments = segmentsForMaskLabeling(segments, width, height)
-    const segsPx = buildSegmentPxList(labelSegments, lngLatToColRow)
-
     const pinRef = { lat: referenceLat, lng: referenceLng }
     const structureRef = solarStructureReference(segments, pinRef)
+    const mergedSegments = mergeCoplanarSolarSegments(segments, structureRef)
+    const labelSegments = segmentsForMaskLabeling(mergedSegments, width, height)
+    const segsPx = buildSegmentPxList(labelSegments, lngLatToColRow)
+
     const ref = structureRef
     const refPx = lngLatToColRow(ref.lat, ref.lng)
 
@@ -833,14 +1156,38 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         ...baseDetails,
       })
     } else if (workBin.some((v) => v === 1)) {
-      const labels = labelRoofMaskBySegments(workBin, width, height, segsPx)
+      // DSM-plane labeling (ridge-following) when available; else nearest-center Voronoi.
+      let splitMethod: 'dsm_plane' | 'voronoi' = 'voronoi'
+      const planes = ROOF_MEASURE_DSM_PLANE_SPLIT
+        ? buildMaskPlanes(labelSegments, structureRef)
+        : []
+      const dsmSampler =
+        ROOF_MEASURE_DSM_PLANE_SPLIT && dsmUrl && planes.length >= 2
+          ? await loadDsmHeightSampler(dsmUrl, apiKey)
+          : null
+      let labels: Int32Array
+      if (dsmSampler && planes.length >= 2) {
+        labels = labelRoofMaskByPlanes({
+          workBin,
+          width,
+          height,
+          planes,
+          origin: structureRef,
+          pixelToLngLat,
+          sampleDsm: dsmSampler,
+          segsPx,
+        })
+        splitMethod = 'dsm_plane'
+      } else {
+        labels = labelRoofMaskBySegments(workBin, width, height, segsPx)
+      }
       const splitFacets = facetsFromSplitMask({
         bin: workBin,
         labels,
         width,
         height,
         segsPx,
-        segments,
+        segments: mergedSegments,
         pixelToLngLat,
       })
       const splitFiltered = filterSplitFacetsByPin(splitFacets, structureRef)
@@ -853,7 +1200,9 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           mask_width: width,
           mask_height: height,
           split_plane_count: splitOut.length,
+          merged_segment_count: mergedSegments.length,
           path: 'split_mask_plane',
+          split_method: splitMethod,
         })
       }
       if (splitFacets.length > 0 && splitOut.length === 0) {
