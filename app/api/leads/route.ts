@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-import { isInsideSalesRoleLike, shouldScopeLeadsToInsideSalesWorker } from '@/lib/inside-sales-follow-up'
+import {
+  isInsideSalesRoleLike,
+  shouldScopeLeadsToInsideSalesWorker,
+  DIDNT_SIT_PIPELINE_PREFIX,
+  HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+  KNOCKBACK_PIPELINE_PREFIX,
+  REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+} from '@/lib/inside-sales-follow-up'
 
 export const dynamic = 'force-dynamic'
 
@@ -208,16 +215,52 @@ export async function GET(request: NextRequest) {
 
     let assignedInsideSalesLeadIds: string[] = []
     if (insideSalesScoped) {
-      const { data: assignedOpps } = await adminClient
-        .from('opportunities')
-        .select('lead_id')
-        .eq('org_id', profile.org_id)
-        .eq('assigned_user_id', user.id)
-        .not('lead_id', 'is', null)
+      // Queue items are org-wide/unclaimed (assigned_user_id NULL until claimed) — without the
+      // queue fetch the rep can't find her own queue customers when they call back. Mirrors the
+      // opportunity detail page's inside-sales scope (app/opportunities/[id]/page.tsx). The
+      // assigned fetch intentionally has no status filter (won/lost records she worked stay findable).
+      // Cap the combined list at 400: these ids feed a PostgREST or(id.in.(...)) querystring,
+      // which rejects somewhere between 400 (verified OK) and 1000 ids. Preserve leads already
+      // assigned to this worker first, then fill remaining slots with the most-due queue items.
+      const [
+        { data: assignedOpps, error: assignedOppsError },
+        { data: queueOpps, error: queueOppsError },
+      ] = await Promise.all([
+        adminClient
+          .from('opportunities')
+          .select('lead_id')
+          .eq('org_id', profile.org_id)
+          .eq('assigned_user_id', user.id)
+          .not('lead_id', 'is', null)
+          .limit(400),
+        adminClient
+          .from('opportunities')
+          .select('lead_id')
+          .eq('org_id', profile.org_id)
+          .not('lead_id', 'is', null)
+          .not('status', 'in', '(won,lost)')
+          .in('pipeline_stage', [
+            DIDNT_SIT_PIPELINE_PREFIX,
+            HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
+            KNOCKBACK_PIPELINE_PREFIX,
+            REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+          ])
+          .order('follow_up_at', { ascending: true, nullsFirst: false })
+          .limit(400),
+      ])
+      if (assignedOppsError || queueOppsError) {
+        console.error(
+          'Inside-sales lead scope fetch failed:',
+          assignedOppsError || queueOppsError
+        )
+      }
 
-      assignedInsideSalesLeadIds = (assignedOpps || [])
-        .map((row: { lead_id: string | null }) => row.lead_id)
-        .filter((leadId): leadId is string => Boolean(leadId))
+      const scopedLeadIds = new Set<string>()
+      for (const row of [...(assignedOpps || []), ...(queueOpps || [])]) {
+        if (row.lead_id) scopedLeadIds.add(row.lead_id)
+        if (scopedLeadIds.size >= 400) break
+      }
+      assignedInsideSalesLeadIds = Array.from(scopedLeadIds)
     }
 
     // First, get all lead IDs that have opportunities (for door_to_door filtering)

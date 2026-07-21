@@ -83,7 +83,12 @@ async function geotiffBoundsFromBuffer(arrayBuffer: ArrayBuffer): Promise<{
   const toWgs84 = proj4(projObj.proj4, '+proj=longlat +datum=WGS84 +no_defs')
   const conv = projObj.coordinatesConversionParameters
   const [ox, oy] = image.getOrigin()
-  const [rx, ry] = image.getResolution()
+  const [rawRx, rawRy] = image.getResolution()
+  // North-up UTM normalization — geotiff.js reports a positive row step for these
+  // Solar tiles, which would flip/offset the HD overlay bounds ~100 m off the roof
+  // (same defect fixed in lib/solar-roof-mask-facets.ts and lib/solar-dsm.ts).
+  const rx = Math.abs(rawRx)
+  const ry = -Math.abs(rawRy)
 
   const pixelToLngLat = (col: number, row: number) => {
     const gx = ox + col * rx

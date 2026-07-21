@@ -279,7 +279,15 @@ async function loadMaskRasterAndProjector(
   const fromWgs84 = proj4('+proj=longlat +datum=WGS84 +no_defs', projObj.proj4)
   const conv = projObj.coordinatesConversionParameters
   const [ox, oy] = image.getOrigin()
-  const [rx, ry] = image.getResolution()
+  const [rawRx, rawRy] = image.getResolution()
+  // Google Solar tiles are north-up UTM (origin = NW corner), but geotiff.js
+  // getResolution() has been observed to return a POSITIVE row step for these
+  // masks (e.g. 4101 Woodbury Terrace NW / Concord). Used raw, that flips the
+  // vertical axis so the pin projects outside the raster and every mask facet
+  // lands ~100–300 m off the house. Normalize to the north-up convention:
+  // east-positive columns, north-decreasing (negative) rows.
+  const rx = Math.abs(rawRx)
+  const ry = -Math.abs(rawRy)
 
   const pixelToLngLat = (col: number, row: number) => {
     const gx = ox + col * rx
@@ -461,6 +469,73 @@ function buildSegmentPxList(
     })
   }
   return out
+}
+
+/**
+ * Restrict a binary roof mask to the connected component(s) reachable from the
+ * target building's Solar segment centers. Solar mask tiles cover a ~200 m
+ * radius and include neighboring houses; without this, the Voronoi labeling
+ * below assigns whole neighbor roofs to the target segments and the split
+ * collapses into a few giant multi-house blobs (observed on 4101 Woodbury
+ * Terrace NW: one segment vacuumed 205k of 399k roof pixels). 8-connected flood
+ * fill from the segment centers keeps only this house's roof pixels. Returns
+ * null when no seed lands on/near a roof pixel so callers fall back to the full
+ * mask rather than dropping everything.
+ */
+export function restrictMaskToSeedComponent(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  seeds: Array<{ col: number; row: number }>,
+  snapRadiusPx = 6
+): Uint8Array | null {
+  const snap = (col: number, row: number): number | null => {
+    const c0 = Math.round(col)
+    const r0 = Math.round(row)
+    for (let r = 0; r <= snapRadiusPx; r++) {
+      for (let dc = -r; dc <= r; dc++) {
+        for (let dr = -r; dr <= r; dr++) {
+          const c = c0 + dc
+          const rw = r0 + dr
+          if (c >= 0 && c < width && rw >= 0 && rw < height && bin[rw * width + c] === 1) {
+            return rw * width + c
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  const target = new Uint8Array(width * height)
+  const stack: number[] = []
+  for (const s of seeds) {
+    const i = snap(s.col, s.row)
+    if (i != null && target[i] === 0) {
+      target[i] = 1
+      stack.push(i)
+    }
+  }
+  if (stack.length === 0) return null
+
+  while (stack.length > 0) {
+    const i = stack.pop() as number
+    const col = i % width
+    const row = (i / width) | 0
+    for (let dc = -1; dc <= 1; dc++) {
+      for (let dr = -1; dr <= 1; dr++) {
+        if (dc === 0 && dr === 0) continue
+        const c = col + dc
+        const rw = row + dr
+        if (c < 0 || c >= width || rw < 0 || rw >= height) continue
+        const j = rw * width + c
+        if (bin[j] === 1 && target[j] === 0) {
+          target[j] = 1
+          stack.push(j)
+        }
+      }
+    }
+  }
+  return target
 }
 
 /** Assign each roof-mask pixel to the nearest Solar segment center (Voronoi on-mask). */
@@ -726,6 +801,19 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       })
     }
 
+    // Keep only this building's roof pixels before labeling/contouring so the
+    // ~200 m tile's neighboring houses cannot bleed into the split or the
+    // whole-roof contour. Seed from every segment center; fall back to the full
+    // mask if the flood fill finds nothing (e.g. all centers off-roof).
+    const componentSeeds = segments
+      .map((s) => (s.center ? lngLatToColRow(s.center.lat, s.center.lng) : null))
+      .filter((p): p is { col: number; row: number } => Boolean(p))
+    const targetComponent =
+      componentSeeds.length > 0
+        ? restrictMaskToSeedComponent(bin, width, height, componentSeeds)
+        : null
+    const workBin = targetComponent ?? bin
+
     const labelSegments = segmentsForMaskLabeling(segments, width, height)
     const segsPx = buildSegmentPxList(labelSegments, lngLatToColRow)
 
@@ -744,10 +832,10 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         raw_segment_count: segments.length,
         ...baseDetails,
       })
-    } else if (bin.some((v) => v === 1)) {
-      const labels = labelRoofMaskBySegments(bin, width, height, segsPx)
+    } else if (workBin.some((v) => v === 1)) {
+      const labels = labelRoofMaskBySegments(workBin, width, height, segsPx)
       const splitFacets = facetsFromSplitMask({
-        bin,
+        bin: workBin,
         labels,
         width,
         height,
@@ -801,7 +889,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       }
     }
 
-    let rings = contourRingsFromMask(band0, width, height)
+    let rings = contourRingsFromMask(workBin, width, height)
     rings = rings.filter((r) => polygonAreaPx(r) >= MIN_RING_AREA_PX)
 
     if (rings.length === 0) {
