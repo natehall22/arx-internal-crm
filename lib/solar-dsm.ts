@@ -117,7 +117,13 @@ async function loadDsmRaster(dsmUrl: string, apiKey: string): Promise<DsmRaster 
   const fromWgs84 = proj4('+proj=longlat +datum=WGS84 +no_defs', projObj.proj4)
   const conv = projObj.coordinatesConversionParameters
   const [ox, oy] = image.getOrigin()
-  const [rx, ry] = image.getResolution()
+  const [rawRx, rawRy] = image.getResolution()
+  // North-up UTM normalization — geotiff.js can report a positive row step for
+  // these Solar tiles, flipping the vertical axis and sampling DSM ~100 m off
+  // the house (see lib/solar-roof-mask-facets.ts). Force east-positive columns
+  // and north-decreasing rows so DSM samples land on the target roof.
+  const rx = Math.abs(rawRx)
+  const ry = -Math.abs(rawRy)
 
   const lngLatToColRow = (lat: number, lng: number): { col: number; row: number } | null => {
     try {
