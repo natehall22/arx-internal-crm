@@ -4,6 +4,7 @@ jest.mock('geotiff-geokeys-to-proj4', () => ({}))
 jest.mock('proj4', () => jest.fn())
 
 import {
+  brightAccessorySegmentIndices,
   filterSplitFacetsByPin,
   maskPlaneFacetSuggestions,
   mergeCoplanarSolarSegments,
@@ -152,6 +153,26 @@ describe('coplanar Solar segment merging', () => {
     })
   })
 
+  it('preserves the combined Solar footprint when fragments merge', () => {
+    const a = makeSegment(0, 154, 190, 0)
+    const b = makeSegment(1, 155, 190, 0)
+    a.bounding_box = {
+      sw: { lat: 34.9999, lng: -80.0002 },
+      ne: { lat: 35.0001, lng: -80.0 },
+    }
+    b.bounding_box = {
+      sw: { lat: 35.0, lng: -80.0001 },
+      ne: { lat: 35.0002, lng: -79.9998 },
+    }
+
+    const merged = mergeCoplanarSolarSegments([a, b], { lat: 35, lng: -80 })
+
+    expect(merged[0].bounding_box).toEqual({
+      sw: { lat: 34.9999, lng: -80.0002 },
+      ne: { lat: 35.0002, lng: -79.9998 },
+    })
+  })
+
   it('keeps a parallel elevated dormer separate', () => {
     const merged = mergeCoplanarSolarSegments(
       [makeSegment(0, 154, 190, 0), makeSegment(1, 155, 192, 0)],
@@ -169,5 +190,55 @@ describe('coplanar Solar segment merging', () => {
     )
 
     expect(merged).toHaveLength(2)
+  })
+})
+
+describe('bright accessory plane filtering', () => {
+  const segment = (index: number, pitch: number, height: number): SolarMaskSegment => ({
+    segment_index: index,
+    pitch_degrees: pitch,
+    azimuth_degrees: index % 2 ? 340 : 160,
+    area_m2: 20,
+    ground_area_m2: 19,
+    plane_height_at_center_meters: height,
+    center: { lat: 35, lng: -80 },
+    bounding_box: null,
+  })
+
+  it('identifies a white low-slope accessory plane among darker shingles', () => {
+    const segments = [
+      segment(0, 11.7, 215.41),
+      segment(1, 9.9, 215.52),
+      segment(2, 6.6, 214.9),
+      segment(3, 9.9, 215.57),
+      segment(4, 10.3, 215.44),
+      segment(5, 11.2, 215.39),
+    ]
+    const samples = new Map([
+      [0, { r: 190, g: 179, b: 185 }],
+      [1, { r: 173, g: 165, b: 173 }],
+      [2, { r: 249, g: 249, b: 250 }],
+      [3, { r: 163, g: 156, b: 166 }],
+      [4, { r: 171, g: 163, b: 173 }],
+      [5, { r: 189, g: 181, b: 186 }],
+    ])
+
+    expect(Array.from(brightAccessorySegmentIndices(segments, samples))).toEqual([2])
+  })
+
+  it('does not remove ordinary shaded planes from a uniform shingle roof', () => {
+    const segments = [
+      segment(0, 26, 191.81),
+      segment(1, 26.4, 192.09),
+      segment(2, 26.8, 191.61),
+      segment(3, 19.8, 191.51),
+      segment(4, 27.5, 191.46),
+      segment(5, 28.1, 191.63),
+    ]
+    const samples = new Map(
+      segments.map((item, index) => [item.segment_index, { r: 127 + index * 6, g: 129 + index * 5, b: 162 + index * 3 }])
+    )
+
+    expect(brightAccessorySegmentIndices(segments, samples).size).toBe(0)
   })
 })
