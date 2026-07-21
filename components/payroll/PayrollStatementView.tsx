@@ -7,6 +7,7 @@ import {
   holdStatusClass,
   holdStatusLabel,
 } from '@/lib/payroll-format'
+import { getEasternDateIso } from '@/lib/eastern-datetime'
 
 type OverrideDraft = Record<string, string>
 
@@ -23,6 +24,20 @@ type Props = {
 
 function overrideKey(jobId: string, role: string) {
   return `${jobId}|${role}`
+}
+
+function formatPeriodDateRange(startAt: string, endAt: string) {
+  const startDate = getEasternDateIso(startAt)
+  const inclusiveEndDate = getEasternDateIso(
+    new Date(new Date(endAt).getTime() - 1).toISOString()
+  )
+  const formatDate = (date: string | null) => {
+    if (!date) return '—'
+    const [year, month, day] = date.split('-')
+    return `${month}/${day}/${year}`
+  }
+
+  return `${formatDate(startDate)}-${formatDate(inclusiveEndDate)}`
 }
 
 export default function PayrollStatementView({
@@ -73,7 +88,10 @@ export default function PayrollStatementView({
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard label="Period" value={period.label} />
+        <SummaryCard
+          label="Period"
+          value={formatPeriodDateRange(period.startAt, period.endAt)}
+        />
         <SummaryCard label="Pay date" value={period.payDate} />
         <SummaryCard label="Rep" value={rep.name} />
         <SummaryCard

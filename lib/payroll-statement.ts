@@ -43,6 +43,8 @@ export type PayrollStatementPayload = {
     id: string
     label: string
     cutoffAt: string
+    startAt: string
+    endAt: string
     payDate: string
     status: string
   }
@@ -246,14 +248,15 @@ export async function buildPayrollStatement(
   const assignment = await loadActiveCompPlanForUser(supabase, userId, orgId, saleDate)
   const compPlan = assignment?.comp_plans as Record<string, unknown> | null
 
+  const periodWindow = await resolvePayrollPeriodWindow(
+    supabase,
+    orgId,
+    periodId,
+    String(period.cutoff_at)
+  )
+
   let periodUnits: PeriodUnitEarningsResult | null = null
   if (compPlan && period.cutoff_at) {
-    const { startIso, endIso } = await resolvePayrollPeriodWindow(
-      supabase,
-      orgId,
-      periodId,
-      String(period.cutoff_at)
-    )
     periodUnits = await computePeriodUnitEarningsForUser(supabase, {
       orgId,
       userId,
@@ -263,8 +266,8 @@ export async function buildPayrollStatement(
         unit_rate: compPlan.unit_rate != null ? Number(compPlan.unit_rate) : null,
         hybrid_components: (compPlan.hybrid_components as CompPlanForPeriodUnitPay['hybrid_components']) ?? null,
       },
-      startIso,
-      endIso,
+      startIso: periodWindow.startIso,
+      endIso: periodWindow.endIso,
     })
   }
 
@@ -280,6 +283,8 @@ export async function buildPayrollStatement(
       id: period.id as string,
       label: period.period_label as string,
       cutoffAt: period.cutoff_at as string,
+      startAt: periodWindow.startIso,
+      endAt: periodWindow.endIso,
       payDate: period.scheduled_pay_date as string,
       status: period.status as string,
     },
