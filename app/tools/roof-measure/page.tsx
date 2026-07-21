@@ -474,6 +474,8 @@ export default function RoofMeasurePage() {
   const lineDrawingTypeRef = useRef<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
   /** After a satellite load attempt finishes for the current search (for empty-state messaging). */
   const [satelliteOutlineFetchSettled, setSatelliteOutlineFetchSettled] = useState(false)
+  /** The user intentionally removed every section; do not treat this as a failed/never-run satellite load. */
+  const [outlineClearedByUser, setOutlineClearedByUser] = useState(false)
   const prevIsDetectingForSatelliteRef = useRef(false)
   const prevFacetCountForAutoExpandRef = useRef(0)
   const sectionListItemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -665,6 +667,7 @@ export default function RoofMeasurePage() {
   // New search → allow load from satellite to run again; reset empty-state timing
   useEffect(() => {
     setSatelliteOutlineFetchSettled(false)
+    setOutlineClearedByUser(false)
     if (!searchedAddress) return
     skipAutoDetectAfterFailureRef.current = false
   }, [searchedAddress])
@@ -1178,6 +1181,7 @@ export default function RoofMeasurePage() {
     loadedMeasurementIdRef.current = null
     skipAutoDetectAfterFailureRef.current = false
     setSatelliteOutlineFetchSettled(false)
+    setOutlineClearedByUser(false)
   }
 
   const queryPropertyMaxZoom = (lat: number, lng: number) => {
@@ -1484,6 +1488,7 @@ export default function RoofMeasurePage() {
     try {
       setIsDetecting(true)
       skipAutoDetectAfterFailureRef.current = false
+      setOutlineClearedByUser(false)
       setAiDraftSections([])
       setAiNotes('')
       facetGeometrySourceRef.current = null
@@ -2230,7 +2235,15 @@ export default function RoofMeasurePage() {
       polygonsRef.current.delete(facetId)
     }
 
-    const newFacets = facets.filter(f => f.id !== facetId)
+    const newFacets = facetsRef.current.filter(f => f.id !== facetId)
+    // An intentionally empty roof is different from an address that has not been
+    // loaded yet. Suppress the effect-driven satellite reload until the user
+    // searches a new address or presses Reload outline from satellite.
+    if (newFacets.length === 0) {
+      skipAutoDetectAfterFailureRef.current = true
+      setSatelliteOutlineFetchSettled(false)
+      setOutlineClearedByUser(true)
+    }
     clearDrainOverlay()
     commitFacets(newFacets)
     selectFacet(null)
@@ -3106,8 +3119,9 @@ export default function RoofMeasurePage() {
     setAiNotes('')
     facetGeometrySourceRef.current = null
     autoDetectRequestKeyRef.current = null
-    skipAutoDetectAfterFailureRef.current = false
+    skipAutoDetectAfterFailureRef.current = true
     setSatelliteOutlineFetchSettled(false)
+    setOutlineClearedByUser(true)
   }
 
   const unresolvedPitchCount = facets.filter((facet) => !facet.pitch || facet.pitch === 'Unset').length
@@ -3503,10 +3517,19 @@ export default function RoofMeasurePage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                   </svg>
                 </div>
-                {searchedAddress &&
-                satelliteOutlineFetchSettled &&
-                !isDetecting &&
-                aiDraftSections.length === 0 ? (
+                {outlineClearedByUser ? (
+                  <>
+                    <p className="text-gray-400 text-sm max-w-[280px] mx-auto leading-snug">
+                      All roof sections removed.
+                    </p>
+                    <p className="text-gray-500 text-xs mt-2 max-w-[280px] mx-auto leading-snug">
+                      Draw sections by hand, or reload the satellite outline above.
+                    </p>
+                  </>
+                ) : searchedAddress &&
+                  satelliteOutlineFetchSettled &&
+                  !isDetecting &&
+                  aiDraftSections.length === 0 ? (
                   <>
                     <p className="text-gray-400 text-sm max-w-[280px] mx-auto leading-snug">
                       We couldn&apos;t find satellite roof data for this address.
