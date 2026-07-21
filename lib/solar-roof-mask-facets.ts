@@ -55,8 +55,19 @@ const MAX_VERTICES_PER_RING = 48
 const MAX_VERTICES_PER_SPLIT_RING = 72
 /** Douglas–Peucker tolerance (mask px ≈ 0.1 m) to straighten split-plane contour edges. */
 const SPLIT_RING_SIMPLIFY_EPS_PX = 4
+/** Vertices with an interior angle below this are starburst/sliver spikes → removed. */
+const SPLIT_RING_SPIKE_MIN_ANGLE_DEG = 20
+/** Cross-facet vertices within this distance weld to a shared junction point. */
+const SHARED_VERTEX_WELD_METERS = 0.5
 /** Split plane contours below this footprint fail the mask-quality gate (bbox/whole fallback). */
 const MIN_PLANE_FOOTPRINT_SQFT = 35
+/**
+ * Accept convex-hull regularization only when it barely changes area — i.e. the plane
+ * is already essentially convex, so the hull just crisps a rectangular outline. A larger
+ * ratio means the plane is genuinely concave (L-shape, valley edge, dormer cut-in), where
+ * a hull would fill the notch: inflating the measured area and overlapping the neighbor.
+ */
+const CONVEX_HULL_MAX_INFLATION = 1.06
 
 /** Structured reason when mask path does not return `solar_mask_plane` facets. */
 export type SolarMaskFallbackReason =
@@ -219,6 +230,48 @@ function simplifyClosedRing(
     return decimateClosedRing(closeRing(openSimplified), maxVertices)
   }
   return closeRing(openSimplified)
+}
+
+/** Interior angle (degrees) at `curr` between edges curr→prev and curr→next. */
+function interiorAngleDeg(
+  prev: [number, number],
+  curr: [number, number],
+  next: [number, number]
+): number {
+  const v1x = prev[0] - curr[0]
+  const v1y = prev[1] - curr[1]
+  const v2x = next[0] - curr[0]
+  const v2y = next[1] - curr[1]
+  const m1 = Math.hypot(v1x, v1y)
+  const m2 = Math.hypot(v2x, v2y)
+  if (m1 === 0 || m2 === 0) return 180
+  const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)))
+  return (Math.acos(cos) * 180) / Math.PI
+}
+
+/**
+ * Remove starburst/sliver spikes: vertices whose interior angle is very acute are the
+ * tip of a thin, near-zero-area protrusion created where independently-contoured planes
+ * pinch to a point at a junction. Removing them (iteratively) preserves real roof
+ * corners (well above the threshold) and does not change the plane's area meaningfully.
+ */
+function removeSpikeVertices(ring: [number, number][], minAngleDeg: number): [number, number][] {
+  const pts = openRingPoints(ring)
+  if (pts.length <= 3) return closeRing(pts)
+  let changed = true
+  while (changed && pts.length > 3) {
+    changed = false
+    for (let i = 0; i < pts.length; i++) {
+      const prev = pts[(i - 1 + pts.length) % pts.length]
+      const next = pts[(i + 1) % pts.length]
+      if (interiorAngleDeg(prev, pts[i], next) < minAngleDeg) {
+        pts.splice(i, 1)
+        changed = true
+        break
+      }
+    }
+  }
+  return closeRing(pts)
 }
 
 /** Monotonic-chain convex hull for regularizing a physical plane merged from fragments. */
@@ -649,31 +702,6 @@ function buildSegmentPxList(
   return out
 }
 
-/**
- * Solar's roof mask can omit valid low-contrast roof pixels. Expand the DSM candidate
- * area to the supplied segment footprints; plane-height matching later rejects ground,
- * lower porches, and other pixels that do not belong to a known roof plane.
- */
-function expandMaskToSegmentBounds(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  segments: SegPx[]
-): Uint8Array {
-  const expanded = mask.slice()
-  for (const segment of segments) {
-    if (!segment.hasSpatialBounds) continue
-    const minC = Math.max(0, Math.floor(segment.minC))
-    const maxC = Math.min(width - 1, Math.ceil(segment.maxC))
-    const minR = Math.max(0, Math.floor(segment.minR))
-    const maxR = Math.min(height - 1, Math.ceil(segment.maxR))
-    for (let row = minR; row <= maxR; row++) {
-      for (let col = minC; col <= maxC; col++) expanded[row * width + col] = 1
-    }
-  }
-  return expanded
-}
-
 function removeSegmentBoundsFromMask(
   mask: Uint8Array,
   width: number,
@@ -804,7 +832,6 @@ const COPLANAR_HEIGHT_TOLERANCE_M = 1
 const MAX_DSM_PLANE_HEIGHT_ERROR_M = Number(
   process.env.ROOF_MEASURE_DSM_MAX_PLANE_ERROR_M ?? '1.5'
 )
-const MAX_MASK_PLANE_HEIGHT_ERROR_M = 3
 
 type MaskPlane = {
   segment_index: number
@@ -1048,8 +1075,6 @@ function labelRoofMaskByPlanes(options: {
   pixelToLngLat: (col: number, row: number) => { lat: number; lng: number }
   sampleDsm: DsmHeightSampler
   segsPx: SegPx[]
-  /** Simple gables should retain every pixel in the connected satellite mask. */
-  preserveOriginalMaskCoverage?: boolean
 }): Int32Array {
   const {
     workBin,
@@ -1061,24 +1086,28 @@ function labelRoofMaskByPlanes(options: {
     pixelToLngLat,
     sampleDsm,
     segsPx,
-    preserveOriginalMaskCoverage = false,
   } = options
   const labels = new Int32Array(width * height).fill(-1)
   if (planes.length === 0) return labels
 
   const mLng = M_PER_DEG_LAT * Math.cos((origin.lat * Math.PI) / 180)
-  // Solar plane heights and the DSM can have a small vertical-datum offset. Anchor
-  // each plane to the DSM at its own center before comparing surrounding pixels.
-  const planeHeightOffsets = new Map<number, number>()
+  // Solar plane heights and the DSM share a datum but can carry a small global vertical
+  // offset. Correct it with ONE shared offset (median of each plane's center residual),
+  // not a per-plane offset: a per-plane offset built from a single noisy DSM sample
+  // shifts the height crossing between adjacent planes and misplaces the ridge —
+  // over-growing one plane and shrinking its neighbor (Woodbury #0 593 / #1 339 vs
+  // Solar 521 / 500). A shared offset fixes the datum without distorting boundaries.
+  const centerResiduals: number[] = []
   for (const plane of planes) {
     const centerLat = origin.lat + plane.cy / M_PER_DEG_LAT
     const centerLng = origin.lng + plane.cx / mLng
     const centerDsm = sampleDsm(centerLat, centerLng)
-    planeHeightOffsets.set(
-      plane.segment_index,
-      centerDsm != null && Number.isFinite(centerDsm) ? centerDsm - plane.cz : 0
-    )
+    if (centerDsm != null && Number.isFinite(centerDsm)) centerResiduals.push(centerDsm - plane.cz)
   }
+  const globalHeightOffset =
+    centerResiduals.length > 0
+      ? [...centerResiduals].sort((a, b) => a - b)[Math.floor(centerResiduals.length / 2)]
+      : 0
 
   let minC = width
   let maxC = -1
@@ -1125,20 +1154,18 @@ function labelRoofMaskByPlanes(options: {
       let best = -1
       let bd = Infinity
       for (const pl of planes) {
-        const predicted =
-          planePredictedHeight(pl, x, y) + (planeHeightOffsets.get(pl.segment_index) ?? 0)
+        const predicted = planePredictedHeight(pl, x, y) + globalHeightOffset
         const err = Math.abs(dz - predicted)
         if (err < bd) {
           bd = err
           best = pl.segment_index
         }
       }
-      const maxError =
-        fallbackBin[i] === 1
-          ? preserveOriginalMaskCoverage
-            ? Infinity
-            : MAX_MASK_PLANE_HEIGHT_ERROR_M
-          : MAX_DSM_PLANE_HEIGHT_ERROR_M
+      // In-mask pixels are confirmed target roof, so always keep them (the DSM only
+      // chooses which plane). Only bbox-expanded pixels outside the original mask
+      // require a real plane-height match — none are added today, but the check keeps
+      // the door open for a future dormer-recovery expansion without letting it bleed.
+      const maxError = fallbackBin[i] === 1 ? Infinity : MAX_DSM_PLANE_HEIGHT_ERROR_M
       if (bd <= maxError) labels[i] = best
     }
   }
@@ -1158,6 +1185,72 @@ function largestRing(rings: [number, number][][]): [number, number][] | null {
     }
   }
   return best
+}
+
+/** Drop consecutive duplicate vertices left after welding (zero-length edges). */
+function dedupeConsecutiveVertices(
+  vertices: { lat: number; lng: number }[]
+): { lat: number; lng: number }[] {
+  const out: { lat: number; lng: number }[] = []
+  for (const p of vertices) {
+    const prev = out[out.length - 1]
+    if (prev && prev.lat === p.lat && prev.lng === p.lng) continue
+    out.push(p)
+  }
+  const first = out[0]
+  const last = out[out.length - 1]
+  if (out.length > 1 && first.lat === last.lat && first.lng === last.lng) out.pop()
+  return out
+}
+
+/**
+ * Weld near-coincident vertices belonging to DIFFERENT facets to a shared point, so
+ * adjacent planes meet at coincident junction vertices — closing the small gaps/overlaps
+ * and starburst pinches left by independently-contoured planes, and giving shared ridges
+ * coincident endpoints. Vertices within the same facet are never merged. Areas are
+ * recomputed afterward since the outline shifts slightly.
+ */
+function weldSharedFacetVertices(facets: SolarMaskFacetPayload[], snapMeters: number): void {
+  type WeldNode = { f: number; v: number; lat: number; lng: number }
+  const nodes: WeldNode[] = []
+  facets.forEach((facet, f) =>
+    facet.lat_lng_vertices.forEach((p, v) => nodes.push({ f, v, lat: p.lat, lng: p.lng }))
+  )
+  const parent = nodes.map((_, i) => i)
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])))
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (nodes[i].f === nodes[j].f) continue
+      if (distanceMeters(nodes[i], nodes[j]) <= snapMeters) {
+        const ra = find(i)
+        const rb = find(j)
+        if (ra !== rb) parent[ra] = rb
+      }
+    }
+  }
+  const clusters = new Map<number, WeldNode[]>()
+  for (let i = 0; i < nodes.length; i++) {
+    const root = find(i)
+    const list = clusters.get(root)
+    if (list) list.push(nodes[i])
+    else clusters.set(root, [nodes[i]])
+  }
+  for (const members of Array.from(clusters.values())) {
+    if (members.length < 2) continue
+    const lat = members.reduce((s: number, n: WeldNode) => s + n.lat, 0) / members.length
+    const lng = members.reduce((s: number, n: WeldNode) => s + n.lng, 0) / members.length
+    for (const n of members) facets[n.f].lat_lng_vertices[n.v] = { lat, lng }
+  }
+  for (const facet of facets) {
+    facet.lat_lng_vertices = dedupeConsecutiveVertices(facet.lat_lng_vertices)
+    const area = Math.round(planarPolygonAreaSqFt(facet.lat_lng_vertices))
+    facet.estimated_sq_ft = area > 0 ? area : null
+  }
+  // Drop any facet welding collapsed below a valid polygon so degenerate rings
+  // never reach downstream centroid/area math.
+  for (let i = facets.length - 1; i >= 0; i--) {
+    if (facets[i].lat_lng_vertices.length < 3) facets.splice(i, 1)
+  }
 }
 
 function facetsFromSplitMask(options: {
@@ -1186,13 +1279,18 @@ function facetsFromSplitMask(options: {
     if (!ring) continue
 
     const seg = segmentByIndex(segments, meta.segment_index)
-    const regularizePrimaryPlane =
-      (seg?.merged_segment_count ?? 1) > 1 || (seg?.ground_area_m2 ?? 0) >= 40
-    const regularizedRing = regularizePrimaryPlane ? convexHullClosedRing(ring) : ring
-    const simplified = simplifyClosedRing(
-      regularizedRing,
-      SPLIT_RING_SIMPLIFY_EPS_PX,
-      MAX_VERTICES_PER_SPLIT_RING
+    // Regularize toward a clean outline, but never fill a real concavity: accept the
+    // convex hull only when it barely changes area (plane already ~convex). Concave
+    // planes (L-shapes, valley edges, dormer cut-ins) keep their partition-following
+    // contour so areas stay accurate and neighbors don't overlap.
+    const ringArea = polygonAreaPx(ring)
+    const hull = convexHullClosedRing(ring)
+    const hullArea = polygonAreaPx(hull)
+    const regularizedRing =
+      ringArea > 0 && hullArea / ringArea <= CONVEX_HULL_MAX_INFLATION ? hull : ring
+    const simplified = removeSpikeVertices(
+      simplifyClosedRing(regularizedRing, SPLIT_RING_SIMPLIFY_EPS_PX, MAX_VERTICES_PER_SPLIT_RING),
+      SPLIT_RING_SPIKE_MIN_ANGLE_DEG
     )
     if (simplified.length < 4) continue
 
@@ -1447,15 +1545,13 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           ? await loadDsmHeightSampler(dsmUrl, apiKey)
           : null
       let labels: Int32Array
-      let splitBin = workBin
+      const splitBin = workBin
       if (dsmSampler && planes.length >= 2) {
-        // A clean two-plane gable already has the right outer satellite mask. Expanding
-        // and height-clipping it can shrink valid eaves. Complex roofs need the expanded
-        // Solar footprints so elevated dormers survive while low porch roofs are rejected.
-        const preserveSimpleGable = planes.length === 2 && labelSegments.length === 2
-        splitBin = preserveSimpleGable
-          ? workBin
-          : expandMaskToSegmentBounds(workBin, width, height, segsPx)
+        // Label the connected satellite mask directly and keep every in-mask pixel.
+        // Expanding to Solar segment bboxes + height-clipping inflated real planes and
+        // dropped valid noisy-DSM roof; the DSM is still used to CHOOSE each pixel's
+        // plane, so boundaries follow real ridges without changing total coverage.
+        // Excluded accessory roofs are already removed from workBin upstream.
         labels = labelRoofMaskByPlanes({
           workBin: splitBin,
           fallbackBin: workBin,
@@ -1466,7 +1562,6 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           pixelToLngLat,
           sampleDsm: dsmSampler,
           segsPx,
-          preserveOriginalMaskCoverage: preserveSimpleGable,
         })
         splitMethod = 'dsm_plane'
       } else {
@@ -1485,6 +1580,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       const splitFilteredPin =
         splitFiltered.length > 0 ? splitFiltered : filterSplitFacetsByPin(splitFacets, pinRef)
       const splitOut = splitFilteredPin.length > 0 ? splitFilteredPin : splitFiltered
+      weldSharedFacetVertices(splitOut, SHARED_VERTEX_WELD_METERS)
       if (splitOut.length > 0 && splitFacetsMeetMaskQualityThreshold(splitOut)) {
         return maskAttempt('ok', splitOut, {
           ...baseDetails,
