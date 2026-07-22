@@ -46,9 +46,17 @@ final class PushManager: NSObject, ObservableObject {
     func handleDeviceToken(_ deviceToken: Data) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         deviceTokenHex = hex
-        // Matches entitlements `aps-environment` = development (pre-App-Store).
-        // App Store release: switch entitlement + this string to production.
+        // The reported environment must match how this build was signed, or APNs rejects
+        // the token with BadDeviceToken and the backend purges the row as "unregistered":
+        //   • Debug (Xcode run / development provisioning) → sandbox APNs
+        //   • Release (TestFlight / App Store)            → production APNs
+        // Xcode flips the aps-environment entitlement development→production on distribution
+        // export, so key this off the build configuration to stay in lockstep.
+        #if DEBUG
         let environment = "sandbox"
+        #else
+        let environment = "production"
+        #endif
         Task {
             do {
                 try await APIClient.registerPushToken(hex, environment: environment)
