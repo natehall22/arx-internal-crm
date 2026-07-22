@@ -30,15 +30,14 @@ export type SlopedAreaFacetInput = {
   geometry_source?: string | null
 }
 
-/** Prefer Google segment sloped area for mask planes; else footprint × pitch multiplier. */
+/**
+ * Sloped roof-surface area of the DRAWN footprint at its pitch (flat × pitch multiplier),
+ * so it is always ≥ flat area. Google Solar's segment sloped area (`suggested_sloped_area_sqft`)
+ * is deliberately NOT used directly: it is tied to Solar's own segment footprint, not the
+ * drawn/edited polygon, so whenever the polygon was larger than Solar's segment it produced
+ * the impossible sloped < flat (e.g. 828 sloped vs 972 flat) and under-measured the roof.
+ */
 export function slopedAreaSqft(facet: SlopedAreaFacetInput): number {
-  if (
-    facet.geometry_source === 'solar_mask_plane' &&
-    typeof facet.suggested_sloped_area_sqft === 'number' &&
-    facet.suggested_sloped_area_sqft > 0
-  ) {
-    return Math.round(facet.suggested_sloped_area_sqft)
-  }
   return Math.round(roofSurfaceSqft(facet.flat_area_sqft, facet.pitch_rise))
 }
 

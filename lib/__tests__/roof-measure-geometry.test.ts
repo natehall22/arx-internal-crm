@@ -27,22 +27,24 @@ describe('roof-measure-geometry', () => {
     expect(roofSurfaceSqft(1000, 6)).toBeCloseTo(1118.034, 3)
   })
 
-  it('prefers Google sloped area for solar_mask_plane facets', () => {
+  it('computes sloped area from the drawn footprint × pitch, always ≥ flat', () => {
+    // Solar's segment sloped area is not used directly: a polygon larger than Solar's
+    // segment would otherwise report sloped < flat (the under-measurement bug — e.g. a
+    // 972 ft² flat plane showing 828 ft² "roof surface").
+    const buggyCase = slopedAreaSqft({
+      flat_area_sqft: 972,
+      pitch_rise: 7,
+      suggested_sloped_area_sqft: 828,
+      geometry_source: 'solar_mask_plane',
+    })
+    expect(buggyCase).toBe(Math.round(roofSurfaceSqft(972, 7)))
+    expect(buggyCase).toBeGreaterThanOrEqual(972)
+    // Footprint × pitch is authoritative regardless of geometry source.
     expect(
-      slopedAreaSqft({
-        flat_area_sqft: 1000,
-        pitch_rise: 6,
-        suggested_sloped_area_sqft: 1200,
-        geometry_source: 'solar_mask_plane',
-      })
-    ).toBe(1200)
+      slopedAreaSqft({ flat_area_sqft: 1000, pitch_rise: 6, geometry_source: 'solar_mask_plane' })
+    ).toBeCloseTo(1118, 0)
     expect(
-      slopedAreaSqft({
-        flat_area_sqft: 1000,
-        pitch_rise: 6,
-        suggested_sloped_area_sqft: 1200,
-        geometry_source: 'solar_bbox',
-      })
+      slopedAreaSqft({ flat_area_sqft: 1000, pitch_rise: 6, geometry_source: 'solar_bbox' })
     ).toBeCloseTo(1118, 0)
   })
 
