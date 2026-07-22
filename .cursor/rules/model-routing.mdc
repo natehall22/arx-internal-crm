@@ -1,0 +1,26 @@
+---
+description: Route reasoning to high-end models and implementation to lower-cost Composer
+alwaysApply: true
+---
+
+# Model routing (reason vs implement)
+
+Do **not** wait for the user to restate this. Default split:
+
+| Role | Model preference | Use for |
+|------|------------------|---------|
+| **Brain** | Higher-end reasoning (Grok / Claude Opus / GPT high-reasoning when available as Task `model`) | Architecture, trade-offs, specs, review of diffs, deciding ship vs defer, collateral-impact judgment |
+| **Worker** | Lower-cost Composer (`composer-2.5-fast` via Task tool) | Writing/editing code, tests, scripts, mechanical refactors, running typecheck/tests after a locked spec |
+
+## Operating pattern
+
+1. **Brain** locks a concrete spec (files, APIs, acceptance, constraints, do-not-touch).
+2. **Worker** implements that spec in a Task/`composer-2.5-fast` subagent (or equivalent).
+3. **Brain** verifies the diff (tests, edge cases, CRM collateral) — never rubber-stamp worker summaries.
+4. Parallelize independent workers when the brain has two clear workstreams.
+
+## Exceptions
+
+- Tiny one-file edits the brain can do faster alone — skip the worker hop.
+- User explicitly names a model for a task — honor that override.
+- If Composer/Task is unavailable, brain implements but still keeps the same reason-then-code discipline.

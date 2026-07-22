@@ -7,6 +7,8 @@
 import {
   buildReconPlane,
   classifyReconEdge,
+  convexHull,
+  isConvexFold,
   localMetersPerDegLng,
   planeHeightAt,
   sharedEdgeLine,
@@ -22,8 +24,25 @@ const M2_TO_SQFT = 10.7639104
 const MIN_FOOTPRINT_SQFT = 50
 const MIN_FOOTPRINT_M2 = MIN_FOOTPRINT_SQFT / M2_TO_SQFT
 const MIN_FACET_SQFT = 20
+/** Drop merged shards owning less than this fraction of total footprint sample. */
+const NOISE_OWNERSHIP_FRACTION = 0.05
 const NODE_SNAP_M = 0.15
 const GRID_STEP_M = 0.25
+/** Footprint is convex-ish when hull area / footprint area ≤ this (monotone chain). */
+const CONVEX_FOOTPRINT_RATIO_MAX = 1.1
+/** Parallel segments within this azimuth band count as one expected plane. */
+const AZIMUTH_CLUSTER_DEG = 15
+/** Pitch buckets within an azimuth cluster — dormer fragments at different pitches count separately. */
+const PITCH_CLUSTER_DEG = 5
+const UNDERSEGMENTATION_RATIO = 0.7
+/**
+ * Azimuth-cluster merge before graph build (topology-only).
+ * Google Solar often shards one physical face into multiple pitch estimates;
+ * azimuth is the stable face identity for residential roofs. Only merge planes
+ * whose azimuths differ by ≤ this (circular) — opposing gable faces (~180°)
+ * and butterfly valleys stay in separate clusters.
+ */
+const AZIMUTH_MERGE_DEG = 20
 
 export type RoofEdgeKind = 'ridge' | 'hip' | 'valley' | 'eave' | 'rake'
 export type RoofGraphNode = { id: string; x: number; y: number }
@@ -58,6 +77,7 @@ export type RoofTopologyResult = {
     eavesLf: number
     rakesLf: number
     groundSqft: number
+    roofAreaSqft: number
     facetCount: number
   }
 }
@@ -65,6 +85,10 @@ export type RoofTopologyResult = {
 export type RoofTopologyInput = {
   planes: ReconPlane[]
   footprint: ReconPoint[]
+  /** Pre-merge Solar planes for expected-plane counting (defaults to planes). */
+  sourcePlanes?: ReconPlane[]
+  /** Solar segment ground_area_m2 converted to sqft — used for expected-plane counting only. */
+  groundAreaSqftBySegment?: Map<number, number>
 }
 
 type Line = { A: number; B: number; C: number; dirX: number; dirY: number }
@@ -768,6 +792,306 @@ function polygonIntersectionArea(a: ReconPoint[], b: ReconPoint[]): number {
   return overlap * M2_TO_SQFT
 }
 
+function circularAzimuthDiff(a: number, b: number): number {
+  let d = Math.abs(a - b) % 360
+  if (d > 180) d = 360 - d
+  return d
+}
+
+/** True when the verified footprint ring is nearly convex (hull barely larger than ring). */
+export function isFootprintConvexish(footprint: ReconPoint[]): boolean {
+  if (footprint.length < 3) return false
+  const fpArea = polygonAreaSqft(footprint)
+  if (fpArea <= 0) return false
+  const hullArea = polygonAreaSqft(convexHull(footprint))
+  return hullArea / fpArea <= CONVEX_FOOTPRINT_RATIO_MAX
+}
+
+/** Lower-envelope grid sample: flat sqft owned by each plane segment_index. */
+export function samplePlaneOwnershipSqft(planes: ReconPlane[], footprint: ReconPoint[]): Map<number, number> {
+  const owned = new Map<number, number>()
+  if (planes.length === 0 || footprint.length < 3) return owned
+
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const p of footprint) {
+    minX = Math.min(minX, p.x)
+    minY = Math.min(minY, p.y)
+    maxX = Math.max(maxX, p.x)
+    maxY = Math.max(maxY, p.y)
+  }
+
+  const step = GRID_STEP_M
+  const cellSqft = step * step * M2_TO_SQFT
+  for (let x = minX + step / 2; x <= maxX; x += step) {
+    for (let y = minY + step / 2; y <= maxY; y += step) {
+      if (!pointInPolygon({ x, y }, footprint)) continue
+      const oi = lowestPlaneAt(x, y, planes)
+      if (oi < 0) continue
+      const seg = planes[oi].segment_index
+      owned.set(seg, (owned.get(seg) ?? 0) + cellSqft)
+    }
+  }
+  return owned
+}
+
+/**
+ * Expected facet planes from Solar input after azimuth-cluster consolidation:
+ * qualifying planes (lower-envelope ownership or Solar ground_area ≥ MIN_FACET_SQFT),
+ * grouped by azimuth (≤ AZIMUTH_MERGE_DEG); each cluster counts as one expected face.
+ */
+export function countExpectedPlanes(
+  planes: ReconPlane[],
+  footprint: ReconPoint[],
+  groundAreaSqftBySegment?: Map<number, number>
+): number {
+  if (planes.length === 0) return 0
+  const ownership = samplePlaneOwnershipSqft(planes, footprint)
+  const totalOwned = Array.from(ownership.values()).reduce((sum, sqft) => sum + sqft, 0)
+  const relativeMinSqft = totalOwned * NOISE_OWNERSHIP_FRACTION
+
+  type Cluster = { planes: ReconPlane[] }
+  const clusters: Cluster[] = []
+
+  for (const plane of planes) {
+    const owned = ownership.get(plane.segment_index) ?? 0
+    const ground = groundAreaSqftBySegment?.get(plane.segment_index) ?? 0
+    if (owned < MIN_FACET_SQFT && ground < MIN_FACET_SQFT) continue
+    if (owned < relativeMinSqft) continue
+
+    let cluster = clusters.find((c) =>
+      c.planes.some(
+        (p) => circularAzimuthDiff(p.azimuth_degrees, plane.azimuth_degrees) <= AZIMUTH_MERGE_DEG
+      )
+    )
+    if (!cluster) {
+      cluster = { planes: [] }
+      clusters.push(cluster)
+    }
+    cluster.planes.push(plane)
+  }
+
+  return clusters.length
+}
+
+function mergeWeightOf(
+  p: ReconPlane,
+  groundAreaSqftBySegment?: Map<number, number>
+): number {
+  const ground = groundAreaSqftBySegment?.get(p.segment_index)
+  if (ground != null && ground > 0) return ground
+  return 1
+}
+
+/** Azimuth difference (circular) above which a plane counts as "opposing" for merge height selection. */
+const OPPOSING_AZIMUTH_MIN_DEG = 120
+
+function clusterMeanAzimuth(group: ReconPlane[], groundAreaSqftBySegment?: Map<number, number>): number {
+  const weightOf = (p: ReconPlane) => mergeWeightOf(p, groundAreaSqftBySegment)
+  const totalWeight = group.reduce((sum, p) => sum + weightOf(p), 0)
+  const azX = group.reduce(
+    (sum, p) => sum + Math.cos((p.azimuth_degrees * Math.PI) / 180) * weightOf(p),
+    0
+  )
+  const azY = group.reduce(
+    (sum, p) => sum + Math.sin((p.azimuth_degrees * Math.PI) / 180) * weightOf(p),
+    0
+  )
+  return ((Math.atan2(azY, azX) * 180) / Math.PI + 360) % 360
+}
+
+/** Ground-area-weighted merge of a cluster of co-azimuth Solar fragments into one plane. */
+function mergePlaneCluster(
+  group: ReconPlane[],
+  allPlanes: ReconPlane[],
+  groundAreaSqftBySegment?: Map<number, number>
+): ReconPlane {
+  if (group.length === 1) return group[0]
+
+  const groupSegs = new Set(group.map((p) => p.segment_index))
+  const clusterAz = clusterMeanAzimuth(group, groundAreaSqftBySegment)
+  const opposing = allPlanes.filter(
+    (p) =>
+      !groupSegs.has(p.segment_index) &&
+      circularAzimuthDiff(p.azimuth_degrees, clusterAz) >= OPPOSING_AZIMUTH_MIN_DEG
+  )
+
+  let mergeGroup = group
+  if (opposing.length > 0) {
+    const dominantOpposing = opposing.reduce((best, p) =>
+      mergeWeightOf(p, groundAreaSqftBySegment) > mergeWeightOf(best, groundAreaSqftBySegment)
+        ? p
+        : best
+    )
+    const convexCompatible = group.filter((p) => isConvexFold(dominantOpposing, p))
+    if (convexCompatible.length > 0) mergeGroup = convexCompatible
+  }
+
+  const weightOf = (p: ReconPlane) => mergeWeightOf(p, groundAreaSqftBySegment)
+  const totalWeight = mergeGroup.reduce((sum, p) => sum + weightOf(p), 0)
+  const weightedPitch =
+    mergeGroup.reduce((sum, p) => sum + p.pitch_degrees * weightOf(p), 0) / totalWeight
+  const azX = mergeGroup.reduce(
+    (sum, p) => sum + Math.cos((p.azimuth_degrees * Math.PI) / 180) * weightOf(p),
+    0
+  )
+  const azY = mergeGroup.reduce(
+    (sum, p) => sum + Math.sin((p.azimuth_degrees * Math.PI) / 180) * weightOf(p),
+    0
+  )
+  const azimuth = ((Math.atan2(azY, azX) * 180) / Math.PI + 360) % 360
+  const cx = mergeGroup.reduce((sum, p) => sum + p.cx * weightOf(p), 0) / totalWeight
+  const cy = mergeGroup.reduce((sum, p) => sum + p.cy * weightOf(p), 0) / totalWeight
+  const cz =
+    mergeGroup.reduce((sum, p) => sum + planeHeightAt(p, cx, cy) * weightOf(p), 0) / totalWeight
+  const pRad = (weightedPitch * Math.PI) / 180
+  const aRad = (azimuth * Math.PI) / 180
+  const nx = Math.sin(pRad) * Math.sin(aRad)
+  const ny = Math.sin(pRad) * Math.cos(aRad)
+  const nz = Math.cos(pRad)
+  const survivor = mergeGroup.reduce((best, p) =>
+    weightOf(p) > weightOf(best) ? p : best
+  )
+  return {
+    segment_index: survivor.segment_index,
+    azimuth_degrees: azimuth,
+    pitch_degrees: weightedPitch,
+    nx,
+    ny,
+    nz,
+    d: nx * cx + ny * cy + nz * cz,
+    cx,
+    cy,
+    cz,
+  }
+}
+
+/**
+ * Consolidate over-split Solar planes before graph build (topology path only).
+ * Clusters planes whose azimuth differs by ≤ {@link AZIMUTH_MERGE_DEG} (circular),
+ * then merges each multi-plane cluster into one ground-area-weighted plane.
+ * Opposing faces (~180° apart) never share a cluster; butterfly roofs stay safe.
+ */
+export function mergeCoplanarTopologyPlanes(
+  planes: ReconPlane[],
+  groundAreaSqftBySegment?: Map<number, number>
+): ReconPlane[] {
+  if (planes.length < 2) return planes
+
+  const parent = new Map(planes.map((p) => [p.segment_index, p.segment_index]))
+  const find = (index: number): number => {
+    let root = parent.get(index) ?? index
+    while ((parent.get(root) ?? root) !== root) root = parent.get(root) as number
+    return root
+  }
+  const union = (a: number, b: number): void => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent.set(Math.max(ra, rb), Math.min(ra, rb))
+  }
+
+  for (let i = 0; i < planes.length; i++) {
+    const a = planes[i]
+    for (let j = i + 1; j < planes.length; j++) {
+      const b = planes[j]
+      if (circularAzimuthDiff(a.azimuth_degrees, b.azimuth_degrees) <= AZIMUTH_MERGE_DEG) {
+        union(a.segment_index, b.segment_index)
+      }
+    }
+  }
+
+  const groups = new Map<number, ReconPlane[]>()
+  for (const plane of planes) {
+    const root = find(plane.segment_index)
+    const group = groups.get(root) ?? []
+    group.push(plane)
+    groups.set(root, group)
+  }
+
+  return Array.from(groups.values()).map((group) =>
+    mergePlaneCluster(group, planes, groundAreaSqftBySegment)
+  )
+}
+
+/** Drop planes whose lower-envelope footprint ownership is below absolute or relative minimum. */
+export function dropTinyTopologyPlanes(planes: ReconPlane[], footprint: ReconPoint[]): ReconPlane[] {
+  const ownership = samplePlaneOwnershipSqft(planes, footprint)
+  const totalOwned = Array.from(ownership.values()).reduce((sum, sqft) => sum + sqft, 0)
+  const relativeMinSqft = totalOwned * NOISE_OWNERSHIP_FRACTION
+  return planes.filter((p) => {
+    const owned = ownership.get(p.segment_index) ?? 0
+    return owned >= MIN_FACET_SQFT && owned >= relativeMinSqft
+  })
+}
+
+export type ShipConfidenceInput = {
+  footprint: ReconPoint[]
+  facets: RoofGraphFacet[]
+  edges: RoofGraphEdge[]
+  planes: ReconPlane[]
+  sourcePlanes: ReconPlane[]
+  groundAreaSqftBySegment?: Map<number, number>
+  ridgeLf: number
+  valleyLf: number
+  facetCount: number
+}
+
+/**
+ * Ship-gate confidence checks — bias to force_manual when topology is geometrically valid
+ * but inconsistent with Solar plane count or simple convex roof shape.
+ */
+export function checkShipConfidence(input: ShipConfidenceInput): { ok: boolean; reason: string } {
+  const { footprint, edges, planes, ridgeLf, valleyLf, facetCount } = input
+  const hasInteriorValley =
+    valleyLf > 0 || edges.some((e) => e.planeB != null && e.kind === 'valley')
+  const expectedPlanes = countExpectedPlanes(
+    input.sourcePlanes,
+    footprint,
+    input.groundAreaSqftBySegment
+  )
+
+  // Convex simple roofs (gable/hip) meet at a ridge, not an interior valley.
+  // Butterfly (2 opposing planes) is exempt: only 2 expected planes / 2 facets.
+  if (
+    isFootprintConvexish(footprint) &&
+    hasInteriorValley &&
+    ridgeLf === 0 &&
+    (expectedPlanes > 2 || facetCount > 2)
+  ) {
+    return {
+      ok: false,
+      reason:
+        'convex footprint with interior valley and no ridge — likely over-segmented Solar planes',
+    }
+  }
+
+  // Valley-dominant on a convex multi-plane roof is usually mis-typed ridges (Solar shards).
+  // True valleys belong on concave footprints or explicit butterfly (2-plane) cases.
+  // Prefer force_manual over shipping under-counted ridge LF (Green/Nottingham failure mode).
+  if (
+    isFootprintConvexish(footprint) &&
+    valleyLf > ridgeLf &&
+    (expectedPlanes > 2 || facetCount > 2 || planes.length > 2)
+  ) {
+    return {
+      ok: false,
+      reason:
+        'convex footprint with valley LF exceeding ridge LF — likely mis-typed interior edges',
+    }
+  }
+
+  if (expectedPlanes > 0 && facetCount < UNDERSEGMENTATION_RATIO * expectedPlanes) {
+    return {
+      ok: false,
+      reason: `under-segmented: ${facetCount} facets vs ~${expectedPlanes} expected planes from Solar input`,
+    }
+  }
+
+  return { ok: true, reason: 'confident' }
+}
+
 /** D. Topology validation gate. */
 export function validateRoofTopology(
   footprint: ReconPoint[],
@@ -834,6 +1158,57 @@ function sumEdgeKind(edges: RoofGraphEdge[], kind: RoofEdgeKind): number {
   return Math.round(edges.filter((e) => e.kind === kind).reduce((s, e) => s + e.lengthFt, 0))
 }
 
+/**
+ * Sloped surface area of the whole roof (materials-relevant).
+ * Prefer Σ facet.areaSqft/cos(pitch) when facets cover the footprint (≥92%).
+ * When under-segmented, sample the verified footprint on the lower envelope so
+ * partial facets cannot collapse the area metric (e.g. Nottingham 2 facets).
+ */
+function slopedRoofAreaSqft(
+  facets: RoofGraphFacet[],
+  footprint: ReconPoint[],
+  planes: ReconPlane[]
+): number {
+  const fpFlat = polygonAreaSqft(footprint)
+  const facetFlat = facets.reduce((s, f) => s + f.areaSqft, 0)
+  const facetSloped = facets.reduce((sum, facet) => {
+    const c = Math.max(Math.cos((facet.pitchDegrees * Math.PI) / 180), 0.05)
+    return sum + facet.areaSqft / c
+  }, 0)
+  if (fpFlat > 0 && facetFlat >= 0.92 * fpFlat) return Math.round(facetSloped)
+
+  // Incomplete facet cover — integrate pitch over the footprint via lower envelope.
+  if (planes.length === 0 || fpFlat <= 0) return Math.round(facetSloped)
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const p of footprint) {
+    minX = Math.min(minX, p.x)
+    minY = Math.min(minY, p.y)
+    maxX = Math.max(maxX, p.x)
+    maxY = Math.max(maxY, p.y)
+  }
+  const step = GRID_STEP_M
+  const cellSqft = step * step * 10.7639104
+  let sloped = 0
+  let covered = 0
+  for (let x = minX + step / 2; x <= maxX; x += step) {
+    for (let y = minY + step / 2; y <= maxY; y += step) {
+      if (!pointInPolygon({ x, y }, footprint)) continue
+      const oi = lowestPlaneAt(x, y, planes)
+      if (oi < 0) continue
+      const pitch = planes[oi].pitch_degrees
+      const c = Math.max(Math.cos((pitch * Math.PI) / 180), 0.05)
+      sloped += cellSqft / c
+      covered += cellSqft
+    }
+  }
+  // Grid undersamples boundary — scale to exact footprint flat area.
+  if (covered > 0) sloped *= fpFlat / covered
+  return Math.round(sloped)
+}
+
 function emptyResult(reason: string, footprint: ReconPoint[] = []): RoofTopologyResult {
   return {
     status: 'force_manual',
@@ -849,6 +1224,7 @@ function emptyResult(reason: string, footprint: ReconPoint[] = []): RoofTopology
       eavesLf: 0,
       rakesLf: 0,
       groundSqft: polygonAreaSqft(footprint),
+      roofAreaSqft: 0,
       facetCount: 0,
     },
   }
@@ -860,6 +1236,7 @@ export function solveRoofTopology(input: RoofTopologyInput): RoofTopologyResult 
   if (!verified.ok) return emptyResult(verified.reason, input.footprint)
 
   const footprint = verified.ring
+  const sourcePlanes = input.sourcePlanes ?? input.planes
   if (input.planes.length < 1) return emptyResult('no planes', footprint)
 
   const { nodes, edges } = buildConstrainedRoofGraph(input.planes, footprint)
@@ -873,6 +1250,7 @@ export function solveRoofTopology(input: RoofTopologyInput): RoofTopologyResult 
     eavesLf: sumEdgeKind(edges, 'eave'),
     rakesLf: sumEdgeKind(edges, 'rake'),
     groundSqft: Math.round(polygonAreaSqft(footprint)),
+    roofAreaSqft: slopedRoofAreaSqft(facets, footprint, input.planes),
     facetCount: facets.length,
   }
 
@@ -880,6 +1258,29 @@ export function solveRoofTopology(input: RoofTopologyInput): RoofTopologyResult 
     return {
       status: 'force_manual',
       reason: validation.reason,
+      footprint,
+      nodes,
+      edges,
+      facets,
+      totals,
+    }
+  }
+
+  const confidence = checkShipConfidence({
+    footprint,
+    facets,
+    edges,
+    planes: input.planes,
+    sourcePlanes: input.sourcePlanes ?? input.planes,
+    groundAreaSqftBySegment: input.groundAreaSqftBySegment,
+    ridgeLf: totals.ridgeLf,
+    valleyLf: totals.valleyLf,
+    facetCount: totals.facetCount,
+  })
+  if (!confidence.ok) {
+    return {
+      status: 'force_manual',
+      reason: confidence.reason,
       footprint,
       nodes,
       edges,
@@ -923,15 +1324,23 @@ export function solveRoofTopologyFromSegments(
   const o = origin ?? centroidLatLng(footprintLatLng)
   if (!o) return null
   const mLng = localMetersPerDegLng(o.lat)
-  const planes: ReconPlane[] = []
+  const sourcePlanes: ReconPlane[] = []
+  const groundAreaSqftBySegment = new Map<number, number>()
   for (const seg of segments) {
     const pl = buildReconPlane(seg, o)
-    if (pl) planes.push(pl)
+    if (pl) sourcePlanes.push(pl)
+    const groundM2 = (seg as { ground_area_m2?: number | null }).ground_area_m2
+    if (groundM2 != null && Number.isFinite(groundM2)) {
+      groundAreaSqftBySegment.set(seg.segment_index, groundM2 * M2_TO_SQFT)
+    }
   }
-  if (planes.length < 1) return null
+  if (sourcePlanes.length < 1) return null
   const footprint = footprintLatLng.map((p) => ({
     x: (p.lng - o.lng) * mLng,
     y: (p.lat - o.lat) * M_PER_DEG_LAT,
   }))
-  return solveRoofTopology({ planes, footprint })
+  let planes = mergeCoplanarTopologyPlanes(sourcePlanes, groundAreaSqftBySegment)
+  planes = dropTinyTopologyPlanes(planes, footprint)
+  if (planes.length < 1) return emptyResult('no planes after consolidation', footprint)
+  return solveRoofTopology({ planes, footprint, sourcePlanes, groundAreaSqftBySegment })
 }

@@ -1596,10 +1596,13 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
   referenceLat: number
   referenceLng: number
   segments: SolarMaskSegment[]
+  /** buildingInsights.center — single seed for whole-roof contour isolation. */
+  buildingCenter?: { lat: number; lng: number } | null
   /** Optional label for diagnostics (e.g. requested_pin vs solar_anchor). */
   querySource?: string
 }): Promise<SolarMaskAttemptResult> {
-  const { lat, lng, apiKey, referenceLat, referenceLng, segments, querySource } = options
+  const { lat, lng, apiKey, referenceLat, referenceLng, segments, buildingCenter, querySource } =
+    options
   const baseDetails = {
     query_lat: lat,
     query_lng: lng,
@@ -1800,7 +1803,22 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       }
     }
 
-    let rings = contourRingsFromMask(workBin, width, height)
+    // Whole-roof contour: flood-fill from buildingInsights center only so a
+    // multi-segment seed set cannot bridge onto a neighbor/garage roof pixel.
+    const wholeContourSeeds: Array<{ col: number; row: number }> = []
+    if (buildingCenter) {
+      const bcPx = lngLatToColRow(buildingCenter.lat, buildingCenter.lng)
+      if (bcPx) wholeContourSeeds.push(bcPx)
+    }
+    if (wholeContourSeeds.length === 0) {
+      wholeContourSeeds.push(...componentSeeds)
+    }
+    const wholeContourBin =
+      wholeContourSeeds.length > 0
+        ? restrictMaskToSeedComponent(workBin, width, height, wholeContourSeeds) ?? workBin
+        : workBin
+
+    let rings = contourRingsFromMask(wholeContourBin, width, height)
     rings = rings.filter((r) => polygonAreaPx(r) >= MIN_RING_AREA_PX)
 
     if (rings.length === 0) {
@@ -1812,12 +1830,19 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       })
     }
 
+    const wholeContourRef = buildingCenter ?? ref
+    const wholeContourRefPx = buildingCenter
+      ? lngLatToColRow(buildingCenter.lat, buildingCenter.lng)
+      : refPx
+
     const scoreRing = (ring: [number, number][]) => {
       const [cx, cy] = ringCentroid(ring)
       const cLngLat = pixelToLngLat(cx, cy)
       const containsPin =
-        refPx != null ? pointInPolygonColRow(refPx.col, refPx.row, ring) : false
-      const dist = distanceMeters(ref, cLngLat)
+        wholeContourRefPx != null
+          ? pointInPolygonColRow(wholeContourRefPx.col, wholeContourRefPx.row, ring)
+          : false
+      const dist = distanceMeters(wholeContourRef, cLngLat)
       return {
         ring,
         dist,

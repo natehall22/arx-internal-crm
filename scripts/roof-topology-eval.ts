@@ -27,6 +27,7 @@ type FixtureTargets = {
   eavesLf?: number
   rakesLf?: number
   groundSqft?: number
+  surfaceSqft?: number
 }
 
 type LatLng = { lat: number; lng: number }
@@ -178,6 +179,14 @@ function metricChecks(
       closeSqft(result.totals.groundSqft, t.groundSqft)
     )
   }
+  if (typeof t.surfaceSqft === 'number') {
+    note(
+      'surfaceSqft',
+      result.totals.roofAreaSqft,
+      t.surfaceSqft,
+      closeSqft(result.totals.roofAreaSqft, t.surfaceSqft)
+    )
+  }
 
   return { failures, parityLines }
 }
@@ -208,7 +217,9 @@ function checkFixture(f: Fixture): EvalRow {
     const { failures, parityLines } = metricChecks(result, f.targets, live)
 
     if (live) {
-      const summary = `${result.status} R${result.totals.ridgeLf}/H${result.totals.hipLf}/V${result.totals.valleyLf}/E${result.totals.eavesLf}/K${result.totals.rakesLf} sq=${result.totals.groundSqft} facets=${result.totals.facetCount}`
+      const reasonNote =
+        result.status === 'force_manual' && result.reason ? ` (${result.reason})` : ''
+      const summary = `${result.status}${reasonNote} R${result.totals.ridgeLf}/H${result.totals.hipLf}/V${result.totals.valleyLf}/E${result.totals.eavesLf}/K${result.totals.rakesLf} flat=${result.totals.groundSqft} sloped=${result.totals.roofAreaSqft} facets=${result.totals.facetCount}`
       if (failures.length > 0) {
         if (f.id === 'randy-hart-arx-reviewed') {
           parityLines.push(
@@ -233,11 +244,13 @@ function checkFixture(f: Fixture): EvalRow {
     if (failures.length > 0) {
       return { id: f.id, kind: 'synthetic', status: 'FAIL', detail: failures.join('; ') }
     }
+    const reasonNote =
+      result.status === 'force_manual' && result.reason ? ` (${result.reason})` : ''
     return {
       id: f.id,
       kind: 'synthetic',
       status: 'PASS',
-      detail: `${result.status} R${result.totals.ridgeLf}/H${result.totals.hipLf}/V${result.totals.valleyLf} facets=${result.totals.facetCount}`,
+      detail: `${result.status}${reasonNote} R${result.totals.ridgeLf}/H${result.totals.hipLf}/V${result.totals.valleyLf} facets=${result.totals.facetCount}`,
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
