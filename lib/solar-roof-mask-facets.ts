@@ -388,6 +388,50 @@ export function brightAccessorySegmentIndices(
   )
 }
 
+/** Near-flat top-of-gable segments (DSM rounds the ridge into a thin flat plane). */
+const RIDGE_PEAK_MAX_PITCH_DEG = 8
+const RIDGE_STEEP_MIN_PITCH_DEG = 15
+const RIDGE_PEAK_MAX_GROUND_FRACTION = 0.4
+
+/**
+ * Identify Solar segments that are the DSM-rounded ridge/peak of a pitched roof rather
+ * than a real plane: near-flat, sitting AT OR ABOVE the steep planes' center heights (a
+ * genuine flat porch/addition sits LOWER, at eave level), and small relative to the steep
+ * roof. These are dropped as plane TARGETS only — their mask pixels stay and flow to the
+ * adjacent slopes, which then meet at the ridge line instead of leaving a flat sliver facet.
+ */
+export function ridgePeakSegmentIndices(segments: SolarMaskSegment[]): Set<number> {
+  const out = new Set<number>()
+  const steep = segments.filter(
+    (s) => typeof s.pitch_degrees === 'number' && s.pitch_degrees >= RIDGE_STEEP_MIN_PITCH_DEG
+  )
+  if (steep.length < 2) return out
+  const steepHeights = steep
+    .map((s) => s.plane_height_at_center_meters)
+    .filter((h): h is number => typeof h === 'number' && Number.isFinite(h))
+  if (steepHeights.length === 0) return out
+  const sorted = [...steepHeights].sort((a, b) => a - b)
+  const medianSteepHeight = sorted[Math.floor(sorted.length / 2)]
+  const steepGround = steep.reduce((sum, s) => sum + (s.ground_area_m2 ?? 0), 0)
+  if (steepGround <= 0) return out
+  for (const s of segments) {
+    const pitch = s.pitch_degrees
+    const height = s.plane_height_at_center_meters
+    const ground = s.ground_area_m2
+    if (
+      typeof pitch === 'number' &&
+      typeof height === 'number' &&
+      typeof ground === 'number' &&
+      pitch < RIDGE_PEAK_MAX_PITCH_DEG &&
+      height >= medianSteepHeight &&
+      ground < RIDGE_PEAK_MAX_GROUND_FRACTION * steepGround
+    ) {
+      out.add(s.segment_index)
+    }
+  }
+  return out
+}
+
 async function sampleSolarRgbAtSegmentCenters(options: {
   rgbUrl: string
   apiKey: string
@@ -1504,8 +1548,14 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         })
       : new Map<number, SegmentRgbSample>()
     const excludedAccessoryIndices = brightAccessorySegmentIndices(segments, rgbSamples)
+    // Ridge/peak segments are dropped as plane targets but their pixels are KEPT (unlike
+    // accessories): they belong to the two slopes, which meet at the ridge once the flat
+    // peak plane is not a label target.
+    const ridgePeakIndices = ridgePeakSegmentIndices(segments)
     const activeSegments = segments.filter(
-      (segment) => !excludedAccessoryIndices.has(segment.segment_index)
+      (segment) =>
+        !excludedAccessoryIndices.has(segment.segment_index) &&
+        !ridgePeakIndices.has(segment.segment_index)
     )
     if (excludedAccessoryIndices.size > 0) {
       const excludedPx = buildSegmentPxList(
