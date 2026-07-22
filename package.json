@@ -11,7 +11,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "roof-measure:classify": "tsx scripts/roof-measure-classify-eval.ts",
-    "roof-measure:prelaunch": "tsx scripts/roof-measure-prelaunch.ts"
+    "roof-measure:prelaunch": "tsx scripts/roof-measure-prelaunch.ts",
+    "roof-measure:topology": "tsx scripts/roof-topology-eval.ts"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",

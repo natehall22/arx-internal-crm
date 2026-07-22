@@ -30,3 +30,11 @@ export const ROOF_MEASURE_DSM_PLANE_SPLIT =
  */
 export const ROOF_MEASURE_RECON_LF =
   process.env.NEXT_PUBLIC_ROOF_MEASURE_RECON_LF === 'true'
+
+/**
+ * Constrained plane-intersection roof topology graph (Roofr-path): verified footprint →
+ * graph → facets from graph. Default OFF until eval harness passes Randy/Kison/EV fixtures.
+ * NEXT_PUBLIC_ROOF_MEASURE_TOPOLOGY_GRAPH=true for staged testing only.
+ */
+export const ROOF_MEASURE_TOPOLOGY_GRAPH =
+  process.env.NEXT_PUBLIC_ROOF_MEASURE_TOPOLOGY_GRAPH === 'true'
