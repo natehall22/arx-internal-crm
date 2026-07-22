@@ -40,6 +40,24 @@
     }
   },
   {
+    "id": "randy-hart-arx-reviewed",
+    "provider": "ARX manually corrected and reviewed",
+    "sourceFile": "CRM roof_measurements 294763b4-1b95-48d1-9849-2875ec0a33ad",
+    "address": "150 McShag Dr, Kannapolis, NC",
+    "targets": {
+      "totalRoofSqft": 1701,
+      "totalSquares": 17.01,
+      "facetCount": 4,
+      "predominantPitch": "4/12",
+      "totalPerimeterLf": 385,
+      "ridgeLf": 0,
+      "hipLf": 81,
+      "eavesLf": 168,
+      "valleysLf": 27,
+      "rakesLf": 0
+    }
+  },
+  {
     "id": "kison-court-roofr",
     "provider": "Roofr / Nearmap",
     "sourceFile": "/Users/nathanhall/Downloads/1361 Kison Court Northwest, Concord, North Carolina, United States.pdf",

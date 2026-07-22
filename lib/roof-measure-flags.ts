@@ -20,3 +20,13 @@ export const USE_PLANE_INTERSECTION_LF =
  */
 export const ROOF_MEASURE_DSM_PLANE_SPLIT =
   process.env.ROOF_MEASURE_DSM_PLANE_SPLIT !== 'false'
+
+/**
+ * Plane-intersection reconstruction for ridge/hip/valley/eave/rake LF — clean, correctly-typed
+ * lengths from Solar planes. Phase 2b adds facet-local valley/concave support when reliable;
+ * convex hip/gable roofs use the lower-envelope model. Self-gated reliability; complex roofs
+ * fall back to the 2D result. Default OFF (staged) since it changes LF-derived waste/material
+ * totals; set NEXT_PUBLIC_ROOF_MEASURE_RECON_LF=true to enable after field validation.
+ */
+export const ROOF_MEASURE_RECON_LF =
+  process.env.NEXT_PUBLIC_ROOF_MEASURE_RECON_LF === 'true'

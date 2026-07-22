@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { shouldShowRoofMeasureDrawingHintsForUser } from '@/lib/permissions'
-import { ROOF_MEASURE_VISION_TRACE_ENABLED, USE_PLANE_INTERSECTION_LF } from '@/lib/roof-measure-flags'
+import { ROOF_MEASURE_VISION_TRACE_ENABLED, USE_PLANE_INTERSECTION_LF, ROOF_MEASURE_RECON_LF } from '@/lib/roof-measure-flags'
+import { reconstructRoofLf } from '@/lib/roof-plane-reconstruction'
 import { clampVisionAlignStaticZoom } from '@/lib/static-satellite-map'
 import {
   haversineDistanceFeet,
@@ -2608,6 +2609,38 @@ export default function RoofMeasurePage() {
     )
     const geoEdges = slopeCorrectEdgeTotals(rawGeoEdges, multByFacetId)
 
+    // Plane-intersection reconstruction (Phase 3): clean, correctly-typed, slope-corrected
+    // ridge/hip/valley/eave/rake LF for CONVEX hip/gable roofs — fixes the 2D classifier's
+    // phantom rakes / mis-typed hips. Self-gated: only used when reliable (convex, no valleys),
+    // so complex/valley roofs keep the 2D result. Flag-gated for staged rollout.
+    const reconLf = ROOF_MEASURE_RECON_LF
+      ? reconstructRoofLf(
+          currentFacets.map((f) => ({
+            points: f.points,
+            suggested_pitch_degrees: f.suggested_pitch_degrees ?? f.pitch_degrees ?? null,
+            suggested_azimuth_degrees: resolveFacingAzimuthDegrees(f),
+            plane_height_at_center_meters: f.plane_height_at_center_meters ?? null,
+            center: null,
+          }))
+        )
+      : null
+    const useReconLf = Boolean(reconLf?.reliable)
+    const baseEdges =
+      useReconLf && reconLf
+        ? {
+            ...geoEdges,
+            ridges_lf: reconLf.ridgeLf,
+            hips_lf: reconLf.hipLf,
+            valleys_lf: reconLf.valleyLf,
+            eaves_lf: reconLf.eavesLf,
+            rakes_lf: reconLf.rakesLf,
+            unclassified_shared_lf: 0,
+          }
+        : geoEdges
+    if (useReconLf) {
+      validationNotes.push('Linear footage from plane-intersection reconstruction (clean ridge/hip/valley).')
+    }
+
     // Drawn/AI lines are plan-view polylines — resolve each to its true sloped length.
     const slopeFacetPolys = currentFacets.map((f) => ({
       points: f.points,
@@ -2628,21 +2661,21 @@ export default function RoofMeasurePage() {
     const manualRidges = featuresWithSlope
       .filter(f => f.type === 'ridge')
       .reduce((sum, f) => sum + featureLf(f), 0)
-    const ridges = manualRidges > 0 ? Math.round(manualRidges) : geoEdges.ridges_lf
+    const ridges = manualRidges > 0 ? Math.round(manualRidges) : baseEdges.ridges_lf
     if (manualRidges > 0) {
       validationNotes.push(
         'Manual ridge lines replaced the auto-estimated ridge length — verify total ridge LF before quoting.'
       )
     }
 
-    const hips  = geoEdges.hips_lf
-    const eaves = geoEdges.eaves_lf
-    const rakes = geoEdges.rakes_lf
+    const hips  = baseEdges.hips_lf
+    const eaves = baseEdges.eaves_lf
+    const rakes = baseEdges.rakes_lf
 
     const manualValleys = featuresWithSlope
       .filter(f => f.type === 'valley')
       .reduce((sum, f) => sum + featureLf(f), 0)
-    const valleys = geoEdges.valleys_lf + Math.round(manualValleys)
+    const valleys = baseEdges.valleys_lf + Math.round(manualValleys)
 
     // ---- FLASHING FROM MANUAL DRAWINGS (slope-corrected) ----
     const stepFlashing = featuresWithSlope
@@ -2720,7 +2753,7 @@ export default function RoofMeasurePage() {
       validationNotes.push(`Assign pitch to ${unsetPitchFacets.length} roof section${unsetPitchFacets.length === 1 ? '' : 's'} before quoting.`)
     }
 
-    if (geoEdges.unclassified_shared_lf > 0) {
+    if (baseEdges.unclassified_shared_lf > 0) {
       validationNotes.push(
         'Some shared roof edges could not be classified — verify outlines snap together or draw ridge/valley lines.'
       )
@@ -2864,7 +2897,7 @@ export default function RoofMeasurePage() {
     const drainReviewContext = {
       measurementConfidence: confidence,
       validationNotes,
-      unclassifiedSharedLf: geoEdges.unclassified_shared_lf,
+      unclassifiedSharedLf: baseEdges.unclassified_shared_lf,
       hipsLf: measuredHips,
       valleysLf: measuredValleys,
       ridgesLf: measuredRidges,
@@ -2930,7 +2963,7 @@ export default function RoofMeasurePage() {
       linear_review_status: hasMeasuredLinework ? 'measured' : 'missing',
       measurement_confidence: confidence,
       validation_notes: validationNotes,
-      unclassified_shared_lf: geoEdges.unclassified_shared_lf,
+      unclassified_shared_lf: baseEdges.unclassified_shared_lf,
       solar_overlap_detected: solarOverlapDetected,
       solar_overlap_blocks_save: solarOverlapBlocksSave,
       solar_overlap_ratio: solarOverlap.ratio,
