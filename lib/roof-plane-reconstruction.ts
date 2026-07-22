@@ -58,6 +58,12 @@ export type ReconSharedEdge = {
 
 /** Azimuth threshold: flanking planes >= this many degrees apart read as a ridge, not a hip. */
 export const RECON_RIDGE_AZIMUTH_DEG = 135
+/** Height tolerance (m) for equal-height ridge line and tent-above-envelope test. */
+export const RIDGE_TENT_EPS_M = 0.05
+/** Max plane-center separation for tent-ridge graph emission (excludes opposite hip ends). */
+export const TENT_RIDGE_MAX_CENTER_M = 10
+/** Max (ridgeZ − minZ) / ridgeZ for tent-ridge emission away from lower-envelope hits. */
+export const RIDGE_TENT_MAX_REL_GAP = 0.05
 
 export function localMetersPerDegLng(lat: number): number {
   return M_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180)
@@ -132,6 +138,55 @@ export function isConvexFold(a: ReconPlane, b: ReconPlane): boolean {
   const ax = mx + ((a.cx - mx) / towardA) * eps
   const ay = my + ((a.cy - my) / towardA) * eps
   return planeHeightAt(a, ax, ay) < planeHeightAt(b, ax, ay)
+}
+
+/**
+ * Whether the equal-height shared line of two planes sits above the lower envelope at (x,y).
+ * Tent ridges (cross-gable) peak above other planes; butterfly gutters sit at the minimum.
+ */
+export function isRidgeTentAtPoint(
+  a: ReconPlane,
+  b: ReconPlane,
+  x: number,
+  y: number,
+  allPlanes: ReconPlane[]
+): boolean {
+  const za = planeHeightAt(a, x, y)
+  const zb = planeHeightAt(b, x, y)
+  if (Math.abs(za - zb) > RIDGE_TENT_EPS_M) return false
+  const ridgeZ = (za + zb) / 2
+  let minZ = Infinity
+  for (const p of allPlanes) {
+    minZ = Math.min(minZ, planeHeightAt(p, x, y))
+  }
+  // Butterfly gutter sits at the minimum; a tent ridge peaks above the lower envelope.
+  return ridgeZ > minZ + RIDGE_TENT_EPS_M
+}
+
+/**
+ * Classify a shared edge at a specific plan-view point (uses lower-envelope tent test when
+ * convexity is ambiguous). Prefer this in topology graph emission over {@link classifyReconEdge}.
+ */
+export function classifyReconEdgeAt(
+  a: ReconPlane,
+  b: ReconPlane,
+  x: number,
+  y: number,
+  allPlanes?: ReconPlane[]
+): ReconEdgeType {
+  const azDiff = normalizeAngleDiff(a.azimuth_degrees, b.azimuth_degrees)
+  if (isConvexFold(a, b)) {
+    return azDiff >= RECON_RIDGE_AZIMUTH_DEG ? 'ridge' : 'hip'
+  }
+  // Solar height noise can flip isConvexFold on opposing tent ridges (cross-gable).
+  if (
+    azDiff >= RECON_RIDGE_AZIMUTH_DEG &&
+    allPlanes &&
+    isRidgeTentAtPoint(a, b, x, y, allPlanes)
+  ) {
+    return 'ridge'
+  }
+  return 'valley'
 }
 
 /**

@@ -1803,20 +1803,17 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
       }
     }
 
-    // Whole-roof contour: flood-fill from buildingInsights center only so a
-    // multi-segment seed set cannot bridge onto a neighbor/garage roof pixel.
-    const wholeContourSeeds: Array<{ col: number; row: number }> = []
+    // Whole-roof contour. When buildingInsights center is provided (topology capture),
+    // flood-fill from it only so a multi-segment seed set cannot bridge onto a
+    // neighbor/garage roof pixel. When omitted (live detect-roof), preserve prior
+    // behavior exactly: contour the full work mask with no seed restriction.
+    let wholeContourBin = workBin
     if (buildingCenter) {
       const bcPx = lngLatToColRow(buildingCenter.lat, buildingCenter.lng)
-      if (bcPx) wholeContourSeeds.push(bcPx)
+      if (bcPx) {
+        wholeContourBin = restrictMaskToSeedComponent(workBin, width, height, [bcPx]) ?? workBin
+      }
     }
-    if (wholeContourSeeds.length === 0) {
-      wholeContourSeeds.push(...componentSeeds)
-    }
-    const wholeContourBin =
-      wholeContourSeeds.length > 0
-        ? restrictMaskToSeedComponent(workBin, width, height, wholeContourSeeds) ?? workBin
-        : workBin
 
     let rings = contourRingsFromMask(wholeContourBin, width, height)
     rings = rings.filter((r) => polygonAreaPx(r) >= MIN_RING_AREA_PX)

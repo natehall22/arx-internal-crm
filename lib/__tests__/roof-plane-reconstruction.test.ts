@@ -1,8 +1,11 @@
 import {
   type ReconPlane,
+  buildReconPlane,
   classifyReconEdge,
+  classifyReconEdgeAt,
   convexHull,
   isConvexFold,
+  isRidgeTentAtPoint,
   measureFacetLocalEdges,
   measureReconstructedEdges,
   reconstructRoofLf,
@@ -118,6 +121,42 @@ describe('roof-plane-reconstruction', () => {
     expect(m.hipLf).toBe(0)
     // Two 20 m eaves on north and south long sides (short ends may read as rakes).
     expect(m.eavesLf).toBeCloseTo(131, -1)
+  })
+
+  it('tent override: opposing planes above lower envelope read as ridge despite convex-fold noise', () => {
+    // Cross-gable shard pair: isConvexFold can fail when Solar centers are offset, but the
+    // shared line still peaks above the other two planes (lower envelope picks wrong pair).
+    const p0 = plane(0, 103, 26, 1.72, -0.57, 238.19)
+    const p1 = plane(1, 279, 27, -2.08, -1.56, 238.12)
+    const p2 = plane(2, 189, 25, 4.11, -1.18, 237.82)
+    const p3 = plane(3, 295, 15, -5.17, -1.04, 237.1)
+    const all = [p0, p1, p2, p3]
+    const line = sharedEdgeLine(p0, p1)!
+    const pm = Math.abs(line.A) >= Math.abs(line.B) ? { x: line.C / line.A, y: 0 } : { x: 0, y: line.C / line.B }
+    expect(isConvexFold(p0, p1)).toBe(true)
+    expect(classifyReconEdge(p0, p1)).toBe('ridge')
+    expect(isRidgeTentAtPoint(p0, p1, pm.x, pm.y, all)).toBe(true)
+    expect(classifyReconEdgeAt(p0, p1, pm.x, pm.y, all)).toBe('ridge')
+    // Nearly-opposing pair mis-read concave but still tents above envelope → ridge.
+    expect(isConvexFold(p0, p3)).toBe(false)
+    expect(classifyReconEdge(p0, p3)).toBe('valley')
+    const line03 = sharedEdgeLine(p0, p3)!
+    const pm03 =
+      Math.abs(line03.A) >= Math.abs(line03.B)
+        ? { x: line03.C / line03.A, y: 0 }
+        : { x: 0, y: line03.C / line03.B }
+    expect(isRidgeTentAtPoint(p0, p3, pm03.x, pm03.y, all)).toBe(true)
+    expect(classifyReconEdgeAt(p0, p3, pm03.x, pm03.y, all)).toBe('ridge')
+    // Butterfly gutter stays valley — shared line sits at the minimum, not above it.
+    const bvA = plane(4, 90, 30, -2, 0, 5)
+    const bvB = plane(5, 270, 30, 2, 0, 5)
+    const bvLine = sharedEdgeLine(bvA, bvB)!
+    const bvPm =
+      Math.abs(bvLine.A) >= Math.abs(bvLine.B)
+        ? { x: bvLine.C / bvLine.A, y: 0 }
+        : { x: 0, y: bvLine.C / bvLine.B }
+    expect(isRidgeTentAtPoint(bvA, bvB, bvPm.x, bvPm.y, [bvA, bvB])).toBe(false)
+    expect(classifyReconEdgeAt(bvA, bvB, bvPm.x, bvPm.y, [bvA, bvB])).toBe('valley')
   })
 
   it('measures an L-shaped roof with valley corridor — no phantom eave across the notch', () => {

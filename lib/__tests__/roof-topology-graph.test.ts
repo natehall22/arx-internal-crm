@@ -14,7 +14,17 @@ import {
   verifyFootprint,
   type RoofGraphFacet,
 } from '@/lib/roof-topology-graph'
-import { type ReconPlane, type ReconPoint } from '@/lib/roof-plane-reconstruction'
+import {
+  buildReconPlane,
+  classifyReconEdge,
+  classifyReconEdgeAt,
+  isConvexFold,
+  isRidgeTentAtPoint,
+  planeHeightAt,
+  sharedEdgeLine,
+  type ReconPlane,
+  type ReconPoint,
+} from '@/lib/roof-plane-reconstruction'
 
 function plane(
   segment_index: number,
@@ -466,6 +476,49 @@ describe('roof-topology-graph', () => {
   })
 
   describe('Green cross-gable fixture', () => {
+    it('diagnosis: opposing ridge pair excluded by lower-envelope filter', () => {
+      const fixturePath = path.join(process.cwd(), 'scripts', 'roof-topology-eval-fixtures.json')
+      const green = (
+        JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as Array<{
+          id: string
+          segments?: Array<{
+            segment_index: number
+            pitch_degrees: number
+            azimuth_degrees: number
+            plane_height_at_center_meters: number
+            center: { lat: number; lng: number }
+            ground_area_m2?: number
+          }>
+          footprintLatLng?: Array<{ lat: number; lng: number }>
+          origin?: { lat: number; lng: number }
+        }>
+      ).find((f) => f.id === 'green-florence-hover')
+      const origin = green!.origin!
+      const raw = green!.segments!.map((s) => buildReconPlane(s, origin)).filter(Boolean) as ReconPlane[]
+      const ground = new Map(
+        green!.segments!.map((s) => [s.segment_index, (s.ground_area_m2 ?? 0) * 10.7639104])
+      )
+      const merged = mergeCoplanarTopologyPlanes(raw, ground)
+      expect(merged).toHaveLength(4)
+
+      const p0 = merged.find((p) => p.segment_index === 0)!
+      const p1 = merged.find((p) => p.segment_index === 1)!
+      const line = sharedEdgeLine(p0, p1)!
+      const pm =
+        Math.abs(line.A) >= Math.abs(line.B) ? { x: line.C / line.A, y: 0 } : { x: 0, y: line.C / line.B }
+
+      expect(isConvexFold(p0, p1)).toBe(true)
+      expect(classifyReconEdge(p0, p1)).toBe('ridge')
+      expect(isRidgeTentAtPoint(p0, p1, pm.x, pm.y, merged)).toBe(true)
+
+      const heights = merged
+        .map((p) => ({ seg: p.segment_index, z: planeHeightAt(p, pm.x, pm.y) }))
+        .sort((a, b) => a.z - b.z)
+      const twoLowest = new Set(heights.slice(0, 2).map((h) => h.seg))
+      expect(twoLowest.has(0)).toBe(false)
+      expect(twoLowest.has(1)).toBe(false)
+    })
+
     it('ships with ridge or force_manual with explicit reason', () => {
       const fixturePath = path.join(process.cwd(), 'scripts', 'roof-topology-eval-fixtures.json')
       const green = (
@@ -494,9 +547,14 @@ describe('roof-topology-graph', () => {
         // Must not ship valley-dominant mis-typed gables (ridge must dominate valleys).
         expect(result!.totals.ridgeLf).toBeGreaterThan(result!.totals.valleyLf)
         expect(result!.totals.facetCount).toBeGreaterThanOrEqual(3)
+        // Hover ridge ~45.69 LF — within ±40% when we ship.
+        expect(result!.totals.ridgeLf).toBeGreaterThan(45.69 * 0.6)
+        expect(result!.totals.ridgeLf).toBeLessThan(45.69 * 1.4)
       } else {
         expect(result!.status).toBe('force_manual')
         expect(result!.reason.length).toBeGreaterThan(0)
+        // Must not repeat the R0 / interior-valley failure mode.
+        expect(result!.totals.ridgeLf).toBeGreaterThan(0)
       }
     })
   })

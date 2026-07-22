@@ -6,13 +6,17 @@
 
 import {
   buildReconPlane,
-  classifyReconEdge,
+  classifyReconEdgeAt,
   convexHull,
   isConvexFold,
+  isRidgeTentAtPoint,
   localMetersPerDegLng,
   planeHeightAt,
+  planesLikelyAdjacent,
   sharedEdgeLine,
   straightenPolygon,
+  TENT_RIDGE_MAX_CENTER_M,
+  RIDGE_TENT_MAX_REL_GAP,
   type LatLng,
   type ReconPlane,
   type ReconPoint,
@@ -222,6 +226,24 @@ function twoLowestSegmentIndices(x: number, y: number, planes: ReconPlane[]): Se
   return new Set([hs[0]?.seg, hs[1]?.seg])
 }
 
+function ridgeTentRelativeGap(
+  a: ReconPlane,
+  b: ReconPlane,
+  x: number,
+  y: number,
+  planes: ReconPlane[]
+): number {
+  const za = planeHeightAt(a, x, y)
+  const zb = planeHeightAt(b, x, y)
+  const ridgeZ = (za + zb) / 2
+  if (ridgeZ < 1e-6) return Infinity
+  let minZ = Infinity
+  for (const p of planes) {
+    minZ = Math.min(minZ, planeHeightAt(p, x, y))
+  }
+  return (ridgeZ - minZ) / ridgeZ
+}
+
 /** A. Verify and straighten exterior footprint ring. */
 export function verifyFootprint(
   ring: ReconPoint[],
@@ -311,8 +333,15 @@ export function buildConstrainedRoofGraph(
       const tm = (ts[k] + ts[k + 1]) / 2
       const pm = { x: P0.x + tm * dir.x, y: P0.y + tm * dir.y }
       if (!pointInPolygon(pm, fp)) continue
+      const kind = classifyReconEdgeAt(a, b, pm.x, pm.y, planes)
       const low = twoLowestSegmentIndices(pm.x, pm.y, planes)
-      if (!low.has(a.segment_index) || !low.has(b.segment_index)) continue
+      const onEnvelope = low.has(a.segment_index) && low.has(b.segment_index)
+      const tentRidge =
+        kind === 'ridge' &&
+        planesLikelyAdjacent(a, b, TENT_RIDGE_MAX_CENTER_M) &&
+        isRidgeTentAtPoint(a, b, pm.x, pm.y, planes) &&
+        ridgeTentRelativeGap(a, b, pm.x, pm.y, planes) <= RIDGE_TENT_MAX_REL_GAP
+      if (!onEnvelope && !tentRidge) continue
       const lenM = ts[k + 1] - ts[k]
       if (lenM * M_TO_FT * factor < 0.3) continue
       const na = store.add(P0.x + ts[k] * dir.x, P0.y + ts[k] * dir.y)
@@ -320,7 +349,7 @@ export function buildConstrainedRoofGraph(
       rawEdges.push({
         a: na,
         b: nb,
-        kind: classifyReconEdge(a, b),
+        kind,
         planeA: a.segment_index,
         planeB: b.segment_index,
         lenM: lenM * factor,
