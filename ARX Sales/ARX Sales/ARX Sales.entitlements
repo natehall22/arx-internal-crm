@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- aps-environment removed temporarily — Push Notifications requires a paid Apple
-	     Developer Program membership; personal/free teams can't provision it. Re-add
-	     <key>aps-environment</key><string>development</string> once enrolled. -->
+	<!-- Development APNs for local/dev builds. Xcode automatic signing substitutes
+	     `production` at archive/export time for TestFlight & App Store distribution
+	     builds, so do NOT hard-code `production` here. The iOS client reports its
+	     actual environment to the backend via #if DEBUG (see PushManager.handleDeviceToken)
+	     so APNs routing stays in lockstep with how the build was signed. -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>
