@@ -111,6 +111,74 @@ describe('split mask quality threshold', () => {
     ).toBe(false)
   })
 
+  it('rejects the entire split when any sibling plane is a tiny sliver', () => {
+    expect(
+      splitFacetsMeetMaskQualityThreshold([
+        facet('good-plane', 32, -96, { estimated_sq_ft: 500 }),
+        facet('sliver', 32.00005, -96, { estimated_sq_ft: 12 }),
+      ])
+    ).toBe(false)
+  })
+
+  it('rejects overlapping plane interiors', () => {
+    expect(
+      splitFacetsMeetMaskQualityThreshold([
+        facet('plane-a', 32, -96, { estimated_sq_ft: 120 }),
+        facet('plane-b', 32.00001, -96.00001, { estimated_sq_ft: 120 }),
+      ])
+    ).toBe(false)
+  })
+
+  it('allows adjacent planes that only share a boundary', () => {
+    const d = 0.00002
+    expect(
+      splitFacetsMeetMaskQualityThreshold([
+        facet('left', 32, -96, {
+          estimated_sq_ft: 120,
+          lat_lng_vertices: [
+            { lat: 32 + d, lng: -96 - d },
+            { lat: 32 + d, lng: -96 },
+            { lat: 32 - d, lng: -96 },
+            { lat: 32 - d, lng: -96 - d },
+          ],
+        }),
+        facet('right', 32, -96, {
+          estimated_sq_ft: 120,
+          lat_lng_vertices: [
+            { lat: 32 + d, lng: -96 },
+            { lat: 32 + d, lng: -96 + d },
+            { lat: 32 - d, lng: -96 + d },
+            { lat: 32 - d, lng: -96 },
+          ],
+        }),
+      ])
+    ).toBe(true)
+  })
+
+  it('rejects self-intersecting plane polygons', () => {
+    const d = 0.00002
+    expect(
+      splitFacetsMeetMaskQualityThreshold([
+        facet('bow-tie', 32, -96, {
+          estimated_sq_ft: 120,
+          lat_lng_vertices: [
+            { lat: 32 + d, lng: -96 - d },
+            { lat: 32 - d, lng: -96 + d },
+            { lat: 32 + d, lng: -96 + d },
+            { lat: 32 - d, lng: -96 - d },
+          ],
+        }),
+      ])
+    ).toBe(false)
+  })
+
+  it('rejects split coverage far below or above the source mask area', () => {
+    const plane = facet('plane-0', 32, -96, { estimated_sq_ft: 100 })
+    expect(splitFacetsMeetMaskQualityThreshold([plane], 100)).toBe(true)
+    expect(splitFacetsMeetMaskQualityThreshold([plane], 150)).toBe(false)
+    expect(splitFacetsMeetMaskQualityThreshold([plane], 80)).toBe(false)
+  })
+
   it('rejects non-plane facet sources', () => {
     expect(
       splitFacetsMeetMaskQualityThreshold([

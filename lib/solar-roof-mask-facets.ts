@@ -61,6 +61,10 @@ const SPLIT_RING_SPIKE_MIN_ANGLE_DEG = 20
 const SHARED_VERTEX_WELD_METERS = 0.5
 /** Split plane contours below this footprint fail the mask-quality gate (bbox/whole fallback). */
 const MIN_PLANE_FOOTPRINT_SQFT = 35
+/** Reject a split when contour cleanup loses a meaningful part of the source roof mask. */
+const MIN_SPLIT_TO_MASK_AREA_RATIO = 0.88
+/** Reject a split when hull/simplification/welding materially overfills the source mask. */
+const MAX_SPLIT_TO_MASK_AREA_RATIO = 1.08
 /**
  * Accept convex-hull regularization only when it barely changes area — i.e. the plane
  * is already essentially convex, so the hull just crisps a rectangular outline. A larger
@@ -689,14 +693,92 @@ export function maskPlaneFacetSuggestions(seg: SolarMaskSegment | null): ReturnT
 /**
  * Prefer `solar_mask_plane` over `solar_bbox` / whole-roof contour when split facets pass this gate.
  */
-export function splitFacetsMeetMaskQualityThreshold(facets: SolarMaskFacetPayload[]): boolean {
+type Point2 = { lat: number; lng: number }
+
+function orientation(a: Point2, b: Point2, c: Point2): number {
+  return (b.lng - a.lng) * (c.lat - a.lat) - (b.lat - a.lat) * (c.lng - a.lng)
+}
+
+function properSegmentsIntersect(a: Point2, b: Point2, c: Point2, d: Point2): boolean {
+  const abC = orientation(a, b, c)
+  const abD = orientation(a, b, d)
+  const cdA = orientation(c, d, a)
+  const cdB = orientation(c, d, b)
+  const eps = 1e-14
+  // Touching or shared boundary vertices are valid between adjacent roof planes.
+  if (Math.abs(abC) <= eps || Math.abs(abD) <= eps || Math.abs(cdA) <= eps || Math.abs(cdB) <= eps) {
+    return false
+  }
+  return (abC > 0) !== (abD > 0) && (cdA > 0) !== (cdB > 0)
+}
+
+function polygonSelfIntersects(points: Point2[]): boolean {
+  if (points.length < 3) return true
+  for (let i = 0; i < points.length; i++) {
+    const iNext = (i + 1) % points.length
+    for (let j = i + 1; j < points.length; j++) {
+      const jNext = (j + 1) % points.length
+      if (i === j || iNext === j || jNext === i) continue
+      if (i === 0 && jNext === 0) continue
+      if (properSegmentsIntersect(points[i], points[iNext], points[j], points[jNext])) return true
+    }
+  }
+  return false
+}
+
+function pointStrictlyInsidePolygon(point: Point2, polygon: Point2[]): boolean {
+  // Boundary points are intentionally not considered inside: adjacent facets share edges.
+  const boundaryEps = 1e-12
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]
+    const b = polygon[(i + 1) % polygon.length]
+    const cross = orientation(a, b, point)
+    const withinLng = point.lng >= Math.min(a.lng, b.lng) - boundaryEps && point.lng <= Math.max(a.lng, b.lng) + boundaryEps
+    const withinLat = point.lat >= Math.min(a.lat, b.lat) - boundaryEps && point.lat <= Math.max(a.lat, b.lat) + boundaryEps
+    if (Math.abs(cross) <= boundaryEps && withinLng && withinLat) return false
+  }
+  return pointInPolygonLngLat(point, polygon)
+}
+
+function polygonsOverlapInterior(a: Point2[], b: Point2[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    const aNext = (i + 1) % a.length
+    for (let j = 0; j < b.length; j++) {
+      const bNext = (j + 1) % b.length
+      if (properSegmentsIntersect(a[i], a[aNext], b[j], b[bNext])) return true
+    }
+  }
+  return a.some((point) => pointStrictlyInsidePolygon(point, b)) ||
+    b.some((point) => pointStrictlyInsidePolygon(point, a))
+}
+
+export function splitFacetsMeetMaskQualityThreshold(
+  facets: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
+): boolean {
   const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
-  if (planes.length === 0) return false
-  return planes.some((f) => {
-    if (f.lat_lng_vertices.length < 3) return false
+  if (planes.length === 0 || planes.length !== facets.length) return false
+  if (!planes.every((f) => {
+    if (f.lat_lng_vertices.length < 3 || polygonSelfIntersects(f.lat_lng_vertices)) return false
     const sqft = f.estimated_sq_ft ?? Math.round(planarPolygonAreaSqFt(f.lat_lng_vertices))
     return sqft >= MIN_PLANE_FOOTPRINT_SQFT
-  })
+  })) return false
+
+  for (let i = 0; i < planes.length; i++) {
+    for (let j = i + 1; j < planes.length; j++) {
+      if (polygonsOverlapInterior(planes[i].lat_lng_vertices, planes[j].lat_lng_vertices)) return false
+    }
+  }
+
+  if (typeof targetMaskFootprintSqft === 'number' && targetMaskFootprintSqft > 0) {
+    const splitSqft = planes.reduce(
+      (sum, facet) => sum + (facet.estimated_sq_ft ?? planarPolygonAreaSqFt(facet.lat_lng_vertices)),
+      0
+    )
+    const ratio = splitSqft / targetMaskFootprintSqft
+    if (ratio < MIN_SPLIT_TO_MASK_AREA_RATIO || ratio > MAX_SPLIT_TO_MASK_AREA_RATIO) return false
+  }
+  return true
 }
 
 function buildSegmentPxList(
@@ -831,6 +913,23 @@ export function restrictMaskToSeedComponent(
     }
   }
   return target
+}
+
+function rasterMaskFootprintSqft(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  pixelToLngLat: (col: number, row: number) => { lat: number; lng: number }
+): number | null {
+  if (width < 2 || height < 2) return null
+  const origin = pixelToLngLat(0, 0)
+  const colStep = pixelToLngLat(1, 0)
+  const rowStep = pixelToLngLat(0, 1)
+  const pixelAreaSqft = distanceMeters(origin, colStep) * distanceMeters(origin, rowStep) * 10.7639
+  if (!Number.isFinite(pixelAreaSqft) || pixelAreaSqft <= 0) return null
+  let pixels = 0
+  for (let i = 0; i < bin.length; i++) if (bin[i] === 1) pixels++
+  return pixels > 0 ? pixels * pixelAreaSqft : null
 }
 
 /** Assign each roof-mask pixel to the nearest Solar segment center (Voronoi on-mask). */
@@ -1281,6 +1380,20 @@ function weldSharedFacetVertices(facets: SolarMaskFacetPayload[], snapMeters: nu
   }
   for (const members of Array.from(clusters.values())) {
     if (members.length < 2) continue
+    // Union-find proximity is transitive: A-B and B-C may be within the snap radius
+    // while A-C is much farther away. Never apply such a chained weld, and never let
+    // a chain indirectly collapse two different vertices from the same facet.
+    if (new Set(members.map((member) => member.f)).size !== members.length) continue
+    let bounded = true
+    for (let i = 0; i < members.length && bounded; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        if (distanceMeters(members[i], members[j]) > snapMeters) {
+          bounded = false
+          break
+        }
+      }
+    }
+    if (!bounded) continue
     const lat = members.reduce((s: number, n: WeldNode) => s + n.lat, 0) / members.length
     const lng = members.reduce((s: number, n: WeldNode) => s + n.lng, 0) / members.length
     for (const n of members) facets[n.f].lat_lng_vertices[n.v] = { lat, lng }
@@ -1631,7 +1744,16 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         splitFiltered.length > 0 ? splitFiltered : filterSplitFacetsByPin(splitFacets, pinRef)
       const splitOut = splitFilteredPin.length > 0 ? splitFilteredPin : splitFiltered
       weldSharedFacetVertices(splitOut, SHARED_VERTEX_WELD_METERS)
-      if (splitOut.length > 0 && splitFacetsMeetMaskQualityThreshold(splitOut)) {
+      const targetMaskFootprintSqft = rasterMaskFootprintSqft(
+        splitBin,
+        width,
+        height,
+        pixelToLngLat
+      )
+      if (
+        splitOut.length > 0 &&
+        splitFacetsMeetMaskQualityThreshold(splitOut, targetMaskFootprintSqft ?? undefined)
+      ) {
         return maskAttempt('ok', splitOut, {
           ...baseDetails,
           mask_width: width,
@@ -1639,6 +1761,8 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           split_plane_count: splitOut.length,
           merged_segment_count: mergedSegments.length,
           excluded_accessory_segment_count: excludedAccessoryIndices.size,
+          target_mask_footprint_sqft:
+            targetMaskFootprintSqft == null ? null : Math.round(targetMaskFootprintSqft),
           path: 'split_mask_plane',
           split_method: splitMethod,
         })
