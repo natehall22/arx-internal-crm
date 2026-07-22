@@ -43,6 +43,12 @@ const UNDERSEGMENTATION_RATIO = 0.7
  * and butterfly valleys stay in separate clusters.
  */
 const AZIMUTH_MERGE_DEG = 20
+/**
+ * Pitch band for azimuth-cluster merge (topology-only).
+ * Solar shards of one physical face usually stay within ~10–12° pitch; larger gaps
+ * are distinct planes (dormer/wing/cross-gable). Union requires BOTH az and pitch bands.
+ */
+const PITCH_MERGE_DEG = 12
 
 export type RoofEdgeKind = 'ridge' | 'hip' | 'valley' | 'eave' | 'rake'
 export type RoofGraphNode = { id: string; x: number; y: number }
@@ -902,6 +908,110 @@ function clusterMeanAzimuth(group: ReconPlane[], groundAreaSqftBySegment?: Map<n
   return ((Math.atan2(azY, azX) * 180) / Math.PI + 360) % 360
 }
 
+function dominantOpposingPlane(
+  plane: ReconPlane,
+  allPlanes: ReconPlane[],
+  groundAreaSqftBySegment?: Map<number, number>
+): ReconPlane | null {
+  const opposing = allPlanes.filter(
+    (p) =>
+      p.segment_index !== plane.segment_index &&
+      circularAzimuthDiff(p.azimuth_degrees, plane.azimuth_degrees) >= OPPOSING_AZIMUTH_MIN_DEG
+  )
+  if (opposing.length === 0) return null
+  return opposing.reduce((best, p) =>
+    mergeWeightOf(p, groundAreaSqftBySegment) > mergeWeightOf(best, groundAreaSqftBySegment)
+      ? p
+      : best
+  )
+}
+
+function azimuthConnectedComponents(planes: ReconPlane[]): ReconPlane[][] {
+  const visited = new Set<number>()
+  const components: ReconPlane[][] = []
+  for (const seed of planes) {
+    if (visited.has(seed.segment_index)) continue
+    const component: ReconPlane[] = []
+    const queue = [seed]
+    visited.add(seed.segment_index)
+    while (queue.length > 0) {
+      const current = queue.pop() as ReconPlane
+      component.push(current)
+      for (const other of planes) {
+        if (visited.has(other.segment_index)) continue
+        if (
+          circularAzimuthDiff(current.azimuth_degrees, other.azimuth_degrees) <= AZIMUTH_MERGE_DEG
+        ) {
+          visited.add(other.segment_index)
+          queue.push(other)
+        }
+      }
+    }
+    components.push(component)
+  }
+  return components
+}
+
+/**
+ * Pitch-banding can leave multiple planes in one azimuth cluster. Drop shards that are
+ * concave with the dominant opposing face and concave with every ridge-compatible peer
+ * in that cluster (Solar mis-reads). Keeps adjacent hip-connected wings (Green seg3).
+ */
+function dropAzimuthClusterValleyShards(
+  merged: ReconPlane[],
+  sourcePlanes: ReconPlane[],
+  groundAreaSqftBySegment?: Map<number, number>
+): ReconPlane[] {
+  if (merged.length < 2) return merged
+
+  const isRidgeCandidate = (p: ReconPlane): boolean => {
+    const opposing = dominantOpposingPlane(p, sourcePlanes, groundAreaSqftBySegment)
+    return opposing != null && isConvexFold(opposing, p)
+  }
+
+  const keepSegs = new Set<number>()
+  for (const component of azimuthConnectedComponents(merged)) {
+    if (component.length === 1) {
+      keepSegs.add(component[0].segment_index)
+      continue
+    }
+    const ridgeCandidates = component.filter(isRidgeCandidate)
+    if (ridgeCandidates.length === 0) {
+      for (const p of component) keepSegs.add(p.segment_index)
+      continue
+    }
+    for (const p of component) {
+      if (ridgeCandidates.some((r) => r.segment_index === p.segment_index)) {
+        keepSegs.add(p.segment_index)
+        continue
+      }
+      if (ridgeCandidates.some((r) => isConvexFold(p, r) || isConvexFold(r, p))) {
+        keepSegs.add(p.segment_index)
+      }
+    }
+  }
+
+  return merged.filter((p) => keepSegs.has(p.segment_index))
+}
+
+/** Split a union-find group when transitive pitch links exceed {@link PITCH_MERGE_DEG}. */
+function splitGroupByPitchSpread(group: ReconPlane[]): ReconPlane[][] {
+  if (group.length <= 1) return [group]
+  const sorted = [...group].sort((a, b) => a.pitch_degrees - b.pitch_degrees)
+  const subgroups: ReconPlane[][] = []
+  let current: ReconPlane[] = [sorted[0]]
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].pitch_degrees - current[0].pitch_degrees <= PITCH_MERGE_DEG) {
+      current.push(sorted[i])
+    } else {
+      subgroups.push(current)
+      current = [sorted[i]]
+    }
+  }
+  subgroups.push(current)
+  return subgroups
+}
+
 /** Ground-area-weighted merge of a cluster of co-azimuth Solar fragments into one plane. */
 function mergePlaneCluster(
   group: ReconPlane[],
@@ -970,8 +1080,8 @@ function mergePlaneCluster(
 
 /**
  * Consolidate over-split Solar planes before graph build (topology path only).
- * Clusters planes whose azimuth differs by ≤ {@link AZIMUTH_MERGE_DEG} (circular),
- * then merges each multi-plane cluster into one ground-area-weighted plane.
+ * Union-find clusters planes when azimuth differs by ≤ {@link AZIMUTH_MERGE_DEG} (circular)
+ * AND pitch differs by ≤ {@link PITCH_MERGE_DEG}; each cluster merges into one weighted plane.
  * Opposing faces (~180° apart) never share a cluster; butterfly roofs stay safe.
  */
 export function mergeCoplanarTopologyPlanes(
@@ -996,7 +1106,10 @@ export function mergeCoplanarTopologyPlanes(
     const a = planes[i]
     for (let j = i + 1; j < planes.length; j++) {
       const b = planes[j]
-      if (circularAzimuthDiff(a.azimuth_degrees, b.azimuth_degrees) <= AZIMUTH_MERGE_DEG) {
+      const azOk =
+        circularAzimuthDiff(a.azimuth_degrees, b.azimuth_degrees) <= AZIMUTH_MERGE_DEG
+      const pitchOk = Math.abs(a.pitch_degrees - b.pitch_degrees) <= PITCH_MERGE_DEG
+      if (azOk && pitchOk) {
         union(a.segment_index, b.segment_index)
       }
     }
@@ -1010,9 +1123,11 @@ export function mergeCoplanarTopologyPlanes(
     groups.set(root, group)
   }
 
-  return Array.from(groups.values()).map((group) =>
+  const pitchSafeGroups = Array.from(groups.values()).flatMap(splitGroupByPitchSpread)
+  const merged = pitchSafeGroups.map((group) =>
     mergePlaneCluster(group, planes, groundAreaSqftBySegment)
   )
+  return dropAzimuthClusterValleyShards(merged, planes, groundAreaSqftBySegment)
 }
 
 /** Drop planes whose lower-envelope footprint ownership is below absolute or relative minimum. */

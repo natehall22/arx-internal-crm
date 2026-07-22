@@ -348,7 +348,7 @@ describe('roof-topology-graph', () => {
      * Fixture bentley-duke-adam-ev raw Solar segments (~5 fragments, not a clean 2-plane gable):
      *   seg0 az~205° pitch~29° (main SW face)
      *   seg1 az~30°  pitch~22°
-     *   seg2 az~28°  pitch~42°  } NE cluster — azimuth-cluster merge (≤20°) collapses to 1
+     *   seg2 az~28°  pitch~42°  } NE cluster — az+pitch merge (≤20° az, ≤12° pitch) → 16+22, 42 separate
      *   seg3 az~25°  pitch~16°
      *   seg4 az~330° pitch~37° (small NW fragment, may drop as noise)
      */
@@ -377,7 +377,7 @@ describe('roof-topology-graph', () => {
         plane(s.segment_index, s.azimuth_degrees, s.pitch_degrees, 0, 0, 212)
       )
       const merged = mergeCoplanarTopologyPlanes(built, ground)
-      expect(merged.length).toBeLessThanOrEqual(3)
+      expect(merged.length).toBeLessThan(built.length)
       const result = solveRoofTopologyFromSegments(
         bentley!.segments!.map((s) => ({
           segment_index: s.segment_index,
@@ -393,6 +393,8 @@ describe('roof-topology-graph', () => {
       expect(result).not.toBeNull()
       if (result!.status === 'ship') {
         expect(result!.totals.ridgeLf).toBeGreaterThan(0)
+        expect(result!.totals.ridgeLf).toBeGreaterThanOrEqual(32 * 0.8)
+        expect(result!.totals.ridgeLf).toBeLessThanOrEqual(32 * 1.2)
         expect(result!.totals.valleyLf).toBe(0)
         expect(result!.totals.facetCount).toBeLessThanOrEqual(3)
       } else {
@@ -402,22 +404,58 @@ describe('roof-topology-graph', () => {
   })
 
   describe('mergeCoplanarTopologyPlanes azimuth cluster', () => {
-    it('merges three same-azimuth planes with different pitches into one', () => {
+    it('merges same-azimuth planes when pitch spread is within 12°', () => {
       const ground = new Map<number, number>([
         [0, 100],
         [1, 50],
         [2, 25],
       ])
       const planes = [
-        plane(0, 30, 16, 1, 2, 5),
-        plane(1, 28, 22, 1.5, 2.5, 5.1),
-        plane(2, 32, 42, 0.5, 1.5, 4.9),
+        plane(0, 30, 20, 1, 2, 5),
+        plane(1, 28, 25, 1.5, 2.5, 5.1),
+        plane(2, 32, 30, 0.5, 1.5, 4.9),
       ]
       const merged = mergeCoplanarTopologyPlanes(planes, ground)
       expect(merged).toHaveLength(1)
       expect(merged[0].segment_index).toBe(0)
-      expect(merged[0].pitch_degrees).toBeGreaterThan(16)
-      expect(merged[0].pitch_degrees).toBeLessThan(42)
+      expect(merged[0].pitch_degrees).toBeGreaterThan(20)
+      expect(merged[0].pitch_degrees).toBeLessThan(30)
+    })
+
+    it('does not merge same-azimuth planes when pitch spread exceeds 12°', () => {
+      const planes = [plane(0, 30, 15, 1, 2, 5), plane(1, 28, 30, 1.5, 2.5, 5.1)]
+      const merged = mergeCoplanarTopologyPlanes(planes)
+      expect(merged).toHaveLength(2)
+    })
+
+    it('does not transitively merge pitch chains exceeding 12° spread', () => {
+      const ground = new Map<number, number>([
+        [0, 100],
+        [1, 50],
+        [2, 25],
+      ])
+      const planes = [
+        plane(0, 30, 15, 1, 2, 5),
+        plane(1, 28, 27, 1.5, 2.5, 5.1),
+        plane(2, 32, 39, 0.5, 1.5, 4.9),
+      ]
+      const merged = mergeCoplanarTopologyPlanes(planes, ground)
+      expect(merged).toHaveLength(2)
+    })
+
+    it('splits Bentley NE shards: 16+22 merge, 42° stays separate', () => {
+      const ground = new Map<number, number>([
+        [1, 100],
+        [2, 50],
+        [3, 25],
+      ])
+      const planes = [
+        plane(1, 28, 22, 1.5, 2.5, 5.1),
+        plane(2, 32, 42, 0.5, 1.5, 4.9),
+        plane(3, 25, 16, 1, 2, 5),
+      ]
+      const merged = mergeCoplanarTopologyPlanes(planes, ground)
+      expect(merged).toHaveLength(2)
     })
 
     it('does not merge opposing gable faces (~180° apart)', () => {
@@ -455,6 +493,7 @@ describe('roof-topology-graph', () => {
       if (result!.status === 'ship') {
         // Must not ship valley-dominant mis-typed gables (ridge must dominate valleys).
         expect(result!.totals.ridgeLf).toBeGreaterThan(result!.totals.valleyLf)
+        expect(result!.totals.facetCount).toBeGreaterThanOrEqual(3)
       } else {
         expect(result!.status).toBe('force_manual')
         expect(result!.reason.length).toBeGreaterThan(0)
