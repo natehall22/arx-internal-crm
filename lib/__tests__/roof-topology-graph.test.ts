@@ -10,6 +10,7 @@ import {
   polygonAreaSqft,
   solveRoofTopology,
   solveRoofTopologyFromSegments,
+  tryRoofTopologyFromFacets,
   validateRoofTopology,
   verifyFootprint,
   type RoofGraphFacet,
@@ -235,6 +236,59 @@ describe('roof-topology-graph', () => {
       const v = validateRoofTopology(footprint, [overlapA, overlapB], edges, nodes)
       expect(v.ok).toBe(false)
       expect(v.reason).toContain('overlap')
+    })
+  })
+
+  describe('tryRoofTopologyFromFacets', () => {
+    it('builds gable topology from synthetic lat/lng facets', () => {
+      const origin = { lat: 35.0, lng: -80.0 }
+      const mLng = 111320 * Math.cos((origin.lat * Math.PI) / 180)
+      const toLng = (x: number) => origin.lng + x / mLng
+      const toLat = (y: number) => origin.lat + y / 111320
+      const rect = (x0: number, y0: number, x1: number, y1: number) => [
+        { lat: toLat(y0), lng: toLng(x0) },
+        { lat: toLat(y0), lng: toLng(x1) },
+        { lat: toLat(y1), lng: toLng(x1) },
+        { lat: toLat(y1), lng: toLng(x0) },
+      ]
+      const result = tryRoofTopologyFromFacets([
+        {
+          points: rect(-10, 0, 10, 6),
+          suggested_pitch_degrees: 30,
+          suggested_azimuth_degrees: 0,
+          plane_height_at_center_meters: 5,
+          solar_segment_index: 0,
+        },
+        {
+          points: rect(-10, -6, 10, 0),
+          suggested_pitch_degrees: 30,
+          suggested_azimuth_degrees: 180,
+          plane_height_at_center_meters: 5,
+          solar_segment_index: 1,
+        },
+      ])
+      expect(result).not.toBeNull()
+      expect(result!.status).toBe('ship')
+      expect(result!.totals.facetCount).toBe(2)
+      expect(result!.totals.ridgeLf).toBeGreaterThan(0)
+    })
+
+    it('returns null when fewer than two facets have plane metadata', () => {
+      const origin = { lat: 35.0, lng: -80.0 }
+      const mLng = 111320 * Math.cos((origin.lat * Math.PI) / 180)
+      const toLng = (x: number) => origin.lng + x / mLng
+      const toLat = (y: number) => origin.lat + y / 111320
+      const ring = [
+        { lat: toLat(-6), lng: toLng(-10) },
+        { lat: toLat(-6), lng: toLng(10) },
+        { lat: toLat(6), lng: toLng(10) },
+        { lat: toLat(6), lng: toLng(-10) },
+      ]
+      expect(
+        tryRoofTopologyFromFacets([
+          { points: ring, suggested_pitch_degrees: 30, suggested_azimuth_degrees: 0, plane_height_at_center_meters: 5 },
+        ])
+      ).toBeNull()
     })
   })
 

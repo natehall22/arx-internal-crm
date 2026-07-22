@@ -1488,3 +1488,101 @@ export function solveRoofTopologyFromSegments(
   if (planes.length < 1) return emptyResult('no planes after consolidation', footprint)
   return solveRoofTopology({ planes, footprint, sourcePlanes, groundAreaSqftBySegment })
 }
+
+/** Minimal facet fields needed to run the topology solver from measure-tool sections. */
+export type TopologyFacetInput = {
+  points: LatLng[]
+  pitch_degrees?: number | null
+  suggested_pitch_degrees?: number | null
+  facing_azimuth_degrees?: number | null
+  suggested_azimuth_degrees?: number | null
+  plane_height_at_center_meters?: number | null
+  solar_segment_index?: number | null
+  center?: LatLng | null
+}
+
+function resolveTopologyFacetAzimuth(facet: TopologyFacetInput): number | null {
+  if (facet.facing_azimuth_degrees != null && Number.isFinite(facet.facing_azimuth_degrees)) {
+    return facet.facing_azimuth_degrees
+  }
+  if (facet.suggested_azimuth_degrees != null && Number.isFinite(facet.suggested_azimuth_degrees)) {
+    return facet.suggested_azimuth_degrees
+  }
+  return null
+}
+
+function localToLatLng(origin: LatLng, p: ReconPoint): LatLng {
+  const mLng = localMetersPerDegLng(origin.lat)
+  return {
+    lat: origin.lat + p.y / M_PER_DEG_LAT,
+    lng: origin.lng + p.x / mLng,
+  }
+}
+
+/**
+ * Build segments + convex-hull footprint from measure-tool facets and run the topology solver.
+ * Returns null when inputs are insufficient (<2 planes, <3 footprint vertices).
+ */
+export function tryRoofTopologyFromFacets(facets: TopologyFacetInput[]): RoofTopologyResult | null {
+  if (facets.length < 2) return null
+
+  const allPoints: LatLng[] = []
+  for (const facet of facets) {
+    if (facet.points.length >= 3) allPoints.push(...facet.points)
+  }
+  if (allPoints.length < 3) return null
+
+  const origin = centroidLatLng(allPoints)
+  if (!origin) return null
+
+  const mLng = localMetersPerDegLng(origin.lat)
+  const toLocal = (p: LatLng): ReconPoint => ({
+    x: (p.lng - origin.lng) * mLng,
+    y: (p.lat - origin.lat) * M_PER_DEG_LAT,
+  })
+
+  const hullLocal = convexHull(allPoints.map(toLocal))
+  if (hullLocal.length < 3) return null
+  const footprintLatLng = hullLocal.map((p) => localToLatLng(origin, p))
+
+  const segments: Array<{
+    segment_index: number
+    pitch_degrees: number | null
+    azimuth_degrees: number | null
+    plane_height_at_center_meters: number | null
+    center: LatLng | null
+  }> = []
+
+  for (let i = 0; i < facets.length; i++) {
+    const facet = facets[i]
+    const pitch = facet.suggested_pitch_degrees ?? facet.pitch_degrees ?? null
+    const azimuth = resolveTopologyFacetAzimuth(facet)
+    const height = facet.plane_height_at_center_meters ?? null
+    if (
+      pitch == null ||
+      azimuth == null ||
+      height == null ||
+      !Number.isFinite(pitch) ||
+      !Number.isFinite(azimuth) ||
+      !Number.isFinite(height)
+    ) {
+      continue
+    }
+
+    const center =
+      facet.center ?? (facet.points.length >= 3 ? centroidLatLng(facet.points) : null)
+    if (!center) continue
+
+    segments.push({
+      segment_index:
+        typeof facet.solar_segment_index === 'number' ? facet.solar_segment_index : i,
+      pitch_degrees: pitch,
+      azimuth_degrees: azimuth,
+      plane_height_at_center_meters: height,
+      center,
+    })
+  }
+
+  if (segments.length < 2) return null
+  return solveRoofTopologyFromSegments(segments, footprintLatLng, origin)
+}

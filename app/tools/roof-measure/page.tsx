@@ -5,8 +5,14 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { shouldShowRoofMeasureDrawingHintsForUser } from '@/lib/permissions'
-import { ROOF_MEASURE_VISION_TRACE_ENABLED, USE_PLANE_INTERSECTION_LF, ROOF_MEASURE_RECON_LF } from '@/lib/roof-measure-flags'
+import {
+  ROOF_MEASURE_VISION_TRACE_ENABLED,
+  USE_PLANE_INTERSECTION_LF,
+  ROOF_MEASURE_RECON_LF,
+  ROOF_MEASURE_TOPOLOGY_GRAPH,
+} from '@/lib/roof-measure-flags'
 import { reconstructRoofLf } from '@/lib/roof-plane-reconstruction'
+import { tryRoofTopologyFromFacets } from '@/lib/roof-topology-graph'
 import { clampVisionAlignStaticZoom } from '@/lib/static-satellite-map'
 import {
   haversineDistanceFeet,
@@ -2609,36 +2615,69 @@ export default function RoofMeasurePage() {
     )
     const geoEdges = slopeCorrectEdgeTotals(rawGeoEdges, multByFacetId)
 
-    // Plane-intersection reconstruction (Phase 3): clean, correctly-typed, slope-corrected
-    // ridge/hip/valley/eave/rake LF for CONVEX hip/gable roofs — fixes the 2D classifier's
-    // phantom rakes / mis-typed hips. Self-gated: only used when reliable (convex, no valleys),
-    // so complex/valley roofs keep the 2D result. Flag-gated for staged rollout.
-    const reconLf = ROOF_MEASURE_RECON_LF
-      ? reconstructRoofLf(
-          currentFacets.map((f) => ({
-            points: f.points,
-            suggested_pitch_degrees: f.suggested_pitch_degrees ?? f.pitch_degrees ?? null,
-            suggested_azimuth_degrees: resolveFacingAzimuthDegrees(f),
-            plane_height_at_center_meters: f.plane_height_at_center_meters ?? null,
-            center: null,
-          }))
+    // LF precedence: manual ridge/valley lines (below) > topology graph (ship) > recon LF > 2D geoEdges.
+    let baseEdges = geoEdges
+    let topologyNote: string | null = null
+    let topologyShipped = false
+
+    if (ROOF_MEASURE_TOPOLOGY_GRAPH) {
+      const topo = tryRoofTopologyFromFacets(
+        currentFacets.map((f) => ({
+          points: f.points,
+          pitch_degrees: f.pitch_degrees ?? null,
+          suggested_pitch_degrees: f.suggested_pitch_degrees ?? null,
+          facing_azimuth_degrees: f.facing_azimuth_degrees ?? null,
+          suggested_azimuth_degrees: f.suggested_azimuth_degrees ?? null,
+          plane_height_at_center_meters: f.plane_height_at_center_meters ?? null,
+          solar_segment_index: f.solar_segment_index ?? null,
+        }))
+      )
+      if (topo?.status === 'ship') {
+        baseEdges = {
+          ...geoEdges,
+          ridges_lf: topo.totals.ridgeLf,
+          hips_lf: topo.totals.hipLf,
+          valleys_lf: topo.totals.valleyLf,
+          eaves_lf: topo.totals.eavesLf,
+          rakes_lf: topo.totals.rakesLf,
+          unclassified_shared_lf: 0,
+        }
+        topologyNote = 'Linear footage from constrained topology graph (ship).'
+        topologyShipped = true
+      } else if (topo) {
+        topologyNote = `Topology solver deferred to manual/2D: ${topo.reason}`
+      }
+    }
+
+    if (!topologyShipped && ROOF_MEASURE_RECON_LF) {
+      const reconLf = reconstructRoofLf(
+        currentFacets.map((f) => ({
+          points: f.points,
+          suggested_pitch_degrees: f.suggested_pitch_degrees ?? f.pitch_degrees ?? null,
+          suggested_azimuth_degrees: resolveFacingAzimuthDegrees(f),
+          plane_height_at_center_meters: f.plane_height_at_center_meters ?? null,
+          center: null,
+        }))
+      )
+      const useReconLf = Boolean(reconLf?.reliable)
+      if (useReconLf && reconLf) {
+        baseEdges = {
+          ...geoEdges,
+          ridges_lf: reconLf.ridgeLf,
+          hips_lf: reconLf.hipLf,
+          valleys_lf: reconLf.valleyLf,
+          eaves_lf: reconLf.eavesLf,
+          rakes_lf: reconLf.rakesLf,
+          unclassified_shared_lf: 0,
+        }
+        validationNotes.push(
+          'Linear footage from plane-intersection reconstruction (clean ridge/hip/valley).'
         )
-      : null
-    const useReconLf = Boolean(reconLf?.reliable)
-    const baseEdges =
-      useReconLf && reconLf
-        ? {
-            ...geoEdges,
-            ridges_lf: reconLf.ridgeLf,
-            hips_lf: reconLf.hipLf,
-            valleys_lf: reconLf.valleyLf,
-            eaves_lf: reconLf.eavesLf,
-            rakes_lf: reconLf.rakesLf,
-            unclassified_shared_lf: 0,
-          }
-        : geoEdges
-    if (useReconLf) {
-      validationNotes.push('Linear footage from plane-intersection reconstruction (clean ridge/hip/valley).')
+      }
+    }
+
+    if (topologyNote) {
+      validationNotes.push(topologyNote)
     }
 
     // Drawn/AI lines are plan-view polylines — resolve each to its true sloped length.
