@@ -3,18 +3,21 @@ jest.mock('geotiff-geokeys-to-proj4', () => ({}))
 jest.mock('proj4', () => jest.fn())
 
 import {
+  areaWeightedPitchMaxDeviationDegrees,
   brightAccessorySegmentIndices,
   facetsFromSplitMask,
   filterSplitFacetsByPin,
   largestNonOverlappingPlaneSubset,
   maskPlaneFacetSuggestions,
   mergeCoplanarSolarSegments,
+  mergedPlanesFailPitchHomogeneity,
   pruneSplitPlaneSlivers,
   segmentFacetSuggestions,
   selectUsableSplitFacets,
   splitFacetsMeetMaskQualityThreshold,
   splitFacetsMeetRelaxedMaskQualityThreshold,
   topologySimplifiedRings,
+  topologyPartitionRings,
   type SolarMaskFacetPayload,
   type SolarMaskSegment,
 } from '@/lib/solar-roof-mask-facets'
@@ -293,6 +296,36 @@ describe('split mask quality threshold', () => {
     expect(selectUsableSplitFacets([largeA, largeB, overlapping], 980)?.facets).toHaveLength(2)
   })
 
+  it('fails closed when sliver pruning would drop a genuine uncovered roof end', () => {
+    const d = 0.00002
+    const left = facet('left', 32, -96, {
+      estimated_sq_ft: 1000,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 - 2 * d },
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 - d, lng: -96 },
+        { lat: 32 - d, lng: -96 - 2 * d },
+      ],
+    })
+    const right = facet('right', 32, -96, {
+      estimated_sq_ft: 1000,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 + d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 },
+      ],
+    })
+    const genuineEnd = facet('end', 32, -95.9999, { estimated_sq_ft: 60 })
+    const noise = facet('noise', 32.0006, -96, { estimated_sq_ft: 20 })
+
+    expect(pruneSplitPlaneSlivers([left, right, genuineEnd, noise]).map((f) => f.id).sort()).toEqual([
+      'left',
+      'right',
+    ])
+    expect(selectUsableSplitFacets([left, right, genuineEnd, noise], 2080)).toBeNull()
+  })
+
   it('returns null for fully overlapping planes even when coverage is good', () => {
     // Same footprint — definite interior overlap; nonoverlap search finds no pair ≥2.
     const a = facet('a', 32, -96, { estimated_sq_ft: 500 })
@@ -550,6 +583,50 @@ describe('exclusive split plane lock', () => {
       )
     ).toBe(true)
   })
+
+  it('partition solver derives a finite three-plane junction with shared vertices, no overlap', () => {
+    const bin = new Uint8Array(width * height)
+    const labels = new Int32Array(width * height).fill(-1)
+    for (let row = 6; row < 30; row++) {
+      for (let col = 6; col < 42; col++) {
+        const i = row * width + col
+        bin[i] = 1
+        labels[i] = col < 24 ? 0 : row < 18 ? 1 : 2
+      }
+    }
+    const ordered = [
+      { ...segsPx[0], col: 15 },
+      { ...segsPx[0], segment_index: 1, col: 33, row: 12 },
+      { ...segsPx[0], segment_index: 2, col: 33, row: 24 },
+    ]
+    const rings = topologyPartitionRings({ bin, labels, width, height, ordered })
+
+    // A non-null return already proves every acceptance gate passed: simple polygons,
+    // <=72 vertices, >=0.9 per-plane fidelity, coverage band, and zero raster overlap.
+    expect(rings).not.toBeNull()
+    expect(rings?.size).toBe(3)
+    expect(Array.from(rings?.values() ?? []).every((ring) => ring.length - 1 <= 8)).toBe(true)
+
+    // All three planes meet at the shared junction near (24, 18); because each arc is
+    // simplified once and reused, the owners' junction vertices coincide.
+    const junctionEnds = Array.from(rings?.values() ?? []).map((ring) =>
+      ring
+        .slice(0, -1)
+        .reduce((best, point) =>
+          Math.hypot(point[0] - 24, point[1] - 18) < Math.hypot(best[0] - 24, best[1] - 18)
+            ? point
+            : best
+        )
+    )
+    expect(junctionEnds.every(([x, y]) => Math.hypot(x - 24, y - 18) <= 1)).toBe(true)
+    expect(
+      junctionEnds.every((point, index) =>
+        junctionEnds
+          .slice(index + 1)
+          .every((other) => Math.hypot(point[0] - other[0], point[1] - other[1]) <= Math.SQRT2)
+      )
+    ).toBe(true)
+  })
 })
 
 describe('coplanar Solar segment merging', () => {
@@ -622,6 +699,133 @@ describe('coplanar Solar segment merging', () => {
     )
 
     expect(merged).toHaveLength(2)
+  })
+
+  it('does not merge pitch-distinct faces that only share elevation at centers', () => {
+    // Greenway-class dormer: ~6.6° shallower, similar height/azimuth, ~6 m apart so the
+    // center-height check still passes — separation must come from the pitch-soft nesting
+    // rule (smaller center not inside the larger Solar bbox).
+    const main: SolarMaskSegment = {
+      segment_index: 0,
+      pitch_degrees: 21.3,
+      azimuth_degrees: 305,
+      area_m2: 40,
+      ground_area_m2: 40,
+      plane_height_at_center_meters: 234.6,
+      center: { lat: 35.0, lng: -80.0 },
+      bounding_box: {
+        sw: { lat: 34.9997, lng: -80.0003 },
+        ne: { lat: 35.0001, lng: -79.9998 },
+      },
+    }
+    const dormer: SolarMaskSegment = {
+      segment_index: 5,
+      pitch_degrees: 14.7,
+      azimuth_degrees: 323,
+      area_m2: 15,
+      ground_area_m2: 15,
+      // Height chosen so main plane predicts dormer center within 1 m (matches live Greenway).
+      plane_height_at_center_meters: 234.9,
+      center: { lat: 35.00005, lng: -79.9997 },
+      bounding_box: {
+        sw: { lat: 35.0000, lng: -79.99975 },
+        ne: { lat: 35.0001, lng: -79.99965 },
+      },
+    }
+
+    const merged = mergeCoplanarSolarSegments([main, dormer], { lat: 35.0, lng: -80.0 })
+    expect(merged).toHaveLength(2)
+  })
+
+  it('still merges same-pitch contiguous shards of one physical plane', () => {
+    // Pitch noise well under the soft threshold; identical plane height so center-height
+    // coplanarity holds (Epworth/Kim-Green shard class).
+    const a: SolarMaskSegment = {
+      segment_index: 0,
+      pitch_degrees: 26.1,
+      azimuth_degrees: 154,
+      area_m2: 40,
+      ground_area_m2: 40,
+      plane_height_at_center_meters: 192,
+      center: { lat: 35.0, lng: -80.0 },
+      bounding_box: {
+        sw: { lat: 34.9998, lng: -80.0003 },
+        ne: { lat: 35.0002, lng: -79.9997 },
+      },
+    }
+    const b: SolarMaskSegment = {
+      segment_index: 1,
+      pitch_degrees: 26.5,
+      azimuth_degrees: 155,
+      area_m2: 14,
+      ground_area_m2: 14,
+      plane_height_at_center_meters: 192,
+      center: { lat: 35.0, lng: -80.00005 },
+      bounding_box: {
+        sw: { lat: 34.99995, lng: -80.00015 },
+        ne: { lat: 35.00015, lng: -79.99995 },
+      },
+    }
+
+    const merged = mergeCoplanarSolarSegments([a, b], { lat: 35, lng: -80 })
+    expect(merged).toHaveLength(1)
+    expect(merged[0].merged_segment_count).toBe(2)
+    expect(merged[0].constituent_pitches).toEqual([26.1, 26.5])
+  })
+})
+
+describe('pitch homogeneity safety gate', () => {
+  it('rejects a bimodal-pitch merged plane (area-weighted deviation)', () => {
+    const bimodal: SolarMaskSegment = {
+      segment_index: 0,
+      pitch_degrees: 20,
+      azimuth_degrees: 180,
+      area_m2: 50,
+      ground_area_m2: 50,
+      plane_height_at_center_meters: 200,
+      center: { lat: 35, lng: -80 },
+      bounding_box: null,
+      merged_segment_count: 2,
+      constituent_pitches: [14, 28],
+      constituent_ground_areas: [25, 25],
+    }
+    expect(areaWeightedPitchMaxDeviationDegrees([14, 28], [25, 25])).toBe(7)
+    expect(mergedPlanesFailPitchHomogeneity([bimodal])).toBe(true)
+  })
+
+  it('rejects a transitive pitch chain that hides under the mean', () => {
+    const chained: SolarMaskSegment = {
+      segment_index: 0,
+      pitch_degrees: 20,
+      azimuth_degrees: 180,
+      area_m2: 60,
+      ground_area_m2: 60,
+      plane_height_at_center_meters: 200,
+      center: { lat: 35, lng: -80 },
+      bounding_box: null,
+      merged_segment_count: 3,
+      constituent_pitches: [14, 20, 26],
+      constituent_ground_areas: [20, 20, 20],
+    }
+    expect(areaWeightedPitchMaxDeviationDegrees([14, 20, 26], [20, 20, 20])).toBe(6)
+    expect(mergedPlanesFailPitchHomogeneity([chained])).toBe(true)
+  })
+
+  it('allows a same-face shard group under the deviation cap', () => {
+    const ok: SolarMaskSegment = {
+      segment_index: 0,
+      pitch_degrees: 26,
+      azimuth_degrees: 180,
+      area_m2: 50,
+      ground_area_m2: 50,
+      plane_height_at_center_meters: 200,
+      center: { lat: 35, lng: -80 },
+      bounding_box: null,
+      merged_segment_count: 3,
+      constituent_pitches: [26.0, 26.4, 27.0],
+      constituent_ground_areas: [40, 14, 10],
+    }
+    expect(mergedPlanesFailPitchHomogeneity([ok])).toBe(false)
   })
 })
 

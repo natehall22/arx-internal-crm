@@ -24,6 +24,10 @@ export type SolarMaskSegment = {
   } | null
   /** Number of raw Solar fragments represented by this merged physical plane. */
   merged_segment_count?: number
+  /** Pitches (° ) of raw Solar fragments folded into this plane — homogeneity gate. */
+  constituent_pitches?: number[]
+  /** Ground areas (m²) paired with {@link constituent_pitches} for area-weighted checks. */
+  constituent_ground_areas?: number[]
 }
 
 export type SolarMaskFacetPayload = {
@@ -942,9 +946,62 @@ export function largestNonOverlappingPlaneSubset(
   return kept
 }
 
+/** A dropped facet at/above this footprint is a real roof plane, not a sliver. */
+const GENUINE_FACET_MIN_SQFT = 50
+
+function facetCentroidLatLng(f: SolarMaskFacetPayload): { lat: number; lng: number } {
+  const v = f.lat_lng_vertices
+  return {
+    lat: v.reduce((s, p) => s + p.lat, 0) / v.length,
+    lng: v.reduce((s, p) => s + p.lng, 0) / v.length,
+  }
+}
+
+function pointInLatLngPolygon(
+  pt: { lat: number; lng: number },
+  poly: { lat: number; lng: number }[]
+): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].lng
+    const yi = poly[i].lat
+    const xj = poly[j].lng
+    const yj = poly[j].lat
+    if (yi > pt.lat !== yj > pt.lat && pt.lng < ((xj - xi) * (pt.lat - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+/**
+ * True when `kept` omits a genuine (>= {@link GENUINE_FACET_MIN_SQFT}) facet whose footprint is
+ * NOT covered by the kept planes — i.e. real roof area was lost. Dropping a spurious facet that
+ * overlaps a kept plane (a duplicate detection) is fine and returns false; dropping a separate
+ * real facet (e.g. a hip end pruned as a relative sliver) returns true, so the caller can degrade
+ * to the whole-mask contour (a robust total) instead of shipping an under-counted split.
+ */
+export function splitDropsGenuineFacet(
+  original: SolarMaskFacetPayload[],
+  kept: SolarMaskFacetPayload[]
+): boolean {
+  const keptIds = new Set(kept.map((f) => f.id))
+  for (const f of original) {
+    if (keptIds.has(f.id)) continue
+    if (splitPlaneFootprintSqft(f) < GENUINE_FACET_MIN_SQFT) continue
+    const centroid = facetCentroidLatLng(f)
+    const coveredByKept = kept.some((k) => pointInLatLngPolygon(centroid, k.lat_lng_vertices))
+    if (!coveredByKept) return true
+  }
+  return false
+}
+
 /**
  * When the strict quality gate fails, prefer a cleaned/relaxed multi-plane split over
- * falling through to whole-roof (one downslope for a gable) or Solar bboxes.
+ * falling through to whole-roof (one downslope for a gable) or Solar bboxes. A degraded
+ * candidate that drops a genuine, uncovered facet is rejected (returns null) so the caller
+ * falls back to the whole-mask contour — a robust total for the public estimate and an honest
+ * "outline only" for ordering, instead of an under-counted partial split.
  */
 export function selectUsableSplitFacets(
   facets: SolarMaskFacetPayload[],
@@ -966,17 +1023,21 @@ export function selectUsableSplitFacets(
   const pruned = pruneSplitPlaneSlivers(facets)
   if (
     pruned.length !== facets.length &&
+    !splitDropsGenuineFacet(facets, pruned) &&
     splitFacetsMeetMaskQualityThreshold(pruned, targetMaskFootprintSqft)
   ) {
     return { facets: pruned, mode: 'pruned' }
   }
   const relaxedCandidate = pruned.length >= 2 ? pruned : facets
-  if (splitFacetsMeetRelaxedMaskQualityThreshold(relaxedCandidate, targetMaskFootprintSqft)) {
+  if (
+    !splitDropsGenuineFacet(facets, relaxedCandidate) &&
+    splitFacetsMeetRelaxedMaskQualityThreshold(relaxedCandidate, targetMaskFootprintSqft)
+  ) {
     return { facets: relaxedCandidate, mode: 'relaxed' }
   }
 
   const nonOverlap = largestNonOverlappingPlaneSubset(relaxedCandidate)
-  if (nonOverlap.length >= 2) {
+  if (nonOverlap.length >= 2 && !splitDropsGenuineFacet(facets, nonOverlap)) {
     if (splitFacetsMeetMaskQualityThreshold(nonOverlap, targetMaskFootprintSqft)) {
       return { facets: nonOverlap, mode: 'nonoverlap' }
     }
@@ -1229,7 +1290,90 @@ function labelRoofMaskBySegments(
 const M_PER_DEG_LAT = 111320
 const COPLANAR_AZIMUTH_TOLERANCE_DEG = 25
 const COPLANAR_PITCH_TOLERANCE_DEG = 8
+/**
+ * Pitch gaps at or below this are treated as Solar noise on one physical plane (center-height
+ * coplanarity is enough). Gaps above this but ≤ {@link COPLANAR_PITCH_TOLERANCE_DEG} only merge
+ * when the smaller fragment's center sits inside the larger fragment's Solar bbox — otherwise a
+ * shallower dormer at the main slope's elevation fools the center-height check (Greenway #5/#9).
+ */
+const COPLANAR_PITCH_SOFT_DEG = 4
 const COPLANAR_HEIGHT_TOLERANCE_M = 1
+/**
+ * After merge+split: reject any shipped plane whose constituents are pitch-heterogeneous.
+ * Uses area-weighted max deviation from the mean AND raw pitch span so a transitive merge
+ * chain (e.g. 14°→20°→26°) cannot hide under a soft mean while still spanning a dormer.
+ */
+const MAX_MERGED_PLANE_PITCH_DEV_DEG = 6
+const MAX_MERGED_PLANE_PITCH_SPAN_DEG = 8
+
+/**
+ * Max |pitch − area-weighted mean| across constituent fragments. Used by the post-split
+ * homogeneity gate so a plane that absorbed a distinct-pitch structure fails closed.
+ */
+export function areaWeightedPitchMaxDeviationDegrees(
+  pitches: number[],
+  weights: number[]
+): number {
+  if (pitches.length === 0) return 0
+  let totalWeight = 0
+  let weightedSum = 0
+  for (let i = 0; i < pitches.length; i++) {
+    const pitch = pitches[i]
+    if (!Number.isFinite(pitch)) continue
+    const w = Math.max(weights[i] ?? 1, 0.01)
+    totalWeight += w
+    weightedSum += pitch * w
+  }
+  if (totalWeight <= 0) return 0
+  const mean = weightedSum / totalWeight
+  let maxDev = 0
+  for (let i = 0; i < pitches.length; i++) {
+    const pitch = pitches[i]
+    if (!Number.isFinite(pitch)) continue
+    maxDev = Math.max(maxDev, Math.abs(pitch - mean))
+  }
+  return maxDev
+}
+
+export function pitchSpanDegrees(pitches: number[]): number {
+  const finite = pitches.filter((p) => Number.isFinite(p))
+  if (finite.length === 0) return 0
+  return Math.max(...finite) - Math.min(...finite)
+}
+
+/**
+ * True when any merged plane's constituents are too pitch-heterogeneous for safe ordering.
+ */
+export function mergedPlanesFailPitchHomogeneity(
+  mergedSegments: SolarMaskSegment[],
+  maxDeviationDeg: number = MAX_MERGED_PLANE_PITCH_DEV_DEG,
+  maxSpanDeg: number = MAX_MERGED_PLANE_PITCH_SPAN_DEG
+): boolean {
+  for (const segment of mergedSegments) {
+    const pitches =
+      segment.constituent_pitches ??
+      (segment.pitch_degrees != null && Number.isFinite(segment.pitch_degrees)
+        ? [segment.pitch_degrees]
+        : [])
+    if (pitches.length < 2) continue
+    const weights =
+      segment.constituent_ground_areas ??
+      pitches.map((_, i) => {
+        if (segment.constituent_pitches == null && i === 0) {
+          return Math.max(segment.ground_area_m2 ?? segment.area_m2 ?? 1, 0.01)
+        }
+        return 1
+      })
+    const maxDev = areaWeightedPitchMaxDeviationDegrees(pitches, weights)
+    const span = pitchSpanDegrees(pitches)
+    // >= on deviation so a balanced 14/20/26 chain (dev exactly 6) fails closed.
+    if (maxDev >= maxDeviationDeg || span > maxSpanDeg) {
+      return true
+    }
+  }
+  return false
+}
+
 /** Reject connected mask pixels that are not close to any known Solar plane (for example, a low porch). */
 const MAX_DSM_PLANE_HEIGHT_ERROR_M = Number(
   process.env.ROOF_MEASURE_DSM_MAX_PLANE_ERROR_M ?? '1.5'
@@ -1294,12 +1438,29 @@ function circularDegreesDifference(a: number, b: number): number {
   return Math.min(diff, 360 - diff)
 }
 
+function pointInSegmentBoundingBox(
+  point: { lat: number; lng: number },
+  box: NonNullable<SolarMaskSegment['bounding_box']>
+): boolean {
+  return (
+    point.lat >= box.sw.lat &&
+    point.lat <= box.ne.lat &&
+    point.lng >= box.sw.lng &&
+    point.lng <= box.ne.lng
+  )
+}
+
 /**
  * Merge Solar fragments that describe the same physical roof plane. Solar sometimes
  * subdivides a simple face into several near-identical segments (observed at 276
  * Epworth), which otherwise produces blocky internal seams. Direction/pitch alone is
  * insufficient because dormers may be parallel, so both plane equations must also
  * predict the other segment center's elevation within a tight tolerance.
+ *
+ * Pitch-soft gaps (≤ {@link COPLANAR_PITCH_SOFT_DEG}) merge on center-height coplanarity alone
+ * (same-pitch shards). Larger gaps within the hard pitch tolerance additionally require the
+ * smaller fragment's center to lie inside the larger fragment's Solar bbox — dormers that sit
+ * at the main plane's elevation but are not nested bbox-shards stay separate (Greenway).
  */
 export function mergeCoplanarSolarSegments(
   segments: SolarMaskSegment[],
@@ -1312,7 +1473,9 @@ export function mergeCoplanarSolarSegments(
       Number.isFinite(s.azimuth_degrees) &&
       Number.isFinite(s.plane_height_at_center_meters)
   )
-  if (eligible.length < 2) return segments
+  if (eligible.length < 2) {
+    return segments.map((segment) => annotateConstituentPitchMetadata(segment, [segment]))
+  }
 
   const planes = buildMaskPlanes(eligible, origin)
   const planeByIndex = new Map(planes.map((p) => [p.segment_index, p]))
@@ -1336,19 +1499,35 @@ export function mergeCoplanarSolarSegments(
       const b = eligible[j]
       const pb = planeByIndex.get(b.segment_index)
       if (!pb || !b.center) continue
+      const pitchGap = Math.abs((a.pitch_degrees as number) - (b.pitch_degrees as number))
       if (
         circularDegreesDifference(a.azimuth_degrees as number, b.azimuth_degrees as number) >
           COPLANAR_AZIMUTH_TOLERANCE_DEG ||
-        Math.abs((a.pitch_degrees as number) - (b.pitch_degrees as number)) >
-          COPLANAR_PITCH_TOLERANCE_DEG
+        pitchGap > COPLANAR_PITCH_TOLERANCE_DEG
       ) {
         continue
       }
       const errAAtB = Math.abs(planePredictedHeight(pa, pb.cx, pb.cy) - pb.cz)
       const errBAtA = Math.abs(planePredictedHeight(pb, pa.cx, pa.cy) - pa.cz)
-      if (Math.max(errAAtB, errBAtA) <= COPLANAR_HEIGHT_TOLERANCE_M) {
-        union(a.segment_index, b.segment_index)
+      if (Math.max(errAAtB, errBAtA) > COPLANAR_HEIGHT_TOLERANCE_M) {
+        continue
       }
+      // Material pitch gap: require nested Solar bbox (smaller center inside larger box).
+      // Without a bbox we cannot prove nesting → keep separate (fail closed on merge).
+      if (pitchGap > COPLANAR_PITCH_SOFT_DEG) {
+        const weightA = Math.max(a.ground_area_m2 ?? a.area_m2 ?? 1, 0.01)
+        const weightB = Math.max(b.ground_area_m2 ?? b.area_m2 ?? 1, 0.01)
+        const smaller = weightA <= weightB ? a : b
+        const larger = weightA <= weightB ? b : a
+        if (
+          !larger.bounding_box ||
+          !smaller.center ||
+          !pointInSegmentBoundingBox(smaller.center, larger.bounding_box)
+        ) {
+          continue
+        }
+      }
+      union(a.segment_index, b.segment_index)
     }
   }
 
@@ -1361,7 +1540,7 @@ export function mergeCoplanarSolarSegments(
   }
 
   return Array.from(groups.values()).map((group) => {
-    if (group.length === 1) return group[0]
+    if (group.length === 1) return annotateConstituentPitchMetadata(group[0], group)
     const weightOf = (s: SolarMaskSegment) => Math.max(s.ground_area_m2 ?? s.area_m2 ?? 1, 0.01)
     const totalWeight = group.reduce((sum, s) => sum + weightOf(s), 0)
     const weighted = (value: (s: SolarMaskSegment) => number | null): number | null => {
@@ -1382,33 +1561,67 @@ export function mergeCoplanarSolarSegments(
     const boxes = group
       .map((s) => s.bounding_box)
       .filter((box): box is NonNullable<SolarMaskSegment['bounding_box']> => Boolean(box))
-    return {
-      ...representative,
-      merged_segment_count: group.length,
-      pitch_degrees: weighted((s) => s.pitch_degrees),
-      azimuth_degrees: (Math.atan2(azY, azX) * 180) / Math.PI + (azY < 0 ? 360 : 0),
-      area_m2: group.reduce((sum, s) => sum + (s.area_m2 ?? 0), 0),
-      ground_area_m2: group.reduce((sum, s) => sum + (s.ground_area_m2 ?? 0), 0),
-      plane_height_at_center_meters: weighted((s) => s.plane_height_at_center_meters),
-      center: {
-        lat: group.reduce((sum, s) => sum + (s.center?.lat ?? origin.lat) * weightOf(s), 0) / totalWeight,
-        lng: group.reduce((sum, s) => sum + (s.center?.lng ?? origin.lng) * weightOf(s), 0) / totalWeight,
+    return annotateConstituentPitchMetadata(
+      {
+        ...representative,
+        merged_segment_count: group.length,
+        pitch_degrees: weighted((s) => s.pitch_degrees),
+        azimuth_degrees: (Math.atan2(azY, azX) * 180) / Math.PI + (azY < 0 ? 360 : 0),
+        area_m2: group.reduce((sum, s) => sum + (s.area_m2 ?? 0), 0),
+        ground_area_m2: group.reduce((sum, s) => sum + (s.ground_area_m2 ?? 0), 0),
+        plane_height_at_center_meters: weighted((s) => s.plane_height_at_center_meters),
+        center: {
+          lat:
+            group.reduce((sum, s) => sum + (s.center?.lat ?? origin.lat) * weightOf(s), 0) /
+            totalWeight,
+          lng:
+            group.reduce((sum, s) => sum + (s.center?.lng ?? origin.lng) * weightOf(s), 0) /
+            totalWeight,
+        },
+        bounding_box:
+          boxes.length > 0
+            ? {
+                sw: {
+                  lat: Math.min(...boxes.map((box) => box.sw.lat)),
+                  lng: Math.min(...boxes.map((box) => box.sw.lng)),
+                },
+                ne: {
+                  lat: Math.max(...boxes.map((box) => box.ne.lat)),
+                  lng: Math.max(...boxes.map((box) => box.ne.lng)),
+                },
+              }
+            : null,
       },
-      bounding_box:
-        boxes.length > 0
-          ? {
-              sw: {
-                lat: Math.min(...boxes.map((box) => box.sw.lat)),
-                lng: Math.min(...boxes.map((box) => box.sw.lng)),
-              },
-              ne: {
-                lat: Math.max(...boxes.map((box) => box.ne.lat)),
-                lng: Math.max(...boxes.map((box) => box.ne.lng)),
-              },
-            }
-          : null,
-    }
+      group
+    )
   })
+}
+
+function annotateConstituentPitchMetadata(
+  segment: SolarMaskSegment,
+  group: SolarMaskSegment[]
+): SolarMaskSegment {
+  const pitches: number[] = []
+  const areas: number[] = []
+  for (const member of group) {
+    if (member.constituent_pitches && member.constituent_pitches.length > 0) {
+      for (let i = 0; i < member.constituent_pitches.length; i++) {
+        pitches.push(member.constituent_pitches[i])
+        areas.push(
+          member.constituent_ground_areas?.[i] ??
+            Math.max(member.ground_area_m2 ?? member.area_m2 ?? 1, 0.01)
+        )
+      }
+    } else if (member.pitch_degrees != null && Number.isFinite(member.pitch_degrees)) {
+      pitches.push(member.pitch_degrees)
+      areas.push(Math.max(member.ground_area_m2 ?? member.area_m2 ?? 1, 0.01))
+    }
+  }
+  return {
+    ...segment,
+    constituent_pitches: pitches.length > 0 ? pitches : segment.constituent_pitches,
+    constituent_ground_areas: areas.length > 0 ? areas : segment.constituent_ground_areas,
+  }
 }
 
 /**
@@ -2159,6 +2372,224 @@ export function topologySimplifiedRings(options: {
   return candidates
 }
 
+/**
+ * Finite planar-partition simplification for Village/Greenway-class roofs where the per-ring
+ * {@link topologySimplifiedRings} rejects (curled contours over the 72-vertex cap). Instead of
+ * simplifying each plane ring independently, this treats the exclusive raster boundary as a
+ * shared graph: every boundary run between junction/endpoint anchors is a finite arc, simplified
+ * exactly ONCE and reused (reversed) by both owning planes. Shared interior arcs keep a tight
+ * epsilon (fidelity); exterior roof-outline arcs decimate at the normal epsilon. Junction
+ * coordinates are therefore identical across owners by construction, so facets meet exactly — no
+ * gaps, no overlap. Same authoritative fidelity / coverage / raster-overlap gates as
+ * topologySimplifiedRings; any failure returns null so the caller fails closed to bbox/manual.
+ *
+ * Stages 1, 2 and 4 mirror topologySimplifiedRings (dedupe into a shared helper once this method
+ * is promoted ahead of the per-ring path); only stage 3 (per-arc simplification) is new.
+ */
+export function topologyPartitionRings(options: {
+  bin: Uint8Array
+  labels: Int32Array
+  width: number
+  height: number
+  ordered: SegPx[]
+}): Map<number, [number, number][]> | null {
+  const { bin, labels, width, height, ordered } = options
+  const INTERIOR_ARC_EPS_PX = 1.5
+  const EXTERIOR_ARC_EPS_PX = SPLIT_RING_SIMPLIFY_EPS_PX
+  const reject = (reason: string): null => {
+    if (process.env.ROOF_MEASURE_DEBUG_LINEARIZE === '1') {
+      console.info('[solar-mask] topology partition rejected', { reason, plane_count: ordered.length })
+    }
+    return null
+  }
+  if (ordered.length < 2 || ordered.length > MAX_FACETS) return reject('plane_count')
+
+  // --- Stage 1: exclusive-locked exact ring per plane (mirrors topologySimplifiedRings). ---
+  const scratch = new Float64Array(width * height)
+  const temp = new Uint8Array(width * height)
+  const locked = new Uint8Array(width * height)
+  const exact = new Map<number, [number, number][]>()
+  const exactMasks = new Map<number, Uint8Array>()
+  for (const meta of ordered) {
+    scratch.fill(0)
+    for (let i = 0; i < labels.length; i++) {
+      if (labels[i] === meta.segment_index && bin[i] === 1) scratch[i] = 1
+    }
+    const ring = largestRing(
+      contourRingsFromMask(scratch, width, height, { smooth: false }).filter(
+        (candidate) => polygonAreaPx(candidate) >= MIN_SPLIT_RING_AREA_PX
+      )
+    )
+    if (!ring) return reject(`missing_source_ring_${meta.segment_index}`)
+    const ringArea = polygonAreaPx(ring)
+    const hull = convexHullClosedRing(ring)
+    const regularized =
+      ringArea > 0 && polygonAreaPx(hull) / ringArea <= CONVEX_HULL_MAX_INFLATION ? hull : ring
+    const simplified = removeSpikeVertices(
+      simplifyClosedRing(regularized, SPLIT_RING_SIMPLIFY_EPS_PX, MAX_VERTICES_PER_SPLIT_RING),
+      SPLIT_RING_SPIKE_MIN_ANGLE_DEG
+    )
+    rasterizeClosedRingToMask(simplified, width, height, temp)
+    locked.fill(0)
+    for (let i = 0; i < labels.length; i++) {
+      if (temp[i] === 1 && scratch[i] === 1) locked[i] = 1
+    }
+    const lockedRing = largestRing(
+      contourRingsFromMask(locked, width, height, { smooth: false }).filter(
+        (candidate) => polygonAreaPx(candidate) >= MIN_SPLIT_RING_AREA_PX
+      )
+    )
+    if (!lockedRing) return reject(`missing_locked_ring_${meta.segment_index}`)
+    exact.set(meta.segment_index, lockedRing)
+    exactMasks.set(meta.segment_index, rasterizeClosedRingToMask(lockedRing, width, height))
+  }
+
+  // --- Stage 2: shared-edge graph + anchor (junction/endpoint) nodes. ---
+  const edgeCounts = new Map<string, number>()
+  for (const ring of Array.from(exact.values())) {
+    const points = openRingPoints(ring)
+    for (let i = 0; i < points.length; i++) {
+      const key = pixelEdgeKey(points[i], points[(i + 1) % points.length])
+      edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1)
+    }
+  }
+  const sharedAdjacency = new Map<string, Set<string>>()
+  for (const ring of Array.from(exact.values())) {
+    const points = openRingPoints(ring)
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i]
+      const b = points[(i + 1) % points.length]
+      if ((edgeCounts.get(pixelEdgeKey(a, b)) ?? 0) < 2) continue
+      const ak = pixelPointKey(a)
+      const bk = pixelPointKey(b)
+      const an = sharedAdjacency.get(ak) ?? new Set<string>()
+      const bn = sharedAdjacency.get(bk) ?? new Set<string>()
+      an.add(bk)
+      bn.add(ak)
+      sharedAdjacency.set(ak, an)
+      sharedAdjacency.set(bk, bn)
+    }
+  }
+  if (sharedAdjacency.size === 0) return reject('no_shared_edges')
+  const anchorKeys = new Set<string>()
+  for (const [key, neighbors] of Array.from(sharedAdjacency.entries())) {
+    if (neighbors.size !== 2) anchorKeys.add(key)
+  }
+  if (anchorKeys.size < 2) {
+    const keys = Array.from(sharedAdjacency.keys())
+    if (keys.length >= 2) {
+      anchorKeys.add(keys[0])
+      anchorKeys.add(keys[Math.floor(keys.length / 2)])
+    }
+  }
+
+  // --- Stage 3 (new): simplify each finite arc ONCE, direction-canonical so both owners of a
+  //     shared arc reuse identical vertices. ---
+  const isSharedEdge = (a: [number, number], b: [number, number]): boolean =>
+    (edgeCounts.get(pixelEdgeKey(a, b)) ?? 0) >= 2
+  const arcCache = new Map<string, [number, number][]>()
+  const simplifyArc = (path: [number, number][]): [number, number][] => {
+    if (path.length < 3) return path
+    const startK = pixelPointKey(path[0])
+    const endK = pixelPointKey(path[path.length - 1])
+    const forward = startK <= endK
+    const canonInput = forward ? path : path.slice().reverse()
+    const key = canonInput.map((p) => pixelPointKey(p)).join(';')
+    let canon = arcCache.get(key)
+    if (!canon) {
+      const shared = isSharedEdge(path[0], path[1])
+      canon = douglasPeucker(canonInput, shared ? INTERIOR_ARC_EPS_PX : EXTERIOR_ARC_EPS_PX)
+      arcCache.set(key, canon)
+    }
+    return forward ? canon : canon.slice().reverse()
+  }
+
+  const candidates = new Map<number, [number, number][]>()
+  for (const meta of ordered) {
+    const ring = exact.get(meta.segment_index) as [number, number][]
+    const points = openRingPoints(ring)
+    const anchors = points
+      .map((p, i) => (anchorKeys.has(pixelPointKey(p)) ? i : -1))
+      .filter((i) => i >= 0)
+    let rebuilt: [number, number][]
+    if (anchors.length < 2) {
+      // No shared boundary on this ring — decimate as a standalone exterior outline.
+      rebuilt = simplifyClosedRing(ring, EXTERIOR_ARC_EPS_PX, MAX_VERTICES_PER_SPLIT_RING)
+    } else {
+      const out: [number, number][] = []
+      for (let a = 0; a < anchors.length; a++) {
+        const start = anchors[a]
+        const end = anchors[(a + 1) % anchors.length]
+        const arcPath: [number, number][] = [points[start]]
+        let index = start
+        while (index !== end) {
+          index = (index + 1) % points.length
+          arcPath.push(points[index])
+        }
+        const simp = simplifyArc(arcPath)
+        if (out.length === 0) out.push(...simp)
+        else out.push(...simp.slice(1))
+      }
+      if (out.length > 1 && pixelPointKey(out[0]) === pixelPointKey(out[out.length - 1])) out.pop()
+      rebuilt = closeRing(out)
+    }
+    if (
+      rebuilt.length < 4 ||
+      rebuilt.length - 1 > MAX_VERTICES_PER_SPLIT_RING ||
+      polygonAreaPx(rebuilt) < MIN_SPLIT_RING_AREA_PX
+    ) {
+      return reject(`candidate_geometry_${meta.segment_index}_${rebuilt.length - 1}`)
+    }
+    candidates.set(meta.segment_index, rebuilt)
+  }
+
+  // --- Stage 4: authoritative fidelity / coverage / raster-overlap gates (as
+  //     topologySimplifiedRings). Any failure fails closed. ---
+  const masks = new Map<number, Uint8Array>()
+  let predictedTotal = 0
+  let exactTotal = 0
+  for (const meta of ordered) {
+    const label = meta.segment_index
+    const mask = rasterizeClosedRingToMask(candidates.get(label) as [number, number][], width, height)
+    masks.set(label, mask)
+    let actual = 0
+    let predicted = 0
+    let correct = 0
+    const exactMask = exactMasks.get(label) as Uint8Array
+    for (let i = 0; i < mask.length; i++) {
+      if (exactMask[i] === 1) {
+        actual++
+        exactTotal++
+      }
+      if (mask[i] === 1) {
+        predicted++
+        if (exactMask[i] === 1) correct++
+      }
+    }
+    if (actual === 0 || predicted === 0 || correct / predicted < 0.9 || correct / actual < 0.9) {
+      return reject(
+        `fidelity_${label}_p${predicted === 0 ? 0 : (correct / predicted).toFixed(3)}_r${
+          actual === 0 ? 0 : (correct / actual).toFixed(3)
+        }`
+      )
+    }
+    predictedTotal += predicted
+  }
+  if (exactTotal === 0 || predictedTotal / exactTotal < 0.94 || predictedTotal / exactTotal > 1.06) {
+    return reject(`locked_coverage_${(predictedTotal / exactTotal).toFixed(3)}`)
+  }
+  for (let i = 0; i < ordered.length; i++) {
+    for (let j = i + 1; j < ordered.length; j++) {
+      const a = masks.get(ordered[i].segment_index) as Uint8Array
+      const b = masks.get(ordered[j].segment_index) as Uint8Array
+      for (let k = 0; k < a.length; k++) {
+        if (a[k] === 1 && b[k] === 1) return reject(`pixel_overlap_${i}_${j}`)
+      }
+    }
+  }
+  return candidates
+}
+
 /** Drop consecutive duplicate vertices left after welding (zero-length edges). */
 function dedupeConsecutiveVertices(
   vertices: { lat: number; lng: number }[]
@@ -2278,7 +2709,8 @@ export function facetsFromSplitMask(options: {
   const regularizedRings =
     simpleTwoPlaneGableRings({ bin, labels, width, height, ordered }) ??
     multiPlaneLinearizedRings({ bin, labels, width, height, ordered }) ??
-    topologySimplifiedRings({ bin, labels, width, height, ordered })
+    topologySimplifiedRings({ bin, labels, width, height, ordered }) ??
+    topologyPartitionRings({ bin, labels, width, height, ordered })
   for (const meta of ordered) {
     scratch.fill(0)
     for (let i = 0; i < labels.length; i++) {
@@ -2630,6 +3062,23 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         splitOut,
         targetMaskFootprintSqft ?? undefined
       )
+      if (usableSplit && mergedPlanesFailPitchHomogeneity(mergedSegments)) {
+        console.info('[solar-mask] pitch homogeneity rejected; fail closed', {
+          ...baseDetails,
+          split_plane_count: usableSplit.facets.length,
+          merged_segment_count: mergedSegments.length,
+          max_pitch_dev_deg: MAX_MERGED_PLANE_PITCH_DEV_DEG,
+        })
+        return maskAttempt('split_quality_below_threshold', null, {
+          ...baseDetails,
+          mask_width: width,
+          mask_height: height,
+          split_plane_count: usableSplit.facets.length,
+          merged_segment_count: mergedSegments.length,
+          path: 'pitch_homogeneity_reject',
+          split_method: splitMethod,
+        })
+      }
       if (usableSplit) {
         const overlapDiag = explainSplitQualityRejection(
           usableSplit.facets,
@@ -2677,6 +3126,24 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           nearest_split_m: nearestDist,
         })
         // Try whole-roof before giving up on this query.
+      } else if (splitOut.length > MAX_FACETS) {
+        // Over-segmented after consolidation: do not collapse to a single whole-mask blob
+        // (loses ridge/valley for ordering). Fail closed so detect-roof can use bbox/manual.
+        console.info('[solar-mask] split plane count exceeds max; fail closed', {
+          ...baseDetails,
+          split_filtered_count: splitOut.length,
+          max_facets: MAX_FACETS,
+          merged_segment_count: mergedSegments.length,
+        })
+        return maskAttempt('split_quality_below_threshold', null, {
+          ...baseDetails,
+          mask_width: width,
+          mask_height: height,
+          split_filtered_count: splitOut.length,
+          merged_segment_count: mergedSegments.length,
+          path: 'plane_count_exceeds_max',
+          split_method: splitMethod,
+        })
       } else if (splitOut.length > 0) {
         const maxSqft = Math.max(
           ...splitOut.map((f) => f.estimated_sq_ft ?? planarPolygonAreaSqFt(f.lat_lng_vertices))

@@ -40,6 +40,30 @@ const DEFAULT_ADDRESSES = [
 const cliAddress = process.argv.slice(2).join(' ').trim()
 const ADDRESSES = cliAddress ? [cliAddress] : DEFAULT_ADDRESSES
 
+function pointInPolygonLngLat(
+  pt: { lat: number; lng: number },
+  ring: { lat: number; lng: number }[]
+): boolean {
+  if (ring.length < 3) return false
+  const py = pt.lat
+  const px = pt.lng
+  let inside = false
+  const n = ring.length
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[i].lng
+    const yi = ring[i].lat
+    const xj = ring[j].lng
+    const yj = ring[j].lat
+    const denom = yj - yi
+    if (Math.abs(denom) < 1e-14) continue
+    if ((yi > py) !== (yj > py)) {
+      const xInt = ((xj - xi) * (py - yi)) / denom + xi
+      if (px < xInt) inside = !inside
+    }
+  }
+  return inside
+}
+
 function loadApiKey(): string {
   const key =
     process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
@@ -157,6 +181,30 @@ async function main() {
         if (typeof attempt.details?.overlapping_pairs === 'number') {
           console.log(`    overlapping_pairs=${attempt.details.overlapping_pairs}`)
         }
+        // Per-segment ownership: which final facet contains each Solar segment center.
+        if (attempt.facets.some((f) => f.facet_source === 'solar_mask_plane')) {
+          console.log('    segment_ownership (center point-in-polygon):')
+          for (const segment of segments) {
+            if (!segment.center) {
+              console.log(`      #${segment.segment_index}: no center`)
+              continue
+            }
+            const owners = attempt.facets.filter(
+              (f) =>
+                f.facet_source === 'solar_mask_plane' &&
+                pointInPolygonLngLat(segment.center!, f.lat_lng_vertices)
+            )
+            const ownerIds =
+              owners.length === 0
+                ? '(none)'
+                : owners.map((f) => `${f.id}[seg=${f.solar_segment_index}]`).join(', ')
+            console.log(
+              `      #${segment.segment_index} (pitch=${segment.pitch_degrees ?? '-'} az=${segment.azimuth_degrees ?? '-'}) -> ${ownerIds}`
+            )
+          }
+        }
+      } else if (attempt.details?.path) {
+        console.log(`    path=${attempt.details.path}`)
       }
     }
   }
